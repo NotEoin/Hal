@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+#
+# hal — launch Claude Code against your LOCAL model (Ollama / Qwen3-Coder-30B).
+#
+#   hal                  open Claude Code in your vault (your "second brain")
+#   hal here [args...]   open in the current directory (for coding projects)
+#   hal obsidian-key K   save your Obsidian Local REST API key (one time)
+#   hal model NAME       use a different Ollama model for this launch
+#   hal help             show this help
+#
+set -uo pipefail
+
+# Resolve real location even when called through the ~/.local/bin/hal symlink
+HAL_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+VAULT="${HAL_VAULT:-$HAL_ROOT/Vault}"
+KEY_FILE="$HOME/.config/hal/obsidian_api_key"
+
+# ---- Local-model wiring (Ollama's Anthropic-compatible endpoint) ------------
+MODEL="${HAL_MODEL:-qwen3-coder-hal}"
+FAST_MODEL="${HAL_FAST_MODEL:-llama3.2:3b}"
+# Max tokens Claude Code may generate per reply. The model's whole context window is 32K
+# (NUM_CTX in setup.sh), and input + output share it — so this MUST stay well below 32K to
+# leave room for your prompt, files and tool output. 8K is plenty per turn and also stops the
+# local model from running away into a loop. To truly allow longer single replies you must
+# raise NUM_CTX in setup.sh and rebuild the model (costs VRAM). Override: HAL_MAX_OUTPUT_TOKENS.
+MAX_OUTPUT_TOKENS="${HAL_MAX_OUTPUT_TOKENS:-8192}"
+
+usage() { sed -n '3,9p' "$0" | sed 's/^# \{0,1\}//'; }
+
+case "${1:-}" in
+  help|-h|--help)
+    usage; exit 0 ;;
+  obsidian-key)
+    KEY="${2:-}"
+    if [ -z "$KEY" ]; then echo "Usage: hal obsidian-key <API_KEY>"; exit 1; fi
+    mkdir -p "$(dirname "$KEY_FILE")"
+    printf '%s' "$KEY" > "$KEY_FILE"
+    chmod 600 "$KEY_FILE"
+    echo "Saved Obsidian API key. Hal can now talk to your running Obsidian app."
+    exit 0 ;;
+  model)
+    MODEL="${2:-$MODEL}"; shift 2 || true
+    TARGET="$VAULT" ;;
+  here)
+    shift; TARGET="$PWD" ;;
+  *)
+    TARGET="$VAULT" ;;
+esac
+
+# ---- Export the env that makes Claude Code use the local model --------------
+export ANTHROPIC_BASE_URL="http://localhost:11434"
+export ANTHROPIC_AUTH_TOKEN="ollama"
+export ANTHROPIC_API_KEY="ollama"
+export ANTHROPIC_MODEL="$MODEL"
+export ANTHROPIC_SMALL_FAST_MODEL="$FAST_MODEL"
+export CLAUDE_CODE_MAX_OUTPUT_TOKENS="$MAX_OUTPUT_TOKENS"
+# Keep it fully local — no telemetry / auto-update / error reporting
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1"
+export DISABLE_TELEMETRY="1"
+export DISABLE_ERROR_REPORTING="1"
+export DISABLE_AUTOUPDATER="1"
+export HAL_VAULT="$VAULT"
+
+# Load the Obsidian key (used by .mcp.json's ${OBSIDIAN_API_KEY})
+if [ -f "$KEY_FILE" ]; then
+  export OBSIDIAN_API_KEY="$(cat "$KEY_FILE")"
+fi
+
+# ---- Preflight: is the local model server up? -------------------------------
+if ! curl -fsS http://localhost:11434/api/version >/dev/null 2>&1; then
+  echo "Ollama isn't responding on http://localhost:11434."
+  echo "Start it with:  ollama serve   (or: systemctl start ollama), then re-run hal."
+  exit 1
+fi
+if ! command -v claude >/dev/null 2>&1; then
+  echo "Claude Code isn't on your PATH. Run ./setup.sh, then open a new terminal."
+  exit 1
+fi
+
+echo "Hal → model: $MODEL   |   dir: $TARGET"
+cd "$TARGET" || { echo "Cannot cd to $TARGET"; exit 1; }
+exec claude "$@"
