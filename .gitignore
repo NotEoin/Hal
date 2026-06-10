@@ -1,0 +1,54 @@
+# .gitignore for the Hal project
+#
+# Goal: commit ONLY the tool itself (scripts, slash-commands, docs). Your personal
+# "second brain" and any local/secret state stay out of git.
+#
+# Tracked on purpose:  hal, setup.sh, *.sh, claude-commands/, *.md docs, .gitignore
+# Ignored below:       your Vault, Claude Code local state, secrets, caches, OS cruft.
+
+# ---- Your second brain — personal notes, NEVER commit ----------------------
+/Vault/
+
+# ---- Claude Code local state for this folder (session transcripts, settings) -
+/.claude/
+
+# ---- Local Hal config & secrets --------------------------------------------
+/.config/
+/.local/
+*.key
+*.pem
+.env
+.env.*
+!.env.example
+
+# ---- Import staging & extraction caches (if ever created outside /Vault/) ---
+_Import-Staging/
+.pdf-text/
+.docx-text/
+.pptx-text/
+.html-text/
+
+# ---- OS / editor cruft ------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# ---- Python / Node scratch (in case you test scripts in this folder) --------
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+node_modules/
+
+# ---- Logs & temp ------------------------------------------------------------
+*.log
+tmp/
+temp/
+*.tmp
+*.out
