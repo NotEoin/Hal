@@ -5,6 +5,9 @@
 #   hal                  open Claude Code in your vault (your "second brain")
 #   hal here [args...]   open in the current directory (for coding projects)
 #   hal summarize [opts] grind through outstanding slide summaries, unattended
+#   hal brief [opts]     write today's local morning brief into your daily note
+#   hal index [opts]     (re)build the local semantic index of your vault
+#   hal ask "question"   answer a question grounded in your own notes (cited)
 #   hal obsidian-key K   save your Obsidian Local REST API key (one time)
 #   hal model NAME       use a different Ollama model for this launch
 #   hal help             show this help
@@ -26,7 +29,7 @@ FAST_MODEL="${HAL_FAST_MODEL:-llama3.2:3b}"
 # raise NUM_CTX in setup.sh and rebuild the model (costs VRAM). Override: HAL_MAX_OUTPUT_TOKENS.
 MAX_OUTPUT_TOKENS="${HAL_MAX_OUTPUT_TOKENS:-8192}"
 
-usage() { sed -n '3,10p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,13p' "$0" | sed 's/^# \{0,1\}//'; }
 
 MODE="claude"
 case "${1:-}" in
@@ -42,6 +45,15 @@ case "${1:-}" in
     exit 0 ;;
   summarize)
     MODE="summarize"; shift
+    TARGET="$VAULT" ;;
+  brief)
+    MODE="brief"; shift
+    TARGET="$VAULT" ;;
+  index)
+    MODE="index"; shift
+    TARGET="$VAULT" ;;
+  ask)
+    MODE="ask"; shift
     TARGET="$VAULT" ;;
   model)
     MODEL="${2:-$MODEL}"; shift 2 || true
@@ -66,6 +78,8 @@ export DISABLE_TELEMETRY="1"
 export DISABLE_ERROR_REPORTING="1"
 export DISABLE_AUTOUPDATER="1"
 export HAL_VAULT="$VAULT"
+export HAL_ROOT="$HAL_ROOT"
+export HAL_EMBED_MODEL="${HAL_EMBED_MODEL:-nomic-embed-text}"
 
 # Load the Obsidian key (used by .mcp.json's ${OBSIDIAN_API_KEY})
 if [ -f "$KEY_FILE" ]; then
@@ -74,19 +88,44 @@ fi
 
 # ---- Preflight: is the local model server up? -------------------------------
 if ! curl -fsS http://localhost:11434/api/version >/dev/null 2>&1; then
-  echo "Ollama isn't responding on http://localhost:11434."
-  echo "Start it with:  ollama serve   (or: systemctl start ollama), then re-run hal."
-  exit 1
+  case "$MODE" in
+    brief) echo "Note: Ollama isn't up — the brief will fall back to its plain (no-LLM) format." ;;
+    index|ask) echo "Note: Ollama isn't up — only --mock (index) / --mock|--no-llm (ask) will work." ;;
+    *)
+      echo "Ollama isn't responding on http://localhost:11434."
+      echo "Start it with:  ollama serve   (or: systemctl start ollama), then re-run hal."
+      exit 1 ;;
+  esac
 fi
-if [ "$MODE" != "summarize" ] && ! command -v claude >/dev/null 2>&1; then
-  echo "Claude Code isn't on your PATH. Run ./setup.sh, then open a new terminal."
-  exit 1
-fi
+case "$MODE" in
+  summarize|brief|index|ask) : ;;   # these don't need Claude Code on PATH
+  *)
+    if ! command -v claude >/dev/null 2>&1; then
+      echo "Claude Code isn't on your PATH. Run ./setup.sh, then open a new terminal."
+      exit 1
+    fi ;;
+esac
 
 # Unattended slide-summary runner (talks to you as Hal, resumes itself).
 if [ "$MODE" = "summarize" ]; then
   cd "$TARGET" || { echo "Cannot cd to $TARGET"; exit 1; }
   exec python3 -u "$HAL_ROOT/summarize-all.py" "$@"
+fi
+
+# Local morning brief — assembles your day and writes it into today's daily note.
+if [ "$MODE" = "brief" ]; then
+  cd "$TARGET" || { echo "Cannot cd to $TARGET"; exit 1; }
+  exec python3 -u "$HAL_ROOT/morning-brief.py" "$@"
+fi
+
+# (Re)build the local semantic index of the vault (incremental; nothing leaves the machine).
+if [ "$MODE" = "index" ]; then
+  exec python3 -u "$HAL_ROOT/vault-index.py" --vault "$VAULT" "$@"
+fi
+
+# Ask a question, answered ONLY from your own notes, with [[wikilink]] citations.
+if [ "$MODE" = "ask" ]; then
+  exec python3 -u "$HAL_ROOT/ask.py" --vault "$VAULT" "$@"
 fi
 
 echo "Hal → model: $MODEL   |   dir: $TARGET"

@@ -14,6 +14,7 @@ VAULT="$HAL_ROOT/Vault"
 MAIN_BASE="qwen3-coder:30b"      # base model pulled from Ollama
 MAIN_MODEL="qwen3-coder-hal"     # custom model we build (32K context)
 FAST_MODEL="llama3.2:3b"         # small model for Claude Code background tasks
+EMBED_MODEL="nomic-embed-text"   # local embedding model for the RAG index ('hal ask')
 NUM_CTX=32768                    # context window (fits a 3090's 24GB with q8 KV cache)
 
 # --- Pretty output -----------------------------------------------------------
@@ -90,6 +91,9 @@ ollama pull "$MAIN_BASE" && ok "Pulled $MAIN_BASE" || { err "Failed to pull $MAI
 
 log "Pulling small/fast model: $FAST_MODEL  (~2GB)"
 ollama pull "$FAST_MODEL" && ok "Pulled $FAST_MODEL" || warn "Failed to pull $FAST_MODEL (background tasks will be slower)"
+
+log "Pulling embedding model: $EMBED_MODEL  (~270MB — powers 'hal ask' / RAG)"
+ollama pull "$EMBED_MODEL" && ok "Pulled $EMBED_MODEL" || warn "Failed to pull $EMBED_MODEL — 'hal ask' won't work until you run: ollama pull $EMBED_MODEL"
 
 # --- 4. Build the 32K-context model -----------------------------------------
 log "Building custom model '$MAIN_MODEL' with ${NUM_CTX}-token context"
@@ -181,27 +185,48 @@ cp -f "$HAL_ROOT"/claude-commands/*.md "$HOME/.claude/commands/" && \
   ok "Installed: $(cd "$HAL_ROOT/claude-commands" && ls *.md | sed 's/\.md//' | sed 's/^/\//' | tr '\n' ' ')" || \
   warn "Could not copy command files"
 
-# --- 8. Ensure the Obsidian MCP config exists in the vault -------------------
-if [ ! -f "$VAULT/.mcp.json" ]; then
-  log "Writing vault .mcp.json (Obsidian connection)"
-  cat > "$VAULT/.mcp.json" <<'JSON'
-{
-  "mcpServers": {
-    "obsidian": {
-      "command": "uvx",
-      "args": ["mcp-obsidian"],
-      "env": {
-        "OBSIDIAN_API_KEY": "${OBSIDIAN_API_KEY}",
-        "OBSIDIAN_HOST": "127.0.0.1",
-        "OBSIDIAN_PORT": "27124"
-      }
-    }
-  }
+# --- 8. Ensure the MCP servers are registered in the vault .mcp.json ----------
+# Two local servers: 'obsidian' (live vault via the Local REST API) and 'hal' (your own
+# RAG brain — search_vault / ask_vault / get_note from hal-mcp.py). This is MERGE-SAFE:
+# it preserves any servers you've added yourself and just guarantees these two exist, with
+# the hal server's script path baked to an absolute path so any MCP client can launch it.
+log "Registering MCP servers in $VAULT/.mcp.json (obsidian + hal)"
+HAL_MCP="$HAL_ROOT/hal-mcp.py"
+if have python3; then
+  HAL_ROOT="$HAL_ROOT" VAULT="$VAULT" HAL_MCP="$HAL_MCP" \
+  MAIN_MODEL="$MAIN_MODEL" EMBED_MODEL="$EMBED_MODEL" \
+  python3 - "$VAULT/.mcp.json" <<'PY' && ok "MCP servers registered (obsidian + hal)" || warn "Could not update .mcp.json — add the 'hal' server by hand (see SETUP.md)"
+import json, os, sys, pathlib
+p = pathlib.Path(sys.argv[1])
+cfg = {}
+if p.exists():
+    try:
+        cfg = json.loads(p.read_text())
+    except Exception:
+        cfg = {}
+servers = cfg.setdefault("mcpServers", {})
+servers.setdefault("obsidian", {
+    "command": "uvx",
+    "args": ["mcp-obsidian"],
+    "env": {"OBSIDIAN_API_KEY": "${OBSIDIAN_API_KEY}",
+            "OBSIDIAN_HOST": "127.0.0.1", "OBSIDIAN_PORT": "27124"},
+})
+# Always (re)write the hal entry so the baked script path stays correct if the repo moves.
+servers["hal"] = {
+    "command": "uv",
+    "args": ["run", "--with", "mcp", os.environ["HAL_MCP"]],
+    "env": {
+        "HAL_VAULT": os.environ["VAULT"],
+        "HAL_MODEL": os.environ["MAIN_MODEL"],
+        "HAL_EMBED_MODEL": os.environ["EMBED_MODEL"],
+        "ANTHROPIC_BASE_URL": "http://localhost:11434",
+    },
 }
-JSON
-  ok "Wrote $VAULT/.mcp.json"
+p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text(json.dumps(cfg, indent=2) + "\n")
+PY
 else
-  ok "Vault .mcp.json already present"
+  warn "python3 not found — cannot update .mcp.json automatically (add the 'hal' server by hand)"
 fi
 
 # --- 9. Make 'hal' available on PATH + set shell env -------------------------

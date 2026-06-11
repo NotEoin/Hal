@@ -28,6 +28,10 @@ _Import-Staging/
 .pptx-text/
 .html-text/
 
+# ---- Local semantic index (RAG vectors); rebuildable, never commit ----------
+.rag/
+System/.rag/
+
 # ---- OS / editor cruft ------------------------------------------------------
 .DS_Store
 Thumbs.db
