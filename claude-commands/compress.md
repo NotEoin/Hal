@@ -27,8 +27,14 @@ workarounds**. Default to including whatever was clearly significant this sessio
 Filename: `YYYY-MM-DD HHMM <short-slug>.md` (get the timestamp from `date "+%Y-%m-%d %H%M"`).
 Use the `System/Templates/Session-Log.md` structure. Fill frontmatter
 (`type: session`, `date`, `project`, `topics: [...]`). The **Quick Reference** block must be
-genuinely scannable — that's what `/resume` reads first. Append the relevant raw conversation
-under "Raw Session Log" for searchability.
+genuinely scannable — that's what `/resume` reads first.
+
+**Summary-first, not a transcript.** On the local profiles Hal has a 32K context, so it
+cannot reliably re-ingest a full raw conversation — pasting the transcript blows the window
+and makes `/resume` worse, not better. Write the log as a *summary*: the decisions,
+learnings, files, and pending tasks in your own words. If a few exact snippets are worth
+keeping verbatim (a command that worked, an error string, a config line), drop only those
+under the optional **Notes** section. Never paste the whole conversation.
 
 ## Step 4 — Offer to preserve permanent facts
 If anything this session is permanent (a convention, an architecture decision, a key path),

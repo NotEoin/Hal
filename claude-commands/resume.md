@@ -26,9 +26,10 @@ conventions, current projects, decisions, pending tasks). Do **not** read `CLAUD
 unless the topic search below points there.
 
 ## Step 3 — Load recent sessions
-Find the N newest `.md` files in the session-logs folder (by filename date / mtime). Read
-only their **Quick Reference / Decisions / Pending Tasks** sections first — these are the
-cheap summaries. Dig into a Raw Session Log only if needed.
+Find the N newest `.md` files in the session-logs folder (by filename date / mtime). Logs are
+summary-first by design (no raw transcripts), so the whole note is cheap to load even on the
+local model. Read the **Quick Reference / Decisions / Pending Tasks** sections first; pull in
+**Key Learnings / Files Modified / Notes** only when the task or topic search calls for it.
 
 ## Step 4 — Topic search (only if a topic was given)
 Grep the session logs **and** the memory file (and `CLAUDE-Archive.md` if relevant) for the
