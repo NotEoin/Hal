@@ -15,6 +15,13 @@ HTML — caches the text and writes a combined `SLIDES-REPORT.md`). This command
 it does **not** re-read the source files directly, which keeps it fast and works for the
 text-only local model. (Running a single `extract-*.sh` also works if you only have one type.)
 
+> **Big batch? Prefer `hal summarize`.** This interactive command is best for a handful of
+> decks or a single course you want to watch. For hundreds/thousands of files, the unattended
+> runner `hal summarize` (script `summarize-all.py`) is the better tool: it summarises one deck
+> per fresh model call so the 32K window never fills, writes each note as it goes, and resumes
+> itself — no manual restarts. Both write the same note shape and skip the same already-done
+> decks, so they're interchangeable and safe to mix.
+
 ## Step 0 — Load the report
 Read `$HAL_VAULT/_Import-Staging/SLIDES-REPORT.md`. The work queue = rows marked
 **❌ none**. (Optionally also `🟡 maybe` if the user wants those reviewed.) If `$ARGUMENTS`
@@ -37,24 +44,38 @@ Warn that summarising many decks on a local model takes time, and propose doing 
      raw slide text into the note.
    - If status was `needs-OCR`/`empty`, skip and add it to a "couldn't read" list (suggest
      re-running `prepare-import.sh --ocr`).
-3. **Write the note** to `$HAL_VAULT/Areas/Study/<Course>/<Deck Title>.md` using the
+3. **Work out year / module / section from the file's real path** — `canvas_downloads/<year>/
+   <Module - CODE>/…`, ignoring the `Linked materials` / `Pages` wrapper. Read the module's
+   `Course structure.md` and match this deck (by its `[File]`/`[Page]` reference) to its
+   **section/week**. Unmatched decks are still filed by year/module, just under "unsorted".
+4. **Write the note** to `$HAL_VAULT/Areas/Study/<Year>/<Module>/<Deck Title>.md` using the
    `System/Templates/Lecture.md` shape. Frontmatter:
    ```yaml
-   type: lecture
+   type: lecture            # or note/exercise/solution/exam by role
    date: <source file mtime, via: stat -c %y "<file>">
-   course: <Course>
-   source_file: <relpath of the deck>
+   year: <Year>
+   course: <Module name>
+   code: <module code>
+   section: <Canvas section/week, or empty>
+   role: <lecture|exercise|solution|exam|handout>
+   source_file: <in-vault path to the copied deck>
    status: active
-   tags: [lecture, <course-slug>, <topic>]
+   tags: [study, <code>, <role>]
    ```
-   Body: **Overview** (2-4 sentences), **Key Concepts** (bulleted, the substance of the
-   deck), **Definitions / Formulas** where present, **Takeaways**, and **Follow-ups** as
-   `- [ ]`. Write a genuinely useful summary, not a slide-by-slide transcript.
-4. **Keep the source with the note:** copy the deck (whatever its extension) into
-   `Areas/Study/<Course>/Slides/` and embed/link it at the bottom of the note
-   (`![[<deck>.pdf]]` for PDFs, or a link for other types), so the source is one click away
-   and `source_file` points to its new in-vault location.
-5. After each course: report how many notes were created and pause for a quick check.
+   First body line is the breadcrumb: `*[[<$HAL_UNIVERSITY>]] › [[<Year> Index|<Year>]] ›
+   [[<CODE> Index|<Module>]] › [[<CODE> Index#<Section>|<Section>]] · <role>*`. Then
+   **Summary** (2–4 sentences), **Notes** (the substance, condensed into your own words),
+   **Key terms & formulas**, **Takeaways**, **Follow-ups** as `- [ ]`. A genuinely useful
+   summary, not a slide-by-slide transcript.
+5. **Link inline + make stubs.** Wrap each genuine reusable concept in `[[wikilinks]]` the
+   first time it appears, and create a stub for any new concept in `Areas/Study/Topics/` so the
+   link resolves and Obsidian's backlinks surface every place it's taught.
+6. **Keep the source with the note:** copy the deck (whatever its extension) into
+   `Areas/Study/<Year>/<Module>/Slides/` and **link** it at the bottom (`[[<deck>]]`) — never
+   paste raw slide text into the note. `source_file` points to its new in-vault location.
+7. After each course: rebuild that module's `<CODE> Index.md` (notes grouped by section in
+   teaching order) plus the `<Year> Index` and institution-root hubs, report how many
+   notes were created, and pause for a quick check.
 
 ## Step 3 — Existing summaries
 For `🟡 maybe` decks (a note mentions the file but it's unclear if it's a real summary): show

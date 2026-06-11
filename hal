@@ -4,6 +4,7 @@
 #
 #   hal                  open Claude Code in your vault (your "second brain")
 #   hal here [args...]   open in the current directory (for coding projects)
+#   hal summarize [opts] grind through outstanding slide summaries, unattended
 #   hal obsidian-key K   save your Obsidian Local REST API key (one time)
 #   hal model NAME       use a different Ollama model for this launch
 #   hal help             show this help
@@ -25,8 +26,9 @@ FAST_MODEL="${HAL_FAST_MODEL:-llama3.2:3b}"
 # raise NUM_CTX in setup.sh and rebuild the model (costs VRAM). Override: HAL_MAX_OUTPUT_TOKENS.
 MAX_OUTPUT_TOKENS="${HAL_MAX_OUTPUT_TOKENS:-8192}"
 
-usage() { sed -n '3,9p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,10p' "$0" | sed 's/^# \{0,1\}//'; }
 
+MODE="claude"
 case "${1:-}" in
   help|-h|--help)
     usage; exit 0 ;;
@@ -38,6 +40,9 @@ case "${1:-}" in
     chmod 600 "$KEY_FILE"
     echo "Saved Obsidian API key. Hal can now talk to your running Obsidian app."
     exit 0 ;;
+  summarize)
+    MODE="summarize"; shift
+    TARGET="$VAULT" ;;
   model)
     MODEL="${2:-$MODEL}"; shift 2 || true
     TARGET="$VAULT" ;;
@@ -52,6 +57,7 @@ export ANTHROPIC_BASE_URL="http://localhost:11434"
 export ANTHROPIC_AUTH_TOKEN="ollama"
 export ANTHROPIC_API_KEY="ollama"
 export ANTHROPIC_MODEL="$MODEL"
+export HAL_MODEL="$MODEL"
 export ANTHROPIC_SMALL_FAST_MODEL="$FAST_MODEL"
 export CLAUDE_CODE_MAX_OUTPUT_TOKENS="$MAX_OUTPUT_TOKENS"
 # Keep it fully local — no telemetry / auto-update / error reporting
@@ -72,9 +78,15 @@ if ! curl -fsS http://localhost:11434/api/version >/dev/null 2>&1; then
   echo "Start it with:  ollama serve   (or: systemctl start ollama), then re-run hal."
   exit 1
 fi
-if ! command -v claude >/dev/null 2>&1; then
+if [ "$MODE" != "summarize" ] && ! command -v claude >/dev/null 2>&1; then
   echo "Claude Code isn't on your PATH. Run ./setup.sh, then open a new terminal."
   exit 1
+fi
+
+# Unattended slide-summary runner (talks to you as Hal, resumes itself).
+if [ "$MODE" = "summarize" ]; then
+  cd "$TARGET" || { echo "Cannot cd to $TARGET"; exit 1; }
+  exec python3 -u "$HAL_ROOT/summarize-all.py" "$@"
 fi
 
 echo "Hal → model: $MODEL   |   dir: $TARGET"
