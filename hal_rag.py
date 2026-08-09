@@ -37,7 +37,11 @@ from pathlib import Path
 import numpy as np
 
 # --- Config ------------------------------------------------------------------
-OLLAMA_URL = os.environ.get("ANTHROPIC_BASE_URL", "http://localhost:11434").rstrip("/")
+# Embeddings always come from a local Ollama, in every setup profile — retrieval is the
+# part that must stay on your machine, since it reads your notes. This is deliberately NOT
+# ANTHROPIC_BASE_URL: in the `cloud` profile that variable is either unset or points at
+# Anthropic's API, which has no /api/embed endpoint.
+OLLAMA_URL = os.environ.get("HAL_OLLAMA_URL", "http://localhost:11434").rstrip("/")
 EMBED_MODEL = os.environ.get("HAL_EMBED_MODEL", "nomic-embed-text")
 INDEX_DIRNAME = os.path.join("System", ".rag")     # lives inside the (git-ignored) vault
 

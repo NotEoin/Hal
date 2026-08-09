@@ -45,7 +45,9 @@ def tick(m): print(f"  {m}", flush=True)
 def warn(m): print(f"{YELLOW}  ! {m}{OFF}", flush=True)
 def err(m):  print(f"{RED}  ✗ {m}{OFF}", flush=True)
 
-OLLAMA_URL = os.environ.get("ANTHROPIC_BASE_URL", "http://localhost:11434").rstrip("/")
+# Deliberately HAL_OLLAMA_URL, not ANTHROPIC_BASE_URL: in the cloud profile the latter
+# points at Anthropic (or is unset), and this endpoint is Ollama's own /api/chat.
+OLLAMA_URL = os.environ.get("HAL_OLLAMA_URL", "http://localhost:11434").rstrip("/")
 
 HAL_BRIEF_SYSTEM = (
     "You are Hal, the user's private daily assistant running locally on their machine. You are "
@@ -385,7 +387,8 @@ def resolve_vault(arg):
 def main():
     ap = argparse.ArgumentParser(description="Hal's local, private morning brief.")
     ap.add_argument("--date", default=None, help="YYYY-MM-DD (default: today)")
-    ap.add_argument("--model", default=os.environ.get("HAL_MODEL", "qwen3-coder-hal"))
+    # Empty in the cloud profile — the brief then falls back to its plain, no-LLM format.
+    ap.add_argument("--model", default=os.environ.get("HAL_MODEL", ""))
     ap.add_argument("--no-llm", action="store_true", help="deterministic packet only")
     ap.add_argument("--mock", action="store_true", help="alias for --no-llm")
     ap.add_argument("--print-only", action="store_true", help="don't write the daily note")
@@ -402,7 +405,9 @@ def main():
     hal(f"Good morning. Pulling your day together for {today.strftime('%A %d %B')}…")
     packet, stats = build_packet(vault, today)
 
-    if args.no_llm or args.mock:
+    if args.no_llm or args.mock or not args.model:
+        # No model configured = the cloud profile. The plain brief is fully deterministic
+        # and needs no LLM at all, so the command still does something useful.
         brief = packet_to_plain_brief(packet, today)
     else:
         try:

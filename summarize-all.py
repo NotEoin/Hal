@@ -66,7 +66,9 @@ def tick(msg): print(f"  {msg}", flush=True)
 def warn(msg): print(f"{YELLOW}  ! {msg}{OFF}", flush=True)
 def err(msg):  print(f"{RED}  ✗ {msg}{OFF}", flush=True)
 
-OLLAMA_URL = os.environ.get("ANTHROPIC_BASE_URL", "http://localhost:11434").rstrip("/")
+# Deliberately HAL_OLLAMA_URL, not ANTHROPIC_BASE_URL: in the cloud profile the latter
+# points at Anthropic (or is unset), and this endpoint is Ollama's own /api/chat.
+OLLAMA_URL = os.environ.get("HAL_OLLAMA_URL", "http://localhost:11434").rstrip("/")
 HAL_SYSTEM = (
     "You are Hal, a concise, private study assistant running locally on the user's machine. "
     "You turn raw lecture material into self-contained study notes: a short summary, then the "
@@ -769,9 +771,18 @@ def main():
     ap.add_argument("--interactive", action="store_true", help="pause before each course")
     ap.add_argument("--limit", type=int, default=0, help="only the next N decks")
     ap.add_argument("--include-maybe", action="store_true", help="also do 'maybe' rows")
-    ap.add_argument("--model", default=os.environ.get("HAL_MODEL", "qwen3-coder-hal"))
+    # Empty in the cloud profile; main() rejects that below rather than calling Ollama
+    # with a blank model name.
+    ap.add_argument("--model", default=os.environ.get("HAL_MODEL", ""))
     ap.add_argument("--mock", action="store_true", help="no model call; write placeholder notes")
     args = ap.parse_args()
+
+    if not args.model and not args.mock:
+        err("No local model configured — 'hal summarize' grinds through hundreds of slide "
+            "decks and is built for a local model.")
+        hal("Either run ./setup.sh with a local profile (24gb/12gb), or pass --model NAME "
+            "to point at an Ollama model yourself. Use --mock to test the wiring.")
+        sys.exit(1)
 
     vault = Path(os.environ.get("HAL_VAULT", "")).expanduser()
     if args.report:

@@ -3,9 +3,14 @@
 ask.py — chat with your brain. Ask a question; get an answer grounded in your own notes.
 
 It embeds your question, finds the most relevant passages in the local index (built by
-`hal index`), and asks the LOCAL model to answer USING ONLY those passages — citing each note
+`hal index`), and asks a model to answer USING ONLY those passages — citing each note
 it leaned on as an Obsidian [[wikilink]] so you can click straight through. If the notes don't
-cover it, it says so rather than inventing an answer. Fully local; nothing leaves the machine.
+cover it, it says so rather than inventing an answer.
+
+Retrieval is **always local** — your notes are embedded and searched on your own machine in
+every setup profile. Only the final write-up differs: the `24gb` / `12gb` profiles hand the
+retrieved passages to your local Ollama model, while the `cloud` profile hands them to
+Claude Code (`--answerer claude`), which does mean those passages leave the machine.
 
 Usage:
   hal ask "what is the Diffie-Hellman key exchange?"
@@ -13,6 +18,7 @@ Usage:
   hal ask --show-context "..."   # also print the passages it retrieved
   hal ask --no-llm "..."         # just show what was retrieved (no model call)
   hal ask --mock "..."           # offline wiring test (mock embeddings + plain output)
+  hal ask --answerer claude "…"  # force the Claude Code answerer (default in cloud profile)
 
 The retrieval half is reused by the Hal MCP server (`hal-mcp.py`).
 """
@@ -20,6 +26,7 @@ The retrieval half is reused by the Hal MCP server (`hal-mcp.py`).
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.error
@@ -34,7 +41,14 @@ def hal(m):  print(f"{BLUE}{m}{OFF}", flush=True)
 def warn(m): print(f"{YELLOW}  ! {m}{OFF}", flush=True)
 def err(m):  print(f"{RED}  ✗ {m}{OFF}", flush=True)
 
-CHAT_MODEL = os.environ.get("HAL_MODEL", "qwen3-coder-hal")
+CHAT_MODEL = os.environ.get("HAL_MODEL", "")
+
+# Which engine writes the final answer. Retrieval is always local either way.
+#   ollama  — POST to the local model's /api/chat (the 24gb / 12gb profiles)
+#   claude  — shell out to `claude -p` (the cloud profile: no local LLM to call, and this
+#             reuses your normal Claude Code login rather than needing a separate API key)
+ANSWERER = os.environ.get("HAL_ANSWERER", "ollama")
+CLAUDE_CMD = os.environ.get("HAL_CLAUDE_COMMAND", "claude")
 
 ANSWER_SYSTEM = (
     "You are Hal, the user's private study assistant. Answer the question USING ONLY the "
@@ -77,6 +91,30 @@ def build_context(hits) -> str:
     return "\n\n---\n\n".join(blocks)
 
 
+def call_claude(system: str, prompt: str, timeout=600) -> str:
+    """Answer via headless Claude Code. Used by the `cloud` profile.
+
+    We pass the retrieved passages in the prompt and let Claude Code's own auth apply, so
+    there is no second API key to manage. The environment is inherited untouched on purpose:
+    if you point Claude Code at a proxy or a gateway, `hal ask` follows it.
+    """
+    cmd = [CLAUDE_CMD, "-p", "--append-system-prompt", system, prompt]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError:
+        raise RuntimeError(
+            f"'{CLAUDE_CMD}' is not on your PATH — the cloud profile answers with Claude Code. "
+            "Install it, or switch HAL_ANSWERER to 'ollama'.") from None
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"claude timed out after {timeout}s") from None
+    if r.returncode != 0:
+        # Claude Code reports things like "Not logged in · Please run /login" on stdout,
+        # not stderr, so show both or the failure looks empty and unexplained.
+        detail = ((r.stderr or "").strip() + " " + (r.stdout or "").strip()).strip()
+        raise RuntimeError(f"claude failed (exit {r.returncode}): {detail[:300] or 'no output'}")
+    return (r.stdout or "").strip()
+
+
 def call_model(messages, model, timeout=600, retries=1):
     body = json.dumps({"model": model, "messages": messages, "stream": False,
                        "keep_alive": "30m", "options": {"temperature": 0.2}}).encode("utf-8")
@@ -95,7 +133,7 @@ def call_model(messages, model, timeout=600, retries=1):
 
 
 def answer(vault: Path, question: str, *, k=8, ctx_cap=6, mock=False,
-           no_llm=False, embed_model=None, model=None):
+           no_llm=False, embed_model=None, model=None, answerer=None):
     """Returns (answer_text, hits_used). Used by the CLI and the MCP server."""
     _store, hits = retrieve(vault, question, k, mock=mock, embed_model=embed_model)
     if not hits:
@@ -113,8 +151,15 @@ def answer(vault: Path, question: str, *, k=8, ctx_cap=6, mock=False,
                 f"{context}\n\n**Sources**\n{body}", used)
 
     prompt = f"Context passages from the user's notes:\n\n{context}\n\nQuestion: {question}"
-    reply = call_model([{"role": "system", "content": ANSWER_SYSTEM},
-                        {"role": "user", "content": prompt}], model or CHAT_MODEL)
+    if (answerer or ANSWERER) == "claude":
+        reply = call_claude(ANSWER_SYSTEM, prompt)
+    else:
+        if not (model or CHAT_MODEL):
+            raise RuntimeError(
+                "No local model configured. Either set HAL_MODEL / pass --model, or use the "
+                "cloud answerer with --answerer claude.")
+        reply = call_model([{"role": "system", "content": ANSWER_SYSTEM},
+                            {"role": "user", "content": prompt}], model or CHAT_MODEL)
     if "[[" not in reply and sources:    # ensure citations are always present
         reply += "\n\n**Sources:** " + ", ".join(f"[[{s}]]" for s in sources)
     return (reply, used)
@@ -138,6 +183,8 @@ def main():
     ap.add_argument("--vault", default=None)
     ap.add_argument("--embed-model", default=R.EMBED_MODEL)
     ap.add_argument("--model", default=CHAT_MODEL)
+    ap.add_argument("--answerer", choices=("ollama", "claude"), default=ANSWERER,
+                    help="who writes the answer (retrieval is local either way)")
     ap.add_argument("--show-context", action="store_true")
     ap.add_argument("--no-llm", action="store_true", help="retrieval only, no model call")
     ap.add_argument("--mock", action="store_true", help="offline wiring test")
@@ -151,10 +198,13 @@ def main():
     question = " ".join(args.question)
     try:
         reply, used = answer(vault, question, k=args.k, ctx_cap=args.cap, mock=args.mock,
-                             no_llm=args.no_llm, embed_model=args.embed_model, model=args.model)
+                             no_llm=args.no_llm, embed_model=args.embed_model, model=args.model,
+                             answerer=args.answerer)
     except Exception as e:  # noqa: BLE001
         err(f"{e}")
-        if not args.mock:
+        # Only nudge about embeddings when that's plausibly what broke — an answerer or
+        # config error has nothing to do with the embedding model.
+        if not args.mock and "embed" in str(e).lower():
             err("If embeddings failed, check the model:  ollama pull " + args.embed_model)
         sys.exit(1)
 

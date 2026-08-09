@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# hal — launch Claude Code against your LOCAL model (Ollama / Qwen3-Coder-30B).
+# hal — launch Claude Code against your local model, or the cloud. See hal.conf.
 #
 #   hal                  open Claude Code in your vault (your "second brain")
 #   hal here [args...]   open in the current directory (for coding projects)
@@ -19,9 +19,29 @@ HAL_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 VAULT="${HAL_VAULT:-$HAL_ROOT/Vault}"
 KEY_FILE="$HOME/.config/hal/obsidian_api_key"
 
+# ---- Setup profile ----------------------------------------------------------
+# hal.conf is written by ./setup.sh and records which brain this install uses:
+#   24gb / 12gb  -> a local Ollama model (HAL_MODEL is set)
+#   cloud        -> plain Claude Code with your own login (HAL_MODEL is empty)
+# Anything already exported in your shell wins, so you can override per-launch.
+CONF_FILE="${HAL_CONF:-$HAL_ROOT/hal.conf}"
+if [ -f "$CONF_FILE" ]; then
+  # shellcheck disable=SC1090
+  . "$CONF_FILE"
+fi
+if [ -z "${HAL_PROFILE:-}" ]; then
+  echo "No hal.conf found at $CONF_FILE — run ./setup.sh first (it picks a profile)."
+  exit 1
+fi
+
 # ---- Local-model wiring (Ollama's Anthropic-compatible endpoint) ------------
-MODEL="${HAL_MODEL:-qwen3-coder-hal}"
-FAST_MODEL="${HAL_FAST_MODEL:-llama3.2:3b}"
+MODEL="${HAL_MODEL:-}"
+FAST_MODEL="${HAL_FAST_MODEL:-}"
+EMBED_MODEL="${HAL_EMBED_MODEL:-nomic-embed-text}"
+OLLAMA_URL="${HAL_OLLAMA_URL:-http://localhost:11434}"
+ANSWERER="${HAL_ANSWERER:-ollama}"
+# Names the root note of the study hierarchy (see hal.conf).
+UNIVERSITY="${HAL_UNIVERSITY:-University}"
 # Max tokens Claude Code may generate per reply. The model's whole context window is 32K
 # (NUM_CTX in setup.sh), and input + output share it — so this MUST stay well below 32K to
 # leave room for your prompt, files and tool output. 8K is plenty per turn and also stops the
@@ -64,37 +84,54 @@ case "${1:-}" in
     TARGET="$VAULT" ;;
 esac
 
-# ---- Export the env that makes Claude Code use the local model --------------
-export ANTHROPIC_BASE_URL="http://localhost:11434"
-export ANTHROPIC_AUTH_TOKEN="ollama"
-export ANTHROPIC_API_KEY="ollama"
-export ANTHROPIC_MODEL="$MODEL"
-export HAL_MODEL="$MODEL"
-export ANTHROPIC_SMALL_FAST_MODEL="$FAST_MODEL"
-export CLAUDE_CODE_MAX_OUTPUT_TOKENS="$MAX_OUTPUT_TOKENS"
-# Keep it fully local — no telemetry / auto-update / error reporting
-export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1"
-export DISABLE_TELEMETRY="1"
-export DISABLE_ERROR_REPORTING="1"
-export DISABLE_AUTOUPDATER="1"
+# ---- Export the env Claude Code and the Python tools need -------------------
+if [ -n "$MODEL" ]; then
+  # Local profiles: redirect Claude Code at Ollama's Anthropic-compatible endpoint.
+  export ANTHROPIC_BASE_URL="$OLLAMA_URL"
+  export ANTHROPIC_AUTH_TOKEN="ollama"
+  export ANTHROPIC_API_KEY="ollama"
+  export ANTHROPIC_MODEL="$MODEL"
+  export HAL_MODEL="$MODEL"
+  export ANTHROPIC_SMALL_FAST_MODEL="$FAST_MODEL"
+  export CLAUDE_CODE_MAX_OUTPUT_TOKENS="$MAX_OUTPUT_TOKENS"
+  # Fully local — no telemetry / auto-update / error reporting
+  export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1"
+  export DISABLE_TELEMETRY="1"
+  export DISABLE_ERROR_REPORTING="1"
+  export DISABLE_AUTOUPDATER="1"
+else
+  # Cloud profile: touch NOTHING Anthropic-related. Claude Code uses its own login, and
+  # if you've pointed it at a proxy or gateway yourself, that keeps working.
+  export HAL_MODEL=""
+fi
+# Always exported: these drive the local RAG tools in every profile.
 export HAL_VAULT="$VAULT"
 export HAL_ROOT="$HAL_ROOT"
-export HAL_EMBED_MODEL="${HAL_EMBED_MODEL:-nomic-embed-text}"
+export HAL_EMBED_MODEL="$EMBED_MODEL"
+export HAL_OLLAMA_URL="$OLLAMA_URL"
+export HAL_ANSWERER="$ANSWERER"
+export HAL_UNIVERSITY="$UNIVERSITY"
 
 # Load the Obsidian key (used by .mcp.json's ${OBSIDIAN_API_KEY})
 if [ -f "$KEY_FILE" ]; then
   export OBSIDIAN_API_KEY="$(cat "$KEY_FILE")"
 fi
 
-# ---- Preflight: is the local model server up? -------------------------------
-if ! curl -fsS http://localhost:11434/api/version >/dev/null 2>&1; then
+# ---- Preflight: is Ollama up? -----------------------------------------------
+# Needed for the local model (24gb/12gb) AND for embeddings in every profile, so the
+# index/ask commands still want it even on cloud.
+if ! curl -fsS "$OLLAMA_URL/api/version" >/dev/null 2>&1; then
   case "$MODE" in
     brief) echo "Note: Ollama isn't up — the brief will fall back to its plain (no-LLM) format." ;;
-    index|ask) echo "Note: Ollama isn't up — only --mock (index) / --mock|--no-llm (ask) will work." ;;
+    index|ask) echo "Note: Ollama isn't up — embeddings are unavailable, so only --mock (index) / --mock|--no-llm (ask) will work." ;;
     *)
-      echo "Ollama isn't responding on http://localhost:11434."
-      echo "Start it with:  ollama serve   (or: systemctl start ollama), then re-run hal."
-      exit 1 ;;
+      if [ -n "$MODEL" ]; then
+        echo "Ollama isn't responding on $OLLAMA_URL."
+        echo "Start it with:  ollama serve   (or: systemctl start ollama), then re-run hal."
+        exit 1
+      fi
+      # Cloud profile: Claude Code doesn't need Ollama at all. Only 'hal ask' does.
+      echo "Note: Ollama isn't up — 'hal ask' and 'hal index' won't work until it is." ;;
   esac
 fi
 case "$MODE" in
@@ -128,6 +165,10 @@ if [ "$MODE" = "ask" ]; then
   exec python3 -u "$HAL_ROOT/ask.py" --vault "$VAULT" "$@"
 fi
 
-echo "Hal → model: $MODEL   |   dir: $TARGET"
+if [ -n "$MODEL" ]; then
+  echo "Hal [$HAL_PROFILE] → model: $MODEL   |   dir: $TARGET"
+else
+  echo "Hal [$HAL_PROFILE] → Claude Code (your own login)   |   dir: $TARGET"
+fi
 cd "$TARGET" || { echo "Cannot cd to $TARGET"; exit 1; }
 exec claude "$@"
