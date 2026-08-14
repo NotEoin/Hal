@@ -1,105 +1,173 @@
-# Hal
+# 🧠 Hal
 
-Claude Code pointed at a local model instead of the cloud, wired into an Obsidian vault that acts as
-its long-term memory. Nothing leaves the machine.
+![licence](https://img.shields.io/badge/licence-MIT-blue?style=flat-square)
+![platform](https://img.shields.io/badge/platform-Linux-lightgrey?style=flat-square)
+![python](https://img.shields.io/badge/python-3.10+-blue?style=flat-square)
+![runs](https://img.shields.io/badge/runs-100%25%20local-success?style=flat-square)
 
-The idea is that a coding assistant is much more useful when it remembers what you decided last
-week. Hal gets that from a vault: session logs it writes itself, a `CLAUDE.md` of durable facts, and
-a semantic index over the whole thing so it can answer questions from your own notes rather than
-from its weights.
+> *An AI assistant that remembers what you told it last week — and never sends any of it anywhere.*
 
-## What it is
+Hal runs a capable coding and research assistant entirely on your own GPU, and gives it long-term
+memory by wiring it into an Obsidian vault. Ask it questions about your own notes and it answers
+with citations you can click.
 
-- **A launcher** (`hal`) that starts Claude Code with the environment pointed at Ollama.
-- **A set of slash commands** for saving, reloading and searching context, and for the note-taking
-  workflows that keep the vault worth searching.
-- **A local RAG index** over the vault — `hal index` builds it, `hal ask` queries it, and an MCP
-  server exposes the same retrieval to any MCP client.
-- **An importer** for dragging an old vault and a pile of lecture PDFs into a consistent structure.
+![The vault's link graph filling in as Hal files and cross-links an imported archive](./media/graph2.gif)
 
-## Why local
+*Every dot is a note, every line a link Hal wrote. This is a few years of course material being
+filed, tagged and cross-referenced by `hal summarize`.*
 
-Ollama exposes an Anthropic-compatible API, so Claude Code can be pointed straight at it with a few
-environment variables — you get the CLI and its tooling with the inference happening on your own
-GPU. That means notes, code and session history never leave the machine, and there's no per-token
-cost to running an assistant that reads your entire vault.
+## 🌟 Highlights
 
-The trade is capability. A 30B model is genuinely good at code, search, refactors and note wrangling,
-and clearly worse than a frontier model at hard multi-file reasoning. The memory system is what
-closes some of that gap: a small model with well-organised context beats a small model without it by
-a lot.
+- **Nothing leaves your machine.** The model, the embeddings and the search index all run locally.
+  The only network traffic is the initial model download.
+- **Answers from your own notes**, with `[[wikilink]]` citations back to the source — and it tells
+  you when your notes don't cover something instead of inventing an answer.
+- **Remembers across sessions.** It writes its own session logs and carries durable facts forward.
+- **Lives in your Obsidian vault**, reading and writing notes in the app while it's open.
+- **Twelve slash commands** for daily notes, meeting notes, inbox triage, weekly reviews and imports.
+- **A morning brief** assembled from your tasks, deadlines and recent work, written into today's note.
+- **Works as an MCP server**, so any MCP client can search your vault.
 
-## Install
+## ℹ️ Overview
+
+Hal can point [Claude Code](https://claude.ai/code) at a local model served by
+[Ollama](https://ollama.com) instead of the cloud, then bolts on the pieces that make a local
+assistant genuinely useful: a memory system, a semantic index over your notes, and a set of commands
+for keeping the vault tidy enough to be worth searching.
+
+The local model is optional. `setup.sh` reads your GPU and picks one of three profiles, so the same
+repo works whether you have a 24GB card, a 12GB card, or no GPU at all — see
+[Requirements](#requirements). **Searching your notes stays local in every profile**, including
+`cloud`: the embedding model is small enough to run on a CPU, so your vault is indexed on your own
+machine and only the passages relevant to a question are ever sent anywhere.
+
+The vault is the point. Dump anything into the inbox and Hal files it into a cross-linked, indexed
+knowledge base — which then becomes the thing it searches when you ask it something.
+
+| Component | What it does |
+|---|---|
+| `hal` | Launcher — starts a session in your vault, or in any project with `hal here` |
+| `claude-commands/` | The slash commands, installed into `~/.claude/commands/` |
+| `vault-index.py` | Builds the semantic index over your notes |
+| `ask.py` | Answers questions from the index, with citations |
+| `hal-mcp.py` | Serves the same search over MCP |
+| `morning-brief.py` | Writes a daily brief into today's note |
+| `register-repos.sh` | Adds your local git repos to the vault as summary notes |
+
+### ✍️ Author
+
+Built by [@NotEoin](https://github.com/NotEoin). 
+
+## 🚀 Usage
 
 ```bash
+hal                  # start a session in your vault
+hal here             # start in the current directory, for a coding project
+hal ask "..."        # answer a question from your notes, with citations
+hal index            # build or refresh the search index
+hal brief            # write today's morning brief into your daily note
+hal model <name>     # switch to a different Ollama model
+```
+
+Inside a session, the two commands that matter most day to day:
+
+| Command | When |
+|---|---|
+| `/resume` | Start of a session — reloads context from memory and recent logs |
+| `/compress` | End of a session — saves what's worth keeping |
+
+Plus `/daily-note`, `/meeting-note`, `/inbox-process`, `/weekly-review`, `/ask`, `/brief`,
+`/preserve`, `/import-vault`, `/summarize-slides` and `/index-repos`.
+
+**→ Full reference: [SLASH-COMMANDS.md](SLASH-COMMANDS.md)**
+
+## ⬇️ Installation
+
+```bash
+git clone https://github.com/NotEoin/Hal.git
+cd Hal
 chmod +x setup.sh hal
 ./setup.sh
 ```
 
-`setup.sh` installs Ollama, pulls the models, builds a 32K-context variant, installs Node, Claude
-Code and `uv`, drops the slash commands into `~/.claude/commands/`, and puts `hal` on your PATH.
-Safe to re-run. Open a new shell afterwards so the PATH change takes.
+`setup.sh` reads your GPU, proposes a profile and asks. Then it installs Ollama, pulls whatever that
+profile needs, installs Node, Claude Code and `uv`, sets up the slash commands and puts `hal` on your
+PATH. It's safe to re-run. Open a new shell afterwards.
 
-Then follow [SETUP.md](SETUP.md) for the Obsidian side — you need the **Local REST API** and
-**Dataview** plugins, and Hal needs the REST API key:
+```bash
+./setup.sh --profile cloud    # force a profile: 24gb | 12gb | cloud
+./setup.sh --profile 12gb -y  # ...and skip the prompt
+```
+
+Your choice is written to `hal.conf`, which the launcher reads. Re-run `setup.sh` to change it.
+
+Then two Obsidian plugins — **Local REST API** and **Dataview** — and hand Hal the API key:
 
 ```bash
 hal obsidian-key <YOUR_KEY>
 ```
 
-## Use
+**→ Full setup walkthrough: [SETUP.md](SETUP.md)**
 
-```bash
-hal              # start in the vault
-hal here         # start in the current directory, for a coding project
-hal ask "..."    # answer from your notes, with citations
-hal index        # build or refresh the semantic index
-hal brief        # write today's morning brief into the daily note
-hal model <name> # switch to a different Ollama model
-```
+### Requirements
 
-The vault location defaults to `Vault/` next to the launcher and can be overridden with
-`$HAL_VAULT`.
+| | |
+|---|---|
+| **OS** | Linux |
+| **GPU** | Whatever you have — see the profiles below. None is fine |
+| **Disk** | ~20GB for the models on `24gb`, ~8GB on `12gb`, ~300MB on `cloud` |
+| **Apps** | [Obsidian](https://obsidian.md) with the Local REST API and Dataview plugins |
 
-Slash commands are documented in [SLASH-COMMANDS.md](SLASH-COMMANDS.md). The ones that matter most
-day to day are `/resume` at the start of a session and `/compress` at the end — that pair is what
-makes the memory work.
+#### Setup profiles
 
-## How the retrieval works
+| Profile | Picked when | Model | Answers written by |
+|---|---|---|---|
+| `24gb` | ≥22GB VRAM | Qwen3-Coder-30B-A3B (~18GB) | your local model |
+| `12gb` | ≥11GB VRAM | Qwen3.5-9B (~6GB) | your local model |
+| `cloud` | no usable GPU | none | Claude Code, with your own login |
 
-`vault-index.py` walks the vault, chunks each note, embeds the chunks and writes vectors to
-`System/.rag/`. It's incremental — only changed files are re-embedded — and it skips empty stubs,
-dashboards and index shells, which otherwise dominate retrieval because they're short and mention
-everything.
+Qwen3-Coder has no variant below 30B, so the `12gb` profile changes family rather than shrinking.
+Qwen3.5-9B is dense and trained for tool calling — which is what Claude Code actually leans on —
+and it leaves enough VRAM free for [hal-voice](https://github.com/NotEoin/hal-voice) alongside it.
 
-`hal_rag.py` is the shared core. `ask.py` uses it to retrieve, then constrains the model to answer
-from the retrieved passages only, citing each note as an Obsidian `[[wikilink]]` so you can click
-through to the source. If the passages don't cover the question it's told to say so rather than
-fall back on general knowledge, which is the whole point of asking your own notes.
+All three profiles pull the ~300MB embedding model, because searching your notes is done locally
+regardless. `hal model <name>` switches the language model for a single launch.
 
-`hal-mcp.py` exposes the same retrieval as an MCP server, so the vault is queryable from any MCP
-client, not just through `hal ask`.
+Originally built on an RTX 3090; developed since on an RTX 4070.
 
-## Hardware
+## 🔒 Privacy
 
-Tested on an RTX 3090 (24GB), i5-8400, 16GB RAM.
+- **The embeddings and the index always run on your machine**, in every profile. Your vault is read,
+  chunked and searched locally; there is no hosted retrieval step.
+- **On the `24gb` and `12gb` profiles nothing leaves the machine at all** — the model answering you
+  is the one on your own GPU.
+- **On the `cloud` profile the answer is written by Claude Code**, so the passages retrieved for a
+  question are sent to Anthropic along with it. Search stays local; the write-up does not. If that
+  matters to you, use a local profile, or `hal ask --no-llm` to see the retrieved passages only.
+- Your vault is never uploaded by Hal itself, and is excluded from this repository by `.gitignore`.
+- `/index-repos` reads git metadata and README text only. It never reads file contents, and skips
+  `.env`, `*.key`, `*.pem`, credentials and anything matching `secrets*`.
 
-The 30B model at 32K context with a Q8 KV cache needs roughly 24GB of VRAM to stay resident — that's
-the real floor. Less VRAM works if you drop to a smaller model (`hal model` will take anything Ollama
-has) or shorten the context. The 32K window is shared between input and output, which is why the
-slash commands are as aggressive as they are about keeping loaded context small.
+## 🧭 Limitations
 
-## Privacy
+- **Answers are only as good as your notes.** Retrieval can't rescue a vault full of empty stubs.
+- **Importing a large existing vault is slow**, even batched.
+- **A local 30B is not a frontier model.** It's very capable at code, search and note-wrangling, and
+  it will lose to a cloud model on hard multi-file reasoning.
+- Linux only.
 
-Everything runs locally: the model, the embeddings, the index. The only network traffic is the
-initial model pull.
+## 🔗 Related projects
 
-`/index-repos` reads git metadata and README text from your registered repositories. It doesn't copy
-source into the vault, and it skips `.env`, `*.key`, `*.pem`, credentials and `secrets*`.
+- **[hal-voice](https://github.com/NotEoin/hal-voice)** — talk to Hal and have it answer aloud in
+  HAL 9000's voice.
+- **[canvas-downloader](https://github.com/NotEoin/canvas-downloader)** — bulk-import course
+  material into the vault.
 
-Your vault is not in this repository and shouldn't be — `.gitignore` excludes `/Vault/`, the local
-config under `~/.config/hal/`, and the RAG index. Keep it that way.
+## 💭 Feedback and contributing
 
-## Licence
+Questions, bugs and ideas welcome — open an [issue](https://github.com/NotEoin/Hal/issues) or start
+a [discussion](https://github.com/NotEoin/Hal/discussions).
+
+## 📄 Licence
 
 MIT — see [LICENSE](LICENSE).
