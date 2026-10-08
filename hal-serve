@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+# Runs the llama.cpp router that serves the models of one mode (see modes/*.ini).
+#
+#   hal-serve start <mode>   start a mode from modes/, or reuse it if already serving
+#   hal-serve stop | status
+set -euo pipefail
+
+HAL_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+CONF_FILE="${HAL_CONF:-$HAL_ROOT/hal.conf}"
+if [ -f "$CONF_FILE" ]; then
+  # shellcheck disable=SC1090
+  . "$CONF_FILE"
+fi
+
+LLAMA_SERVER="${HAL_LLAMA_SERVER:-}"
+MODELS_DIR="${HAL_MODELS_DIR:-}"
+LLAMA_URL="${HAL_LLAMA_URL:-http://127.0.0.1:8080}"
+OLLAMA_URL="${HAL_OLLAMA_URL:-http://localhost:11434}"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/hal"
+PID_FILE="$STATE_DIR/router.pid"
+MODE_FILE="$STATE_DIR/router.mode"
+LOG_FILE="$STATE_DIR/router.log"
+ROUTE_PID_FILE="$STATE_DIR/route.pid"
+ROUTE_LOG_FILE="$STATE_DIR/route.log"
+ROUTE_URL="${HAL_ROUTE_URL:-http://127.0.0.1:8079}"
+# Loading 50GB from a cold disk takes a few minutes
+LOAD_TIMEOUT=900  # seconds
+
+PORT="${LLAMA_URL##*:}"
+PORT="${PORT%%/*}"
+
+die() { echo "hal-serve: $*" >&2; exit 1; }
+
+router_pid() {
+  local pid
+  [ -f "$PID_FILE" ] || return 1
+  pid="$(cat "$PID_FILE")"
+  kill -0 "$pid" 2>/dev/null || return 1
+  echo "$pid"
+}
+
+# Prints the preset names (INI section headers other than [*]) of a rendered mode file
+preset_names() {
+  sed -n 's/^\[\([^]*][^]]*\)\]$/\1/p' "$1"
+}
+
+# Prints the router's status value for one model ("loaded" when ready), "missing" if the
+# router doesn't know it, or "starting" while the router itself isn't answering yet
+model_status() {
+  local listing
+  listing="$(curl -fsS "$LLAMA_URL/models" 2>/dev/null)" || { echo "starting"; return 0; }
+  printf '%s' "$listing" | python3 -c '
+import json, sys
+name = sys.argv[1]
+for m in json.load(sys.stdin).get("data", []):
+    if m.get("id") == name:
+        print(m.get("status", {}).get("value", "unknown"))
+        break
+else:
+    print("missing")
+' "$1"
+}
+
+# Unloads any Ollama models still holding VRAM, which would starve a llama.cpp mode
+free_ollama_vram() {
+  local names
+  names="$(curl -fsS "$OLLAMA_URL/api/ps" 2>/dev/null | python3 -c '
+import json, sys
+for m in json.load(sys.stdin).get("models", []):
+    if m.get("size_vram", 0) > 0:
+        print(m["name"])
+' 2>/dev/null)" || return 0
+  for name in $names; do
+    echo "Unloading Ollama model $name to free VRAM"
+    curl -fsS "$OLLAMA_URL/api/generate" -d "{\"model\": \"$name\", \"keep_alive\": 0}" \
+      >/dev/null 2>&1 || true
+  done
+}
+
+stop_router() {
+  local pid
+  if [ -f "$ROUTE_PID_FILE" ]; then
+    kill "$(cat "$ROUTE_PID_FILE")" 2>/dev/null || true
+    rm -f "$ROUTE_PID_FILE"
+  fi
+  if pid="$(router_pid)"; then
+    kill "$pid"
+    # The router stops its model instances before it exits
+    for _ in $(seq 60); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 1
+    done
+    kill -0 "$pid" 2>/dev/null && kill -9 "$pid"
+  fi
+  rm -f "$PID_FILE" "$MODE_FILE"
+}
+
+start_router() {
+  local mode="$1" template rendered name status waited seen_loading pid
+  template="$HAL_ROOT/modes/$mode.ini"
+  [ -f "$template" ] || die "unknown mode '$mode' (see the files in $HAL_ROOT/modes)"
+  [ -n "$LLAMA_SERVER" ] && [ -x "$LLAMA_SERVER" ] \
+    || die "llama-server not found; run ./setup.sh --profile max"
+  [ -n "$MODELS_DIR" ] && [ -d "$MODELS_DIR" ] \
+    || die "models directory '$MODELS_DIR' not found; is the drive mounted?"
+
+  if pid="$(router_pid)" && [ "$(cat "$MODE_FILE" 2>/dev/null)" = "$mode" ]; then
+    echo "Router already serving mode $mode (pid $pid)"
+  else
+    stop_router
+    free_ollama_vram
+    mkdir -p "$STATE_DIR"
+    rendered="$STATE_DIR/$mode.ini"
+    sed -e "s|@MODELS@|$MODELS_DIR|g" -e "s|@HAL@|$HAL_ROOT|g" "$template" > "$rendered"
+    echo "Starting llama.cpp router for mode $mode on port $PORT (log: $LOG_FILE)"
+    nohup "$LLAMA_SERVER" --host 127.0.0.1 --port "$PORT" \
+      --models-preset "$rendered" --models-max 3 > "$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
+    echo "$mode" > "$MODE_FILE"
+  fi
+
+  rendered="$STATE_DIR/$mode.ini"
+  for name in $(preset_names "$rendered"); do
+    waited=0
+    seen_loading=0
+    printf 'Loading %s ' "$name"
+    while :; do
+      router_pid >/dev/null || { echo; die "router exited; see $LOG_FILE"; }
+      status="$(model_status "$name")"
+      [ "$status" = "loaded" ] && break
+      [ "$status" = "loading" ] && seen_loading=1
+      # A model instance that exits during loading drops back to unloaded
+      if [ "$status" = "failed" ] || { [ "$status" = "unloaded" ] && [ "$seen_loading" -eq 1 ]; }; then
+        echo
+        stop_router
+        die "$name failed to load; see $LOG_FILE"
+      fi
+      [ "$waited" -ge "$LOAD_TIMEOUT" ] && { echo; die "$name still not loaded after ${LOAD_TIMEOUT}s"; }
+      printf '.'
+      sleep 3
+      waited=$((waited + 3))
+    done
+    echo " ready"
+  done
+
+  # A mode with a decision model gets the routing proxy in front of the router
+  if grep -qx '\[hal-router\]' "$rendered" && ! kill -0 "$(cat "$ROUTE_PID_FILE" 2>/dev/null)" 2>/dev/null; then
+    nohup python3 "$HAL_ROOT/hal-route.py" --listen "${ROUTE_URL#http://}" --upstream "$LLAMA_URL" \
+      --fast hal-agent --strong hal-orchestrator --classifier hal-router \
+      --prompt "$HAL_ROOT/modes/combined-prompt.txt" --log "$ROUTE_LOG_FILE" \
+      > /dev/null 2>&1 &
+    echo $! > "$ROUTE_PID_FILE"
+    for _ in $(seq 20); do
+      curl -fsS "$ROUTE_URL/health" >/dev/null 2>&1 && break
+      sleep 0.5
+    done
+    echo "Routing turns through $ROUTE_URL (decisions: $ROUTE_LOG_FILE)"
+  fi
+}
+
+case "${1:-}" in
+  start)
+    start_router "${2:-${HAL_MODE:-gpu}}" ;;
+  stop)
+    stop_router
+    echo "Router stopped" ;;
+  status)
+    if pid="$(router_pid)"; then
+      mode="$(cat "$MODE_FILE" 2>/dev/null)"
+      echo "Serving mode $mode on $LLAMA_URL (pid $pid)"
+      for name in $(preset_names "$STATE_DIR/$mode.ini"); do
+        echo "  $name: $(model_status "$name")"
+      done
+    else
+      echo "Router not running"
+    fi ;;
+  *)
+    sed -n '2,5p' "$0" | sed 's/^# \{0,1\}//'
+    exit 1 ;;
+esac
