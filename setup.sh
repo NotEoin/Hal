@@ -8,11 +8,13 @@
 # the one that fits; you confirm, or override:
 #
 #   ./setup.sh                    detect VRAM, propose a profile, ask
-#   ./setup.sh --profile 24gb     force a profile: 24gb | 12gb | cloud
+#   ./setup.sh --profile 24gb     force a profile: max | 24gb | 12gb | cloud
 #   ./setup.sh --yes              accept the detected profile without prompting
 #   ./setup.sh --profile cloud -y  fully non-interactive
 #   ./setup.sh --university "My University"   name the root of the study hierarchy
+#   ./setup.sh --models-dir /mnt/big/hal-models   where the max profile keeps its GGUFs
 #
+#   max    Three models through llama.cpp, five modes (see MODES.md). 24GB VRAM + 64GB RAM.
 #   24gb   Qwen3.8-27B locally. Best local quality; needs ~20GB of VRAM.
 #   12gb   Gemma 4 12B locally. Fits a 4070/3060-class card, still fully private.
 #   cloud  No local LLM at all — plain Claude Code with your own login. Any machine.
@@ -29,14 +31,17 @@ CONF_FILE="$HAL_ROOT/hal.conf"   # git-ignored; written here, sourced by ./hal
 PROFILE=""
 ASSUME_YES=0
 UNIVERSITY_NAME=""
+MODELS_DIR=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --profile) PROFILE="${2:-}"; shift 2 || true ;;
     --profile=*) PROFILE="${1#*=}"; shift ;;
     --university) UNIVERSITY_NAME="${2:-}"; shift 2 || true ;;
     --university=*) UNIVERSITY_NAME="${1#*=}"; shift ;;
+    --models-dir) MODELS_DIR="${2:-}"; shift 2 || true ;;
+    --models-dir=*) MODELS_DIR="${1#*=}"; shift ;;
     -y|--yes) ASSUME_YES=1; shift ;;
-    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown option: $1 (try --help)"; exit 1 ;;
   esac
 done
@@ -55,6 +60,14 @@ if [ -z "$UNIVERSITY_NAME" ] && [ -f "$CONF_FILE" ]; then
   UNIVERSITY_NAME="$(. "$CONF_FILE" 2>/dev/null; printf %s "${HAL_UNIVERSITY:-}")"
 fi
 UNIVERSITY_NAME="${UNIVERSITY_NAME:-University}"
+# The max profile's GGUFs (about 160GB), reused from an existing hal.conf like the above
+if [ -z "$MODELS_DIR" ] && [ -f "$CONF_FILE" ]; then
+  MODELS_DIR="$(. "$CONF_FILE" 2>/dev/null; printf %s "${HAL_MODELS_DIR:-}")"
+fi
+MODELS_DIR="${MODELS_DIR:-$HAL_ROOT/models}"
+# Pinned so the mode presets in modes/ always match the server's flags
+LLAMA_CPP_BUILD="b11512"
+LLAMA_CPP_DIR="$HOME/.local/share/hal/llama.cpp/llama-$LLAMA_CPP_BUILD"
 
 # --- Pretty output -----------------------------------------------------------
 c_blue=$'\033[1;36m'; c_yellow=$'\033[1;33m'; c_green=$'\033[1;32m'; c_red=$'\033[1;31m'; c_off=$'\033[0m'
@@ -81,11 +94,17 @@ detect_vram_mib() {
     | sort -nr | head -n1
 }
 
-# Map VRAM to a profile. The thresholds sit below the nominal card sizes because
-# vendors' "24GB" is 24564 MiB and a desktop already holds ~1GB of it.
-profile_for_vram() {
-  local mib="${1:-0}"
-  if   [ "$mib" -ge 22000 ]; then echo "24gb"
+# Total system RAM in GiB.
+detect_ram_gib() {
+  awk '/^MemTotal:/ { printf "%d", $2 / 1048576 }' /proc/meminfo 2>/dev/null
+}
+
+# Map VRAM (MiB) and RAM (GiB) to a profile. The thresholds sit below the nominal sizes
+# because vendors' "24GB" is 24564 MiB and a desktop already holds ~1GB of it.
+profile_for_hardware() {
+  local mib="${1:-0}" ram="${2:-0}"
+  if   [ "$mib" -ge 22000 ] && [ "$ram" -ge 60 ]; then echo "max"
+  elif [ "$mib" -ge 22000 ]; then echo "24gb"
   elif [ "$mib" -ge 11000 ]; then echo "12gb"
   else echo "cloud"; fi
 }
@@ -93,6 +112,9 @@ profile_for_vram() {
 # Fill in the model choices for the selected profile.
 pick_profile() {
   case "$1" in
+    max)
+      # Claude Code talks to the llama.cpp router; see modes/ for the models
+      MAIN_BASE=""; MAIN_MODEL="hal-gpu"; FAST_MODEL="hal-gpu"; ANSWERER="ollama" ;;
     24gb)
       MAIN_BASE="qwen3.8:27b";     MAIN_MODEL="qwen3.8-hal"
       FAST_MODEL="qwen3.5:4b";     ANSWERER="ollama" ;;
@@ -103,23 +125,25 @@ pick_profile() {
       FAST_MODEL="qwen3.5:2b";       ANSWERER="ollama" ;;
     cloud)
       MAIN_BASE=""; MAIN_MODEL=""; FAST_MODEL=""; ANSWERER="claude" ;;
-    *) err "Unknown profile: $1 (expected 24gb, 12gb or cloud)"; exit 1 ;;
+    *) err "Unknown profile: $1 (expected max, 24gb, 12gb or cloud)"; exit 1 ;;
   esac
 }
 
 VRAM_MIB="$(detect_vram_mib)"
+RAM_GIB="$(detect_ram_gib)"
 if [ -n "$PROFILE" ]; then
   log "Profile: $PROFILE (forced with --profile)"
 else
   if [ -n "$VRAM_MIB" ]; then
-    PROFILE="$(profile_for_vram "$VRAM_MIB")"
-    log "Detected $(( VRAM_MIB / 1024 ))GB of VRAM → suggesting the '$PROFILE' profile"
+    PROFILE="$(profile_for_hardware "$VRAM_MIB" "$RAM_GIB")"
+    log "Detected $(( VRAM_MIB / 1024 ))GB of VRAM and ${RAM_GIB}GB of RAM → suggesting the '$PROFILE' profile"
   else
     PROFILE="cloud"
     log "No NVIDIA GPU detected → suggesting the 'cloud' profile"
   fi
   if [ "$ASSUME_YES" -ne 1 ]; then
-    printf '\n  24gb   local Qwen3.8-27B          (needs ~20GB VRAM)\n'
+    printf '\n  max    three models, five modes   (needs 24GB VRAM + 64GB RAM, ~160GB disk)\n'
+    printf '  24gb   local Qwen3.8-27B          (needs ~20GB VRAM)\n'
     printf '  12gb   local Gemma 4 12B          (needs ~8GB VRAM)\n'
     printf '  cloud  no local LLM, Claude Code  (any machine)\n\n'
     printf 'Profile [%s]: ' "$PROFILE"
@@ -130,10 +154,11 @@ fi
 pick_profile "$PROFILE"
 ok "Using profile: $PROFILE"
 
-# Everything Ollama-related is skipped entirely in the cloud profile EXCEPT the small
-# embedding model, which keeps `hal ask` retrieval local.
+# Ollama serves a chat model only on 24gb and 12gb. The max profile serves its models
+# through llama.cpp, and cloud has none; both still pull the small embedding model,
+# which keeps `hal ask` retrieval local.
 NEEDS_LOCAL_LLM=1
-[ "$PROFILE" = "cloud" ] && NEEDS_LOCAL_LLM=0
+case "$PROFILE" in cloud|max) NEEDS_LOCAL_LLM=0 ;; esac
 
 # --- 0. Sanity ---------------------------------------------------------------
 case "$(uname -s)" in
@@ -149,7 +174,7 @@ fi
 # Installed in every profile. In `cloud` it serves ONLY the ~270MB embedding model, so
 # that `hal ask` can search your notes without shipping them anywhere.
 if [ "$NEEDS_LOCAL_LLM" -eq 0 ]; then
-  log "Cloud profile: Ollama is still needed, but only for local embeddings (~270MB)"
+  log "Profile $PROFILE: Ollama is still needed, but only for local embeddings (~270MB)"
 fi
 if have ollama; then
   ok "Ollama already installed ($(ollama --version 2>/dev/null | head -n1))"
@@ -201,12 +226,79 @@ if [ "$NEEDS_LOCAL_LLM" -eq 1 ]; then
 
   log "Pulling small/fast model: $FAST_MODEL"
   ollama pull "$FAST_MODEL" && ok "Pulled $FAST_MODEL" || warn "Failed to pull $FAST_MODEL (background tasks will be slower)"
+elif [ "$PROFILE" = "max" ]; then
+  ok "Profile max: the models come from Hugging Face in the next step, not from Ollama"
 else
   ok "Cloud profile — skipping the local LLM (Claude Code will use your own login)"
 fi
 
 log "Pulling embedding model: $EMBED_MODEL  (~270MB — powers 'hal ask' / RAG)"
 ollama pull "$EMBED_MODEL" && ok "Pulled $EMBED_MODEL" || warn "Failed to pull $EMBED_MODEL — 'hal ask' won't work until you run: ollama pull $EMBED_MODEL"
+
+# --- 3b. llama.cpp and the max profile's models -----------------------------
+# One release build of llama-server (CUDA 12.8, which any 12.8+ driver runs) plus the
+# GGUFs named in modes/*.ini. curl -C - resumes a partial download on re-run.
+MAX_MODEL_FILES=(
+  "unsloth/Qwen3.8-27B-GGUF qwen3.8-27b/Qwen3.8-27B-UD-Q4_K_XL.gguf Qwen3.8-27B-UD-Q4_K_XL.gguf"
+  "unsloth/Qwen3.8-27B-GGUF qwen3.8-27b/MTP/mtp-Qwen3.8-27B-Q4_0.gguf MTP/mtp-Qwen3.8-27B-Q4_0.gguf"
+  "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF qwen3.8-flash-next-coder/IQ1_M/Qwen3.8-Flash-Next-GSQ-RCO-IQ1_M-00001-of-00002.gguf IQ1_M/Qwen3.8-Flash-Next-GSQ-RCO-IQ1_M-00001-of-00002.gguf"
+  "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF qwen3.8-flash-next-coder/IQ1_M/Qwen3.8-Flash-Next-GSQ-RCO-IQ1_M-00002-of-00002.gguf IQ1_M/Qwen3.8-Flash-Next-GSQ-RCO-IQ1_M-00002-of-00002.gguf"
+  "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF qwen3.8-flash-next/IQ3_XXS/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00001-of-00002.gguf IQ3_XXS/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00001-of-00002.gguf"
+  "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF qwen3.8-flash-next/IQ3_XXS/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00002-of-00002.gguf IQ3_XXS/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00002-of-00002.gguf"
+  "unsloth/Qwen3.8-Flash-Next-GGUF qwen3.8-flash-next/mtp-Qwen3.8-Flash-Next-Q8_0.gguf mtp-Qwen3.8-Flash-Next-Q8_0.gguf"
+  "ggml-org/Kev-0.8B-GGUF kev-0.8b/Kev-0.8B-Q8_0.gguf Kev-0.8B-Q8_0.gguf"
+)
+
+install_llama_cpp() {
+  local base="https://github.com/ggml-org/llama.cpp/releases/download/$LLAMA_CPP_BUILD" tmp a
+  if [ -x "$LLAMA_CPP_DIR/llama-server" ]; then
+    ok "llama.cpp $LLAMA_CPP_BUILD already installed"
+    return 0
+  fi
+  log "Installing llama.cpp $LLAMA_CPP_BUILD (CUDA build, ~750MB with its CUDA runtime)"
+  tmp="$(mktemp -d)"
+  for a in "llama-$LLAMA_CPP_BUILD-bin-ubuntu-cuda-12.8-x64.tar.gz" \
+           "cudart-llama-$LLAMA_CPP_BUILD-bin-ubuntu-cuda-12.8-x64.tar.gz"; do
+    curl -fL --progress-bar -o "$tmp/$a" "$base/$a" && tar xzf "$tmp/$a" -C "$tmp" \
+      || { err "Could not download $a"; rm -rf "$tmp"; return 1; }
+  done
+  mkdir -p "$LLAMA_CPP_DIR"
+  # The CUDA runtime goes beside llama-server, where its backend loader looks for it
+  cp -a "$tmp/llama-$LLAMA_CPP_BUILD"/. "$LLAMA_CPP_DIR"/
+  cp -a "$tmp/cudart-llama-$LLAMA_CPP_BUILD-bin-ubuntu-cuda-12.8-x64"/. "$LLAMA_CPP_DIR"/
+  rm -rf "$tmp"
+  "$LLAMA_CPP_DIR/llama-server" --list-devices 2>&1 | grep -q CUDA0 \
+    && ok "llama.cpp installed and sees your GPU" \
+    || warn "llama.cpp installed, but it doesn't see a CUDA GPU (check the NVIDIA driver)"
+}
+
+download_max_models() {
+  local entry repo dest src url remote_size local_size
+  log "Downloading the max profile's models into $MODELS_DIR (~160GB, the long part)"
+  mkdir -p "$MODELS_DIR" || { err "Cannot create $MODELS_DIR"; return 1; }
+  for entry in "${MAX_MODEL_FILES[@]}"; do
+    read -r repo dest src <<< "$entry"
+    url="https://huggingface.co/$repo/resolve/main/$src"
+    # Resuming a file that is already complete fails with HTTP 416, so compare sizes first
+    remote_size="$(curl -sIL "$url" | tr -d '\r' \
+      | awk 'tolower($1) == "content-length:" { n = $2 } END { print n + 0 }')"
+    local_size="$(stat -c %s "$MODELS_DIR/$dest" 2>/dev/null || echo 0)"
+    if [ "$remote_size" -gt 0 ] && [ "$local_size" -eq "$remote_size" ]; then
+      ok "$dest already downloaded"
+      continue
+    fi
+    mkdir -p "$(dirname "$MODELS_DIR/$dest")"
+    printf '  %s\n' "$dest"
+    curl -fL -C - --progress-bar -o "$MODELS_DIR/$dest" "$url" \
+      || { err "Failed to download $repo/$src (re-run setup.sh to resume)"; return 1; }
+  done
+  ok "Models ready in $MODELS_DIR"
+}
+
+if [ "$PROFILE" = "max" ]; then
+  install_llama_cpp || exit 1
+  download_max_models || exit 1
+fi
 
 # --- 4. Build the 32K-context model -----------------------------------------
 if [ "$NEEDS_LOCAL_LLM" -eq 1 ]; then
@@ -308,7 +400,7 @@ cp -f "$HAL_ROOT"/claude-commands/*.md "$HOME/.claude/commands/" && \
 log "Registering MCP servers in $VAULT/.mcp.json (obsidian + hal)"
 HAL_MCP="$HAL_ROOT/hal-mcp.py"
 if have python3; then
-  HAL_ROOT="$HAL_ROOT" VAULT="$VAULT" HAL_MCP="$HAL_MCP" \
+  HAL_ROOT="$HAL_ROOT" VAULT="$VAULT" HAL_MCP="$HAL_MCP" PROFILE="$PROFILE" \
   MAIN_MODEL="$MAIN_MODEL" EMBED_MODEL="$EMBED_MODEL" ANSWERER="$ANSWERER" \
   python3 - "$VAULT/.mcp.json" <<'PY' && ok "MCP servers registered (obsidian + hal)" || warn "Could not update .mcp.json — add the 'hal' server by hand (see SETUP.md)"
 import json, os, sys, pathlib
@@ -332,7 +424,9 @@ servers["hal"] = {
     "args": ["run", "--with", "mcp", os.environ["HAL_MCP"]],
     "env": {
         "HAL_VAULT": os.environ["VAULT"],
-        "HAL_MODEL": os.environ["MAIN_MODEL"],          # empty in the cloud profile
+        # Empty in the cloud profile. In max, the launcher exports the mode's model.
+        "HAL_MODEL": ("${HAL_MODEL}" if os.environ["PROFILE"] == "max"
+                      else os.environ["MAIN_MODEL"]),
         "HAL_EMBED_MODEL": os.environ["EMBED_MODEL"],
         "HAL_ANSWERER": os.environ["ANSWERER"],
         # Embeddings are always local. Kept separate from ANTHROPIC_BASE_URL so the cloud
@@ -356,7 +450,7 @@ cat > "$CONF_FILE" <<EOF
 # Safe to edit by hand; re-running setup.sh overwrites it. Git-ignored on purpose:
 # it records choices about YOUR machine, not about the project.
 
-# Which profile this install uses: 24gb | 12gb | cloud
+# Which profile this install uses: max | 24gb | 12gb | cloud
 HAL_PROFILE="$PROFILE"
 
 # The local model Claude Code talks to. Empty in the cloud profile, which means
@@ -371,8 +465,19 @@ HAL_NUM_CTX="$NUM_CTX"
 HAL_EMBED_MODEL="$EMBED_MODEL"
 HAL_OLLAMA_URL="http://localhost:11434"
 
-# Who writes the final answer for 'hal ask': ollama | claude
+# Who writes the final answer for 'hal ask': ollama (the local model) | claude
 HAL_ANSWERER="$ANSWERER"
+$(if [ "$PROFILE" = "max" ]; then cat <<MAX
+
+# max profile: models served by a llama.cpp router, in one of five modes (see MODES.md).
+# HAL_MODE is the default; 'hal mode <name>' picks another for one launch.
+HAL_BACKEND="llamacpp"
+HAL_MODE="gpu"
+HAL_MODELS_DIR="$MODELS_DIR"
+HAL_LLAMA_SERVER="$LLAMA_CPP_DIR/llama-server"
+HAL_LLAMA_URL="http://127.0.0.1:8080"
+MAX
+fi)
 
 # Names the root note of the study hierarchy, and the first hop of every breadcrumb
 # written by 'hal summarize'. Change it to your own institution.
@@ -430,7 +535,8 @@ Next steps (a few one-time manual bits):
        /resume
 
 Profile '$PROFILE' is recorded in hal.conf — edit it, or re-run ./setup.sh --profile <name>
-to switch between 24gb, 12gb and cloud.
+to switch between max, 24gb, 12gb and cloud.
+$( [ "$PROFILE" = "max" ] && printf '\nOn max, pick a mode per launch: hal mode gpu | cpu | hybrid | hybrid-256k | combined.\n' )
 
 Tip: run 'hal here' inside any code project to use Hal there instead of the vault.
 See SETUP.md for details and troubleshooting.

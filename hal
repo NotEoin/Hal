@@ -10,6 +10,9 @@
 #   hal ask "question"   answer a question grounded in your own notes (cited)
 #   hal obsidian-key K   save your Obsidian Local REST API key (one time)
 #   hal model NAME       use a different Ollama model for this launch
+#   hal mode NAME [here] max profile: gpu | cpu | hybrid | hybrid-256k | combined
+#   hal serve [MODE]     max profile: start the model server without Claude Code
+#   hal stop | status    max profile: stop the model server, or show what it serves
 #   hal help             show this help
 #
 set -uo pipefail
@@ -40,6 +43,10 @@ FAST_MODEL="${HAL_FAST_MODEL:-}"
 EMBED_MODEL="${HAL_EMBED_MODEL:-nomic-embed-text}"
 OLLAMA_URL="${HAL_OLLAMA_URL:-http://localhost:11434}"
 ANSWERER="${HAL_ANSWERER:-ollama}"
+# The max profile serves models through a llama.cpp router instead of Ollama
+BACKEND="${HAL_BACKEND:-ollama}"
+SERVE_MODE="${HAL_MODE:-gpu}"
+LLAMA_URL="${HAL_LLAMA_URL:-http://127.0.0.1:8080}"
 # Names the root note of the study hierarchy (see hal.conf).
 UNIVERSITY="${HAL_UNIVERSITY:-University}"
 # Max tokens Claude Code may generate per reply. The model's whole context window is 32K
@@ -49,7 +56,7 @@ UNIVERSITY="${HAL_UNIVERSITY:-University}"
 # raise NUM_CTX in setup.sh and rebuild the model (costs VRAM). Override: HAL_MAX_OUTPUT_TOKENS.
 MAX_OUTPUT_TOKENS="${HAL_MAX_OUTPUT_TOKENS:-8192}"
 
-usage() { sed -n '3,13p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'; }
 
 MODE="claude"
 case "${1:-}" in
@@ -78,6 +85,17 @@ case "${1:-}" in
   model)
     MODEL="${2:-$MODEL}"; shift 2 || true
     TARGET="$VAULT" ;;
+  mode)
+    SERVE_MODE="${2:-$SERVE_MODE}"; shift 2 || true
+    if [ "${1:-}" = "here" ]; then
+      shift; TARGET="$PWD"
+    else
+      TARGET="$VAULT"
+    fi ;;
+  serve)
+    exec "$HAL_ROOT/hal-serve" start "${2:-$SERVE_MODE}" ;;
+  stop|status)
+    exec "$HAL_ROOT/hal-serve" "$1" ;;
   here)
     shift; TARGET="$PWD" ;;
   *)
@@ -85,7 +103,45 @@ case "${1:-}" in
 esac
 
 # ---- Export the env Claude Code and the Python tools need -------------------
-if [ -n "$MODEL" ]; then
+if [ "$BACKEND" = "llamacpp" ]; then
+  # Names match the preset sections in modes/<mode>.ini. In combined mode the slow CPU
+  # model orchestrates and every subagent runs on the fast GPU model.
+  case "$SERVE_MODE" in
+    gpu)      MODEL="hal-gpu";          AGENT_MODEL="hal-gpu" ;;
+    cpu)      MODEL="hal-cpu";          AGENT_MODEL="hal-cpu" ;;
+    hybrid|hybrid-256k)
+              MODEL="hal-hybrid";       AGENT_MODEL="hal-hybrid" ;;
+    combined) MODEL="hal-orchestrator"; AGENT_MODEL="hal-agent" ;;
+    *) echo "Unknown mode '$SERVE_MODE' (expected gpu, cpu, hybrid, hybrid-256k or combined)."
+       exit 1 ;;
+  esac
+  export ANTHROPIC_BASE_URL="$LLAMA_URL"
+  # hal-route.py picks the model for each turn in combined; see MODES.md
+  [ "$SERVE_MODE" = "combined" ] && export ANTHROPIC_BASE_URL="${HAL_ROUTE_URL:-http://127.0.0.1:8079}"
+  export ANTHROPIC_AUTH_TOKEN="hal"
+  export ANTHROPIC_API_KEY="hal"
+  export ANTHROPIC_MODEL="$MODEL"
+  export ANTHROPIC_DEFAULT_OPUS_MODEL="$MODEL"
+  export ANTHROPIC_DEFAULT_SONNET_MODEL="$MODEL"
+  export ANTHROPIC_DEFAULT_HAIKU_MODEL="$AGENT_MODEL"
+  export ANTHROPIC_SMALL_FAST_MODEL="$AGENT_MODEL"
+  export CLAUDE_CODE_SUBAGENT_MODEL="$AGENT_MODEL"
+  export CLAUDE_CODE_MAX_OUTPUT_TOKENS="$MAX_OUTPUT_TOKENS"
+  # Claude Code assumes 200K for a model it doesn't know, and would compact too late.
+  # The smallest window in the mode applies, since subagents share the setting; the
+  # decision model never sees a conversation, so its window doesn't count.
+  CONTEXT_TOKENS="$(awk '/^\[/ { skip = ($0 == "[hal-router]") }
+    !skip && /^ctx-size *=/ { print $3 }' "$HAL_ROOT/modes/$SERVE_MODE.ini" | sort -n | head -n1)"
+  export CLAUDE_CODE_MAX_CONTEXT_TOKENS="${CONTEXT_TOKENS:-32768}"
+  export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1"
+  export DISABLE_TELEMETRY="1"
+  export DISABLE_ERROR_REPORTING="1"
+  export DISABLE_AUTOUPDATER="1"
+  # The Python tools write with the faster model of the pair
+  export HAL_MODEL="$AGENT_MODEL"
+  export HAL_CHAT_API="openai"
+  export HAL_CHAT_URL="$LLAMA_URL"
+elif [ -n "$MODEL" ]; then
   # Local profiles: redirect Claude Code at Ollama's Anthropic-compatible endpoint.
   export ANTHROPIC_BASE_URL="$OLLAMA_URL"
   export ANTHROPIC_AUTH_TOKEN="ollama"
@@ -117,6 +173,17 @@ if [ -f "$KEY_FILE" ]; then
   export OBSIDIAN_API_KEY="$(cat "$KEY_FILE")"
 fi
 
+# ---- Preflight: start the llama.cpp router for this mode --------------------
+if [ "$BACKEND" = "llamacpp" ] && [ "$MODE" != "index" ]; then
+  if ! "$HAL_ROOT/hal-serve" start "$SERVE_MODE"; then
+    case "$MODE" in
+      brief) echo "Note: the model server didn't start, so the brief falls back to its plain format." ;;
+      ask) echo "Note: the model server didn't start; only 'hal ask --no-llm' will work." ;;
+      *) exit 1 ;;
+    esac
+  fi
+fi
+
 # ---- Preflight: is Ollama up? -----------------------------------------------
 # Needed for the local model (24gb/12gb) AND for embeddings in every profile, so the
 # index/ask commands still want it even on cloud.
@@ -125,7 +192,7 @@ if ! curl -fsS "$OLLAMA_URL/api/version" >/dev/null 2>&1; then
     brief) echo "Note: Ollama isn't up — the brief will fall back to its plain (no-LLM) format." ;;
     index|ask) echo "Note: Ollama isn't up — embeddings are unavailable, so only --mock (index) / --mock|--no-llm (ask) will work." ;;
     *)
-      if [ -n "$MODEL" ]; then
+      if [ -n "$MODEL" ] && [ "$BACKEND" != "llamacpp" ]; then
         echo "Ollama isn't responding on $OLLAMA_URL."
         echo "Start it with:  ollama serve   (or: systemctl start ollama), then re-run hal."
         exit 1
@@ -165,7 +232,9 @@ if [ "$MODE" = "ask" ]; then
   exec python3 -u "$HAL_ROOT/ask.py" --vault "$VAULT" "$@"
 fi
 
-if [ -n "$MODEL" ]; then
+if [ "$BACKEND" = "llamacpp" ]; then
+  echo "Hal [$HAL_PROFILE, mode $SERVE_MODE] -> model: $MODEL, agents: $AGENT_MODEL   |   dir: $TARGET"
+elif [ -n "$MODEL" ]; then
   echo "Hal [$HAL_PROFILE] → model: $MODEL   |   dir: $TARGET"
 else
   echo "Hal [$HAL_PROFILE] → Claude Code (your own login)   |   dir: $TARGET"
