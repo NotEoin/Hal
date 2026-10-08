@@ -13,8 +13,8 @@
 #   ./setup.sh --profile cloud -y  fully non-interactive
 #   ./setup.sh --university "My University"   name the root of the study hierarchy
 #
-#   24gb   Qwen3-Coder-30B-A3B locally. Best local quality; needs ~20GB of VRAM.
-#   12gb   Qwen3.5-9B locally. Fits a 4070/3060-class card, still fully private.
+#   24gb   Qwen3.8-27B locally. Best local quality; needs ~20GB of VRAM.
+#   12gb   Gemma 4 12B locally. Fits a 4070/3060-class card, still fully private.
 #   cloud  No local LLM at all — plain Claude Code with your own login. Any machine.
 #          Note retrieval for `hal ask` stays local even here (see EMBED_MODEL below).
 #
@@ -94,14 +94,13 @@ profile_for_vram() {
 pick_profile() {
   case "$1" in
     24gb)
-      MAIN_BASE="qwen3-coder:30b"; MAIN_MODEL="qwen3-coder-hal"
-      FAST_MODEL="llama3.2:3b";    ANSWERER="ollama" ;;
+      MAIN_BASE="qwen3.8:27b";     MAIN_MODEL="qwen3.8-hal"
+      FAST_MODEL="qwen3.5:4b";     ANSWERER="ollama" ;;
     12gb)
-      # Qwen3-Coder has no variant below 30B, so the 12GB profile changes family rather
-      # than shrinking. Qwen3.5-9B is dense and tool-call trained, which is what Claude
-      # Code actually leans on, and it leaves GPU headroom for hal-voice's TTS engine.
-      MAIN_BASE="qwen3.5:9b";      MAIN_MODEL="qwen3.5-hal"
-      FAST_MODEL="qwen3.5:0.8b";   ANSWERER="ollama" ;;
+      # Gemma 4 12B (quantisation-aware trained) is reliable at tool calls, which is
+      # what Claude Code leans on, and leaves GPU headroom for hal-voice's TTS engine.
+      MAIN_BASE="gemma4:12b-it-qat"; MAIN_MODEL="gemma4-hal"
+      FAST_MODEL="qwen3.5:2b";       ANSWERER="ollama" ;;
     cloud)
       MAIN_BASE=""; MAIN_MODEL=""; FAST_MODEL=""; ANSWERER="claude" ;;
     *) err "Unknown profile: $1 (expected 24gb, 12gb or cloud)"; exit 1 ;;
@@ -120,8 +119,8 @@ else
     log "No NVIDIA GPU detected → suggesting the 'cloud' profile"
   fi
   if [ "$ASSUME_YES" -ne 1 ]; then
-    printf '\n  24gb   local Qwen3-Coder-30B      (needs ~20GB VRAM)\n'
-    printf '  12gb   local Qwen3.5-9B           (needs ~8GB VRAM)\n'
+    printf '\n  24gb   local Qwen3.8-27B          (needs ~20GB VRAM)\n'
+    printf '  12gb   local Gemma 4 12B          (needs ~8GB VRAM)\n'
     printf '  cloud  no local LLM, Claude Code  (any machine)\n\n'
     printf 'Profile [%s]: ' "$PROFILE"
     read -r reply || reply=""

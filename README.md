@@ -122,13 +122,13 @@ hal obsidian-key <YOUR_KEY>
 
 | Profile | Picked when | Model | Answers written by |
 |---|---|---|---|
-| `24gb` | ≥22GB VRAM | Qwen3-Coder-30B-A3B (~18GB) | your local model |
-| `12gb` | ≥11GB VRAM | Qwen3.5-9B (~6GB) | your local model |
+| `24gb` | ≥22GB VRAM | Qwen3.8-27B (~18GB) | your local model |
+| `12gb` | ≥11GB VRAM | Gemma 4 12B, QAT (~7GB) | your local model |
 | `cloud` | no usable GPU | none | Claude Code, with your own login |
 
-Qwen3-Coder has no variant below 30B, so the `12gb` profile changes family rather than shrinking.
-Qwen3.5-9B is dense and trained for tool calling — which is what Claude Code actually leans on —
-and it leaves enough VRAM free for [hal-voice](https://github.com/NotEoin/hal-voice) alongside it.
+The `24gb` profile runs Qwen3.8-27B, the strongest coding model that fits a 24GB card. The `12gb`
+profile runs Gemma 4 12B, which is reliable at tool calling (what Claude Code actually leans on) and
+leaves enough VRAM free for [hal-voice](https://github.com/NotEoin/hal-voice) alongside it.
 
 All three profiles pull the ~300MB embedding model, because searching your notes is done locally
 regardless. `hal model <name>` switches the language model for a single launch.
@@ -152,7 +152,7 @@ Originally built on an RTX 3090; developed since on an RTX 4070.
 
 - **Answers are only as good as your notes.** Retrieval can't rescue a vault full of empty stubs.
 - **Importing a large existing vault is slow**, even batched.
-- **A local 30B is not a frontier model.** It's very capable at code, search and note-wrangling, and
+- **A local 27B is not a frontier model.** It's very capable at code, search and note-wrangling, and
   it will lose to a cloud model on hard multi-file reasoning.
 - Linux only.
 

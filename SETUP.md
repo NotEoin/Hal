@@ -21,7 +21,7 @@ This folder/
 ## What you'll end up with
 
 - **A brain:** on the local profiles, a model served by Ollama with a 32K context
-  (Qwen3-Coder-30B-A3B on `24gb`, Qwen3.5-9B on `12gb`); on `cloud`, Claude Code itself.
+  (Qwen3.8-27B on `24gb`, Gemma 4 12B on `12gb`); on `cloud`, Claude Code itself.
 - **Claude Code, pointed at it:** the same CLI and tooling, inference wherever you chose.
 - **Memory system:** `/resume` reloads context, `/compress` saves a session, `/preserve`
   writes durable facts — so Hal remembers across sessions.
@@ -322,7 +322,7 @@ sets none of these and leaves Claude Code's own configuration alone.
 
 ## Tuning & troubleshooting
 
-**Out of memory / model won't load.** The `24gb` profile's 30B at Q4 (~18GB) plus a 32K
+**Out of memory / model won't load.** The `24gb` profile's 27B at Q4 (~18GB) plus a 32K
 context needs about 22GB free. If you hit VRAM limits, drop to `--profile 12gb`, lower the
 context (edit `NUM_CTX` in `setup.sh`, e.g. `16384`, and re-run), or close other GPU apps.
 The installer already enables flash attention and q8 KV cache to save VRAM.
@@ -336,10 +336,11 @@ away into a loop rather than that you need a longer answer. `hal` now sets a san
 Raise it for a one-off with `HAL_MAX_OUTPUT_TOKENS=16384 hal`, but don't exceed ~24K. To
 *truly* allow longer single replies you must enlarge the whole window: raise `NUM_CTX` in
 `setup.sh` (e.g. `49152`) and re-run to rebuild the model — that costs VRAM, so watch
-`nvidia-smi`; on a 24GB card the 30B leaves only modest headroom.
+`nvidia-smi`; on a 24GB card the 27B leaves only modest headroom.
 
-**It's slow.** The Qwen3-Coder-30B is a Mixture-of-Experts model (~3.3B active), so it is
-fast for its size once loaded. The very first reply after launch includes load time. Keep
+**It's slow.** The very first reply after launch includes load time. For more speed, run the
+Mixture-of-Experts coder with `hal model qwen3-coder:30b` (~3.3B active parameters), at some cost
+in code quality. Keep
 `OLLAMA_KEEP_ALIVE` high (the installer sets 30m) so it doesn't unload between prompts.
 
 **Claude Code asks me to log in.** With the `hal` env vars set it should use the local
@@ -354,14 +355,14 @@ enabled, and you must have run `hal obsidian-key`. Plain note reading/writing wo
 without it, because the vault is Hal's working directory.
 
 **Change the model later.** Pull anything from Ollama and launch with it:
-`hal model qwen2.5-coder:32b` (or set `HAL_MODEL`). Install the dense 32B for maximum code
-quality, the MoE 30B for speed.
+`hal model qwen3-coder:30b` (or set `HAL_MODEL`). The dense 27B default writes the better code;
+the MoE 30B answers faster.
 
 ---
 
 ## A realistic expectation
 
-A local 30B model is genuinely useful for coding, note-taking, search and refactors, and it
+A local 27B model is genuinely useful for coding, note-taking, search and refactors, and it
 is private and free to run. It is **not** as capable as frontier cloud models on the hardest
 reasoning or very large multi-file tasks — that is the trade the `cloud` profile exists to
 make. The memory system and a tidy vault are what make a local model punch above its weight:
