@@ -45,17 +45,16 @@ You can also run it directly: python3 summarize-all.py [options]
 """
 
 import argparse
-import json
 import os
 import re
 import shutil
 import signal
 import sys
 import time
-import urllib.error
-import urllib.request
 from datetime import datetime
 from pathlib import Path
+
+import hal_chat
 
 # ---- Hal's terminal voice ---------------------------------------------------
 BLUE = "\033[1;36m"; YELLOW = "\033[1;33m"; GREEN = "\033[1;32m"
@@ -66,9 +65,6 @@ def tick(msg): print(f"  {msg}", flush=True)
 def warn(msg): print(f"{YELLOW}  ! {msg}{OFF}", flush=True)
 def err(msg):  print(f"{RED}  ✗ {msg}{OFF}", flush=True)
 
-# Deliberately HAL_OLLAMA_URL, not ANTHROPIC_BASE_URL: in the cloud profile the latter
-# points at Anthropic (or is unset), and this endpoint is Ollama's own /api/chat.
-OLLAMA_URL = os.environ.get("HAL_OLLAMA_URL", "http://localhost:11434").rstrip("/")
 HAL_SYSTEM = (
     "You are Hal, a concise, private study assistant running locally on the user's machine. "
     "You turn raw lecture material into self-contained study notes: a short summary, then the "
@@ -97,28 +93,9 @@ signal.signal(signal.SIGINT, _on_sigint)
 
 # ---- Talking to the local model ---------------------------------------------
 def call_model(messages, model, timeout=900, retries=2):
-    """One isolated chat completion against the local Ollama endpoint."""
-    body = json.dumps({
-        "model": model,
-        "messages": messages,
-        "stream": False,
-        "keep_alive": "30m",
-        "options": {"temperature": 0.3},
-    }).encode("utf-8")
-    last = None
-    for attempt in range(retries + 1):
-        try:
-            req = urllib.request.Request(
-                f"{OLLAMA_URL}/api/chat", data=body,
-                headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                data = json.load(r)
-            return (data.get("message", {}).get("content") or "").strip()
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
-            last = e
-            if attempt < retries:
-                time.sleep(3 * (attempt + 1))
-    raise RuntimeError(f"model call failed after {retries + 1} tries: {last}")
+    """One isolated chat completion against the local model server."""
+    return hal_chat.chat(messages, model, temperature=0.3, timeout=timeout,
+                         retries=retries)
 
 
 def clean_body(text):

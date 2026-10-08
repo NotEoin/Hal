@@ -24,15 +24,12 @@ The retrieval half is reused by the Hal MCP server (`hal-mcp.py`).
 """
 
 import argparse
-import json
 import os
 import subprocess
 import sys
-import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
+import hal_chat
 import hal_rag as R
 
 BLUE = "\033[1;36m"; GREEN = "\033[1;32m"; YELLOW = "\033[1;33m"
@@ -116,20 +113,9 @@ def call_claude(system: str, prompt: str, timeout=600) -> str:
 
 
 def call_model(messages, model, timeout=600, retries=1):
-    body = json.dumps({"model": model, "messages": messages, "stream": False,
-                       "keep_alive": "30m", "options": {"temperature": 0.2}}).encode("utf-8")
-    last = None
-    for attempt in range(retries + 1):
-        try:
-            req = urllib.request.Request(f"{R.OLLAMA_URL}/api/chat", data=body,
-                                         headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                return (json.load(r).get("message", {}).get("content") or "").strip()
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
-            last = e
-            if attempt < retries:
-                time.sleep(2)
-    raise RuntimeError(f"model call failed: {last}")
+    """One isolated chat completion against the local model server."""
+    return hal_chat.chat(messages, model, temperature=0.2, timeout=timeout,
+                         retries=retries)
 
 
 def answer(vault: Path, question: str, *, k=8, ctx_cap=6, mock=False,
