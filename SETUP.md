@@ -302,6 +302,23 @@ code-aware `CLAUDE.md` there. When you later `/compress` a coding session, the l
 the repo's `CC-Session-Logs/` **and** mirrored into `Areas/Code/_Session-Logs/`, so your
 coding work shows up on the Code dashboard (`Areas/Code/_Index.md`) next to everything else.
 
+## The max profile
+
+On a machine with a 24GB GPU and 64GB of RAM, `./setup.sh --profile max` serves three
+models through llama.cpp instead of Ollama, and `hal mode <name>` picks one of five ways
+to run them. Setup installs a pinned `llama-server` build into
+`~/.local/share/hal/llama.cpp/` and downloads about 160GB of GGUFs into the models
+directory. Put that directory on a large drive:
+
+```bash
+./setup.sh --profile max --models-dir /mnt/big/hal-models
+```
+
+Downloads resume where they stopped if you re-run setup. `hal.conf` records the directory
+as `HAL_MODELS_DIR`, and the default mode as `HAL_MODE`.
+
+**-> Modes, switching, and the measurements behind each model: [MODES.md](MODES.md)**
+
 ## How the local-model wiring works (for the curious)
 
 Ollama exposes an **Anthropic-compatible API**, so Claude Code can talk to it directly with

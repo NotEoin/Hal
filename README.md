@@ -67,6 +67,7 @@ hal ask "..."        # answer a question from your notes, with citations
 hal index            # build or refresh the search index
 hal brief            # write today's morning brief into your daily note
 hal model <name>     # switch to a different Ollama model
+hal mode <mode>      # max profile: gpu | cpu | hybrid | hybrid-256k | combined
 ```
 
 Inside a session, the two commands that matter most day to day:
@@ -95,7 +96,7 @@ profile needs, installs Node, Claude Code and `uv`, sets up the slash commands a
 PATH. It's safe to re-run. Open a new shell afterwards.
 
 ```bash
-./setup.sh --profile cloud    # force a profile: 24gb | 12gb | cloud
+./setup.sh --profile cloud    # force a profile: max | 24gb | 12gb | cloud
 ./setup.sh --profile 12gb -y  # ...and skip the prompt
 ```
 
@@ -115,16 +116,25 @@ hal obsidian-key <YOUR_KEY>
 |---|---|
 | **OS** | Linux |
 | **GPU** | Whatever you have — see the profiles below. None is fine |
-| **Disk** | ~20GB for the models on `24gb`, ~8GB on `12gb`, ~300MB on `cloud` |
+| **Disk** | ~160GB for the models on `max`, ~20GB on `24gb`, ~8GB on `12gb`, ~300MB on `cloud` |
 | **Apps** | [Obsidian](https://obsidian.md) with the Local REST API and Dataview plugins |
 
 #### Setup profiles
 
 | Profile | Picked when | Model | Answers written by |
 |---|---|---|---|
+| `max` | ≥22GB VRAM and ≥60GB RAM | three models in five modes, up to a 177B (~160GB) | your local models |
 | `24gb` | ≥22GB VRAM | Qwen3.8-27B (~18GB) | your local model |
 | `12gb` | ≥11GB VRAM | Gemma 4 12B, QAT (~7GB) | your local model |
 | `cloud` | no usable GPU | none | Claude Code, with your own login |
+
+The `max` profile serves three models through llama.cpp and lets you pick where they run
+per launch: Qwen3.8-27B on the GPU (`gpu`, 80 tokens/s), the 177B Qwen3.8-Flash-Next-Coder
+in system RAM (`cpu`), the 177B Qwen3.8-Flash-Next split across both (`hybrid`, 25 tokens/s,
+or `hybrid-256k` for its full context), or `combined`, where a small classifier sends each
+request to the RAM model or the GPU model and the RAM model delegates its edits to GPU
+subagents.
+**→ Modes, measurements and quantisation choices: [MODES.md](MODES.md)**
 
 The `24gb` profile runs Qwen3.8-27B, the strongest coding model that fits a 24GB card. The `12gb`
 profile runs Gemma 4 12B, which is reliable at tool calling (what Claude Code actually leans on) and
