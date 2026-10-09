@@ -7,8 +7,18 @@
 """
 from __future__ import annotations
 
+import os
+import ssl
+
 from . import registry, runner, search
 from .registry import Tool
+
+# Tools run in-process inside the caller's Python; a relocated virtualenv can point OpenSSL at a
+# certificate bundle that no longer exists, which breaks every HTTPS tool. Fall back to the system's.
+_SYSTEM_CA = "/etc/ssl/certs/ca-certificates.crt"
+if (not os.environ.get("SSL_CERT_FILE") and not os.path.exists(ssl.get_default_verify_paths().openssl_cafile)
+        and os.path.exists(_SYSTEM_CA)):
+    os.environ["SSL_CERT_FILE"] = _SYSTEM_CA
 
 __all__ = ["Tool", "call", "find", "get", "ollama_tools", "all_tools", "CORE"]
 
