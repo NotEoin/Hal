@@ -1,11 +1,11 @@
-"""hal - the command line for every Hal module.
+"""hal-hub - the command line for every Hal module.
 
-    hal tools [QUERY]             list tools, or the best matches for a request
-    hal modules                   installed modules
-    hal TOOL [key=value ...]      run a tool (or: hal call TOOL --json '{...}')
-    hal TOOL --yes ...            run a tool that asks for confirmation
-    hal mcp                       serve the tools over MCP on stdio
-    hal doctor                    check every module's manifest and entry point
+    hal-hub tools [QUERY]             list tools, or the best matches for a request
+    hal-hub modules                   installed modules
+    hal-hub TOOL [key=value ...]      run a tool (or: hal-hub call TOOL --json '{...}')
+    hal-hub TOOL --yes ...            run a tool that asks for confirmation
+    hal-hub mcp                       serve the tools over MCP on stdio
+    hal-hub doctor                    check every module's manifest and entry point
 """
 from __future__ import annotations
 

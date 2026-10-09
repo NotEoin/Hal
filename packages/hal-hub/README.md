@@ -20,13 +20,13 @@ put its launcher on your `PATH`:
 
 ```bash
 git clone <url> ~/src/hal-ecosystem/hal-hub
-ln -s ~/src/hal-ecosystem/hal-hub/bin/hal ~/.local/bin/hal
+ln -s ~/src/hal-ecosystem/hal-hub/bin/hal-hub ~/.local/bin/hal-hub
 ```
 
 To give Claude Code the tools, add the server to a project's `.mcp.json`:
 
 ```json
-{"mcpServers": {"hal": {"command": "/home/you/.local/bin/hal", "args": ["mcp"]}}}
+{"mcpServers": {"hal-hub": {"command": "/home/you/.local/bin/hal-hub", "args": ["mcp"]}}}
 ```
 
 ## Use
@@ -34,11 +34,11 @@ To give Claude Code the tools, add the server to a project's `.mcp.json`:
 The command line covers every module:
 
 ```bash
-hal modules                                  # what is installed
-hal tools "remind me about the dentist"      # the best tools for a request
-hal calendar_add title=Dentist when="thursday 10am"
-hal power_shutdown --yes                     # a tool that asks for confirmation
-hal doctor                                   # check every manifest and entry point
+hal-hub modules                                  # what is installed
+hal-hub tools "remind me about the dentist"      # the best tools for a request
+hal-hub calendar_add title=Dentist when="thursday 10am"
+hal-hub power_shutdown --yes                     # a tool that asks for confirmation
+hal-hub doctor                                   # check every manifest and entry point
 ```
 
 From Python, the same calls are available to any client, such as hal-voice:

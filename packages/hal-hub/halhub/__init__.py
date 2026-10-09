@@ -14,7 +14,7 @@ __all__ = ["Tool", "call", "find", "get", "ollama_tools", "all_tools", "CORE"]
 
 # Offered to a chat model on every turn whatever the request, so it can always
 # look further and keep its memory.
-CORE = ("hal_find_tools", "memory_remember", "memory_search")
+CORE = ("hal_find_tools", "memory_remember", "memory_fact", "memory_search")
 
 _cache: dict[str, Tool] | None = None
 

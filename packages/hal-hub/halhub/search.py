@@ -71,4 +71,6 @@ def rank(query: str, tools: list[Tool], limit: int = 8) -> list[Tool]:
         if score > 0:
             scored.append((score, tool.name, tool))
     scored.sort(key=lambda x: (-x[0], x[1]))
-    return [t for _, _, t in scored[:limit]]
+    # Matches far weaker than the best are noise from common words.
+    floor = scored[0][0] * 0.25 if scored else 0
+    return [t for s, _, t in scored[:limit] if s >= floor]

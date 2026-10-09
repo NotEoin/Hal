@@ -4,7 +4,7 @@ Lists three meta-tools (find, call, modules) plus any tools pinned in
 ~/.config/hal/config.toml [hub].pinned, so a client's context holds a handful
 of schemas rather than every tool of every module. Stdlib only.
 
-    "hal": {"command": "python3", "args": ["-m", "halhub", "mcp"], "cwd": "<hal-hub>"}
+    "hal-hub": {"command": "hal-hub", "args": ["mcp"]}
 """
 from __future__ import annotations
 
