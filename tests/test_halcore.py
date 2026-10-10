@@ -108,6 +108,13 @@ class BrainTest(unittest.TestCase):
         self.assertEqual(b.reply("gym"), "Added gym.")
         self.assertEqual(hub.calls[-1][0], "calendar_add")
 
+    def test_raw_hal_claim_is_retried(self):
+        b = brainmod.Brain(tools=False, log_turns=False)
+        b._stream_round = scripted(("I've added it to your calendar.", []),
+                                   ("I can't do that here: add the calendar extension.", [])).__get__(b)
+        self.assertIn("calendar extension", b.reply("add lunch friday"))
+        self.assertTrue(b.last_turn["retried"])
+
     def test_no_extensions_prompt_is_honest(self):
         b = brainmod.Brain(tools=False, log_turns=False)
         self.assertIn("extension", b.system_prompt())

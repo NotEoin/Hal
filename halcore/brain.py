@@ -75,6 +75,11 @@ SUSPECT = re.compile(
     r"(?:added|scheduled|noted|saved|stored|remembered) (?:it|that|this)|can'?not|can't|unable to|not able to|"
     r"(?:don't|do not) have (?:the )?(?:ability|capability|access|tools?|means)|I'?m sorry|I am sorry|"
     r"I apologi[sz]e|unfortunately)\b", re.I)
+CLAIM = re.compile(r"\bI(?:'ve| have|'ll| will)? (?:added|scheduled|set|saved|noted|created|booked|put|moved|"
+                   r"cancell?ed|deleted|removed|turned|sent|started|reminded|recorded|updated|stored|logged)\b", re.I)
+NO_TOOLS_RETRY = ("Your draft reply was not sent: it said you did something, but you have no tools in this "
+                  "installation and did nothing. Answer again: say plainly that you cannot do that here, and "
+                  "that the extension for it can be added with `hal ext add <name>`.")
 RETRY = ("Your draft reply was not sent: it either said something was done without a tool call, or said "
          "you cannot do it. You have tools for nearly everything. If an action was asked for, call the right "
          "tool now: memory_fact for a lasting fact about the user, memory_remember for anything to remember, "
@@ -311,6 +316,11 @@ class Brain:
                 if not ran and not retried and SUSPECT.search(held) and self.hub:
                     retried, original = True, held
                     messages[-1:] = [{"role": "system", "content": RETRY}]
+                    continue
+                if not self.hub and not retried and CLAIM.search(held):
+                    # Raw hal has no tools, so any claim of having acted is false.
+                    retried, original = True, held
+                    messages[-1:] = [{"role": "system", "content": NO_TOOLS_RETRY}]
                     continue
                 if retried and held.strip().rstrip(".") == "OK":
                     held = original
