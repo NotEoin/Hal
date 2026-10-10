@@ -27,7 +27,7 @@ halcore() { PYTHONPATH="$HAL_ROOT${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m ha
 
 # ---- Commands that need neither hal.conf nor Claude Code --------------------
 case "${1:-}" in
-  chat|console|eval|ext|units) halcore "$@" ;;
+  chat|console|eval|ext|units|configure) halcore "$@" ;;
   on|off|toggle) halcore power "$@" ;;
   install) shift; halcore units install --start "$@" ;;
   ask|index|brief|summarize|import|obsidian-key|register-repos)

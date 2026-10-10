@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
-# Hal — local AI assistant setup (Ubuntu / Linux)
-# Installs Claude Code, uv, the slash-command skills, and (for the local profiles)
-# Ollama + a local model. Safe to re-run (idempotent).
+# Hal — local AI setup (Ubuntu / Linux)
+# Installs Ollama and the local models for your GPU, Claude Code, and the `hal` launcher,
+# and writes ~/.config/hal/config.toml. Safe to re-run (idempotent). Extensions (memory,
+# calendar, voice, ...) are added afterwards with `hal ext add` or ../../install.sh.
 #
 # Hal runs in one of three profiles. By default this script reads your GPU and proposes
 # the one that fits; you confirm, or override:
@@ -11,33 +12,28 @@
 #   ./setup.sh --profile 24gb     force a profile: max | 24gb | 12gb | cloud
 #   ./setup.sh --yes              accept the detected profile without prompting
 #   ./setup.sh --profile cloud -y  fully non-interactive
-#   ./setup.sh --university "My University"   name the root of the study hierarchy
 #   ./setup.sh --models-dir /mnt/big/hal-models   where the max profile keeps its GGUFs
 #
 #   max    Three models through llama.cpp, five modes (see MODES.md). 24GB VRAM + 64GB RAM.
 #   24gb   Qwen3.8-27B locally. Best local quality; needs ~20GB of VRAM.
 #   12gb   Gemma 4 12B locally. Fits a 4070/3060-class card, still fully private.
-#   cloud  No local LLM at all — plain Claude Code with your own login. Any machine.
-#          Note retrieval for `hal ask` stays local even here (see EMBED_MODEL below).
+#   cloud  No local coding model — plain Claude Code with your own login. Any machine.
+#          Hal's chat brain still runs locally, on a small model.
 #
 set -uo pipefail
 
 # --- Resolve paths (works no matter where this repo lives on your machine) ----
 HAL_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-VAULT="$HAL_ROOT/Vault"
 CONF_FILE="$HAL_ROOT/hal.conf"   # git-ignored; written here, sourced by ./hal
 
 # --- Args --------------------------------------------------------------------
 PROFILE=""
 ASSUME_YES=0
-UNIVERSITY_NAME=""
 MODELS_DIR=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --profile) PROFILE="${2:-}"; shift 2 || true ;;
     --profile=*) PROFILE="${1#*=}"; shift ;;
-    --university) UNIVERSITY_NAME="${2:-}"; shift 2 || true ;;
-    --university=*) UNIVERSITY_NAME="${1#*=}"; shift ;;
     --models-dir) MODELS_DIR="${2:-}"; shift 2 || true ;;
     --models-dir=*) MODELS_DIR="${1#*=}"; shift ;;
     -y|--yes) ASSUME_YES=1; shift ;;
@@ -47,19 +43,12 @@ while [ $# -gt 0 ]; do
 done
 
 # --- Config ------------------------------------------------------------------
-# The embedding model is pulled in EVERY profile, cloud included. It is small (~270MB),
-# runs happily on the CPU, and keeps `hal ask` retrieval on your own machine.
-EMBED_MODEL="nomic-embed-text"
 NUM_CTX=32768                    # context window for the local profiles (q8 KV cache)
 # Per-profile model choice is set by pick_profile() below.
-MAIN_BASE=""; MAIN_MODEL=""; FAST_MODEL=""; ANSWERER=""
-# Names the root note of the study hierarchy that `hal summarize` builds, and the first
-# hop of every breadcrumb. Reused from an existing hal.conf so re-running never renames
-# a spine you have already built.
-if [ -z "$UNIVERSITY_NAME" ] && [ -f "$CONF_FILE" ]; then
-  UNIVERSITY_NAME="$(. "$CONF_FILE" 2>/dev/null; printf %s "${HAL_UNIVERSITY:-}")"
-fi
-UNIVERSITY_NAME="${UNIVERSITY_NAME:-University}"
+MAIN_BASE=""; MAIN_MODEL=""; FAST_MODEL=""
+# Hal's chat brain (hal chat, the voice): a model small enough to sit beside the voice engine,
+# chosen per profile with `hal eval`. Change it later with [hal].chat_model in the config.
+BRAIN_MODEL=""
 # The max profile's GGUFs (about 160GB), reused from an existing hal.conf like the above
 if [ -z "$MODELS_DIR" ] && [ -f "$CONF_FILE" ]; then
   MODELS_DIR="$(. "$CONF_FILE" 2>/dev/null; printf %s "${HAL_MODELS_DIR:-}")"
@@ -83,7 +72,6 @@ if [ "$(id -u)" -ne 0 ]; then have sudo && SUDO="sudo"; fi
 printf '%s\n' "============================================================"
 printf '   Hal — local assistant setup\n'
 printf '   Root:  %s\n' "$HAL_ROOT"
-printf '   Vault: %s\n' "$VAULT"
 printf '%s\n' "============================================================"
 
 # --- 0a. Choose a profile ----------------------------------------------------
@@ -114,17 +102,17 @@ pick_profile() {
   case "$1" in
     max)
       # Claude Code talks to the llama.cpp router; see modes/ for the models
-      MAIN_BASE=""; MAIN_MODEL="hal-gpu"; FAST_MODEL="hal-gpu"; ANSWERER="ollama" ;;
+      MAIN_BASE=""; MAIN_MODEL="hal-gpu"; FAST_MODEL="hal-gpu"; BRAIN_MODEL="@BRAIN_BIG@" ;;
     24gb)
       MAIN_BASE="qwen3.8:27b";     MAIN_MODEL="qwen3.8-hal"
-      FAST_MODEL="qwen3.5:4b";     ANSWERER="ollama" ;;
+      FAST_MODEL="qwen3.5:4b";     BRAIN_MODEL="@BRAIN_BIG@" ;;
     12gb)
       # Gemma 4 12B (quantisation-aware trained) is reliable at tool calls, which is
       # what Claude Code leans on, and leaves GPU headroom for hal-voice's TTS engine.
       MAIN_BASE="gemma4:12b-it-qat"; MAIN_MODEL="gemma4-hal"
-      FAST_MODEL="qwen3.5:2b";       ANSWERER="ollama" ;;
+      FAST_MODEL="qwen3.5:2b";       BRAIN_MODEL="@BRAIN_SMALL@" ;;
     cloud)
-      MAIN_BASE=""; MAIN_MODEL=""; FAST_MODEL=""; ANSWERER="claude" ;;
+      MAIN_BASE=""; MAIN_MODEL=""; FAST_MODEL=""; BRAIN_MODEL="qwen3.5:2b" ;;
     *) err "Unknown profile: $1 (expected max, 24gb, 12gb or cloud)"; exit 1 ;;
   esac
 }
@@ -171,10 +159,10 @@ if ! have curl; then
 fi
 
 # --- 1. Ollama ---------------------------------------------------------------
-# Installed in every profile. In `cloud` it serves ONLY the ~270MB embedding model, so
-# that `hal ask` can search your notes without shipping them anywhere.
+# Installed in every profile: in `cloud` it serves only Hal's small chat brain (and the
+# memory extension's embeddings), so your conversations and notes stay on this machine.
 if [ "$NEEDS_LOCAL_LLM" -eq 0 ]; then
-  log "Profile $PROFILE: Ollama is still needed, but only for local embeddings (~270MB)"
+  log "Profile $PROFILE: Ollama is still needed, but only for Hal's small chat model"
 fi
 if have ollama; then
   ok "Ollama already installed ($(ollama --version 2>/dev/null | head -n1))"
@@ -232,8 +220,8 @@ else
   ok "Cloud profile — skipping the local LLM (Claude Code will use your own login)"
 fi
 
-log "Pulling embedding model: $EMBED_MODEL  (~270MB — powers 'hal ask' / RAG)"
-ollama pull "$EMBED_MODEL" && ok "Pulled $EMBED_MODEL" || warn "Failed to pull $EMBED_MODEL — 'hal ask' won't work until you run: ollama pull $EMBED_MODEL"
+log "Pulling Hal's chat brain: $BRAIN_MODEL  (answers, and calls the extensions' tools)"
+ollama pull "$BRAIN_MODEL" && ok "Pulled $BRAIN_MODEL" || warn "Failed to pull $BRAIN_MODEL — 'hal chat' won't work until you run: ollama pull $BRAIN_MODEL"
 
 # --- 3b. llama.cpp and the max profile's models -----------------------------
 # One release build of llama-server (CUDA 12.8, which any 12.8+ driver runs) plus the
@@ -340,107 +328,6 @@ else
   npm install -g @anthropic-ai/claude-code && ok "Claude Code installed" || warn "Claude Code install failed — try: npm install -g @anthropic-ai/claude-code"
 fi
 
-# --- 6. uv (for the Obsidian MCP server via uvx) -----------------------------
-if have uvx || have uv; then
-  ok "uv already installed"
-else
-  log "Installing uv (runs the Obsidian MCP server)"
-  curl -LsSf https://astral.sh/uv/install.sh | sh && ok "uv installed" || warn "uv install failed — Obsidian MCP needs it; install from https://astral.sh/uv"
-fi
-
-# --- 6b. PDF tooling (read & summarise lecture slides locally) ---------------
-log "Installing PDF text-extraction tooling (for lecture slides)"
-# The local model is text-only, so we extract text from slide PDFs before summarising.
-if have pdftotext; then
-  ok "poppler-utils (pdftotext) already present"
-elif [ -n "$SUDO" ] || [ "$(id -u)" -eq 0 ]; then
-  $SUDO apt-get update -y >/dev/null 2>&1
-  $SUDO apt-get install -y poppler-utils && ok "Installed poppler-utils (pdftotext/pdftoppm)" \
-    || warn "Could not install poppler-utils — install it for PDF text extraction"
-else
-  warn "No sudo — install poppler-utils manually: sudo apt-get install poppler-utils"
-fi
-# Optional OCR for scanned/image-only slides
-if have tesseract; then
-  ok "tesseract OCR present (scanned slides supported)"
-elif [ -n "$SUDO" ] || [ "$(id -u)" -eq 0 ]; then
-  $SUDO apt-get install -y tesseract-ocr >/dev/null 2>&1 && ok "Installed tesseract OCR" \
-    || warn "tesseract not installed (only needed for scanned/image-only PDFs)"
-fi
-# pandoc reads .docx / .html (used by extract-docx.sh and extract-html.sh)
-if have pandoc; then
-  ok "pandoc present (DOCX/HTML extraction)"
-elif [ -n "$SUDO" ] || [ "$(id -u)" -eq 0 ]; then
-  $SUDO apt-get install -y pandoc >/dev/null 2>&1 && ok "Installed pandoc (DOCX/HTML extraction)" \
-    || warn "pandoc not installed — DOCX/HTML extraction will fall back to Python"
-else
-  warn "No sudo — install pandoc manually for DOCX/HTML: sudo apt-get install pandoc"
-fi
-# Python extractors: pymupdf (PDF fallback), python-docx (DOCX fallback),
-# python-pptx (PPTX — pandoc cannot read .pptx, so this one is required for slides-as-pptx)
-if have pip3 || have pip; then
-  for pkg in pymupdf python-docx python-pptx; do
-    (pip3 install --user --quiet "$pkg" 2>/dev/null || pip install --user --quiet --break-system-packages "$pkg" 2>/dev/null) \
-      && ok "$pkg available" || warn "$pkg not installed (needed for some document types)"
-  done
-fi
-
-# --- 7. Install slash-command skills ----------------------------------------
-log "Installing slash-command skills to ~/.claude/commands/"
-mkdir -p "$HOME/.claude/commands"
-cp -f "$HAL_ROOT"/claude-commands/*.md "$HOME/.claude/commands/" && \
-  ok "Installed: $(cd "$HAL_ROOT/claude-commands" && ls *.md | sed 's/\.md//' | sed 's/^/\//' | tr '\n' ' ')" || \
-  warn "Could not copy command files"
-
-# --- 8. Ensure the MCP servers are registered in the vault .mcp.json ----------
-# Two local servers: 'obsidian' (live vault via the Local REST API) and 'hal' (your own
-# RAG brain — search_vault / ask_vault / get_note from hal-mcp.py). This is MERGE-SAFE:
-# it preserves any servers you've added yourself and just guarantees these two exist, with
-# the hal server's script path baked to an absolute path so any MCP client can launch it.
-log "Registering MCP servers in $VAULT/.mcp.json (obsidian + hal)"
-HAL_MCP="$HAL_ROOT/hal-mcp.py"
-if have python3; then
-  HAL_ROOT="$HAL_ROOT" VAULT="$VAULT" HAL_MCP="$HAL_MCP" PROFILE="$PROFILE" \
-  MAIN_MODEL="$MAIN_MODEL" EMBED_MODEL="$EMBED_MODEL" ANSWERER="$ANSWERER" \
-  python3 - "$VAULT/.mcp.json" <<'PY' && ok "MCP servers registered (obsidian + hal)" || warn "Could not update .mcp.json — add the 'hal' server by hand (see SETUP.md)"
-import json, os, sys, pathlib
-p = pathlib.Path(sys.argv[1])
-cfg = {}
-if p.exists():
-    try:
-        cfg = json.loads(p.read_text())
-    except Exception:
-        cfg = {}
-servers = cfg.setdefault("mcpServers", {})
-servers.setdefault("obsidian", {
-    "command": "uvx",
-    "args": ["mcp-obsidian"],
-    "env": {"OBSIDIAN_API_KEY": "${OBSIDIAN_API_KEY}",
-            "OBSIDIAN_HOST": "127.0.0.1", "OBSIDIAN_PORT": "27124"},
-})
-# Always (re)write the hal entry so the baked script path stays correct if the repo moves.
-servers["hal"] = {
-    "command": "uv",
-    "args": ["run", "--with", "mcp", os.environ["HAL_MCP"]],
-    "env": {
-        "HAL_VAULT": os.environ["VAULT"],
-        # Empty in the cloud profile. In max, the launcher exports the mode's model.
-        "HAL_MODEL": ("${HAL_MODEL}" if os.environ["PROFILE"] == "max"
-                      else os.environ["MAIN_MODEL"]),
-        "HAL_EMBED_MODEL": os.environ["EMBED_MODEL"],
-        "HAL_ANSWERER": os.environ["ANSWERER"],
-        # Embeddings are always local. Kept separate from ANTHROPIC_BASE_URL so the cloud
-        # profile can point Claude Code at Anthropic while retrieval stays on this machine.
-        "HAL_OLLAMA_URL": "http://localhost:11434",
-    },
-}
-p.parent.mkdir(parents=True, exist_ok=True)
-p.write_text(json.dumps(cfg, indent=2) + "\n")
-PY
-else
-  warn "python3 not found — cannot update .mcp.json automatically (add the 'hal' server by hand)"
-fi
-
 # --- 9. Write hal.conf (the profile the launcher reads) ----------------------
 # One git-ignored file is the single source of truth for "which brain am I using".
 # ./hal sources it, and hal-voice can import it too so the two never drift apart.
@@ -461,12 +348,7 @@ HAL_FAST_MODEL="$FAST_MODEL"
 # Context window the custom model was built with (see NUM_CTX in setup.sh).
 HAL_NUM_CTX="$NUM_CTX"
 
-# Retrieval for 'hal ask' / 'hal index'. Always local, in every profile.
-HAL_EMBED_MODEL="$EMBED_MODEL"
 HAL_OLLAMA_URL="http://localhost:11434"
-
-# Who writes the final answer for 'hal ask': ollama (the local model) | claude
-HAL_ANSWERER="$ANSWERER"
 $(if [ "$PROFILE" = "max" ]; then cat <<MAX
 
 # max profile: models served by a llama.cpp router, in one of five modes (see MODES.md).
@@ -478,12 +360,11 @@ HAL_LLAMA_SERVER="$LLAMA_CPP_DIR/llama-server"
 HAL_LLAMA_URL="http://127.0.0.1:8080"
 MAX
 fi)
-
-# Names the root note of the study hierarchy, and the first hop of every breadcrumb
-# written by 'hal summarize'. Change it to your own institution.
-HAL_UNIVERSITY="$UNIVERSITY_NAME"
 EOF
 ok "Profile '$PROFILE' saved to hal.conf"
+
+log "Writing Hal's shared settings"
+"$HAL_ROOT/hal" configure --chat-model "$BRAIN_MODEL" && ok "~/.config/hal/config.toml ready"
 
 # --- 10. Make 'hal' available on PATH + set shell env ------------------------
 log "Linking the 'hal' launcher and updating your shell profile"
@@ -491,7 +372,7 @@ chmod +x "$HAL_ROOT/hal" "$HAL_ROOT"/*.sh 2>/dev/null || true
 mkdir -p "$HOME/.local/bin"
 ln -sf "$HAL_ROOT/hal" "$HOME/.local/bin/hal"
 
-# NB: not $PROFILE — that holds the setup profile (24gb/12gb/cloud).
+# NB: not $PROFILE — that holds the setup profile (max/24gb/12gb/cloud).
 SHELL_PROFILE="$HOME/.bashrc"
 MARK_BEGIN="# >>> hal setup >>>"
 MARK_END="# <<< hal setup <<<"
@@ -501,11 +382,10 @@ if [ -f "$SHELL_PROFILE" ]; then
 fi
 cat >> "$SHELL_PROFILE" <<EOF
 $MARK_BEGIN
-export HAL_VAULT="$VAULT"
 export PATH="\$HOME/.local/bin:\$HOME/.npm-global/bin:\$PATH"
 $MARK_END
 EOF
-ok "Updated $SHELL_PROFILE (HAL_VAULT + PATH)"
+ok "Updated $SHELL_PROFILE (PATH)"
 
 # --- Done --------------------------------------------------------------------
 cat <<EOF
@@ -514,30 +394,24 @@ ${c_green}============================================================${c_off}
 ${c_green}  Hal install complete — profile: $PROFILE${c_off}
 ${c_green}============================================================${c_off}
 
-Next steps (a few one-time manual bits):
+Next steps:
 
   1) Open a NEW terminal (so the PATH changes take effect), or run:
        source ~/.bashrc
 
-  2) In Obsidian:
-       - Settings → Community plugins → turn on Community plugins
-       - Browse & install:  "Local REST API"   and   "Dataview"
-       - Open "Local REST API" settings, copy the API key
-       - File → Open vault → "Open folder as vault" → choose:
-           $VAULT
+  2) Talk to Hal:
+       hal chat
 
-  3) Give Hal the Obsidian key (one time):
-       hal obsidian-key <PASTE_KEY_HERE>
+  3) Add what you want Hal to do (or run ../../install.sh for the usual set):
+       hal ext list
+       hal ext add --pack assistant      # memory, calendar, tasks, notify, clock, web, briefing, voice
 
-  4) Launch it:
-       hal            # opens Claude Code in your vault
-     then type:
-       /load-context
+  4) Code with the local model:
+       hal here        # Claude Code in the current directory
 
 Profile '$PROFILE' is recorded in hal.conf — edit it, or re-run ./setup.sh --profile <name>
 to switch between max, 24gb, 12gb and cloud.
 $( [ "$PROFILE" = "max" ] && printf '\nOn max, pick a mode per launch: hal mode gpu | cpu | hybrid | hybrid-256k | combined.\n' )
 
-Tip: run 'hal here' inside any code project to use Hal there instead of the vault.
 See SETUP.md for details and troubleshooting.
 EOF

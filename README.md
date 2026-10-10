@@ -2,110 +2,96 @@
 
 ![licence](https://img.shields.io/badge/licence-MIT-blue?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-Linux-lightgrey?style=flat-square)
-![python](https://img.shields.io/badge/python-3.10+-blue?style=flat-square)
+![python](https://img.shields.io/badge/python-3.11+-blue?style=flat-square)
 ![runs](https://img.shields.io/badge/runs-100%25%20local-success?style=flat-square)
 
-> *An AI assistant that remembers what you told it last week — and never sends any of it anywhere.*
+> *A local AI that runs on your own GPU, talks to you, codes with you, and learns new tricks
+> one extension at a time.*
 
-Hal runs a capable coding and research assistant entirely on your own GPU, and gives it long-term
-memory by wiring it into an Obsidian vault. Ask it questions about your own notes and it answers
-with citations you can click.
-
-![The vault's link graph filling in as Hal files and cross-links an imported archive](./media/graph2.gif)
-
-*Every dot is a note, every line a link Hal wrote. This is a few years of course material being
-filed, tagged and cross-referenced by `hal summarize`.*
+Hal is the core of a desktop assistant. It runs the local models, gives you a conversation with them
+(`hal chat`), and points [Claude Code](https://claude.ai/code) at them for coding (`hal here`).
+Everything else (a memory in Obsidian, your calendar on your phone, a voice, timers, lights,
+the computer itself) is an extension you add when you want it. Raw Hal works on its own.
 
 ## 🌟 Highlights
 
-- **Nothing leaves your machine.** The model, the embeddings and the search index all run locally.
-  The only network traffic is the initial model download.
-- **Answers from your own notes**, with `[[wikilink]]` citations back to the source — and it tells
-  you when your notes don't cover something instead of inventing an answer.
-- **Remembers across sessions.** It writes its own session logs and carries durable facts forward.
-- **Lives in your Obsidian vault**, reading and writing notes in the app while it's open.
-- **Twelve slash commands** for daily notes, meeting notes, inbox triage, weekly reviews and imports.
-- **A morning brief** assembled from your tasks, deadlines and recent work, written into today's note.
-- **Works as an MCP server**, so any MCP client can search your vault.
+- **One brain for every way in.** Terminal, voice and Telegram all share the same agent loop: a local
+  model that streams its reply and calls the tools of whatever extensions are installed.
+- **Extensions are just repositories.** `hal ext add calendar` clones one, runs its setup and starts
+  its services; `hal ext remove` undoes it. With none installed, Hal says so instead of pretending.
+- **It asks before it destroys.** Deleting, killing and shutting down need a yes from you in an
+  earlier turn; a model cannot confirm on its own behalf.
+- **Measured, not guessed.** `hal eval` asks Hal a set of real requests in a sandbox and checks every
+  answer, so a model or prompt change shows up as a number. `hal console` lets you try the same
+  requests by text or voice and grade them.
+- **The GPU is yours when you want it.** `hal off` (or the desktop launcher) stops everything that uses
+  the GPU and unloads the models; reminders keep running. `hal on` brings it back.
+- **Coding on your own hardware.** Claude Code runs against a local model, chosen for your GPU, from a
+  24GB card down to none at all.
 
 ## ℹ️ Overview
 
-Hal can point [Claude Code](https://claude.ai/code) at a local model served by
-[Ollama](https://ollama.com) instead of the cloud, then bolts on the pieces that make a local
-assistant genuinely useful: a memory system, a semantic index over your notes, and a set of commands
-for keeping the vault tidy enough to be worth searching.
-
-The local model is optional. `setup.sh` reads your GPU and picks one of three profiles, so the same
-repo works whether you have a 24GB card, a 12GB card, or no GPU at all — see
-[Requirements](#requirements). **Searching your notes stays local in every profile**, including
-`cloud`: the embedding model is small enough to run on a CPU, so your vault is indexed on your own
-machine and only the passages relevant to a question are ever sent anywhere.
-
-The vault is the point. Dump anything into the inbox and Hal files it into a cross-linked, indexed
-knowledge base — which then becomes the thing it searches when you ask it something.
-
-| Component | What it does |
+| Piece | What it does |
 |---|---|
-| `hal` | Launcher — starts a session in your vault, or in any project with `hal here` |
-| `claude-commands/` | The slash commands, installed into `~/.claude/commands/` |
-| `vault-index.py` | Builds the semantic index over your notes |
-| `ask.py` | Answers questions from the index, with citations |
-| `hal-mcp.py` | Serves the same search over MCP |
-| `morning-brief.py` | Writes a daily brief into today's note |
-| `register-repos.sh` | Adds your local git repos to the vault as summary notes |
+| `hal` | The launcher: chat, coding, on/off, extensions, eval and console |
+| `halcore/` | The brain (agent loop), extension management, services, eval and console |
+| `eval/scenarios.toml` | The requests Hal is tested against, and how each answer is checked |
+| `setup.sh` | Installs Ollama, the models for your GPU, Claude Code, and writes the config |
+| `hal-serve`, `hal-route.py`, `modes/` | The max profile's llama.cpp server and its five modes |
+| `models/` | The model catalogue and the role models (`hal-coder`, `hal-writer`, `hal-fast`) |
+| `extensions.toml` | The extensions `hal ext add` knows how to fetch |
+
+Hal finds extensions through [hal-hub](https://github.com/NotEoin/hal-hub), which sits beside it in
+the ecosystem's `core/` folder. The whole ecosystem, with an installer that sets up both and the
+extensions you choose, is [hal-ecosystem](https://github.com/NotEoin/hal-ecosystem).
 
 ### ✍️ Author
 
-Built by [@NotEoin](https://github.com/NotEoin). 
+Built by [@NotEoin](https://github.com/NotEoin).
 
 ## 🚀 Usage
 
 ```bash
-hal                  # start a session in your vault
-hal here             # start in the current directory, for a coding project
-hal ask "..."        # answer a question from your notes, with citations
-hal index            # build or refresh the search index
-hal brief            # write today's morning brief into your daily note
-hal model <name>     # switch to a different Ollama model
-hal mode <mode>      # max profile: gpu | cpu | hybrid | hybrid-256k | combined
+hal chat                 # talk to Hal; /reset starts over, /tools shows what it just ran
+hal chat "what's on tomorrow?"   # one message
+hal here                 # Claude Code on the local model, in the current directory
+hal ext list             # installed extensions, and the ones you can add
+hal ext add calendar     # add one (or --pack assistant for the everyday set)
+hal off / hal on         # free the GPU, and take it back
+hal status               # what is running
+hal eval                 # check Hal's answers, in a sandbox
+hal console              # try Hal and grade answers at http://127.0.0.1:8740
 ```
 
-Inside a session, the two commands that matter most day to day:
-
-| Command | When |
-|---|---|
-| `/load-context` | Start of a session — reloads context from memory and recent logs |
-| `/compress` | End of a session — saves what's worth keeping |
-
-Plus `/daily-note`, `/meeting-note`, `/inbox-process`, `/weekly-review`, `/ask`, `/brief`,
-`/preserve`, `/import-vault`, `/summarize-slides` and `/index-repos`.
-
-**→ Full reference: [SLASH-COMMANDS.md](SLASH-COMMANDS.md)**
+With the memory extension installed, `hal ask`, `hal index`, `hal brief`, `hal summarize` and
+`hal import` work on your Obsidian vault; see
+[hal-memory](https://github.com/NotEoin/hal-memory).
 
 ## ⬇️ Installation
 
+The easy way is the ecosystem installer, which sets up Hal, hal-hub and the extensions you pick:
+
 ```bash
-git clone https://github.com/NotEoin/Hal.git
-cd Hal
-chmod +x setup.sh hal
-./setup.sh
+git clone https://github.com/NotEoin/hal-ecosystem.git ~/hal-ecosystem
+cd ~/hal-ecosystem && ./install.sh
 ```
 
-`setup.sh` reads your GPU, proposes a profile and asks. Then it installs Ollama, pulls whatever that
-profile needs, installs Node, Claude Code and `uv`, sets up the slash commands and puts `hal` on your
-PATH. It's safe to re-run. Open a new shell afterwards.
+Raw Hal on its own:
+
+```bash
+mkdir -p ~/hal-ecosystem/core && cd ~/hal-ecosystem/core
+git clone https://github.com/NotEoin/Hal.git hal
+git clone https://github.com/NotEoin/hal-hub.git    # optional: needed only for extensions
+./hal/setup.sh
+```
+
+`setup.sh` reads your GPU, proposes a profile and asks. It installs Ollama and the models that profile
+needs, Node and Claude Code, puts `hal` on your PATH and writes `~/.config/hal/config.toml`. It's safe
+to re-run.
 
 ```bash
 ./setup.sh --profile cloud    # force a profile: max | 24gb | 12gb | cloud
 ./setup.sh --profile 12gb -y  # ...and skip the prompt
-```
-
-Your choice is written to `hal.conf`, which the launcher reads. Re-run `setup.sh` to change it.
-
-Then two Obsidian plugins — **Local REST API** and **Dataview** — and hand Hal the API key:
-
-```bash
-hal obsidian-key <YOUR_KEY>
 ```
 
 **→ Full setup walkthrough: [SETUP.md](SETUP.md)**
@@ -114,69 +100,74 @@ hal obsidian-key <YOUR_KEY>
 
 | | |
 |---|---|
-| **OS** | Linux |
+| **OS** | Linux with systemd (for the background services) |
+| **Python** | 3.11 or later; Hal itself needs nothing from PyPI |
 | **GPU** | Whatever you have — see the profiles below. None is fine |
-| **Disk** | ~160GB for the models on `max`, ~20GB on `24gb`, ~8GB on `12gb`, ~300MB on `cloud` |
-| **Apps** | [Obsidian](https://obsidian.md) with the Local REST API and Dataview plugins |
+| **Disk** | ~160GB for the models on `max`, ~25GB on `24gb`, ~12GB on `12gb`, ~3GB on `cloud` |
 
 #### Setup profiles
 
-| Profile | Picked when | Model | Answers written by |
-|---|---|---|---|
-| `max` | ≥22GB VRAM and ≥60GB RAM | three models in five modes, up to a 177B (~160GB) | your local models |
-| `24gb` | ≥22GB VRAM | Qwen3.8-27B (~18GB) | your local model |
-| `12gb` | ≥11GB VRAM | Gemma 4 12B, QAT (~7GB) | your local model |
-| `cloud` | no usable GPU | none | Claude Code, with your own login |
+Each profile has a coding model (what Claude Code talks to in `hal here`) and a chat brain (what
+answers in `hal chat`, the voice and Telegram). The brain is smaller, so it can sit beside the voice
+engine and answer within about a second.
 
-The `max` profile serves three models through llama.cpp and lets you pick where they run
-per launch: Qwen3.8-27B on the GPU (`gpu`, 80 tokens/s), the 177B Qwen3.8-Flash-Next-Coder
-in system RAM (`cpu`), the 177B Qwen3.8-Flash-Next split across both (`hybrid`, 25 tokens/s,
-or `hybrid-256k` for its full context), or `combined`, where a small classifier sends each
-request to the RAM model or the GPU model and the RAM model delegates its edits to GPU
-subagents.
+| Profile | Picked when | Coding model | Chat brain |
+|---|---|---|---|
+| `max` | ≥22GB VRAM and ≥60GB RAM | three models in five modes, up to a 177B (~160GB) | @BRAIN_BIG@ |
+| `24gb` | ≥22GB VRAM | Qwen3.8-27B (~18GB) | @BRAIN_BIG@ |
+| `12gb` | ≥11GB VRAM | Gemma 4 12B, QAT (~7GB) | @BRAIN_SMALL@ |
+| `cloud` | no usable GPU | none: Claude Code with your own login | Qwen3.5 2B, on the CPU |
+
+The `max` profile serves three models through llama.cpp and lets you pick where they run per launch:
+Qwen3.8-27B on the GPU (`gpu`, 80 tokens/s), the 177B Qwen3.8-Flash-Next-Coder in system RAM (`cpu`),
+the 177B Qwen3.8-Flash-Next split across both (`hybrid`, 25 tokens/s, or `hybrid-256k` for its full
+context), or `combined`, where a small classifier sends each request to the RAM model or the GPU model
+and the RAM model delegates its edits to GPU subagents.
 **→ Modes, measurements and quantisation choices: [MODES.md](MODES.md)**
 
-The `24gb` profile runs Qwen3.8-27B, the strongest coding model that fits a 24GB card. The `12gb`
-profile runs Gemma 4 12B, which is reliable at tool calling (what Claude Code actually leans on) and
-leaves enough VRAM free for [hal-voice](https://github.com/NotEoin/hal-voice) alongside it.
-
-All three profiles pull the ~300MB embedding model, because searching your notes is done locally
-regardless. `hal model <name>` switches the language model for a single launch.
+The chat brain was picked with `hal eval`; run it with `--model` a few times to compare your own
+candidates, and set the winner as `chat_model` in `~/.config/hal/config.toml`.
 
 Originally built on an RTX 3090; developed since on an RTX 4070.
 
+## 🧩 Extensions
+
+`hal ext list` shows what is installed and what else there is. Packs add a set at once:
+
+| Pack | Extensions |
+|---|---|
+| `assistant` | memory, calendar, tasks, notify, clock, web, briefing, voice |
+| `computer` | system, desktop, files, power, packages, devices, network, shell, screen |
+| `life` | habits, ledger, contacts, feeds, mail, phone, telegram |
+
+An extension is a folder with a `hal-module.toml` that declares its tools; hal-hub's README explains
+the format, and the ecosystem's `scaffold.py` creates one. Its services go in `systemd/` and are
+rendered with its own path, so it works wherever it is cloned; a unit marked `X-HalGPU=yes` is one
+`hal off` stops.
+
 ## 🔒 Privacy
 
-- **The embeddings and the index always run on your machine**, in every profile. Your vault is read,
-  chunked and searched locally; there is no hosted retrieval step.
-- **On the `24gb` and `12gb` profiles nothing leaves the machine at all** — the model answering you
-  is the one on your own GPU.
-- **On the `cloud` profile the answer is written by Claude Code**, so the passages retrieved for a
-  question are sent to Anthropic along with it. Search stays local; the write-up does not. If that
-  matters to you, use a local profile, or `hal ask --no-llm` to see the retrieved passages only.
-- Your vault is never uploaded by Hal itself, and is excluded from this repository by `.gitignore`.
-- `/index-repos` reads git metadata and README text only. It never reads file contents, and skips
-  `.env`, `*.key`, `*.pem`, credentials and anything matching `secrets*`.
+- **On the `max`, `24gb` and `12gb` profiles nothing leaves the machine**: the models answering you
+  are on your own GPU.
+- **On the `cloud` profile, coding goes to Claude Code with your own login.** The chat brain still runs
+  locally.
+- **Long jobs** that Hal hands to Claude Code (`deep_work`) use your Claude Code login unless you set
+  `[brain].deep_work = "hal"` (the local launcher) or `"off"`.
+- Extensions that reach the internet (web search, weather, iCloud sync, ntfy) say so in their READMEs.
 
 ## 🧭 Limitations
 
-- **Answers are only as good as your notes.** Retrieval can't rescue a vault full of empty stubs.
-- **Importing a large existing vault is slow**, even batched.
-- **A local 27B is not a frontier model.** It's very capable at code, search and note-wrangling, and
-  it will lose to a cloud model on hard multi-file reasoning.
+- **A local model is not a frontier model.** It is quick and good at everyday requests and tool calls,
+  and it will lose to a cloud model on hard, many-step reasoning; that is what `deep_work` is for.
+- **Small models misread odd phrasing.** `hal eval` keeps a list of what works; add a case when
+  something you say is misunderstood.
 - Linux only.
-
-## 🔗 Related projects
-
-- **[hal-voice](https://github.com/NotEoin/hal-voice)** — talk to Hal and have it answer aloud in
-  HAL 9000's voice.
-- **[canvas-downloader](https://github.com/NotEoin/canvas-downloader)** — bulk-import course
-  material into the vault.
 
 ## 💭 Feedback and contributing
 
 Questions, bugs and ideas welcome — open an [issue](https://github.com/NotEoin/Hal/issues) or start
-a [discussion](https://github.com/NotEoin/Hal/discussions).
+a [discussion](https://github.com/NotEoin/Hal/discussions). Run `python3 -m unittest discover -s tests`
+and `hal eval` before sending a change to the brain.
 
 ## 📄 Licence
 

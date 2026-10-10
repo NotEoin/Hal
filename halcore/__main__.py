@@ -6,8 +6,6 @@ def main() -> int:
     cmd, rest = (sys.argv[1], sys.argv[2:]) if len(sys.argv) > 1 else ("chat", [])
     if cmd == "chat":
         from .chat import main as run
-    elif cmd == "api":
-        from .api import main as run
     elif cmd == "ext":
         from .ext import main as run
     elif cmd == "eval":
@@ -16,6 +14,8 @@ def main() -> int:
         from .console import main as run
     elif cmd == "units":
         from .units import main as run
+    elif cmd == "configure":
+        from .configure import main as run
     elif cmd == "power":
         from .power import main as run
     else:

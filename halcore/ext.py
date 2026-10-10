@@ -9,6 +9,7 @@ folder (ecosystem/extensions, or [hal].extensions_dir). hal-hub finds it there, 
     hal ext add --pack assistant      a set: the everyday desktop assistant
     hal ext disable phone             keep it installed but unused; `enable` undoes it
     hal ext remove phone              stop its services and move it to ~/.local/share/hal/removed
+    hal ext setup [name ...]          run install steps again (all extensions when none named)
     hal ext update                    git pull every extension
 """
 from __future__ import annotations
@@ -149,6 +150,8 @@ def main(argv: list[str]) -> int:
     a.add_argument("--pack", choices=sorted(PACKS))
     for cmd in ("remove", "enable", "disable"):
         sub.add_parser(cmd).add_argument("name")
+    s = sub.add_parser("setup")
+    s.add_argument("names", nargs="*")
     sub.add_parser("list")
     sub.add_parser("update")
     sub.add_parser("doctor")
@@ -163,6 +166,12 @@ def main(argv: list[str]) -> int:
         set_disabled(names)
         units.install(start=not _hal_off(), desktop=False)
         print(f"{name} {args.cmd}d")
+        return 0
+    if args.cmd == "setup":
+        have = installed()
+        for name in args.names or list(have):
+            if name.removeprefix("hal-") in have:
+                _install_step(have[name.removeprefix("hal-")])
         return 0
     if args.cmd == "update":
         for name, root in installed().items():
