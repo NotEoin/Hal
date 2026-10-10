@@ -90,6 +90,7 @@ DEEP_WORK = {"type": "function", "function": {
         "required": ["task"]}}}
 
 LEAKED = re.compile(r"^\s*(?:\[TOOL_CALLS\])?\s*([a-z_]+)\s*(\{.*\})\s*$", re.S)
+SECRET_ARG = re.compile(r"pass(word)?|token|secret|api_?key|credential", re.I)     # never logged
 THINK = re.compile(r"<think>.*?</think>\s*", re.S)
 
 
@@ -299,7 +300,8 @@ class Brain:
                             args = {}
                     t0 = time.time()
                     out = self._run_tool(name, args, asked)
-                    ran.append({"name": name, "args": args, "ok": "error" not in out,
+                    shown = {k: "***" if SECRET_ARG.search(k) else v for k, v in args.items()}
+                    ran.append({"name": name, "args": shown, "ok": "error" not in out,
                                 "confirm": "needs_confirmation" in out, "seconds": round(time.time() - t0, 2),
                                 "result": json.dumps(out, default=str)[:400]})
                     messages.append({"role": "tool", "tool_name": name,
