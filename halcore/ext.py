@@ -15,6 +15,7 @@ folder (ecosystem/extensions, or [hal].extensions_dir). hal-hub finds it there, 
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -95,6 +96,8 @@ def add(names: list[str]) -> int:
             failed += 1
             continue
         repo = known[name]["repo"]
+        if os.environ.get("HAL_GITHUB"):          # a fork or a local mirror
+            repo = os.environ["HAL_GITHUB"].rstrip("/") + "/" + repo.rsplit("/", 1)[-1]
         dest = base / Path(repo).stem
         print(f"  {name}: cloning {repo}")
         if subprocess.run(["git", "clone", "--quiet", repo, str(dest)]).returncode != 0:
