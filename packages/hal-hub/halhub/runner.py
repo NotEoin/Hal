@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
 import os
 import subprocess
 import sys
@@ -114,11 +115,19 @@ def call(tool: Tool, args: dict | None = None) -> dict:
     return out
 
 
+SECRET = re.compile(r"pass(word)?|token|secret|api_?key|credential", re.I)
+
+
+def redact(args: dict) -> dict:
+    """Returns the arguments with secrets (passwords, tokens, keys) blanked, for logs."""
+    return {k: "***" if SECRET.search(k) else v for k, v in args.items()}
+
+
 def _log(tool: Tool, args: dict, out: dict, seconds: float) -> None:
     try:
         LOG.parent.mkdir(parents=True, exist_ok=True)
         with LOG.open("a") as f:
-            f.write(json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "tool": tool.name, "args": args,
+            f.write(json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "tool": tool.name, "args": redact(args),
                                 "ok": "error" not in out, "seconds": round(seconds, 3)}, default=str) + "\n")
     except OSError:
         pass
