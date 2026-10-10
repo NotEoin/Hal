@@ -92,6 +92,7 @@ def make_sandbox(model: str | None) -> Path:
         hal["chat_model"] = model
     brain = dict(real.get("brain", {}))
     brain["deep_work"] = "off"
+    brain["keep_alive"] = "2m"          # don't hold the GPU after the run
     if model:
         brain["model"] = model
     hub = {"module_paths": real.get("hub", {}).get("module_paths") or
