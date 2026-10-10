@@ -77,7 +77,7 @@ look_for = "Hal lists tomorrow's events in plain speech, including coffee with P
 [[case]]
 id = "calendar-empty-day"
 category = "calendar"
-ask = "Have I got anything on the 3rd of March 2031?"
+ask = "Have I got anything on Saturday the 8th of March 2031?"
 needs = ["calendar"]
 any_tools = ["calendar_agenda", "calendar_find", "calendar_free"]
 reply = "(?i)nothing|no(thing)? (events?|plans|appointments|entries)|free|clear|empty|don't have|do not have|couldn't find any"

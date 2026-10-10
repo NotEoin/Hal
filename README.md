@@ -113,9 +113,9 @@ engine and answer within about a second.
 
 | Profile | Picked when | Coding model | Chat brain |
 |---|---|---|---|
-| `max` | ≥22GB VRAM and ≥60GB RAM | three models in five modes, up to a 177B (~160GB) | @BRAIN_BIG@ |
-| `24gb` | ≥22GB VRAM | Qwen3.8-27B (~18GB) | @BRAIN_BIG@ |
-| `12gb` | ≥11GB VRAM | Gemma 4 12B, QAT (~7GB) | @BRAIN_SMALL@ |
+| `max` | ≥22GB VRAM and ≥60GB RAM | three models in five modes, up to a 177B (~160GB) | Gemma 4 12B, QAT (~7GB) |
+| `24gb` | ≥22GB VRAM | Qwen3.8-27B (~18GB) | Gemma 4 12B, QAT (~7GB) |
+| `12gb` | ≥11GB VRAM | Gemma 4 12B, QAT (~7GB) | Qwen3.5 4B (~3GB) |
 | `cloud` | no usable GPU | none: Claude Code with your own login | Qwen3.5 2B, on the CPU |
 
 The `max` profile serves three models through llama.cpp and lets you pick where they run per launch:

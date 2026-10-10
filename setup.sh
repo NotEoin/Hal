@@ -102,15 +102,15 @@ pick_profile() {
   case "$1" in
     max)
       # Claude Code talks to the llama.cpp router; see modes/ for the models
-      MAIN_BASE=""; MAIN_MODEL="hal-gpu"; FAST_MODEL="hal-gpu"; BRAIN_MODEL="@BRAIN_BIG@" ;;
+      MAIN_BASE=""; MAIN_MODEL="hal-gpu"; FAST_MODEL="hal-gpu"; BRAIN_MODEL="gemma4:12b-it-qat" ;;
     24gb)
       MAIN_BASE="qwen3.8:27b";     MAIN_MODEL="qwen3.8-hal"
-      FAST_MODEL="qwen3.5:4b";     BRAIN_MODEL="@BRAIN_BIG@" ;;
+      FAST_MODEL="qwen3.5:4b";     BRAIN_MODEL="gemma4:12b-it-qat" ;;
     12gb)
       # Gemma 4 12B (quantisation-aware trained) is reliable at tool calls, which is
       # what Claude Code leans on, and leaves GPU headroom for hal-voice's TTS engine.
       MAIN_BASE="gemma4:12b-it-qat"; MAIN_MODEL="gemma4-hal"
-      FAST_MODEL="qwen3.5:2b";       BRAIN_MODEL="@BRAIN_SMALL@" ;;
+      FAST_MODEL="qwen3.5:2b";       BRAIN_MODEL="qwen3.5:4b" ;;
     cloud)
       MAIN_BASE=""; MAIN_MODEL=""; FAST_MODEL=""; BRAIN_MODEL="qwen3.5:2b" ;;
     *) err "Unknown profile: $1 (expected max, 24gb, 12gb or cloud)"; exit 1 ;;

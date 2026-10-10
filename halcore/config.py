@@ -16,7 +16,7 @@ ECOSYSTEM = ROOT.parents[1]                         # hal-ecosystem, when hal si
 SHARED = {
     "vault": "~/Documents/vaults/Hal",
     "ollama_url": "http://localhost:11434",
-    "chat_model": "qwen3.5:9b",
+    "chat_model": "gemma4:12b-it-qat",
     "fast_model": "qwen3.5:4b",
     "embed_model": "embeddinggemma",
 }
