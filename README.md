@@ -74,7 +74,7 @@ Inside a session, the two commands that matter most day to day:
 
 | Command | When |
 |---|---|
-| `/resume` | Start of a session — reloads context from memory and recent logs |
+| `/load-context` | Start of a session — reloads context from memory and recent logs |
 | `/compress` | End of a session — saves what's worth keeping |
 
 Plus `/daily-note`, `/meeting-note`, `/inbox-process`, `/weekly-review`, `/ask`, `/brief`,

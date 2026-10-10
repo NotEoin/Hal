@@ -13,7 +13,7 @@ directory is inside `$HAL_VAULT`:
 
 ## Memory
 
-### `/resume [N] [topic]`
+### `/load-context [N] [topic]`
 
 Reload context at the start of a session. A leading number sets how many recent session logs to
 pull (default 3); anything after it is treated as a topic to search for across the logs and memory.
@@ -30,7 +30,7 @@ structure, then offers to lift anything durable up into `CLAUDE.md`.
 
 Logs are summary-first, not transcripts. Each one is a Quick Reference block, decisions made,
 pending tasks, and optionally a few verbatim snippets. A full transcript would eat the context
-window on the next `/resume`, which defeats the point.
+window on the next `/load-context`, which defeats the point.
 
 ### `/preserve`
 

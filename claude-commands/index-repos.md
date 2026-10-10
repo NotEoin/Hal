@@ -67,6 +67,6 @@ repo name — so it surfaces under that repo's hub note and on `Areas/Code/_Inde
 ## Step 5 — Wrap up
 - `Areas/Code/_Index.md` refreshes itself (Dataview) — no action needed.
 - Update `$HAL_VAULT/CLAUDE.md` **Current Projects** with the active repos (name — one line —
-  path), so they load with `/resume`.
+  path), so they load with `/load-context`.
 - Report: notes summarised, repos still needing `/init`, anything without a README, and any
   GitHub-only cards. Remind the user they can re-run anytime — it's idempotent.

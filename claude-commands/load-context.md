@@ -4,7 +4,7 @@ argument-hint: "[N] [topic]"
 allowed-tools: Bash, Read, Glob, Grep
 ---
 
-# /resume — Load Context
+# /load-context — Load Context
 
 Arguments (all optional): `$ARGUMENTS`
 - A leading **number** = how many recent session logs to load (default **3**).

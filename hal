@@ -55,6 +55,11 @@ UNIVERSITY="${HAL_UNIVERSITY:-University}"
 # local model from running away into a loop. To truly allow longer single replies you must
 # raise NUM_CTX in setup.sh and rebuild the model (costs VRAM). Override: HAL_MAX_OUTPUT_TOKENS.
 MAX_OUTPUT_TOKENS="${HAL_MAX_OUTPUT_TOKENS:-8192}"
+# Permission mode for local models. Auto mode asks the model itself to approve each shell
+# command, with a ~36K-token prompt and a 60 s limit; prefill on the RAM-backed modes takes
+# about 2 minutes, so every check times out and the command is denied. Auto mode also drops
+# allow rules such as Bash(python3:*). A --permission-mode on the command line still wins.
+PERMISSION_MODE="${HAL_PERMISSION_MODE:-acceptEdits}"
 
 usage() { sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'; }
 
@@ -240,4 +245,10 @@ else
   echo "Hal [$HAL_PROFILE] → Claude Code (your own login)   |   dir: $TARGET"
 fi
 cd "$TARGET" || { echo "Cannot cd to $TARGET"; exit 1; }
+if [ -n "$MODEL" ]; then
+  case " $* " in
+    *" --permission-mode"*|*" --dangerously-skip-permissions "*) ;;
+    *) set -- --permission-mode "$PERMISSION_MODE" "$@" ;;
+  esac
+fi
 exec claude "$@"

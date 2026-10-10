@@ -532,7 +532,7 @@ Next steps (a few one-time manual bits):
   4) Launch it:
        hal            # opens Claude Code in your vault
      then type:
-       /resume
+       /load-context
 
 Profile '$PROFILE' is recorded in hal.conf — edit it, or re-run ./setup.sh --profile <name>
 to switch between max, 24gb, 12gb and cloud.

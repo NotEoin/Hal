@@ -12,7 +12,7 @@ This folder/
 │   ├── CLAUDE.md       ← Hal's permanent memory
 │   ├── .mcp.json       ← Obsidian connection config
 │   ├── +Inbox/  Areas/  Calendar/  System/
-├── claude-commands/    ← the /resume /compress /preserve … skills (installed for you)
+├── claude-commands/    ← the /load-context /compress /preserve … skills (installed for you)
 ├── setup.sh            ← run this once; picks a profile and writes hal.conf
 ├── hal                 ← the launcher
 └── SETUP.md            ← you are here
@@ -23,7 +23,7 @@ This folder/
 - **A brain:** on the local profiles, a model served by Ollama with a 32K context
   (Qwen3.8-27B on `24gb`, Gemma 4 12B on `12gb`); on `cloud`, Claude Code itself.
 - **Claude Code, pointed at it:** the same CLI and tooling, inference wherever you chose.
-- **Memory system:** `/resume` reloads context, `/compress` saves a session, `/preserve`
+- **Memory system:** `/load-context` reloads context, `/compress` saves a session, `/preserve`
   writes durable facts — so Hal remembers across sessions.
 - **Proactive vault:** add a note once with frontmatter; dashboards surface it everywhere.
 
@@ -79,7 +79,7 @@ hal
 That opens Claude Code in your vault, on whichever brain your profile selected. Try:
 
 ```
-/resume
+/load-context
 ```
 
 The first message is a little slow while the model loads into VRAM; it's snappy after that.
@@ -97,7 +97,7 @@ When you're done for the session:
 |---|---|
 | `hal` | Open Hal in your vault (the brain) |
 | `hal here` | Open Hal in the current folder (for coding projects) |
-| `/resume [N] [topic]` | Load memory + last N sessions; optionally search a topic |
+| `/load-context [N] [topic]` | Load memory + last N sessions; optionally search a topic |
 | `/compress` | Save this session as a searchable log |
 | `/preserve` | Add a permanent fact to `CLAUDE.md` |
 | `/daily-note` | Create/open today's note with priorities |
