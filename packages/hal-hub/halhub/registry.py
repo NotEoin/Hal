@@ -2,8 +2,9 @@
 
 A module is any directory holding a hal-module.toml. Modules are looked for in
 the directories named by HAL_MODULE_PATH (colon-separated), else by
-`module_paths` in ~/.config/hal/config.toml, else in the hal-ecosystem folder
-beside this repository. Stdlib only.
+`module_paths` in ~/.config/hal/config.toml, else in the `core/` and
+`extensions/` folders of the hal-ecosystem checkout this repository sits in.
+Stdlib only.
 """
 from __future__ import annotations
 
@@ -79,7 +80,11 @@ def search_paths() -> list[Path]:
     configured = load_config().get("hub", {}).get("module_paths")
     if configured:
         return [Path(p).expanduser() for p in configured]
-    return [Path(__file__).resolve().parents[2]]
+    here = Path(__file__).resolve().parents[2]      # the folder holding hal-hub
+    ecosystem = here.parent
+    if (ecosystem / "extensions").is_dir():
+        return [ecosystem / "core", ecosystem / "extensions"]
+    return [here]
 
 
 def load_module(root: Path) -> Module:
