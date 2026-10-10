@@ -77,7 +77,7 @@ def _install_step(root: Path) -> None:
     info = tomllib.loads((root / "hal-module.toml").read_text()).get("module", {})
     cmd = info.get("install")
     if cmd:
-        print(f"  running {root.name}'s install step")
+        print(f"  running {root.name}'s install step", flush=True)
         subprocess.run([a.replace("{root}", str(root)) for a in cmd], cwd=root)
 
 
@@ -89,7 +89,8 @@ def add(names: list[str]) -> int:
     for name in names:
         name = name.removeprefix("hal-")
         if name in have:
-            print(f"  {name}: already installed")
+            print(f"  {name}: already installed", flush=True)
+            _install_step(have[name])          # safe to repeat; picks up anything new
             continue
         if name not in known:
             print(f"  {name}: not in the catalogue; clone it into {base} by hand")
@@ -99,7 +100,7 @@ def add(names: list[str]) -> int:
         if os.environ.get("HAL_GITHUB"):          # a fork or a local mirror
             repo = os.environ["HAL_GITHUB"].rstrip("/") + "/" + repo.rsplit("/", 1)[-1]
         dest = base / Path(repo).stem
-        print(f"  {name}: cloning {repo}")
+        print(f"  {name}: cloning {repo}", flush=True)
         if subprocess.run(["git", "clone", "--quiet", repo, str(dest)]).returncode != 0:
             failed += 1
             continue
