@@ -79,8 +79,8 @@ id = "calendar-empty-day"
 category = "calendar"
 ask = "Have I got anything on the 3rd of March 2031?"
 needs = ["calendar"]
-any_tools = ["calendar_agenda", "calendar_find"]
-reply = "(?i)nothing|no(thing)? (events?|plans|appointments)|free|clear|empty|don't have|do not have"
+any_tools = ["calendar_agenda", "calendar_find", "calendar_free"]
+reply = "(?i)nothing|no(thing)? (events?|plans|appointments|entries)|free|clear|empty|don't have|do not have|couldn't find any"
 look_for = "Hal checks and says the day is free; it must not invent events."
 
 [[case]]
@@ -266,7 +266,7 @@ look_for = "391."
 id = "knowledge-convert"
 category = "knowledge"
 ask = "How many miles is 10 kilometres?"
-reply = "6[.,]2"
+reply = "(?i)6[.,]2|six point two"
 look_for = "About 6.2 miles."
 
 [[case]]

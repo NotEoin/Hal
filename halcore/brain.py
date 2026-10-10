@@ -181,13 +181,17 @@ class Brain:
             return self._deep_work(args.get("task", ""))
         if not self.hub:
             return {"error": "no extensions are installed"}
-        # A confirmation only counts when this tool asked in an earlier turn and the user has
-        # answered since; a model that confirms on its own gets the question back instead.
-        if args.get("_confirmed") and name not in self.pending:
-            args = {k: v for k, v in args.items() if k != "_confirmed"}
+        # Models spell the flag several ways. A confirmation only counts when this tool asked in
+        # an earlier turn and the user has answered since; otherwise the question comes back.
+        confirmed = any(args.pop(k, False) in (True, "true", "yes") for k in ("_confirmed", "confirmed", "confirm"))
+        if confirmed and name in self.pending:
+            args["_confirmed"] = True
         out = self.hub.call(name, args)
         if "needs_confirmation" in out:
             asked.add(name)
+        elif "error" in out:
+            # Without this, a model often tells the user it worked.
+            out["note"] = "This did NOT happen. Fix the arguments and call again, or tell the user it failed."
         return out
 
     def _deep_work(self, task: str) -> dict:
