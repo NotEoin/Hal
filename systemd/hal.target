@@ -1,0 +1,7 @@
+[Unit]
+Description=Hal: the local assistant and every installed extension's services
+Wants=graphical-session.target
+After=graphical-session.target
+
+[Install]
+WantedBy=graphical-session.target

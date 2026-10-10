@@ -1,0 +1,47 @@
+# Local model catalogue for an RTX 3090 (24 GB VRAM) with 61 GB RAM.
+# Columns: tag, size on disk, role. Pulled top to bottom by pull-all.sh.
+# Sizes and tags checked against ollama.com/library on 2026-10-08.
+
+# Role models: built into hal-coder, hal-writer and hal-fast by build-roles.sh
+qwen3.8:27b                      18GB   main and coding; strongest coder that fits in VRAM
+gemma4:31b-it-qat                19GB   writing; most natural prose, reliable tool calls
+qwen3.5:4b                       3.3GB  fast decisions, triage, JSON extraction
+nomic-embed-text                 274MB  embeddings for the existing Hal vault index
+
+# Full-GPU alternatives (one at a time; each fills most of the 24 GB)
+qwen3.8:27b-mtp-q4_K_M           18GB   qwen3.8 with multi-token prediction; faster decode
+qwen3.6:27b-coding-mtp-q4_K_M    18GB   coding-tuned qwen3.6
+qwen3.5:35b-a3b                  22GB   MoE generalist, 3B active; fast for its size
+gemma4:26b-a4b-it-qat            16GB   MoE all-rounder, 4B active; fast, leaves room for context
+glm-4.7-flash                    19GB   30B-class MoE generalist
+nemotron-3.5-lightning:30b       24GB   MoE agent model, 1M-token context
+devstral-small-2:24b             15GB   agentic coding over large codebases, 384K context
+mistral-small3.2:24b             15GB   steady assistant, function calling
+magistral:24b                    14GB   step-by-step reasoning
+gpt-oss:20b                      14GB   reasoning, MoE, fast
+granite4.2:30b                   18GB   structured JSON output and RAG
+qwen3-vl:30b                     20GB   vision: screenshots, documents, OCR
+
+# Mid-size: long context with room to spare, or two models resident at once
+gemma4:12b-it-qat                7.2GB  writing with long context
+ministral-3:14b                  9.1GB  general assistant, 256K context
+qwen3.5:9b                       6.6GB  general assistant
+granite4.2:8b                    5.3GB  JSON extraction
+qwen3-vl:8b                      6.1GB  fast vision
+
+# Small and fast: always-on helpers, classification, routing
+gemma4:e4b-it-qat                6.1GB  on-device class, multimodal
+gemma4:e2b-it-qat                4.3GB  on-device class, multimodal
+phi4-mini                        2.5GB  short reasoning, 128K context
+ministral-3:3b                   3.0GB  routing
+granite4.2:3b                    2.2GB  structured output
+qwen3.5:2b                       1.9GB  tiny generalist
+
+# Embeddings
+qwen3-embedding:8b               4.7GB  highest-quality retrieval
+qwen3-embedding:0.6b             639MB  fast retrieval
+bge-m3                           1.2GB  multilingual retrieval
+embeddinggemma                   622MB  small retrieval
+
+# Larger than VRAM: runs split across GPU and RAM, roughly 10 tokens/s
+gpt-oss:120b                     65GB   hardest reasoning, when speed does not matter

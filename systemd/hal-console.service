@@ -1,0 +1,16 @@
+[Unit]
+Description=Hal test console: try Hal and grade answers at http://127.0.0.1:8740
+PartOf=hal.target
+After=network.target
+X-HalGPU=yes
+
+[Service]
+WorkingDirectory=@CORE@
+ExecStart=/usr/bin/python3 -m halcore console
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=%h/.npm-global/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=hal.target

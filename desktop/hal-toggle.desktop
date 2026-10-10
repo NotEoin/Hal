@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Hal on/off
+Comment=Turn Hal off to free the GPU, or back on
+Exec=@CORE@/hal toggle
+Icon=audio-input-microphone
+Terminal=false
+Categories=Utility;

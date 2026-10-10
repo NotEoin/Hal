@@ -1,26 +1,54 @@
 #!/usr/bin/env bash
 #
-# hal — launch Claude Code against your local model, or the cloud. See hal.conf.
+# hal — your local AI: talk to it, code with it, and add extensions.
 #
-#   hal                  open Claude Code in your vault (your "second brain")
-#   hal here [args...]   open in the current directory (for coding projects)
-#   hal summarize [opts] grind through outstanding slide summaries, unattended
-#   hal brief [opts]     write today's local morning brief into your daily note
-#   hal index [opts]     (re)build the local semantic index of your vault
-#   hal ask "question"   answer a question grounded in your own notes (cited)
-#   hal obsidian-key K   save your Obsidian Local REST API key (one time)
+#   hal chat [message]   talk to Hal in the terminal (uses installed extensions' tools)
+#   hal                  open Claude Code on the local model, in your vault
+#   hal here [args...]   open Claude Code in the current directory (for coding projects)
+#   hal on | off         start Hal's services, or stop the ones using the GPU and free it
+#   hal toggle           on if off, off if on (the desktop launcher runs this)
+#   hal status           what is running, and on the max profile what the model server serves
+#   hal ext [list|add|remove|enable|disable|update|doctor]   manage extensions
+#   hal console          the test console: try Hal and grade answers, http://127.0.0.1:8740
+#   hal eval [--model M] check Hal's answers against eval/scenarios.toml, in a sandbox
+#   hal install          render and start every module's services and launchers
 #   hal model NAME       use a different Ollama model for this launch
 #   hal mode NAME [here] max profile: gpu | cpu | hybrid | hybrid-256k | combined
 #   hal serve [MODE]     max profile: start the model server without Claude Code
-#   hal stop | status    max profile: stop the model server, or show what it serves
+#   hal stop             max profile: stop the model server
+#   hal ask|index|brief|summarize|import|obsidian-key   vault commands, from the memory extension
 #   hal help             show this help
 #
 set -uo pipefail
 
 # Resolve real location even when called through the ~/.local/bin/hal symlink
 HAL_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+halcore() { PYTHONPATH="$HAL_ROOT${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m halcore "$@"; }
+
+# ---- Commands that need neither hal.conf nor Claude Code --------------------
+case "${1:-}" in
+  chat|console|eval|ext|units) halcore "$@" ;;
+  on|off|toggle) halcore power "$@" ;;
+  install) shift; halcore units install --start "$@" ;;
+  ask|index|brief|summarize|import|obsidian-key|register-repos)
+    # The vault lives in the memory extension.
+    MEMORY="$(command -v hal-memory || true)"
+    for candidate in "$HAL_ROOT/../../extensions/hal-memory/bin/hal-memory" \
+                     "${HAL_EXTENSIONS:-$HOME/.local/share/hal/extensions}/hal-memory/bin/hal-memory"; do
+      [ -z "$MEMORY" ] && [ -x "$candidate" ] && MEMORY="$candidate"
+    done
+    if [ -z "$MEMORY" ]; then
+      echo "'hal $1' comes from the memory extension. Add it with:  hal ext add memory"
+      exit 1
+    fi
+    exec "$MEMORY" "$@" ;;
+esac
+
+# The vault: HAL_VAULT, else [hal].vault in ~/.config/hal/config.toml, else ./Vault
+if [ -z "${HAL_VAULT:-}" ]; then
+  HAL_VAULT="$(python3 -c 'import os,tomllib;p=os.path.expanduser(os.environ.get("HAL_CONFIG","~/.config/hal/config.toml"));print(os.path.expanduser(tomllib.load(open(p,"rb")).get("hal",{}).get("vault","")))' 2>/dev/null || true)"
+fi
 VAULT="${HAL_VAULT:-$HAL_ROOT/Vault}"
-KEY_FILE="$HOME/.config/hal/obsidian_api_key"
 
 # ---- Setup profile ----------------------------------------------------------
 # hal.conf is written by ./setup.sh and records which brain this install uses:
@@ -61,32 +89,11 @@ MAX_OUTPUT_TOKENS="${HAL_MAX_OUTPUT_TOKENS:-8192}"
 # allow rules such as Bash(python3:*). A --permission-mode on the command line still wins.
 PERMISSION_MODE="${HAL_PERMISSION_MODE:-acceptEdits}"
 
-usage() { sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,21p' "$(readlink -f "$0")" | sed 's/^# \{0,1\}//'; }
 
-MODE="claude"
 case "${1:-}" in
   help|-h|--help)
     usage; exit 0 ;;
-  obsidian-key)
-    KEY="${2:-}"
-    if [ -z "$KEY" ]; then echo "Usage: hal obsidian-key <API_KEY>"; exit 1; fi
-    mkdir -p "$(dirname "$KEY_FILE")"
-    printf '%s' "$KEY" > "$KEY_FILE"
-    chmod 600 "$KEY_FILE"
-    echo "Saved Obsidian API key. Hal can now talk to your running Obsidian app."
-    exit 0 ;;
-  summarize)
-    MODE="summarize"; shift
-    TARGET="$VAULT" ;;
-  brief)
-    MODE="brief"; shift
-    TARGET="$VAULT" ;;
-  index)
-    MODE="index"; shift
-    TARGET="$VAULT" ;;
-  ask)
-    MODE="ask"; shift
-    TARGET="$VAULT" ;;
   model)
     MODEL="${2:-$MODEL}"; shift 2 || true
     TARGET="$VAULT" ;;
@@ -99,8 +106,12 @@ case "${1:-}" in
     fi ;;
   serve)
     exec "$HAL_ROOT/hal-serve" start "${2:-$SERVE_MODE}" ;;
-  stop|status)
-    exec "$HAL_ROOT/hal-serve" "$1" ;;
+  stop)
+    exec "$HAL_ROOT/hal-serve" stop ;;
+  status)
+    PYTHONPATH="$HAL_ROOT" python3 -m halcore power status
+    [ "$BACKEND" = "llamacpp" ] && exec "$HAL_ROOT/hal-serve" status
+    exit 0 ;;
   here)
     shift; TARGET="$PWD" ;;
   *)
@@ -173,68 +184,23 @@ export HAL_OLLAMA_URL="$OLLAMA_URL"
 export HAL_ANSWERER="$ANSWERER"
 export HAL_UNIVERSITY="$UNIVERSITY"
 
-# Load the Obsidian key (used by .mcp.json's ${OBSIDIAN_API_KEY})
+# Load the Obsidian key (used by the vault's .mcp.json as ${OBSIDIAN_API_KEY})
+KEY_FILE="$HOME/.config/hal/obsidian_api_key"
 if [ -f "$KEY_FILE" ]; then
   export OBSIDIAN_API_KEY="$(cat "$KEY_FILE")"
 fi
 
 # ---- Preflight: start the llama.cpp router for this mode --------------------
-if [ "$BACKEND" = "llamacpp" ] && [ "$MODE" != "index" ]; then
-  if ! "$HAL_ROOT/hal-serve" start "$SERVE_MODE"; then
-    case "$MODE" in
-      brief) echo "Note: the model server didn't start, so the brief falls back to its plain format." ;;
-      ask) echo "Note: the model server didn't start; only 'hal ask --no-llm' will work." ;;
-      *) exit 1 ;;
-    esac
-  fi
+if [ "$BACKEND" = "llamacpp" ]; then
+  "$HAL_ROOT/hal-serve" start "$SERVE_MODE" || exit 1
+elif [ -n "$MODEL" ] && ! curl -fsS "$OLLAMA_URL/api/version" >/dev/null 2>&1; then
+  echo "Ollama isn't responding on $OLLAMA_URL."
+  echo "Start it with:  ollama serve   (or: systemctl start ollama), then re-run hal."
+  exit 1
 fi
-
-# ---- Preflight: is Ollama up? -----------------------------------------------
-# Needed for the local model (24gb/12gb) AND for embeddings in every profile, so the
-# index/ask commands still want it even on cloud.
-if ! curl -fsS "$OLLAMA_URL/api/version" >/dev/null 2>&1; then
-  case "$MODE" in
-    brief) echo "Note: Ollama isn't up — the brief will fall back to its plain (no-LLM) format." ;;
-    index|ask) echo "Note: Ollama isn't up — embeddings are unavailable, so only --mock (index) / --mock|--no-llm (ask) will work." ;;
-    *)
-      if [ -n "$MODEL" ] && [ "$BACKEND" != "llamacpp" ]; then
-        echo "Ollama isn't responding on $OLLAMA_URL."
-        echo "Start it with:  ollama serve   (or: systemctl start ollama), then re-run hal."
-        exit 1
-      fi
-      # Cloud profile: Claude Code doesn't need Ollama at all. Only 'hal ask' does.
-      echo "Note: Ollama isn't up — 'hal ask' and 'hal index' won't work until it is." ;;
-  esac
-fi
-case "$MODE" in
-  summarize|brief|index|ask) : ;;   # these don't need Claude Code on PATH
-  *)
-    if ! command -v claude >/dev/null 2>&1; then
-      echo "Claude Code isn't on your PATH. Run ./setup.sh, then open a new terminal."
-      exit 1
-    fi ;;
-esac
-
-# Unattended slide-summary runner (talks to you as Hal, resumes itself).
-if [ "$MODE" = "summarize" ]; then
-  cd "$TARGET" || { echo "Cannot cd to $TARGET"; exit 1; }
-  exec python3 -u "$HAL_ROOT/summarize-all.py" "$@"
-fi
-
-# Local morning brief — assembles your day and writes it into today's daily note.
-if [ "$MODE" = "brief" ]; then
-  cd "$TARGET" || { echo "Cannot cd to $TARGET"; exit 1; }
-  exec python3 -u "$HAL_ROOT/morning-brief.py" "$@"
-fi
-
-# (Re)build the local semantic index of the vault (incremental; nothing leaves the machine).
-if [ "$MODE" = "index" ]; then
-  exec python3 -u "$HAL_ROOT/vault-index.py" --vault "$VAULT" "$@"
-fi
-
-# Ask a question, answered ONLY from your own notes, with [[wikilink]] citations.
-if [ "$MODE" = "ask" ]; then
-  exec python3 -u "$HAL_ROOT/ask.py" --vault "$VAULT" "$@"
+if ! command -v claude >/dev/null 2>&1; then
+  echo "Claude Code isn't on your PATH. Run ./setup.sh, then open a new terminal."
+  exit 1
 fi
 
 if [ "$BACKEND" = "llamacpp" ]; then

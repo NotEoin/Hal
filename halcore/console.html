@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hal test console</title>
+<style>
+:root {
+  --bg: #f6f5f2; --card: #ffffff; --ink: #1d1d1b; --muted: #6b6a66; --line: #e3e1db;
+  --accent: #c8102e; --pass: #1f7a4d; --fail: #b3261e; --warn: #9a6700; --chip: #efede8;
+  --mono: ui-monospace, "JetBrains Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #141413; --card: #1e1e1c; --ink: #ecebe6; --muted: #9c9a93; --line: #34332f;
+          --accent: #ff4d5e; --pass: #4fc48a; --fail: #ff7a70; --warn: #e3b341; --chip: #2a2926; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line); padding: 14px 20px; }
+.bar { max-width: 980px; margin: 0 auto; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.eye { width: 18px; height: 18px; border-radius: 50%; background: radial-gradient(circle at 40% 40%, #ffb3b3, var(--accent) 45%, #3a0007 75%); box-shadow: 0 0 10px var(--accent); }
+h1 { font-size: 17px; margin: 0; letter-spacing: .02em; }
+.meta { color: var(--muted); font-size: 13px; }
+.score { margin-left: auto; display: flex; gap: 10px; font-size: 13px; }
+.score b { font-variant-numeric: tabular-nums; }
+main { max-width: 980px; margin: 0 auto; padding: 16px 20px 80px; }
+.free { display: flex; gap: 8px; margin: 6px 0 18px; }
+input[type=text], textarea { flex: 1; font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+textarea { width: 100%; min-height: 38px; resize: vertical; font-size: 14px; }
+button { font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 7px; padding: 6px 11px; cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+button.pass { color: var(--pass); } button.fail { color: var(--fail); } button.unsure { color: var(--warn); }
+button:disabled { opacity: .5; cursor: wait; }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.filters button.on { background: var(--ink); color: var(--bg); }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 26px 0 8px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }
+.card.graded-pass { border-left: 4px solid var(--pass); } .card.graded-fail { border-left: 4px solid var(--fail); } .card.graded-unsure { border-left: 4px solid var(--warn); }
+.ask { font-size: 16px; font-weight: 600; display: flex; gap: 10px; align-items: baseline; }
+.ask .id { font: 12px var(--mono); color: var(--muted); font-weight: 400; margin-left: auto; white-space: nowrap; }
+.chip { display: inline-block; font-size: 11px; background: var(--chip); color: var(--muted); border-radius: 99px; padding: 1px 8px; margin-right: 4px; }
+.look { color: var(--muted); font-size: 13.5px; margin: 4px 0 10px; }
+.row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.out { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 10px; display: none; }
+.out.show { display: block; }
+.reply { font-size: 15px; margin-bottom: 6px; }
+.tools { font: 12px var(--mono); color: var(--muted); white-space: pre-wrap; word-break: break-word; }
+.verdict { font-size: 13px; margin: 6px 0; }
+.verdict.ok { color: var(--pass); } .verdict.bad { color: var(--fail); }
+.grade { margin-top: 8px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.grade input { flex: 1; min-width: 180px; }
+.prev { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.err { color: var(--fail); font-size: 13px; }
+@media (max-width: 600px) { header, main { padding-left: 16px; padding-right: 16px; } .score { margin-left: 0; } }
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <div class="eye"></div><h1>Hal test console</h1>
+  <span class="meta" id="meta">loading…</span>
+  <div class="score"><span>graded <b id="n-graded">0</b>/<b id="n-total">0</b></span>
+    <span style="color:var(--pass)">pass <b id="n-pass">0</b></span>
+    <span style="color:var(--fail)">fail <b id="n-fail">0</b></span></div>
+</div></header>
+<main>
+  <div class="free">
+    <input type="text" id="free" placeholder="Ask Hal anything…" autocomplete="off">
+    <button class="primary" id="free-go">Ask</button>
+    <button id="reset" title="Start a new conversation">New conversation</button>
+  </div>
+  <div class="card out" id="free-out"></div>
+  <div class="filters" id="filters"></div>
+  <div id="cases"></div>
+</main>
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+let state = { cases: [], grades: {}, info: {}, filter: "all", lastTurn: {} };
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await r.json();
+  if (!r.ok || data.error) throw new Error(data.error || r.statusText);
+  return data;
+}
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function renderTurn(el, data) {
+  const t = data.turn, c = data.check || {};
+  const tools = (t.tools || []).map(x => `${x.confirm ? "⚠ asked first: " : ""}${x.name}(${JSON.stringify(x.args)}) → ${x.ok ? "ok" : "error"}  ${x.result.slice(0, 220)}`).join("\n");
+  let verdict = "";
+  if (c.ran) verdict = c.problems.length ? `<div class="verdict bad">Automatic check: ${c.problems.map(esc).join("; ")}</div>` : `<div class="verdict ok">Automatic check passed${c.note ? " (" + esc(c.note) + ")" : ""}</div>`;
+  else if (c.note) verdict = `<div class="verdict">${esc(c.note)}</div>`;
+  el.innerHTML = `<div class="reply">“${esc(t.reply) || "<i>(no reply)</i>"}”</div>
+    <div class="meta">${t.model} · first words ${t.first_words}s · whole turn ${t.seconds}s${t.retried ? " · retried once" : ""}</div>
+    ${tools ? `<div class="tools">${esc(tools)}</div>` : `<div class="tools">no tools used</div>`}
+    ${data.sync ? `<div class="meta">${esc(data.sync)}</div>` : ""}${verdict}`;
+  el.classList.add("show");
+}
+
+function card(c) {
+  const g = state.grades[c.id];
+  const el = document.createElement("div");
+  el.className = "card" + (g ? " graded-" + g.verdict : "");
+  el.innerHTML = `<div class="ask">${esc(c.ask || (c.turns || []).join("  →  "))}<span class="id">${c.id}</span></div>
+    <div><span class="chip">${esc(c.category)}</span>${c.live ? '<span class="chip">live</span>' : ""}${(c.needs || []).map(n => `<span class="chip">${esc(n)}</span>`).join("")}</div>
+    <div class="look">${esc(c.look_for || "")}</div>
+    <div class="row">
+      ${c.ask && !c.ask.startsWith("(by voice)") ? '<button class="primary" data-a="ask">Ask Hal</button>' : ""}
+      ${c.turns ? '<button class="primary" data-a="turns">Ask Hal (both turns)</button>' : ""}
+      <button data-a="voice" title="Say it to hal-voice, then press this">Use my last voice turn</button>
+      ${state.info.voice ? '<button data-a="speak">Speak reply</button>' : ""}
+      <button data-a="undo" title="Remove what this case created">Undo</button>
+      <span class="err"></span>
+    </div>
+    <div class="out"></div>
+    <div class="grade"><button class="pass" data-v="pass">Pass</button><button class="fail" data-v="fail">Fail</button><button class="unsure" data-v="unsure">Unsure</button>
+      <input type="text" placeholder="note (what was wrong, how it sounded)" value="${esc(g?.note)}"></div>
+    ${g ? `<div class="prev">Last graded <b>${g.verdict}</b> at ${g.at.replace("T", " ")}</div>` : ""}`;
+  const out = $(".out", el), err = $(".err", el);
+  el.addEventListener("click", async ev => {
+    const b = ev.target.closest("button"); if (!b) return;
+    err.textContent = "";
+    try {
+      if (b.dataset.a) {
+        b.disabled = true;
+        if (b.dataset.a === "ask") { renderTurn(out, state.lastTurn[c.id] = await api("/api/ask", { id: c.id, text: c.ask })); }
+        if (b.dataset.a === "turns") { await api("/api/reset", {}); let d; for (const t of c.turns) d = await api("/api/ask", { id: c.id, text: t }); renderTurn(out, state.lastTurn[c.id] = d); }
+        if (b.dataset.a === "voice") { renderTurn(out, state.lastTurn[c.id] = await api("/api/voice", { id: c.id })); }
+        if (b.dataset.a === "speak") { const t = state.lastTurn[c.id]; if (t) await api("/api/speak", { text: t.turn.reply }); }
+        if (b.dataset.a === "undo") { const d = await api("/api/undo", { id: c.id }); err.style.color = "var(--muted)"; err.textContent = d.undone.join(", "); }
+        b.disabled = false;
+      } else if (b.dataset.v) {
+        const last = state.lastTurn[c.id];
+        await api("/api/grade", { id: c.id, verdict: b.dataset.v, note: $("input", el).value, turn: last?.turn, check: last?.check });
+        state.grades[c.id] = { verdict: b.dataset.v, note: $("input", el).value, at: new Date().toISOString().slice(0, 19) };
+        el.className = "card graded-" + b.dataset.v; score();
+      }
+    } catch (e) { b.disabled = false; err.style.color = ""; err.textContent = e.message; }
+  });
+  return el;
+}
+
+function score() {
+  const ids = new Set(state.cases.map(c => c.id)), g = Object.entries(state.grades).filter(([k]) => ids.has(k)).map(([, v]) => v);
+  $("#n-total").textContent = state.cases.length; $("#n-graded").textContent = g.length;
+  $("#n-pass").textContent = g.filter(x => x.verdict === "pass").length; $("#n-fail").textContent = g.filter(x => x.verdict === "fail").length;
+}
+
+function render() {
+  const cats = ["all", ...new Set(state.cases.map(c => c.category))];
+  $("#filters").innerHTML = cats.map(c => `<button class="${c === state.filter ? "on" : ""}" data-f="${c}">${c}</button>`).join("");
+  const root = $("#cases"); root.innerHTML = "";
+  const have = new Set(state.info.modules || []);
+  for (const cat of cats.slice(1)) {
+    if (state.filter !== "all" && state.filter !== cat) continue;
+    const list = state.cases.filter(c => c.category === cat && (c.needs || []).every(n => have.has(n)));
+    if (!list.length) continue;
+    const h = document.createElement("h2"); h.textContent = cat; root.append(h);
+    list.forEach(c => root.append(card(c)));
+  }
+  score();
+}
+
+$("#filters").addEventListener("click", e => { const f = e.target.dataset.f; if (f) { state.filter = f; render(); } });
+async function free() {
+  const text = $("#free").value.trim(); if (!text) return;
+  $("#free-go").disabled = true;
+  try { renderTurn($("#free-out"), await api("/api/ask", { id: "", text })); $("#free").value = ""; }
+  catch (e) { $("#free-out").innerHTML = `<span class="err">${esc(e.message)}</span>`; $("#free-out").classList.add("show"); }
+  $("#free-go").disabled = false;
+}
+$("#free-go").onclick = free; $("#free").onkeydown = e => { if (e.key === "Enter") free(); };
+$("#reset").onclick = () => api("/api/reset", {}).then(() => { $("#free-out").classList.remove("show"); });
+
+api("/api/cases").then(d => {
+  state = { ...state, ...d };
+  const i = d.info;
+  $("#meta").textContent = `${i.model} · ${i.tools} tools from ${i.modules.length} extensions · iCloud ${i.caldav ? "connected" : "not connected"}`;
+  render();
+}).catch(e => { $("#meta").textContent = "cannot load cases: " + e.message; });
+</script>
+</body>
+</html>

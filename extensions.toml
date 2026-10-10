@@ -1,0 +1,130 @@
+# Extensions `hal ext add <name>` knows how to fetch. Each is its own repository.
+# name = what `hal ext add` takes; repo = git URL; summary = one line.
+
+[briefing]
+repo = "https://github.com/NotEoin/hal-briefing.git"
+summary = "Morning and evening briefings: weather, calendar, tasks, job search, headlines and computer health"
+
+[calendar]
+repo = "https://github.com/NotEoin/hal-calendar.git"
+summary = "Events, reminders with push notifications, agenda, free time and CalDAV (iCloud) sync"
+
+[clock]
+repo = "https://github.com/NotEoin/hal-clock.git"
+summary = "Timers, alarms, snooze, stopwatch and Pomodoro sessions, announced aloud"
+
+[contacts]
+repo = "https://github.com/NotEoin/hal-contacts.git"
+summary = "People: contact details, birthdays (added to the calendar), interaction log and who you have not spoken to"
+
+[desktop]
+repo = "https://github.com/NotEoin/hal-desktop.git"
+summary = "Launch apps, open files and links, sound, theme, night light, wallpaper, clipboard, screenshots and the session"
+
+[dev]
+repo = "https://github.com/NotEoin/hal-dev.git"
+summary = "Git repositories (state, history, changes), TODO scans, running tests, GitHub pull requests and issues"
+
+[devices]
+repo = "https://github.com/NotEoin/hal-devices.git"
+summary = "Bluetooth devices, USB, printers and printing, monitors and cameras"
+
+[feeds]
+repo = "https://github.com/NotEoin/hal-feeds.git"
+summary = "Read-later list with summaries, and RSS or Atom subscriptions with what's new"
+
+[files]
+repo = "https://github.com/NotEoin/hal-files.git"
+summary = "Find files, recent files, read and summarise documents, largest folders, duplicates, tidy Downloads"
+
+[habits]
+repo = "https://github.com/NotEoin/hal-habits.git"
+summary = "Habits with daily targets and streaks, mood and sleep logs, and an evening nudge"
+
+[jobs]
+repo = "https://github.com/NotEoin/hal-jobs.git"
+summary = "The job search: queue, applications, to-dos, inbox and status, through jobhunt and Hal Employment"
+
+[lang]
+repo = "https://github.com/NotEoin/hal-lang.git"
+summary = "Translate, proofread, rewrite in a tone, summarise, explain and draft replies, with the local model"
+
+[ledger]
+repo = "https://github.com/NotEoin/hal-ledger.git"
+summary = "Spending, monthly budgets, subscriptions with renewal reminders, and bank statement import"
+
+[mail]
+repo = "https://github.com/NotEoin/hal-mail.git"
+summary = "Email over IMAP: unread, search, read and summarise (read-only), drafts, and sending with confirmation"
+
+[media]
+repo = "https://github.com/NotEoin/hal-media.git"
+summary = "Control any media player (Spotify, browser, VLC) and play local music"
+
+[memory]
+repo = "https://github.com/NotEoin/hal-memory.git"
+summary = "Lasting memory in one Obsidian vault: capture, search, recall and tidy"
+
+[models]
+repo = "https://github.com/NotEoin/hal-models.git"
+summary = "Local AI models in Ollama: installed, loaded, VRAM and GPU, load, unload, pull, delete, ask one directly"
+
+[network]
+repo = "https://github.com/NotEoin/hal-network.git"
+summary = "Connection status, Wi-Fi, devices on the network, public IP, ping, ports and speed test"
+
+[notify]
+repo = "https://github.com/NotEoin/hal-notify.git"
+summary = "Alerts to phone (ntfy), desktop, HAL's voice and Telegram, with quiet hours"
+
+[packages]
+repo = "https://github.com/NotEoin/hal-packages.git"
+summary = "Software updates (apt, snap, flatpak), installing packages, and disk clean-up"
+
+[phone]
+repo = "https://github.com/NotEoin/hal-phone.git"
+summary = "The phone through KDE Connect: find it, battery, send files and links, SMS and its notifications"
+
+[power]
+repo = "https://github.com/NotEoin/hal-power.git"
+summary = "Suspend, restart and shut down (now or scheduled), power profiles, battery and uptime"
+
+[rgb]
+repo = "https://github.com/NotEoin/hal-rgb.git"
+summary = "RGB lighting through OpenRGB: colours, brightness, effects, profiles, and lights that show Hal's state"
+
+[routines]
+repo = "https://github.com/NotEoin/hal-routines.git"
+summary = "Scenes (focus, relax, goodnight, away, movie), scheduled actions and event triggers"
+
+[screen]
+repo = "https://github.com/NotEoin/hal-screen.git"
+summary = "Sees the screen with a local vision model: describe it, read its text, explain an error, look at images"
+
+[shell]
+repo = "https://github.com/NotEoin/hal-shell.git"
+summary = "Runs shell commands: read-only ones directly, anything else after confirmation"
+
+[system]
+repo = "https://github.com/NotEoin/hal-system.git"
+summary = "The computer: hardware, CPU, memory, disks, GPU, temperatures, processes, services and logs"
+
+[tasks]
+repo = "https://github.com/NotEoin/hal-tasks.git"
+summary = "To-do list with due dates, priorities, projects, repeats and reminders, mirrored to the vault"
+
+[telegram]
+repo = "https://github.com/NotEoin/hal-telegram.git"
+summary = "Talk to Hal from your phone through a Telegram bot, by text or voice note"
+
+[transcribe]
+repo = "https://github.com/NotEoin/hal-transcribe.git"
+summary = "Transcribe audio and video files, record meetings from the microphone, and save summarised notes"
+
+[voice]
+repo = "https://github.com/NotEoin/hal-voice.git"
+summary = "Talk to Hal out loud: wake word, local speech recognition and HAL's voice"
+
+[web]
+repo = "https://github.com/NotEoin/hal-web.git"
+summary = "Web search, reading pages, weather, news, Wikipedia, definitions, unit and currency conversion, world time and maths"
