@@ -44,6 +44,13 @@ preset_names() {
   sed -n 's/^\[\([^]*][^]]*\)\]$/\1/p' "$1"
 }
 
+# Prints the presets that load when the router starts: all but those set to load on demand
+startup_presets() {
+  awk '/^\[/ { if (name != "" && load) print name; name = ($0 == "[*]") ? "" : substr($0, 2, length($0) - 2); load = 1 }
+    /^load-on-startup *= *false/ { load = 0 }
+    END { if (name != "" && load) print name }' "$1"
+}
+
 # Prints the router's status value for one model ("loaded" when ready), "missing" if the
 # router doesn't know it, or "starting" while the router itself isn't answering yet
 model_status() {
@@ -110,17 +117,24 @@ start_router() {
     stop_router
     free_ollama_vram
     mkdir -p "$STATE_DIR"
+    mkdir -p "$STATE_DIR/slots"
     rendered="$STATE_DIR/$mode.ini"
-    sed -e "s|@MODELS@|$MODELS_DIR|g" -e "s|@HAL@|$HAL_ROOT|g" "$template" > "$rendered"
+    sed -e "s|@MODELS@|$MODELS_DIR|g" -e "s|@HAL@|$HAL_ROOT|g" -e "s|@STATE@|$STATE_DIR|g" \
+      "$template" > "$rendered"
+    # The swap modes hold one model at a time, and only hal-route.py may load the other
+    router_args=(--models-max 3)
+    case "$mode" in
+      orchestrate*) router_args=(--models-max 1 --no-models-autoload) ;;
+    esac
     echo "Starting llama.cpp router for mode $mode on port $PORT (log: $LOG_FILE)"
     nohup "$LLAMA_SERVER" --host 127.0.0.1 --port "$PORT" \
-      --models-preset "$rendered" --models-max 3 > "$LOG_FILE" 2>&1 &
+      --models-preset "$rendered" "${router_args[@]}" > "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     echo "$mode" > "$MODE_FILE"
   fi
 
   rendered="$STATE_DIR/$mode.ini"
-  for name in $(preset_names "$rendered"); do
+  for name in $(startup_presets "$rendered"); do
     waited=0
     seen_loading=0
     printf 'Loading %s ' "$name"
@@ -143,12 +157,21 @@ start_router() {
     echo " ready"
   done
 
-  # A mode with a decision model gets the routing proxy in front of the router
-  if grep -qx '\[hal-router\]' "$rendered" && ! kill -0 "$(cat "$ROUTE_PID_FILE" 2>/dev/null)" 2>/dev/null; then
+  # Modes that rewrite requests get the routing proxy in front of the router
+  local route_args=()
+  case "$mode" in
+    combined)
+      route_args=(--policy route --fast hal-agent --strong hal-orchestrator --classifier hal-router
+                  --prompt "$HAL_ROOT/modes/combined-prompt.txt") ;;
+    hybrid-auto*)
+      route_args=(--policy effort) ;;
+    orchestrate*)
+      route_args=(--policy swap --fast hal-agent --strong hal-hybrid
+                  --prompt "$HAL_ROOT/modes/orchestrate-prompt.txt") ;;
+  esac
+  if [ "${#route_args[@]}" -gt 0 ] && ! kill -0 "$(cat "$ROUTE_PID_FILE" 2>/dev/null)" 2>/dev/null; then
     nohup python3 "$HAL_ROOT/hal-route.py" --listen "${ROUTE_URL#http://}" --upstream "$LLAMA_URL" \
-      --fast hal-agent --strong hal-orchestrator --classifier hal-router \
-      --prompt "$HAL_ROOT/modes/combined-prompt.txt" --log "$ROUTE_LOG_FILE" \
-      > /dev/null 2>&1 &
+      "${route_args[@]}" --log "$ROUTE_LOG_FILE" > /dev/null 2>&1 &
     echo $! > "$ROUTE_PID_FILE"
     for _ in $(seq 20); do
       curl -fsS "$ROUTE_URL/health" >/dev/null 2>&1 && break

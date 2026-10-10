@@ -13,7 +13,8 @@
 #   hal eval [--model M] check Hal's answers against eval/scenarios.toml, in a sandbox
 #   hal install          render and start every module's services and launchers
 #   hal model NAME       use a different Ollama model for this launch
-#   hal mode NAME [here] max profile: gpu | cpu | hybrid | hybrid-256k | combined
+#   hal mode NAME [here] max profile: gpu | cpu | hybrid | hybrid-256k | hybrid-auto |
+#                        hybrid-auto-256k | combined | orchestrate | orchestrate-256k
 #   hal serve [MODE]     max profile: start the model server without Claude Code
 #   hal stop             max profile: stop the model server
 #   hal ask|index|brief|summarize|import|obsidian-key   vault commands, from the memory extension
@@ -125,15 +126,25 @@ if [ "$BACKEND" = "llamacpp" ]; then
   case "$SERVE_MODE" in
     gpu)      MODEL="hal-gpu";          AGENT_MODEL="hal-gpu" ;;
     cpu)      MODEL="hal-cpu";          AGENT_MODEL="hal-cpu" ;;
-    hybrid|hybrid-256k)
+    hybrid|hybrid-256k|hybrid-auto|hybrid-auto-256k)
               MODEL="hal-hybrid";       AGENT_MODEL="hal-hybrid" ;;
+    orchestrate|orchestrate-256k)
+              MODEL="hal-hybrid";       AGENT_MODEL="hal-agent" ;;
     combined) MODEL="hal-orchestrator"; AGENT_MODEL="hal-agent" ;;
-    *) echo "Unknown mode '$SERVE_MODE' (expected gpu, cpu, hybrid, hybrid-256k or combined)."
+    *) echo "Unknown mode '$SERVE_MODE' (expected gpu, cpu, hybrid, hybrid-256k, hybrid-auto,"
+       echo "hybrid-auto-256k, combined, orchestrate or orchestrate-256k)."
        exit 1 ;;
   esac
   export ANTHROPIC_BASE_URL="$LLAMA_URL"
-  # hal-route.py picks the model for each turn in combined; see MODES.md
-  [ "$SERVE_MODE" = "combined" ] && export ANTHROPIC_BASE_URL="${HAL_ROUTE_URL:-http://127.0.0.1:8079}"
+  # hal-route.py rewrites the requests of these modes; see MODES.md
+  case "$SERVE_MODE" in
+    combined|hybrid-auto*|orchestrate*)
+      export ANTHROPIC_BASE_URL="${HAL_ROUTE_URL:-http://127.0.0.1:8079}" ;;
+  esac
+  # In the swap modes a request can wait for subagents to finish and for a model swap
+  case "$SERVE_MODE" in
+    orchestrate*) export API_TIMEOUT_MS="${API_TIMEOUT_MS:-7200000}" ;;
+  esac
   export ANTHROPIC_AUTH_TOKEN="hal"
   export ANTHROPIC_API_KEY="hal"
   export ANTHROPIC_MODEL="$MODEL"
@@ -146,7 +157,11 @@ if [ "$BACKEND" = "llamacpp" ]; then
   # Claude Code assumes 200K for a model it doesn't know, and would compact too late.
   # The smallest window in the mode applies, since subagents share the setting; the
   # decision model never sees a conversation, so its window doesn't count.
-  CONTEXT_TOKENS="$(awk '/^\[/ { skip = ($0 == "[hal-router]") }
+  # In the swap modes subagents start from a fresh context, so the orchestrator's applies.
+  SKIP_AGENT=0
+  case "$SERVE_MODE" in orchestrate*) SKIP_AGENT=1 ;; esac
+  CONTEXT_TOKENS="$(awk -v skip_agent="$SKIP_AGENT" '/^\[/ {
+    skip = ($0 == "[hal-router]") || (skip_agent && $0 == "[hal-agent]") }
     !skip && /^ctx-size *=/ { print $3 }' "$HAL_ROOT/modes/$SERVE_MODE.ini" | sort -n | head -n1)"
   export CLAUDE_CODE_MAX_CONTEXT_TOKENS="${CONTEXT_TOKENS:-32768}"
   export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1"
@@ -157,6 +172,8 @@ if [ "$BACKEND" = "llamacpp" ]; then
   export HAL_MODEL="$AGENT_MODEL"
   export HAL_CHAT_API="openai"
   export HAL_CHAT_URL="$LLAMA_URL"
+  # Only hal-route.py may change which model is loaded in the swap modes
+  case "$SERVE_MODE" in orchestrate*) export HAL_CHAT_URL="$ANTHROPIC_BASE_URL" ;; esac
 elif [ -n "$MODEL" ]; then
   # Local profiles: redirect Claude Code at Ollama's Anthropic-compatible endpoint.
   export ANTHROPIC_BASE_URL="$OLLAMA_URL"
