@@ -41,6 +41,16 @@ def _coerce(value, kind: str):
     return value
 
 
+def _alias(name: str, known: dict) -> str | None:
+    """Maps a near-miss argument name a model invented ("when" for "when_text") to the real one."""
+    if name in known:
+        return name
+    flat = name.replace("_", "").lower()
+    hits = [p for p in known if p.replace("_", "").lower() == flat
+            or p.startswith(name + "_") or name.startswith(p + "_")]
+    return hits[0] if len(hits) == 1 else None
+
+
 def prepare(tool: Tool, args: dict) -> dict:
     """Returns the arguments checked and coerced; raises ToolError on a bad call."""
     known = {p.name: p for p in tool.params}
@@ -48,6 +58,7 @@ def prepare(tool: Tool, args: dict) -> dict:
     for k, v in args.items():
         if k.startswith("_"):
             continue
+        k = _alias(k, known) or k
         if k not in known:
             raise ToolError(f"{tool.name} has no parameter '{k}'; it takes {', '.join(known) or 'none'}")
         try:

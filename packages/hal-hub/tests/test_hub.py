@@ -67,6 +67,13 @@ class HubTest(unittest.TestCase):
         self.assertIn("needs", self.hub.call("demo_add", {"a": 1})["error"])
         self.assertIn("no parameter", self.hub.call("demo_add", {"a": 1, "b": 2, "c": 3})["error"])
 
+    def test_near_miss_argument_names_are_mapped(self):
+        from halhub import runner
+        known = {"when_text": None, "title": None}
+        self.assertEqual(runner._alias("when", known), "when_text")
+        self.assertEqual(runner._alias("whentext", known), "when_text")
+        self.assertIsNone(runner._alias("colour", known))
+
     def test_confirm_tools_wait_for_confirmation(self):
         self.assertIn("needs_confirmation", self.hub.call("demo_wipe", {"path": "/x"}))
         self.assertEqual(self.hub.call("demo_wipe", {"path": "/x", "_confirmed": True}), {"result": "wiped /x"})
