@@ -230,6 +230,30 @@ else
   echo "Hal [$HAL_PROFILE] → Claude Code (your own login)   |   dir: $TARGET"
 fi
 cd "$TARGET" || { echo "Cannot cd to $TARGET"; exit 1; }
+
+# ---- Privacy: with a local model, Claude Code sends nothing off this machine ---------
+# Every Claude Code feature that talks to Anthropic or another service is switched off, and
+# as a backstop all HTTP(S) goes to a proxy address that refuses connections, with only this
+# machine exempt. Commands Claude Code runs inherit the backstop, so they can't reach the
+# internet either; HAL_ALLOW_NETWORK=1 lifts it. The cloud profile is left untouched: it
+# talks to Anthropic by design.
+if [ -n "$MODEL" ]; then
+  export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 \
+    DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1 DISABLE_GROWTHBOOK=1 DISABLE_BUG_COMMAND=1 \
+    DISABLE_FEEDBACK_COMMAND=1 DISABLE_INSTALLATION_CHECKS=1 ENABLE_CLAUDEAI_MCP_SERVERS=false \
+    CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1 CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1 \
+    CLAUDE_CODE_DISABLE_WORKING_SYNC=1 CLAUDE_CODE_DISABLE_ARTIFACT=1 CLAUDE_CODE_DISABLE_WEB_FETCH=1 \
+    CLAUDE_CODE_DISABLE_VITALS_EMITTER=1 CLAUDE_CODE_DISABLE_ORG_MEMORY=1 \
+    CLAUDE_CODE_DISABLE_MEMORY_PERIODIC_RESYNC=1 CLAUDE_CODE_SKIP_REPO_UPLOAD=1 \
+    CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK=1 CLAUDE_CODE_DISABLE_FAST_MODE=1
+  if [ "${HAL_ALLOW_NETWORK:-0}" != "1" ]; then
+    for var in HTTPS_PROXY HTTP_PROXY ALL_PROXY https_proxy http_proxy all_proxy; do
+      export "$var=http://127.0.0.1:9"
+    done
+    export NO_PROXY="localhost,127.0.0.1,::1" no_proxy="localhost,127.0.0.1,::1"
+  fi
+fi
+
 if [ -n "$MODEL" ]; then
   case " $* " in
     *" --permission-mode"*|*" --dangerously-skip-permissions "*) ;;
