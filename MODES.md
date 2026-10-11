@@ -149,6 +149,14 @@ runs at the 27B's 64K window.
   375 to 509 tokens/s and decode from 21.7 to 24.2 tokens/s. If a desktop uses the GPU,
   raise `fit-target` to 1024.
 
+For long unattended runs (`/goal`), use `hybrid-auto-256k` or `orchestrate-256k`. Claude
+Code compacts Hal's models through its reactive path, which skips a compaction when it
+finds no finished turn to summarise or when the context refills soon after the last one,
+and it refuses to send a request about 10K tokens above its compaction threshold. A 128K
+window refills quickly after a compaction and leaves that 10K for one long turn of tool
+calls; a `/goal` run on `hybrid-auto` stopped this way ("context limit reached") after one
+successful compaction, while `hybrid-256k` compacted four times in 34 hours.
+
 `hybrid-auto-256k` is the same with the full 256K window: Claude Code compacts half as
 often, but the extra KV cache takes VRAM from experts. At 28K deep it decodes at 17 to 19
 tokens/s against about 22 to 24 for `hybrid-auto`, and prefills at 470 tokens/s against 509,
