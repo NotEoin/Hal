@@ -12,6 +12,7 @@ Each mode places its models differently. The following table summarises them:
 | Mode | Model | Where it runs | Context | Decode, short / 32K deep | Prefill |
 | --- | --- | --- | --- | --- | --- |
 | `gpu` | Qwen3.8-27B | VRAM | 96K | 83 / 60 tokens/s | 1,120 tokens/s |
+| `gpu-112k` | Qwen3.8-27B | VRAM, headless GPU | 112K | - / 70 tokens/s at 31K | 1,140 tokens/s |
 | `cpu` | Qwen3.8-Flash-Next-Coder, 177B | RAM | 128K | 5.7 / 4.6 tokens/s | 360 tokens/s |
 | `hybrid` | Qwen3.8-Flash-Next, 177B | VRAM and RAM | 128K | 25 / 18.5 tokens/s | 300 tokens/s |
 | `hybrid-256k` | Qwen3.8-Flash-Next, 177B | VRAM and RAM | 256K | 25 / 16 tokens/s | 300 tokens/s |

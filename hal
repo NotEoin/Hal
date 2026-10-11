@@ -13,8 +13,9 @@
 #   hal eval [--model M] check Hal's answers against eval/scenarios.toml, in a sandbox
 #   hal install          render and start every module's services and launchers
 #   hal model NAME       use a different Ollama model for this launch
-#   hal mode NAME [here] max profile: gpu | cpu | hybrid | hybrid-256k | hybrid-auto |
-#                        hybrid-auto-256k | combined | orchestrate | orchestrate-256k
+#   hal mode NAME [here] max profile: gpu | gpu-112k | cpu | hybrid | hybrid-256k |
+#                        hybrid-auto | hybrid-auto-256k | combined | orchestrate |
+#                        orchestrate-256k
 #   hal serve [MODE]     max profile: start the model server without Claude Code
 #   hal stop             max profile: stop the model server
 #   hal ask|index|brief|summarize|import|obsidian-key   vault commands, from the memory extension
@@ -124,14 +125,15 @@ if [ "$BACKEND" = "llamacpp" ]; then
   # Names match the preset sections in modes/<mode>.ini. In combined mode the slow CPU
   # model orchestrates and every subagent runs on the fast GPU model.
   case "$SERVE_MODE" in
-    gpu)      MODEL="hal-gpu";          AGENT_MODEL="hal-gpu" ;;
+    gpu|gpu-112k)
+              MODEL="hal-gpu";          AGENT_MODEL="hal-gpu" ;;
     cpu)      MODEL="hal-cpu";          AGENT_MODEL="hal-cpu" ;;
     hybrid|hybrid-256k|hybrid-auto|hybrid-auto-256k)
               MODEL="hal-hybrid";       AGENT_MODEL="hal-hybrid" ;;
     orchestrate|orchestrate-256k)
               MODEL="hal-hybrid";       AGENT_MODEL="hal-agent" ;;
     combined) MODEL="hal-orchestrator"; AGENT_MODEL="hal-agent" ;;
-    *) echo "Unknown mode '$SERVE_MODE' (expected gpu, cpu, hybrid, hybrid-256k, hybrid-auto,"
+    *) echo "Unknown mode '$SERVE_MODE' (expected gpu, gpu-112k, cpu, hybrid, hybrid-256k, hybrid-auto,"
        echo "hybrid-auto-256k, combined, orchestrate or orchestrate-256k)."
        exit 1 ;;
   esac
