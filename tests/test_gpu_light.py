@@ -333,5 +333,48 @@ class LightUnitTest(LightCase):
             self.assertIn("0 of 1 GPU services running", power.status())
 
 
+class SessionTest(LightCase):
+    """Runs the real `hal` launcher on a local profile, with a fake Claude Code and Ollama."""
+
+    def setUp(self):
+        super().setUp()
+        server = serve_models()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.url = f"http://127.0.0.1:{server.server_address[1]}"
+        claude = self.dir / "claude"
+        claude.write_text('#!/bin/sh\necho "claude pid $$" >> "$FAKE_GPU_LIGHT_LOG"\n')
+        claude.chmod(0o755)
+        (self.dir / "vault").mkdir()
+        # Hal's own config names the fake Ollama too, for the unloading after a claim
+        (self.dir / "config.toml").write_text(f'[hal]\nollama_url = "{self.url}"\n')
+
+    def launch(self, model: str) -> subprocess.CompletedProcess:
+        conf = self.dir / "hal.conf"
+        conf.write_text(f'HAL_PROFILE="24gb"\nHAL_MODEL="{model}"\nHAL_OLLAMA_URL="{self.url}"\n')
+        env = {**os.environ, "HAL_CONF": str(conf), "HAL_CONFIG": str(self.dir / "config.toml"),
+               "HAL_VAULT": str(self.dir / "vault"), "PATH": f"{self.dir}:{os.environ['PATH']}",
+               "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"}
+        return subprocess.run([str(ROOT / "hal")], capture_output=True, text=True, env=env, timeout=60)
+
+    def test_an_ollama_session_claims_the_light_for_its_own_pid(self):
+        proc = self.launch("chat-model")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        calls = self.calls()
+        pid = int(calls[-1].removeprefix("claude pid "))
+        self.assertIn(f"gpu-light claim --name hal-session-{pid} --reason hal session on chat-model "
+                      f"--pid {pid} --wait --timeout 60", calls[:-1])
+
+    def test_a_cloud_session_does_not_claim(self):
+        self.assertEqual(self.launch("").returncode, 0)
+        self.assertEqual([c for c in self.calls() if c.startswith("gpu-light")], [])
+
+    def test_an_ollama_session_is_unchanged_without_gpu_light(self):
+        with mock.patch.dict(os.environ, {"HAL_GPU_LIGHT": "off"}):
+            self.assertEqual(self.launch("chat-model").returncode, 0)
+        self.assertEqual(len(self.calls()), 1)
+        self.assertTrue(self.calls()[0].startswith("claude pid "))
+
+
 if __name__ == "__main__":
     unittest.main()

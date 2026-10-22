@@ -122,6 +122,7 @@ background jobs to leave:
 |---|---|---|
 | `hal on` | `hal` | Claims, waits up to 90 s, unloads any Ollama model already split into RAM, then starts its services. `hal off` releases the claim once the models are unloaded. |
 | Login, while Hal is on | `hal` | `hal.target` starts at every login, so `hal-gpu-light.service` makes the same claim before any of Hal's GPU services start. `hal install` adds it only when gpu-light is installed: run `hal install` again after installing gpu-light. `hal off` stops it, which releases the claim. |
+| `hal`, `hal here`, `hal model` on an Ollama model | `hal-session-<pid>` | Claims for the whole session, waits up to 60 s and unloads any model already split into RAM. An open session counts as using the GPU, even while Ollama has no model loaded; the claim ends when Claude Code exits, even after a crash. |
 | `hal serve`, and `hal` on the max profile | `hal-serve` | Claims, waits up to 120 s, then starts the llama.cpp server, in every mode (`cpu` mode still uses about 3GB of VRAM for prompt processing). The claim then follows the server, so a server that crashes stops holding the GPU. `hal stop` releases it. |
 
 If the wait times out, Hal starts anyway and says the models may load slowly. A failing

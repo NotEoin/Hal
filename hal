@@ -222,6 +222,19 @@ if ! command -v claude >/dev/null 2>&1; then
   exit 1
 fi
 
+# ---- GPU light: an Ollama session holds the GPU for as long as it is open ----
+# Ollama loads models on demand and drops them after a few idle minutes, so between requests
+# the GPU can look free while this session still needs it. The claim is bound to this shell's
+# pid, which `exec claude` keeps, so it ends with the session, even after a crash. On the max
+# profile hal-serve claims for the router instead. See halcore/gpulight.py. The 150 s limit
+# covers the 60 s wait and the unloading of models Ollama split into RAM.
+if [ "$BACKEND" != "llamacpp" ] && [ -n "$MODEL" ] \
+    && command -v "${HAL_GPU_LIGHT:-gpu-light}" >/dev/null 2>&1; then
+  PYTHONPATH="$HAL_ROOT${PYTHONPATH:+:$PYTHONPATH}" timeout 150 python3 -m halcore gpulight \
+    claim "hal-session-$$" --pid $$ --reason "hal session on $MODEL" --timeout 60 \
+    --unload-offloaded || true
+fi
+
 if [ "$BACKEND" = "llamacpp" ]; then
   echo "Hal [$HAL_PROFILE, mode $SERVE_MODE] -> model: $MODEL, agents: $AGENT_MODEL   |   dir: $TARGET"
 elif [ -n "$MODEL" ]; then
