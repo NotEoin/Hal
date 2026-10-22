@@ -145,7 +145,7 @@ Originally built on an RTX 3090; developed since on an RTX 4070.
 An extension is a folder with a `hal-module.toml` that declares its tools; hal-hub's README explains
 the format, and the ecosystem's `scaffold.py` creates one. Its services go in `systemd/` and are
 rendered with its own path, so it works wherever it is cloned; a unit marked `X-HalGPU=yes` is one
-`hal off` stops.
+`hal off` stops and, with gpu-light installed, one that starts only after Hal has claimed the GPU.
 
 ## 🔒 Privacy
 

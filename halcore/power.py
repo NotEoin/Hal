@@ -115,7 +115,8 @@ def on(quiet: bool = False) -> str:
 
 
 def status() -> str:
-    gpu = units.gpu_units()
+    # The light unit is a claim, not a service that uses the GPU
+    gpu = [n for n in units.gpu_units() if n != units.LIGHT_UNIT]
     active = [n for n in gpu if units.systemctl("is-active", n).stdout.strip() == "active"]
     vram = sum(m.get("size_vram", 0) for m in loaded_models()) / 2**30
     state = "off" if is_off() else "on"

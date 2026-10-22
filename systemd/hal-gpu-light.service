@@ -1,0 +1,18 @@
+[Unit]
+Description=Hal: claim the GPU light before Hal's GPU services start
+PartOf=hal.target
+Before=@HAL_GPU_UNITS@
+X-HalGPU=yes
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=@GPU_LIGHT@ claim --name hal --reason "hal.target" --wait --timeout 90
+ExecStop=@GPU_LIGHT@ release --name hal
+# Exit 4 is a wait that timed out; Hal's services start anyway
+SuccessExitStatus=4
+TimeoutStartSec=120
+TimeoutStopSec=20
+
+[Install]
+WantedBy=hal.target

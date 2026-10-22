@@ -6,6 +6,12 @@ rendered, not linked: `@ROOT@` becomes the module's folder, `@CORE@` core hal's 
 long-running unit is part of hal.target; units marked `X-HalGPU=yes` are the ones `hal off`
 stops to free the GPU.
 
+hal.target starts at every login, not only on `hal on`, so core hal's hal-gpu-light.service
+claims the GPU light (see gpulight.py) before the GPU services start: it is rendered with the
+gpu-light executable and ordered before every X-HalGPU service of every module, so the
+extensions' units need no change. Without gpu-light it is not installed, and one left from
+before is removed.
+
     hal units install [--start]    render and enable everything, optionally start hal.target
     hal units remove <module>      stop and delete one module's units
     hal units list                 installed units, by module, with their state
@@ -20,10 +26,11 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import config
+from . import config, gpulight
 
 UNIT_DIR = Path(os.environ.get("HAL_UNIT_DIR", "~/.config/systemd/user")).expanduser()
 UNIT_SUFFIXES = (".service", ".timer", ".target", ".path")
+LIGHT_UNIT = "hal-gpu-light.service"
 
 
 def _record() -> Path:
@@ -75,6 +82,24 @@ def is_gpu(unit_file: Path) -> bool:
         return False
 
 
+def gpu_services(roots: list[Path]) -> list[str]:
+    """Returns the X-HalGPU services in the modules' systemd folders, except the light unit."""
+    names = set()
+    for root in roots:
+        for src in (root / "systemd").glob("*.service"):
+            if src.name != LIGHT_UNIT and "@." not in src.name and is_gpu(src):
+                names.add(src.name)
+    return sorted(names)
+
+
+def fill_light_unit(text: str, gpu_light: str, services: list[str]) -> str:
+    """Fills in the light unit: the gpu-light executable and the services it starts before."""
+    text = text.replace("@GPU_LIGHT@", gpu_light)
+    if services:
+        return text.replace("@HAL_GPU_UNITS@", " ".join(services))
+    return re.sub(r"^Before=@HAL_GPU_UNITS@\n", "", text, flags=re.M)
+
+
 def gpu_units() -> list[str]:
     return sorted(name for name in installed() if is_gpu(UNIT_DIR / name))
 
@@ -83,8 +108,11 @@ def systemctl(*args: str, check: bool = False) -> subprocess.CompletedProcess:
     return subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True, check=check)
 
 
-def install_module(root: Path, units: dict[str, str]) -> list[str]:
-    """Renders one module's units into the user unit folder; returns their names."""
+def install_module(root: Path, units: dict[str, str], skipped: list[str] | None = None) -> list[str]:
+    """Renders one module's units into the user unit folder; returns their names.
+
+    The light unit is left out, and named in `skipped`, when gpu-light is not installed.
+    """
     names = []
     folder = root / "systemd"
     if not folder.is_dir():
@@ -94,9 +122,20 @@ def install_module(root: Path, units: dict[str, str]) -> list[str]:
         if src.suffix not in UNIT_SUFFIXES:
             continue
         dest = UNIT_DIR / src.name
+        gpu_light = gpulight.binary() if src.name == LIGHT_UNIT else None
+        if src.name == LIGHT_UNIT and gpu_light is None:
+            # Disabled while its file still exists, so systemd finds and drops the login link
+            if units.pop(src.name, None) is not None:
+                systemctl("disable", src.name)
+            dest.unlink(missing_ok=True)
+            if skipped is not None:
+                skipped.append(f"{src.name} (gpu-light is not installed)")
+            continue
         if dest.is_symlink() or dest.exists():
             dest.unlink()
         text = render(src.read_text(), root)
+        if gpu_light:
+            text = fill_light_unit(text, gpu_light, gpu_services(module_roots()))
         if is_gpu(src) and src.suffix == ".service":
             # While Hal is off, a timer or a login must not bring a GPU service back.
             off_flag = config.state_dir() / "off"
@@ -136,8 +175,9 @@ def install(start: bool = False, desktop: bool = True) -> dict:
     """Renders every module's units, enables them and, if asked, starts hal.target."""
     units = installed()
     report = {}
+    skipped: list[str] = []
     for root in module_roots():
-        names = install_module(root, units)
+        names = install_module(root, units, skipped)
         launchers = install_desktop(root) if desktop else []
         if names or launchers:
             report[root.name] = names + launchers
@@ -148,6 +188,8 @@ def install(start: bool = False, desktop: bool = True) -> dict:
             systemctl("disable", "--now", name)
             (UNIT_DIR / name).unlink(missing_ok=True)
             del units[name]
+    if skipped:
+        report["skipped"] = skipped
     _save(units)
     systemctl("daemon-reload")
     _enable(sorted(units))
