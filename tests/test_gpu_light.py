@@ -7,10 +7,14 @@ Run with: python3 -m unittest discover -s tests
 """
 import json
 import os
+import re
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
@@ -33,6 +37,42 @@ elif cmd == "claim":
     time.sleep(float(os.environ.get("FAKE_GPU_LIGHT_SLEEP", "0")))
     sys.exit(int(os.environ.get("FAKE_GPU_LIGHT_CLAIM_EXIT", "0")))
 """
+
+# Stands in for llama-server: logs that it started, then idles until hal-serve stops it
+FAKE_ROUTER = """#!/bin/sh
+echo "router start" >> "$FAKE_GPU_LIGHT_LOG"
+exec sleep 60
+"""
+# Every preset name in modes/, so the fake server reports each mode's models as loaded
+PRESETS = sorted({name for ini in (ROOT / "modes").glob("*.ini")
+                  for name in re.findall(r"^\[([^]*][^]]*)\]$", ini.read_text(), re.M)})
+
+
+class FakeModelServer(BaseHTTPRequestHandler):
+    """Answers the llama.cpp router's /models and Ollama's /api/version and /api/ps."""
+
+    def do_GET(self):
+        if self.path == "/models":
+            body = {"data": [{"id": n, "status": {"value": "loaded"}} for n in PRESETS]}
+        elif self.path == "/api/ps":
+            body = {"models": []}
+        else:
+            body = {"version": "0.0.0"}
+        data = json.dumps(body).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *args):
+        pass
+
+
+def serve_models() -> ThreadingHTTPServer:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), FakeModelServer)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
 
 
 class LightCase(unittest.TestCase):
@@ -173,6 +213,71 @@ class ClaimTest(LightCase):
                               capture_output=True, text=True, env=env, timeout=30)
         self.assertEqual(proc.returncode, 0)
         self.assertIn("hal: gpu-light claim failed (exit 1)", proc.stderr)
+
+
+class ServeTest(LightCase):
+    """Runs the real hal-serve against a fake router and a fake model server on localhost."""
+
+    def setUp(self):
+        super().setUp()
+        server = serve_models()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        url = f"http://127.0.0.1:{server.server_address[1]}"
+        router = self.dir / "llama-server"
+        router.write_text(FAKE_ROUTER)
+        router.chmod(0o755)
+        (self.dir / "models").mkdir()
+        conf = self.dir / "hal.conf"
+        conf.write_text(f'HAL_LLAMA_SERVER="{router}"\nHAL_MODELS_DIR="{self.dir}/models"\n'
+                        f'HAL_LLAMA_URL="{url}"\nHAL_OLLAMA_URL="{url}"\n')
+        self.state = self.dir / "state"
+        self.env_vars = {**os.environ, "HAL_CONF": str(conf), "XDG_STATE_HOME": str(self.state),
+                         "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"}
+        self.addCleanup(self.kill_router)
+
+    def serve(self, *args, **env) -> subprocess.CompletedProcess:
+        return subprocess.run([str(ROOT / "hal-serve"), *args], capture_output=True, text=True,
+                              env={**self.env_vars, **env}, timeout=60)
+
+    def router_pid(self) -> int:
+        return int((self.state / "hal" / "router.pid").read_text())
+
+    def kill_router(self):
+        """Stops the fake router if a test left it running; it is this test's own process."""
+        try:
+            os.kill(self.router_pid(), signal.SIGKILL)
+        except (OSError, ValueError):
+            pass
+
+    def test_hal_serve_claims_before_the_router_starts_and_binds_the_claim_to_it(self):
+        proc = self.serve("start", "gpu")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        calls, pid = self.calls(), self.router_pid()
+        wait = calls.index("gpu-light claim --name hal-serve --reason llama.cpp router gpu --wait --timeout 120")
+        bind = calls.index(f"gpu-light claim --name hal-serve --reason llama.cpp router gpu --pid {pid}")
+        self.assertLess(wait, calls.index("router start"))
+        self.assertLess(calls.index("router start"), bind)
+
+    def test_hal_serve_claims_in_cpu_mode_too(self):
+        # cpu mode keeps the weights in RAM but still puts about 3GB of VRAM to work
+        self.assertEqual(self.serve("start", "cpu").returncode, 0)
+        self.assertIn("gpu-light claim --name hal-serve --reason llama.cpp router cpu --wait --timeout 120",
+                      self.calls())
+
+    def test_hal_stop_releases_the_light_after_the_router_exits(self):
+        self.assertEqual(self.serve("start", "gpu").returncode, 0)
+        pid = self.router_pid()
+        proc = self.serve("stop")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.calls()[-1], "gpu-light release --name hal-serve")
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)
+
+    def test_hal_serve_is_unchanged_without_gpu_light(self):
+        self.assertEqual(self.serve("start", "gpu", HAL_GPU_LIGHT="off").returncode, 0)
+        self.assertEqual(self.serve("stop", HAL_GPU_LIGHT="off").returncode, 0)
+        self.assertEqual(self.calls(), ["router start"])
 
 
 if __name__ == "__main__":

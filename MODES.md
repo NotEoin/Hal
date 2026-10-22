@@ -220,6 +220,10 @@ system turn.
 Ollama keeps serving the embedding model for `hal ask` and `hal index`. Before loading a
 mode, `hal-serve` unloads any Ollama model still holding VRAM.
 
+With gpu-light installed, `hal-serve` also claims the GPU light before it loads a mode, and
+waits up to 2 minutes for background GPU jobs to leave; `hal stop` releases the claim. See
+[SETUP.md](SETUP.md#sharing-the-gpu-with-background-jobs).
+
 ## Measurements
 
 All figures were measured on 2026-10-08 on an RTX 3090 (24GB), an i9-12900K and 64GB of

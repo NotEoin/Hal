@@ -3,6 +3,10 @@
 #
 #   hal-serve start <mode>   start a mode from modes/, or reuse it if already serving
 #   hal-serve stop | status
+#
+# With gpu-light installed, start claims the GPU light as hal-serve and waits for background
+# GPU jobs to leave before any model loads; stop releases it (see halcore/gpulight.py).
+# Every mode claims, cpu included: it still uses about 3GB of VRAM for prompt processing.
 set -euo pipefail
 
 HAL_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -25,11 +29,21 @@ ROUTE_LOG_FILE="$STATE_DIR/route.log"
 ROUTE_URL="${HAL_ROUTE_URL:-http://127.0.0.1:8079}"
 # Loading 50GB from a cold disk takes a few minutes
 LOAD_TIMEOUT=900  # seconds
+# How long start waits for background GPU jobs to leave. gpu-light gives them 30 s; the rest
+# covers a job that stops late, since a mode needs nearly all the VRAM to load at full speed
+LIGHT_WAIT=120  # seconds
 
 PORT="${LLAMA_URL##*:}"
 PORT="${PORT%%/*}"
 
 die() { echo "hal-serve: $*" >&2; exit 1; }
+
+# Runs Hal's gpu-light hook. It does nothing without gpu-light, bounds every call with its own
+# timeout and always exits 0, so the light can delay the router but never stop it.
+gpu_light() {
+  PYTHONPATH="$HAL_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+    timeout "$((LIGHT_WAIT + 30))" python3 -m halcore gpulight "$@" || true
+}
 
 router_pid() {
   local pid
@@ -113,8 +127,11 @@ start_router() {
 
   if pid="$(router_pid)" && [ "$(cat "$MODE_FILE" 2>/dev/null)" = "$mode" ]; then
     echo "Router already serving mode $mode (pid $pid)"
+    # It already holds its VRAM; this only makes sure the claim exists and follows it
+    gpu_light claim hal-serve --reason "llama.cpp router $mode" --pid "$pid" --no-wait
   else
     stop_router
+    gpu_light claim hal-serve --reason "llama.cpp router $mode" --timeout "$LIGHT_WAIT"
     free_ollama_vram
     mkdir -p "$STATE_DIR"
     mkdir -p "$STATE_DIR/slots"
@@ -131,6 +148,8 @@ start_router() {
       --models-preset "$rendered" "${router_args[@]}" > "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     echo "$mode" > "$MODE_FILE"
+    # Bound to the router from here on, so a router that crashes stops holding the light
+    gpu_light claim hal-serve --reason "llama.cpp router $mode" --pid "$(cat "$PID_FILE")" --no-wait
   fi
 
   rendered="$STATE_DIR/$mode.ini"
@@ -186,6 +205,7 @@ case "${1:-}" in
     start_router "${2:-${HAL_MODE:-gpu}}" ;;
   stop)
     stop_router
+    gpu_light release hal-serve
     echo "Router stopped" ;;
   status)
     if pid="$(router_pid)"; then

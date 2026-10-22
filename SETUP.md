@@ -121,6 +121,7 @@ background jobs to leave:
 | Command | Claim | What Hal does |
 |---|---|---|
 | `hal on` | `hal` | Claims, waits up to 90 s, unloads any Ollama model already split into RAM, then starts its services. `hal off` releases the claim once the models are unloaded. |
+| `hal serve`, and `hal` on the max profile | `hal-serve` | Claims, waits up to 120 s, then starts the llama.cpp server, in every mode (`cpu` mode still uses about 3GB of VRAM for prompt processing). The claim then follows the server, so a server that crashes stops holding the GPU. `hal stop` releases it. |
 
 If the wait times out, Hal starts anyway and says the models may load slowly. A failing
 `gpu-light` is reported and never stops Hal. `hal status` adds a line with the light and its
