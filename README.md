@@ -25,7 +25,9 @@ the computer itself) is an extension you add when you want it. Raw Hal works on 
   answer, so a model or prompt change shows up as a number. `hal console` lets you try the same
   requests by text or voice and grade them.
 - **The GPU is yours when you want it.** `hal off` (or the desktop launcher) stops everything that uses
-  the GPU and unloads the models; reminders keep running. `hal on` brings it back.
+  the GPU and unloads the models; reminders keep running. `hal on` brings it back. With gpu-light
+  installed, background GPU jobs step aside when Hal starts and come back once it stops
+  ([SETUP.md](SETUP.md#sharing-the-gpu-with-background-jobs)).
 - **Coding on your own hardware.** Claude Code runs against a local model, chosen for your GPU, from a
   24GB card down to none at all.
 

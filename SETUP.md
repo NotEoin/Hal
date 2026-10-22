@@ -106,6 +106,30 @@ as `HAL_MODELS_DIR`, and the default mode as `HAL_MODE`.
 
 **-> Modes, switching, and the measurements behind each model: [MODES.md](MODES.md)**
 
+## Sharing the GPU with background jobs
+
+gpu-light, a separate tool, hands one GPU between long background jobs (a batch runner, a
+training queue) and the programs you use yourself: background jobs use the card while its
+light is green, and leave within 30 seconds when it turns red. Hal works with it when it finds
+`gpu-light` on the PATH, and behaves exactly as before when it does not.
+
+Any program on the GPU turns the light red by itself, but only once it has loaded something.
+Ollama, when it finds the VRAM full, quietly puts part of the model in system RAM, where it
+stays slow until it is loaded again. So Hal claims the light first and waits for the
+background jobs to leave:
+
+| Command | Claim | What Hal does |
+|---|---|---|
+| `hal on` | `hal` | Claims, waits up to 90 s, unloads any Ollama model already split into RAM, then starts its services. `hal off` releases the claim once the models are unloaded. |
+
+If the wait times out, Hal starts anyway and says the models may load slowly. A failing
+`gpu-light` is reported and never stops Hal. `hal status` adds a line with the light and its
+reason; `gpu-light status` shows everything that holds it. `HAL_GPU_LIGHT=off` turns the hook
+off, and `HAL_GPU_LIGHT=/path/to/gpu-light` uses another executable.
+
+The background jobs get the GPU back once every claim is gone and the GPU has been free for
+gpu-light's clear period (3 minutes by default).
+
 ## How the local-model wiring works (for the curious)
 
 Ollama exposes an **Anthropic-compatible API**, so Claude Code can talk to it directly with
