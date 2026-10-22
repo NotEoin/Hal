@@ -148,7 +148,8 @@ start_router() {
       --models-preset "$rendered" "${router_args[@]}" > "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     echo "$mode" > "$MODE_FILE"
-    # Bound to the router from here on, so a router that crashes stops holding the light
+    # Bound to the router from here on, so a router that crashes stops holding the light.
+    # It replaces the boot claim of the same name; if gpu-light refuses, that one stays.
     gpu_light claim hal-serve --reason "llama.cpp router $mode" --pid "$(cat "$PID_FILE")" --no-wait
   fi
 

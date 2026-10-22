@@ -133,6 +133,20 @@ off, and `HAL_GPU_LIGHT=/path/to/gpu-light` uses another executable.
 The background jobs get the GPU back once every claim is gone and the GPU has been free for
 gpu-light's clear period (3 minutes by default).
 
+### Deviations from the original plan
+
+The hook speaks gpu-light's file protocol, version 1, through its command line. It was
+planned with `boot` claims for `hal` and `hal-serve` and no claim in `cpu` mode, and differs
+in two places, on purpose:
+
+- **`hal-serve` is a `pid` claim once the server runs.** It starts as a `boot` claim, so Hal
+  can wait before anything loads, and is then claimed again with `--pid` of the server.
+  Otherwise a crashed server would hold the GPU until `hal stop` or a reboot. The protocol
+  does not say whether a claim may replace one of the same name; Hal assumes it may. If
+  gpu-light refuses, Hal warns and the `boot` claim stays, which only keeps the light red.
+- **`cpu` mode claims too.** It keeps the weights in RAM, but llama.cpp still uses about 3GB
+  of VRAM for prompt processing, so a background job holding the card would starve it.
+
 ## How the local-model wiring works (for the curious)
 
 Ollama exposes an **Anthropic-compatible API**, so Claude Code can talk to it directly with
