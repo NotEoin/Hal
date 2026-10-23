@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Hal kill
+Comment=Stop every Hal service and process, and free the GPU
+Exec=@CORE@/hal-kill
+Icon=process-stop
+Terminal=false
+Categories=Utility;
