@@ -7,13 +7,40 @@ Plain classes, imported by `conftest.py` and the test files (pytest puts this di
 from __future__ import annotations
 
 import threading
+from dataclasses import replace
 from pathlib import Path
 
-from halhub._approvals_standin import Decision
-from halhub._policy_standin import Scope
+from halhub import policy
+from halhub.approvals import Decision
+from halhub.policy import Scope
 from halhub.runner import RunOutcome
 
 DEMO_TOKEN = "demo-token-canary-value"  # synthetic; never a real credential
+
+
+def short_approval_timeout(monkeypatch, seconds: float = 1.0) -> None:
+    """Gives every policy the hub loads an approval timeout of `seconds`.
+
+    The loader refuses `[approval].timeout_s` below 10 s (01 "`policy.toml` schema"), which
+    is right for users and too slow for a test that waits for the timeout.
+    """
+    real = policy.load_policy
+
+    def load(*args, **kwargs):
+        loaded = real(*args, **kwargs)
+        return replace(loaded, approval=replace(loaded.approval, timeout_s=seconds))
+
+    monkeypatch.setattr(policy, "load_policy", load)
+
+
+class FakeTerminal:
+    """Stands in for a terminal on stdin; the tests never read from it."""
+
+    def isatty(self) -> bool:
+        return True
+
+    def fileno(self) -> int:
+        raise OSError("not a real terminal")
 
 
 class SpyRunner:

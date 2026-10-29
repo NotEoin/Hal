@@ -11,8 +11,8 @@ import dataclasses
 import pytest
 from hubkit import ScriptedApprover
 
-from halhub._audit_standin import tail
-from halhub._policy_standin import Tier
+from halhub.audit import tail
+from halhub.policy import Tier
 from halhub.providers import provider_meta, provider_tool
 from halhub.runner import RunOutcome
 

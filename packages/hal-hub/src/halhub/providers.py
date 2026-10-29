@@ -29,8 +29,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
-from ._policy_standin import Tier, ToolMeta
 from .manifest import DEFAULT_TOOL_TIMEOUT, MAX_DESCRIPTION, MAX_TOOL_NAME, ParamSpec, ToolSpec
+from .policy.model import Tier, ToolMeta
 from .runner import RunOutcome
 
 PROVIDER_NAME_RE = re.compile(r"^[a-z][a-z0-9]{0,31}$")  # becomes pack "mcp-<name>" and the tool prefix

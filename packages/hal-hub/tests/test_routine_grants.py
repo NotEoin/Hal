@@ -18,7 +18,7 @@ from halkit.testing import FakeClock
 STEPS = json.dumps(
     [
         {"tool": "demo_echo", "args": {"text": "good morning"}},
-        {"tool": "demo_wipe", "args": {"path": "/tmp/old.log"}},
+        {"tool": "demo_wipe", "args": {"path": "~/Downloads/old.log"}},
     ]
 )
 
@@ -69,7 +69,7 @@ def test_approved_save_grants_only_ask_steps(hubs):
 def test_edited_steps_do_not_match_grants(hubs):
     hub, daemon, _ = hubs
     save(hub, ScriptedApprover())
-    edited = STEPS.replace("/tmp/old.log", "/home/someone/.bashrc")
+    edited = STEPS.replace("~/Downloads/old.log", "~/Downloads/other.log")
     assert [r.rule for r in run_routine(daemon, edited)][1] == "no-approver"
     longer = json.dumps([*json.loads(STEPS), {"tool": "demo_echo", "args": {"text": "x"}}])
     assert run_routine(daemon, longer)[1].rule == "no-approver"
@@ -112,11 +112,15 @@ def test_invalid_step_makes_the_save_invalid_before_any_prompt(hubs, steps):
 
 def test_single_object_is_a_one_step_list(hubs):
     hub, daemon, _ = hubs
-    one = json.dumps({"tool": "demo_wipe", "args": {"path": "/tmp/old.log"}})
+    one = json.dumps({"tool": "demo_wipe", "args": {"path": "~/Downloads/old.log"}})
     save(hub, ScriptedApprover(), one)
     s = daemon.open_session(kind="routine", origin="routine")
     r = daemon.call(
-        "demo_wipe", {"path": "/tmp/old.log"}, s, front_end="python", routine=RoutineRun("morning", one)
+        "demo_wipe",
+        {"path": "~/Downloads/old.log"},
+        s,
+        front_end="python",
+        routine=RoutineRun("morning", one),
     )
     assert r.status == "ok"
 

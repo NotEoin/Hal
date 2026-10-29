@@ -20,9 +20,9 @@ import anyio
 import pytest
 
 from halhub import cli
-from halhub._audit_standin import AuditLog, tail
-from halhub._policy_standin import AuditSettings
+from halhub.audit import AuditLog, tail
 from halhub.mcp import AUTH_FAIL_LIMIT, _Guard, check_http_host, load_token, rotate_token, token_path
+from halhub.policy import AuditSettings
 from halkit.config import ConfigError
 
 TOKEN = "test-token-not-a-secret"  # synthetic

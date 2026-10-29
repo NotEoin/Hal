@@ -1,7 +1,7 @@
 """Tests for `halhub.hub`: the call pipeline with a spy runner (04-hub "One call, step by step").
 
 REQ-HUB-13, REQ-HUB-15 to REQ-HUB-20, REQ-HUB-23, REQ-HUB-33 and REQ-HUB-69 at the pipeline
-level. Policy, grants and audit are the phase-1 stand-ins of 01-security's modules on the
+level. Policy, grants and audit are 01-security's modules on the
 temporary Hal home; one test runs a real worker end to end.
 """
 
@@ -12,11 +12,12 @@ import textwrap
 import pytest
 from hubkit import DEMO_TOKEN, ScriptedApprover, SpyRunner, answer
 
-from halhub import _policy_standin as policy
-from halhub._audit_standin import tail
+from halhub import policy
 from halhub._guard_standin import GuardResult, ReviewResult
-from halhub._policy_standin import Scope, approval_key
+from halhub.approvals import approval_key
+from halhub.audit import tail
 from halhub.hub import CallResult
+from halhub.policy import Scope
 from halhub.runner import Runner, RunnerConfig, RunOutcome
 from halkit.testing import FakeClock
 
@@ -34,10 +35,10 @@ def events(name: str) -> list[dict]:
 def test_ask_without_approval_never_runs_the_tool(make_hub):
     spy = SpyRunner()
     hub = make_hub(runner=spy)
-    r = hub.call("demo_wipe", {"path": "/tmp/x"}, session(hub), front_end="python")
+    r = hub.call("demo_wipe", {"path": "~/Downloads/x"}, session(hub), front_end="python")
     assert r.status == "denied" and r.rule == "no-approver" and r.error_type == "policy_denied"
     refusing = session(hub, ScriptedApprover(answer("deny")))
-    declined = hub.call("demo_wipe", {"path": "/tmp/x"}, refusing, front_end="python")
+    declined = hub.call("demo_wipe", {"path": "~/Downloads/x"}, refusing, front_end="python")
     assert declined.error_type == "approval_declined"
     assert spy.calls == []
 
@@ -63,10 +64,10 @@ def test_executed_args_are_the_decision_args(make_hub, tmp_path):
     spy = SpyRunner()
     approver = ScriptedApprover()
     hub = make_hub(runner=spy)
-    r = hub.call("demo_wipe", {"path": "~/notes.txt"}, session(hub, approver), front_end="python")
+    r = hub.call("demo_wipe", {"path": "~/Downloads/notes.txt"}, session(hub, approver), front_end="python")
     assert r.status == "ok"
     executed = spy.calls[0][1]
-    assert executed == {"path": str(tmp_path.resolve() / "notes.txt")}
+    assert executed == {"path": str(tmp_path.resolve() / "Downloads" / "notes.txt")}
     assert approver.requests[0].key == approval_key("demo", "demo_wipe", executed)
     assert approver.requests[0].args == executed
 
@@ -143,7 +144,7 @@ def test_session_scope_grant_covers_same_args_only(make_hub):
     approver = ScriptedApprover(answer("allow", Scope.SESSION))
     hub = make_hub(runner=spy)
     s = session(hub, approver)
-    for path in ("/tmp/a", "/tmp/a", "/tmp/b"):
+    for path in ("~/Downloads/a", "~/Downloads/a", "~/Downloads/b"):
         assert hub.call("demo_wipe", {"path": path}, s, front_end="python").status == "ok"
     assert len(approver.requests) == 2 and len(spy.calls) == 3
     assert events("decision")[1]["rule"].startswith("grant:g_")
@@ -154,7 +155,7 @@ def test_once_grant_is_not_reused(make_hub):
     hub = make_hub()
     s = session(hub, approver)
     for _ in range(2):
-        hub.call("demo_wipe", {"path": "/tmp/a"}, s, front_end="python")
+        hub.call("demo_wipe", {"path": "~/Downloads/a"}, s, front_end="python")
     assert len(approver.requests) == 2
 
 
@@ -163,9 +164,9 @@ def test_expired_session_grant_asks_again(make_hub):
     approver = ScriptedApprover(answer("allow", Scope.SESSION))
     hub = make_hub(clock=clock.now)
     s = session(hub, approver)
-    hub.call("demo_wipe", {"path": "/tmp/a"}, s, front_end="python")
+    hub.call("demo_wipe", {"path": "~/Downloads/a"}, s, front_end="python")
     clock.advance(13 * 3600)  # past approval.session_max_h = 12
-    hub.call("demo_wipe", {"path": "/tmp/a"}, s, front_end="python")
+    hub.call("demo_wipe", {"path": "~/Downloads/a"}, s, front_end="python")
     assert len(approver.requests) == 2
 
 
@@ -174,7 +175,7 @@ def test_answer_with_scope_not_offered_is_refused(make_hub, hal_home):
     spy = SpyRunner()
     hub = make_hub(runner=spy)
     s = session(hub, ScriptedApprover(answer("allow", Scope.SESSION)))
-    r = hub.call("demo_wipe", {"path": "/tmp/a"}, s, front_end="python")
+    r = hub.call("demo_wipe", {"path": "~/Downloads/a"}, s, front_end="python")
     assert (r.status, r.rule) == ("denied", "approval-scope") and spy.calls == []
 
 
@@ -182,7 +183,7 @@ def test_answer_for_another_key_is_refused_and_audited(make_hub):
     spy = SpyRunner()
     hub = make_hub(runner=spy)
     s = session(hub, ScriptedApprover(answer("allow", Scope.ONCE, key="sha256:other")))
-    r = hub.call("demo_wipe", {"path": "/tmp/a"}, s, front_end="python")
+    r = hub.call("demo_wipe", {"path": "~/Downloads/a"}, s, front_end="python")
     assert r.rule == "approval-mismatch" and spy.calls == []
     assert events("approval_mismatch")[0]["key_got"] == "sha256:other"
 
@@ -190,13 +191,13 @@ def test_answer_for_another_key_is_refused_and_audited(make_hub):
 def test_approval_timeout_is_denied_with_its_rule(make_hub):
     hub = make_hub()
     s = session(hub, ScriptedApprover(answer("deny", source="timeout")))
-    r = hub.call("demo_wipe", {"path": "/tmp/a"}, s, front_end="python")
+    r = hub.call("demo_wipe", {"path": "~/Downloads/a"}, s, front_end="python")
     assert r.rule == "approval-timeout" and "within 120 s" in r.message
 
 
 def test_approval_request_and_answer_are_audited(make_hub):
     hub = make_hub()
-    hub.call("demo_wipe", {"path": "/tmp/a"}, session(hub, ScriptedApprover()), front_end="python")
+    hub.call("demo_wipe", {"path": "~/Downloads/a"}, session(hub, ScriptedApprover()), front_end="python")
     request, approval = events("approval_request")[0], events("approval")[0]
     assert request["approval"] == approval["approval"] and request["approval"].startswith("apr_")
     assert (approval["verdict"], approval["scope"]) == ("allow", "once")
@@ -206,16 +207,18 @@ def test_approval_request_and_answer_are_audited(make_hub):
 def test_approval_request_shows_every_argument_escaped(make_hub):
     approver = ScriptedApprover()
     hub = make_hub()
-    hub.call("demo_wipe", {"path": "/tmp/a\x1b[2Jb"}, session(hub, approver), front_end="python")
+    hub.call("demo_wipe", {"path": "~/Downloads/a\x1b[2Jb"}, session(hub, approver), front_end="python")
     display = approver.requests[0].display
-    assert display.startswith("demo_wipe  [act]  demo") and "path: /tmp/a\\u001b[2Jb" in display
+    assert display.startswith("demo_wipe  [act]  demo") and "/Downloads/a\\u001b[2Jb" in display
 
 
 def test_confirmed_argument_still_asks_and_is_audited(make_hub):
     approver = ScriptedApprover(answer("deny"))
     spy = SpyRunner()
     hub = make_hub(runner=spy)
-    r = hub.call("demo_wipe", {"path": "/tmp/a", "_confirmed": True}, session(hub, approver), front_end="mcp")
+    r = hub.call(
+        "demo_wipe", {"path": "~/Downloads/a", "_confirmed": True}, session(hub, approver), front_end="mcp"
+    )
     assert r.error_type == "approval_declined" and len(approver.requests) == 1 and spy.calls == []
     assert events("self_approval_attempt")[0]["keys"] == ["_confirmed"]
     assert "_confirmed" not in approver.requests[0].args
@@ -286,7 +289,11 @@ def test_unavailable_module_reports_why(make_hub, tmp_path):
     assert r.error_type == "unavailable" and "absent" in r.message
 
 
-def test_untrusted_result_is_wrapped_and_marked(make_hub):
+EXAMPLE_ORG = '[egress]\ndomains = ["example.org"]\n'  # demo_fetch's host, listed so the call is allowed
+
+
+def test_untrusted_result_is_wrapped_and_marked(make_hub, hal_home):
+    hal_home.policy.write_text("schema_version = 1\n" + EXAMPLE_ORG)
     hub = make_hub(runner=SpyRunner(result="page text"))
     r = hub.call("demo_fetch", {"url": "https://example.org/"}, session(hub), front_end="mcp")
     assert r.untrusted and r.guard == "off"
@@ -306,7 +313,7 @@ class Guard:
 
 @pytest.fixture
 def guard_on(hal_home):
-    hal_home.policy.write_text("schema_version = 1\n[guard]\nenabled = true\n")
+    hal_home.policy.write_text("schema_version = 1\n[guard]\nenabled = true\n" + EXAMPLE_ORG)
 
 
 def test_guard_flag_raises_taint_to_flagged(make_hub, guard_on):
@@ -411,7 +418,7 @@ def test_nested_call_to_undeclared_tool_is_denied(nested_hub):
 
 def test_nested_ask_is_denied(nested_hub):
     approver = ScriptedApprover()
-    r = nested(nested_hub, "demo_wipe", {"path": "/tmp/a"}, approver=approver)
+    r = nested(nested_hub, "demo_wipe", {"path": "~/Downloads/a"}, approver=approver)
     assert r.result == "denied no-approver" and approver.requests == []
 
 

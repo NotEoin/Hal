@@ -1,7 +1,6 @@
 """Tests for `ToolSpec.meta`: the `ToolMeta` that 01-security's policy reads (REQ-HUB-02, REQ-HUB-17).
 
-`ToolMeta` and `decide` come from the phase-1 stand-in in `halhub._policy_standin` until
-01-security's `halhub.policy` lands.
+`ToolMeta` and `decide` are 01-security's `halhub.policy`.
 """
 
 from __future__ import annotations
@@ -10,8 +9,8 @@ import textwrap
 
 import pytest
 
-from halhub._policy_standin import Tier
 from halhub.manifest import load_manifest
+from halhub.policy import Tier
 
 V1 = """
 [module]
@@ -91,7 +90,7 @@ def test_annotations_are_ignored_by_decide(fixtures):
     import dataclasses
     from pathlib import Path
 
-    from halhub._policy_standin import Context, Origin, Policy, RateSnapshot, Taint, ToolCall, decide
+    from halhub.policy import PROFILES, Context, Origin, Policy, RateSnapshot, Taint, ToolCall, decide
     from halkit.testing import FakeClock
 
     module = load_manifest(fixtures / "demo" / "hal-module.toml", source="path")
@@ -102,4 +101,5 @@ def test_annotations_are_ignored_by_decide(fixtures):
     assert dressed.meta(module) == wipe.meta(module)
     call = ToolCall("demo_wipe", {"path": "/tmp/a"}, "0123456789ab", Origin.CLI, "c_0000000000000001")
     ctx = Context(FakeClock().now(), "hub", Taint.UNTRUSTED, (), RateSnapshot(), True, {}, (), Path("/"))
-    assert decide(call, dressed.meta(module), Policy(), ctx) == decide(call, wipe.meta(module), Policy(), ctx)
+    default = Policy(profile=PROFILES["default"])
+    assert decide(call, dressed.meta(module), default, ctx) == decide(call, wipe.meta(module), default, ctx)

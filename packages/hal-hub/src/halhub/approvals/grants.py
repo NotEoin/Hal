@@ -198,13 +198,20 @@ class GrantStore:
             routine = [v.grant for v in self._routine.values()]
             return tuple(g for g in (*mine, *routine) if g.expires > now)
 
-    def add(self, grant: Grant, *, steps: Sequence[Mapping[str, object]] = ()) -> None:
+    def add(
+        self,
+        grant: Grant,
+        *,
+        steps: Sequence[Mapping[str, object]] = (),
+        settings: ApprovalSettings | None = None,
+    ) -> None:
         """Stores `grant`; a routine grant is appended to the file with `steps`.
 
-        Raises `GrantError` for a malformed or over-long grant, an id already present, or a
-        routine grant without a file.
+        `settings` are the bounds to check against: the granting session's `[approval]`, else
+        the store's. Raises `GrantError` for a malformed or over-long grant, an id already
+        present, or a routine grant without a file.
         """
-        check_grant(grant, self.settings)
+        check_grant(grant, settings or self.settings)
         with self._lock:
             self._reload_routine()
             if grant.id in self._grants or grant.id in self._routine:

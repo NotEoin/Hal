@@ -14,11 +14,11 @@ import time
 
 import anyio
 import pytest
-from hubkit import add_probe_key
+from hubkit import add_probe_key, short_approval_timeout
 from mcp import Client
 
-from halhub import _control_standin as control
-from halhub._audit_standin import tail
+from halhub.approvals import control
+from halhub.audit import tail
 from halhub.hub import CallResult
 from halhub.mcp import META_TOOLS, ServeOptions, build_server, render
 from halhub.runner import Runner, RunnerConfig
@@ -87,7 +87,8 @@ def test_unknown_tool_is_unavailable_and_suggests_search(make_hub):
 
 
 @pytest.mark.parametrize("mode", ERAS)
-def test_untrusted_output_uses_security_envelope(make_hub, mode):
+def test_untrusted_output_uses_security_envelope(make_hub, hal_home, mode):
+    hal_home.policy.write_text('schema_version = 1\n[egress]\ndomains = ["example.org"]\n')
     hub = make_hub()
     hub.runner.result = "page text"
     _, result = session_call(hub, mode, "demo_fetch", {"url": "https://example.org/"})
@@ -122,7 +123,7 @@ def test_error_result_has_no_traceback(make_hub, hal_home, tmp_path):
 
 @pytest.mark.parametrize("mode", ERAS)
 def test_ask_waits_for_hal_approve_on_the_control_socket(make_hub, mode, monkeypatch):
-    monkeypatch.setattr(control, "peer_in_harness", lambda pid: False)
+    monkeypatch.setattr(control, "read_environ", lambda pid: b"")
     hub = make_hub()
 
     def approve_when_listed() -> None:
@@ -137,15 +138,17 @@ def test_ask_waits_for_hal_approve_on_the_control_socket(make_hub, mode, monkeyp
     approver = threading.Thread(target=approve_when_listed, daemon=True)
     approver.start()
     hub.runner.result = "wiped"
-    _, result = session_call(hub, mode, "demo_wipe", {"path": "/tmp/x"})
+    _, result = session_call(hub, mode, "demo_wipe", {"path": "~/Downloads/x"})
     approver.join(5)
     assert (text_of(result), result.is_error) == ("wiped", False)
 
 
-def test_ask_with_no_answer_is_denied_with_approval_timeout(make_hub, hal_home):
-    hal_home.policy.write_text("schema_version = 1\n[approval]\ntimeout_s = 1\n")
+def test_ask_with_no_answer_is_denied_with_approval_timeout(make_hub, hal_home, monkeypatch):
+    short_approval_timeout(monkeypatch)
     hub = make_hub()
-    _, result = session_call(hub, "legacy", "hal_call", {"tool": "demo_wipe", "arguments": {"path": "/x"}})
+    _, result = session_call(
+        hub, "legacy", "hal_call", {"tool": "demo_wipe", "arguments": {"path": "~/Downloads/x"}}
+    )
     data = json.loads(text_of(result))
     assert data["rule"] == "approval-timeout" and result.meta["hal"]["status"] == "denied"
     assert hub.runner.calls == []
@@ -156,7 +159,7 @@ def test_given_session_is_used_with_its_own_approver(make_hub):
     hub = make_hub()
     session = hub.open_session(kind="box", origin="box_agent")
     options = ServeOptions(approvals="callback", session=session)
-    _, result = session_call(hub, "legacy", "demo_wipe", {"path": "/x"}, options)
+    _, result = session_call(hub, "legacy", "demo_wipe", {"path": "~/Downloads/x"}, options)
     assert json.loads(text_of(result))["rule"] == "no-approver"
     assert {r["session"] for r in tail(n=0) if r["event"] == "decision"} == {session.id}
 
@@ -289,26 +292,32 @@ def approvals_audited():
     return [r for r in tail(n=0) if r["event"] in ("approval", "approval_mismatch")]
 
 
-def test_elicitation_approves_exact_arguments_modern(make_hub):
+def test_elicitation_approves_exact_arguments_modern(make_hub, tmp_path):
     hub, dialog = make_hub(), Dialog()
-    _, result = session_call(hub, "2026-07-28", "demo_wipe", {"path": "/tmp/x"}, elicit=dialog)
+    _, result = session_call(hub, "2026-07-28", "demo_wipe", {"path": "~/Downloads/x"}, elicit=dialog)
     assert (text_of(result), result.is_error) == ("ok", False)
-    assert [(n, a) for n, a, _ in hub.runner.calls] == [("demo_wipe", {"path": "/tmp/x"})]
+    expanded = str(tmp_path.resolve() / "Downloads" / "x")  # the policy runs the tool with the resolved path
+    assert [(n, a) for n, a, _ in hub.runner.calls] == [("demo_wipe", {"path": expanded})]
     form = dialog.forms[0]
-    assert "path: /tmp/x" in form.message and "apr_" in form.message
+    assert f"path: {expanded}" in form.message and "apr_" in form.message
     assert form.requested_schema["properties"]["decision"]["enum"] == ["once", "deny"]
     assert [(r["verdict"], r["scope"], r["source"]) for r in approvals_audited()] == [
         ("allow", "once", "elicitation")
     ]
 
 
-def test_elicitation_approves_exact_arguments_legacy(make_hub):
+def test_elicitation_approves_exact_arguments_legacy(make_hub, tmp_path):
     hub, dialog = make_hub(), Dialog()
     _, result = session_call(
-        hub, "legacy", "hal_call", {"tool": "demo_wipe", "arguments": {"path": "/tmp/y"}}, elicit=dialog
+        hub,
+        "legacy",
+        "hal_call",
+        {"tool": "demo_wipe", "arguments": {"path": "~/Downloads/y"}},
+        elicit=dialog,
     )
     assert text_of(result) == "ok" and len(dialog.forms) == 1
-    assert [(n, a) for n, a, _ in hub.runner.calls] == [("demo_wipe", {"path": "/tmp/y"})]
+    expanded = str(tmp_path.resolve() / "Downloads" / "y")
+    assert [(n, a) for n, a, _ in hub.runner.calls] == [("demo_wipe", {"path": expanded})]
     assert approvals_audited()[0]["source"] == "elicitation"
 
 
@@ -316,7 +325,7 @@ def test_elicitation_approves_exact_arguments_legacy(make_hub):
 @pytest.mark.parametrize("action", ["decline", "cancel"])
 def test_declined_elicitation_is_approval_declined(make_hub, mode, action):
     hub = make_hub()
-    _, result = session_call(hub, mode, "demo_wipe", {"path": "/x"}, elicit=Dialog(action=action))
+    _, result = session_call(hub, mode, "demo_wipe", {"path": "~/Downloads/x"}, elicit=Dialog(action=action))
     data = json.loads(text_of(result))
     assert data["error_type"] == "approval_declined" and hub.runner.calls == []
 
@@ -324,7 +333,9 @@ def test_declined_elicitation_is_approval_declined(make_hub, mode, action):
 @pytest.mark.parametrize("mode", ERAS)
 def test_choosing_deny_in_the_form_is_approval_declined(make_hub, mode):
     hub = make_hub()
-    _, result = session_call(hub, mode, "demo_wipe", {"path": "/x"}, elicit=Dialog(decision="deny"))
+    _, result = session_call(
+        hub, mode, "demo_wipe", {"path": "~/Downloads/x"}, elicit=Dialog(decision="deny")
+    )
     assert json.loads(text_of(result))["error_type"] == "approval_declined" and hub.runner.calls == []
 
 
@@ -336,7 +347,9 @@ def test_retry_with_changed_arguments_is_refused(make_hub):
 
     async def main():
         async with Client(build_server(hub), mode="2026-07-28", elicitation_callback=Dialog()) as client:
-            first = await client.session.call_tool("demo_wipe", {"path": "/tmp/a"}, allow_input_required=True)
+            first = await client.session.call_tool(
+                "demo_wipe", {"path": "~/Downloads/a"}, allow_input_required=True
+            )
             assert isinstance(first, types.InputRequiredResult)
             assert first.request_state.startswith("hal-approval:apr_")
             return await client.session.call_tool(
@@ -366,7 +379,7 @@ def test_unknown_request_state_starts_a_fresh_request(make_hub):
         async with Client(build_server(hub), mode="2026-07-28", elicitation_callback=Dialog()) as client:
             return await client.session.call_tool(
                 "demo_wipe",
-                {"path": "/tmp/a"},
+                {"path": "~/Downloads/a"},
                 request_state="hal-approval:apr_0000000000000000",
                 input_responses={"hal_approval": answer},
                 allow_input_required=True,
@@ -377,44 +390,48 @@ def test_unknown_request_state_starts_a_fresh_request(make_hub):
 
 @pytest.mark.parametrize("mode", ERAS)
 def test_no_elicitation_capability_waits_for_host_surfaces(make_hub, mode, monkeypatch):
-    monkeypatch.setattr(control, "peer_in_harness", lambda pid: False)
+    monkeypatch.setattr(control, "read_environ", lambda pid: b"")
     hub = make_hub()
     approver = approve_on_control_socket()
-    _, result = session_call(hub, mode, "demo_wipe", {"path": "/tmp/x"})
+    _, result = session_call(hub, mode, "demo_wipe", {"path": "~/Downloads/x"})
     approver.join(5)
     assert (text_of(result), result.is_error) == ("ok", False)
     assert approvals_audited()[0]["source"] == "control"
 
 
 def test_control_socket_answers_while_the_dialog_is_open(make_hub, monkeypatch):
-    monkeypatch.setattr(control, "peer_in_harness", lambda pid: False)
+    monkeypatch.setattr(control, "read_environ", lambda pid: b"")
     hub, dialog = make_hub(), Dialog(hang=True)
     approver = approve_on_control_socket()
-    _, result = session_call(hub, "legacy", "demo_wipe", {"path": "/tmp/x"}, elicit=dialog)
+    _, result = session_call(hub, "legacy", "demo_wipe", {"path": "~/Downloads/x"}, elicit=dialog)
     approver.join(5)
     assert text_of(result) == "ok" and len(dialog.forms) == 1
 
 
-def test_unanswered_elicitation_times_out(make_hub, hal_home):
-    hal_home.policy.write_text("schema_version = 1\n[approval]\ntimeout_s = 1\n")
+def test_unanswered_elicitation_times_out(make_hub, hal_home, monkeypatch):
+    short_approval_timeout(monkeypatch)
     hub = make_hub()
     options = ServeOptions(approvals="elicit")
-    _, result = session_call(hub, "legacy", "demo_wipe", {"path": "/x"}, options, elicit=Dialog(hang=True))
+    _, result = session_call(
+        hub, "legacy", "demo_wipe", {"path": "~/Downloads/x"}, options, elicit=Dialog(hang=True)
+    )
     assert json.loads(text_of(result))["rule"] == "approval-timeout" and hub.runner.calls == []
 
 
 def test_elicit_mode_without_elicitation_is_no_approver(make_hub):
     _, result = session_call(
-        make_hub(), "legacy", "demo_wipe", {"path": "/x"}, ServeOptions(approvals="elicit")
+        make_hub(), "legacy", "demo_wipe", {"path": "~/Downloads/x"}, ServeOptions(approvals="elicit")
     )
     assert json.loads(text_of(result))["rule"] == "no-approver"
 
 
-def test_out_of_band_mode_never_elicits(make_hub, hal_home):
-    hal_home.policy.write_text("schema_version = 1\n[approval]\ntimeout_s = 1\n")
+def test_out_of_band_mode_never_elicits(make_hub, hal_home, monkeypatch):
+    short_approval_timeout(monkeypatch)
     dialog = Dialog()
     options = ServeOptions(approvals="out-of-band")
-    _, result = session_call(make_hub(), "2026-07-28", "demo_wipe", {"path": "/x"}, options, elicit=dialog)
+    _, result = session_call(
+        make_hub(), "2026-07-28", "demo_wipe", {"path": "~/Downloads/x"}, options, elicit=dialog
+    )
     assert json.loads(text_of(result))["rule"] == "approval-timeout" and dialog.forms == []
 
 
@@ -424,21 +441,23 @@ def test_callback_mode_ignores_elicitation(make_hub, mode):
 
     hub, dialog, approver = make_hub(), Dialog(), ScriptedApprover()
     options = ServeOptions(approvals="callback", approver=approver)
-    _, result = session_call(hub, mode, "demo_wipe", {"path": "/x"}, options, elicit=dialog)
+    _, result = session_call(hub, mode, "demo_wipe", {"path": "~/Downloads/x"}, options, elicit=dialog)
     assert text_of(result) == "ok" and dialog.forms == [] and len(approver.requests) == 1
 
 
 def test_deny_mode_is_no_approver(make_hub):
     dialog = Dialog()
     options = ServeOptions(approvals="deny")
-    _, result = session_call(make_hub(), "legacy", "demo_wipe", {"path": "/x"}, options, elicit=dialog)
+    _, result = session_call(
+        make_hub(), "legacy", "demo_wipe", {"path": "~/Downloads/x"}, options, elicit=dialog
+    )
     assert json.loads(text_of(result))["rule"] == "no-approver" and dialog.forms == []
 
 
-def test_long_request_skips_the_dialog_for_host_surfaces(make_hub, hal_home):
-    hal_home.policy.write_text("schema_version = 1\n[approval]\ntimeout_s = 1\n")
+def test_long_request_skips_the_dialog_for_host_surfaces(make_hub, hal_home, monkeypatch):
+    short_approval_timeout(monkeypatch)
     hub, dialog = make_hub(), Dialog()
-    _, result = session_call(hub, "legacy", "demo_wipe", {"path": "/" + "x" * 2100}, elicit=dialog)
+    _, result = session_call(hub, "legacy", "demo_wipe", {"path": "~/Downloads/" + "x" * 2100}, elicit=dialog)
     assert dialog.forms == [] and json.loads(text_of(result))["rule"] == "approval-timeout"
 
 

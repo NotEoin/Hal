@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from halhub._policy_standin import approval_key, security_digest
+from halhub.approvals import approval_key, security_digest
 from halhub.policy import decide, explain, load_policy
 from halhub.policy.model import (
     Context,

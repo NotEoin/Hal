@@ -15,7 +15,7 @@ Design decisions:
 - The tool runs with exactly `Decision.args`; `call_arguments` builds a new mapping for the
   function and nothing writes to the decision's arguments (01 REQ-SEC-18).
 - The hub adds approval grants and writes `approval_request` and `approval` itself, so every
-  approver, router or bare surface, is audited the same way (see `_approvals_standin`).
+  approver, router or bare surface, is audited the same way (see `halhub.approvals.router`).
 - A module's secrets are read as soon as the tool is known, before the `decision` record, so
   a secret value the model echoes in an argument is redacted from every record of the call;
   a secret that cannot be read fails the call only at the run step, as `tool_error`.
@@ -29,9 +29,13 @@ Design decisions:
 - Results of `untrusted_output` tools come back inside 01's untrusted-content envelope, after
   secret scrubbing and output capping, so the guard scans exactly what the caller receives
   (01 REQ-SEC-34, REQ-SEC-96).
-- 01's modules are phase 2: until then the pipeline uses `_policy_standin`,
-  `_approvals_standin`, `_audit_standin` and `_guard_standin`, whose headers list what each
-  one leaves out.
+- The policy, approvals, audit and envelope are 01's modules. The guard client and the
+  reviewer are still the protocols of `_guard_standin` until 01 adds `halhub.guard` and
+  `halhub.reviewer`; with `[guard] enabled = true` and no client every scan is an error,
+  which flags the session (fail closed).
+- After a result of a tool in `[egress].search_tools`, the session records the result's
+  URLs for `url:from-search` (01 REQ-SEC-92). Rate counts are recorded per session: a prompt
+  when an `ask` reaches the approver, a call when it ran (REQ-SEC-12).
 - Listings (`find`, `function_specs`, `tools`, `get`, `describe`, `modules`) leave out every
   tool whose listing verdict, `session.policy.tool(meta)` without arguments, is `deny` or
   disabled (REQ-HUB-23). Argument-dependent rules (paths, domains) cannot hide a tool; they
@@ -65,16 +69,18 @@ from pathlib import Path
 from typing import Literal, get_args
 
 from halkit import paths
+from halkit.canon import canonical_json
+from halkit.termsafe import escape
 from halkit.timeutil import iso_z, utc_now
 
-from . import _approvals_standin as approvals
-from . import _policy_standin as policy
-from . import builtin, search
-from ._audit_standin import AuditLog, AuditUnavailable
-from ._guard_standin import GuardClient, GuardLabel, GuardResult, Reviewer, ReviewRequest, wrap
+from . import approvals, builtin, policy, search
+from ._guard_standin import GuardClient, GuardResult, Reviewer, ReviewRequest
+from .approvals.keys import security_digest
 from .args import ArgumentError, call_arguments, normalise
+from .audit import AuditLog, AuditUnavailable
 from .config import HubConfig
 from .manifest import ModuleSpec, ToolSpec
+from .policy.rate import RateLimiter
 from .providers import (
     PROVIDER_NAME_RE,
     PROVIDER_PACK_PREFIX,
@@ -86,6 +92,7 @@ from .providers import (
 from .registry import Registry
 from .runner import NestedCall, Runner, RunOutcome, SecretError, cut_output, resolve_secrets, scrub
 from .session import EventSink, HubSession, SessionKind, default_workspaces, new_session_id, parse_origin
+from .untrusted import GuardLabel, wrap
 
 log = logging.getLogger(__name__)
 
@@ -158,7 +165,7 @@ class RoutineStep:
 def steps_sha256(steps: Sequence[RoutineStep]) -> str:
     """sha256 hex of `canonical_json([{"tool", "args"}, ...])` over the normalised steps (01 "Routines")."""
     doc = [{"tool": step.tool, "args": dict(step.args)} for step in steps]
-    return hashlib.sha256(policy.canonical_json(doc)).hexdigest()
+    return hashlib.sha256(canonical_json(doc)).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -220,7 +227,7 @@ class Hub:
         remote_addr: str | None = None,
     ) -> HubSession:
         """A session with this hub's defaults; raises `halkit.config.ConfigError` for a bad policy file."""
-        loaded = policy.load_policy(self._policy_path, profile=profile, channel=channel)
+        loaded = policy.load_policy(self._policy_path, profile=profile, channel=channel, home=self._home)
         if audit is None:
             audit = AuditLog(settings=loaded.audit, secrets=self.known_secrets, clock=self._clock)
         return HubSession(
@@ -232,9 +239,10 @@ class Hub:
             policy=loaded,
             approver=approver,
             grants=self.grants,
-            rate=policy.RateLimiter(),
+            rate=RateLimiter(clock=time.monotonic),
             audit=audit,
             workspaces=default_workspaces(),
+            home=self._home,
             remote_addr=remote_addr,
         )
 
@@ -487,7 +495,11 @@ class Hub:
             resolved = policy.prepare(call, meta, home=self._home) if meta else {}
             run_sha = self._run_sha256(routine, session) if routine else None
             ctx = session.context(
-                self._clock(), resolved, routine_steps_sha256=run_sha, approver=front_end != "nested"
+                self._clock(),
+                resolved,
+                routine_steps_sha256=run_sha,
+                approver=front_end != "nested",
+                meta=meta,
             )
             decision = policy.decide(call, meta, session.policy, ctx)
         except Exception:  # REQ-HUB-19: any policy failure is a deny, never a run
@@ -524,7 +536,7 @@ class Hub:
                 )
             )
         if decision.verdict is policy.Verdict.ASK:
-            session.rate.record(meta, asked=True)
+            session.rate.record_ask(session.id)
             refusal = self._approve(target, call, decision, session, steps)
             if refusal is not None:
                 return finish(**refusal)
@@ -569,7 +581,7 @@ class Hub:
                 remote_addr=session.remote_addr,
             )
             resolved = policy.prepare(call, target.meta, home=self._home)
-            ctx = session.context(self._clock(), resolved, approver=True)
+            ctx = session.context(self._clock(), resolved, approver=True, meta=target.meta)
             return policy.decide(call, target.meta, session.policy, ctx).key
         except Exception:  # a retry whose key cannot be computed matches nothing: fail closed
             log.warning("could not recompute the approval key for %s", name, exc_info=True)
@@ -696,7 +708,7 @@ class Hub:
         if d.reviewable and self.reviewer is not None and session.last_human_message:
             if self._review(target, call, d, session):
                 grant = self._grant(meta, d, session, policy.Scope.ONCE, source="reviewer")
-                session.grants.add(grant)
+                session.grants.add(grant, settings=session.policy.approval)
                 session.grants.consume(grant.id)
                 return None
         approver = session.approver
@@ -758,7 +770,11 @@ class Hub:
         if grant is not None:
             if routine_grant is not None:
                 try:
-                    session.grants.add(routine_grant, steps=[_step_view(step) for step in steps])
+                    session.grants.add(
+                        routine_grant,
+                        steps=[_step_view(step) for step in steps],
+                        settings=session.policy.approval,
+                    )
                 except OSError as exc:  # the save must not run when its grant was not stored
                     log.error("routine grant for %s could not be stored: %s", call.call_id, exc)
                     return {
@@ -766,7 +782,7 @@ class Hub:
                         "error_type": "tool_error",
                         "message": f"cannot store grant: {exc}",
                     }
-            session.grants.add(grant)
+            session.grants.add(grant, settings=session.policy.approval)
             if not session.grants.consume(grant.id):
                 return _denied("grant-used", f"grant {grant.id} expired before the call started")
             return None
@@ -833,11 +849,11 @@ class Hub:
         for key in sorted(d.args):
             value = d.args[key]
             text = value if isinstance(value, str) else json.dumps(value)
-            lines.append(f"  {key}: {approvals.escape(text, multiline=key in content)}")
+            lines.append(f"  {key}: {escape(text, multiline=key in content)}")
         for number, step in enumerate(steps, 1):  # 01 "Routines" step 1: render every step
-            canonical = policy.canonical_json(dict(step.args)).decode("ascii")
+            canonical = canonical_json(dict(step.args)).decode("ascii")
             lines.append(f"  step {number}: {step.tool}  [{step.tier}]  {step.verdict}")
-            lines.append(f"    {approvals.escape(canonical, multiline=False)}")
+            lines.append(f"    {escape(canonical, multiline=False)}")
         assert d.key is not None  # an ask always carries the key of its validated arguments
         return approvals.ApprovalRequest(
             id=approvals.new_request_id(),
@@ -926,7 +942,7 @@ class Hub:
         if d.rule.startswith("bad-args:"):
             raise ArgumentError(owner, None, f"{where}: {d.reason}", code="routine-step")
         return RoutineStep(
-            tool.name, str(meta.tier), dict(args), str(d.verdict), d.rule, d.key, policy.security_digest(meta)
+            tool.name, str(meta.tier), dict(args), str(d.verdict), d.rule, d.key, security_digest(meta)
         )
 
     def _run_sha256(self, routine: RoutineRun, session: HubSession) -> str | None:
@@ -951,21 +967,12 @@ class Hub:
         asking = {s.key: s.meta_sha256 for s in steps if s.verdict == "ask" and s.key}
         if routine is None or not asking or source == "reviewer":
             return None
-        now = self._clock()
-        return policy.Grant(
-            id=approvals.new_grant_id(),
-            scope=policy.Scope.ROUTINE,
-            key=None,
-            pack=None,
-            tool=None,
-            session=None,
+        return approvals.routine_grant(
             routine_id=str(d.args[routine.id_param]),
             steps_sha256=steps_sha256(steps),
             step_keys=asking,
-            meta_sha256=None,
-            created=now,
-            expires=now + timedelta(days=session.policy.approval.routine_max_days),
-            used=False,
+            settings=session.policy.approval,
+            now=self._clock(),
             source=source,
         )
 
@@ -978,27 +985,14 @@ class Hub:
         *,
         source: str,
     ) -> policy.Grant:
-        now = self._clock()
-        settings = session.policy.approval
-        ttl = (
-            timedelta(seconds=settings.once_ttl_s)
-            if scope is policy.Scope.ONCE
-            else timedelta(hours=settings.session_max_h)
-        )
-        return policy.Grant(
-            id=approvals.new_grant_id(),
-            scope=scope,
+        make = approvals.once_grant if scope is policy.Scope.ONCE else approvals.session_grant
+        assert d.key is not None  # an ask always carries the key of its validated arguments
+        return make(
             key=d.key,
-            pack=meta.pack,
-            tool=meta.name,
+            meta=meta,
             session=session.id,
-            routine_id=None,
-            steps_sha256=None,
-            step_keys={},
-            meta_sha256=policy.security_digest(meta),
-            created=now,
-            expires=now + ttl,
-            used=False,
+            settings=session.policy.approval,
+            now=self._clock(),
             source=source,
         )
 
@@ -1039,18 +1033,20 @@ class Hub:
         guard: GuardLabel = "off"
         if outcome.ok:
             result, text = _shape(scrub(outcome.result, secret_values), tool.max_output)
+            if tool.name in session.policy.egress.search_tools:
+                session.search_urls.record(session.id, text)
             if tool.untrusted_output:
                 session.raise_taint(policy.Taint.UNTRUSTED, cause="untrusted_output")
                 guard, score = self._scan(session, call_id, tool, text)
                 result = text = wrap(text, tool=tool.name, guard=guard, score=score)
             self._audit_result(session, call_id, tool, True, None, text, ms)
-            session.rate.record(target.meta)
+            session.rate.record_call(session.id, target.meta)
             return finish(
                 "ok", result=result, warnings=warnings, untrusted=tool.untrusted_output, guard=guard
             )
         message = scrub(outcome.message or "", secret_values)
         self._audit_result(session, call_id, tool, False, outcome.error_type, "", ms)
-        session.rate.record(target.meta)
+        session.rate.record_call(session.id, target.meta)
         return finish(
             "error", error_type=outcome.error_type or "tool_error", message=message, warnings=warnings
         )

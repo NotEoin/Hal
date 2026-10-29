@@ -8,7 +8,7 @@ import pytest
 from hubkit import SpyRunner, add_probe_key
 
 from halhub import api, client
-from halhub._audit_standin import tail
+from halhub.audit import tail
 from halhub.hub import RoutineRun
 from halhub.runner import Runner, RunnerConfig, RunOutcome
 
@@ -23,7 +23,7 @@ def test_unattended_ask_raises_tool_denied(process_hub):
     spy = SpyRunner()
     process_hub(runner=spy)
     with pytest.raises(client.ToolDenied) as info:
-        client.call("demo_wipe", {"path": "/tmp/a"}, caller="routines", unattended=True)
+        client.call("demo_wipe", {"path": "~/Downloads/a"}, caller="routines", unattended=True)
     assert info.value.rule == "no-approver" and spy.calls == []
 
 

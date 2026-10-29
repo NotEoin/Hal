@@ -1,7 +1,7 @@
 """Tests for the pipeline's audit records through the session's `EventSink` (REQ-HUB-50, REQ-HUB-51).
 
 One case per front end reaches the one audit log; a broker session's own sink replaces it. The
-records are 01-security's schema ("Audit log") through the phase-1 `AuditLog` stand-in.
+records are 01-security's schema ("Audit log") through `halhub.audit.AuditLog`.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import textwrap
 
 from hubkit import SpyRunner
 
-from halhub._audit_standin import AuditLog, AuditUnavailable, default_directory, tail
+from halhub.audit import AuditLog, AuditUnavailable, default_directory, tail
 
 
 class ListSink:
@@ -87,7 +87,7 @@ def test_failed_approval_request_record_refuses_the_call(make_hub):
     s = hub.open_session(
         kind="hub", origin="cli", approver=approver, audit=ListSink(frozenset({"approval_request"}))
     )
-    r = hub.call("demo_wipe", {"path": "/tmp/a"}, s, front_end="cli")
+    r = hub.call("demo_wipe", {"path": "~/Downloads/a"}, s, front_end="cli")
     assert r.error_type == "audit_unavailable" and approver.requests == [] and spy.calls == []
 
 

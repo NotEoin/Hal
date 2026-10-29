@@ -77,7 +77,7 @@ def test_call_to_act_tool_without_approver_is_denied_even_when_confirmed(process
     spy = SpyRunner()
     process_hub(runner=spy)
     with pytest.warns(DeprecationWarning):
-        out = halhub.call("demo_wipe", {"path": "/tmp/x", "_confirmed": True})
+        out = halhub.call("demo_wipe", {"path": "~/Downloads/x", "_confirmed": True})
     assert out["status"] == "denied" and out["rule"] == "no-approver"
     assert "needs_confirmation" not in out and spy.calls == []
 

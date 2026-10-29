@@ -15,9 +15,9 @@ import mcp_types as types
 import pytest
 from mcp import Client
 
-from halhub import _control_standin as control
 from halhub import cli, mcp
-from halhub._audit_standin import tail
+from halhub.approvals import control
+from halhub.audit import tail
 from halhub.mcp import ServeOptions, build_server
 
 REMOTE = ServeOptions(channel="remote", origin="remote:laptop", remote_addr="203.0.113.5")  # TEST-NET-3
@@ -38,7 +38,7 @@ async def accept_once(context, params):
 
 def test_remote_channel_uses_auto_mode_without_notify(make_hub):
     hub = make_hub()
-    result = call(hub, "legacy", "demo_wipe", {"path": "/tmp/x"}, elicit=accept_once)
+    result = call(hub, "legacy", "demo_wipe", {"path": "~/Downloads/x"}, elicit=accept_once)
     assert result.content[0].text == "ok"
     requests = [r for r in tail(n=0) if r["event"] == "approval_request"]
     assert requests[0]["surfaces"] == ["elicitation", "control"]
@@ -47,7 +47,7 @@ def test_remote_channel_uses_auto_mode_without_notify(make_hub):
 
 
 def test_remote_client_without_elicitation_waits_for_hal_approve(make_hub, monkeypatch):
-    monkeypatch.setattr(control, "peer_in_harness", lambda pid: False)
+    monkeypatch.setattr(control, "read_environ", lambda pid: b"")
     hub = make_hub()
 
     def approve() -> None:
@@ -61,7 +61,7 @@ def test_remote_client_without_elicitation_waits_for_hal_approve(make_hub, monke
 
     thread = threading.Thread(target=approve, daemon=True)
     thread.start()
-    result = call(hub, "2026-07-28", "demo_wipe", {"path": "/tmp/x"})
+    result = call(hub, "2026-07-28", "demo_wipe", {"path": "~/Downloads/x"})
     thread.join(5)
     assert result.content[0].text == "ok"
     approvals = [r for r in tail(n=0) if r["event"] == "approval"]
@@ -89,7 +89,7 @@ def test_remote_channel_profile_denies_the_desktop_pack(make_hub, tmp_path):
 def test_remote_addr_is_in_every_audit_record(make_hub):
     hub = make_hub()
     call(hub, "legacy", "hal_call", {"tool": "demo_echo", "arguments": {"text": "hi"}})
-    call(hub, "legacy", "demo_wipe", {"path": "/x"}, elicit=accept_once)
+    call(hub, "legacy", "demo_wipe", {"path": "~/Downloads/x"}, elicit=accept_once)
     records = list(tail(n=0))
     assert len(records) >= 4
     assert all(r["remote_addr"] == "203.0.113.5" for r in records)

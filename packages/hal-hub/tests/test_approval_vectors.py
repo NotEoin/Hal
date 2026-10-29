@@ -12,19 +12,20 @@ from pathlib import Path
 
 import pytest
 
-from halhub._policy_standin import (
+from halhub.approvals import approval_key
+from halhub.args import normalise
+from halhub.manifest import ModuleSpec, ParamSpec, ToolSpec
+from halhub.policy import (
+    PROFILES,
     Context,
     Origin,
     Policy,
     RateSnapshot,
     Taint,
     ToolCall,
-    approval_key,
-    canonical_json,
     decide,
 )
-from halhub.args import normalise
-from halhub.manifest import ModuleSpec, ParamSpec, ToolSpec
+from halkit.canon import canonical_json
 from halkit.testing import FakeClock
 
 VECTORS = Path(__file__).resolve().parents[3] / "tests" / "data" / "approval_vectors.json"
@@ -95,4 +96,4 @@ def test_normalised_vector_reproduces_canonical_form_and_key(vector):
     assert approval_key(vector["pack"], vector["tool"], args) == vector["key"]
     call = ToolCall(vector["tool"], args, "0123456789ab", Origin.CLI, "c_0000000000000001")
     ctx = Context(FakeClock().now(), "hub", Taint.UNTRUSTED, (), RateSnapshot(), True, {}, (), Path("/"))
-    assert decide(call, tool.meta(module), Policy(), ctx).key == vector["key"]
+    assert decide(call, tool.meta(module), Policy(profile=PROFILES["default"]), ctx).key == vector["key"]

@@ -14,8 +14,8 @@ Design decisions:
   reviewer; the audit log gets its length and digest unless `[audit].content` is on.
 - A failed `taint_change` record never stops taint from rising: raising it is the safe
   direction, so the record failure is logged and the new level kept.
-- No control socket yet: 01's `halhub.approvals.control` lands in phase 2, so `close` only
-  drops the session's grants.
+- `close` drops the session's `once` and `session` grants, its rate counts and its recorded
+  search URLs; the control socket belongs to the front end that made it.
 """
 
 from __future__ import annotations
@@ -34,9 +34,11 @@ from typing import Literal, Protocol, get_args
 
 from halkit import paths
 
-from ._approvals_standin import Approver, GrantStore
-from ._audit_standin import AuditUnavailable
-from ._policy_standin import Context, Origin, Policy, RateLimiter, ResolvedPath, Taint
+from .approvals import Approver, GrantStore
+from .audit import AuditUnavailable
+from .policy.model import Context, Origin, Policy, ResolvedPath, Taint, ToolMeta
+from .policy.provenance import SearchUrls
+from .policy.rate import RateLimiter
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +63,23 @@ class EventSink(Protocol):
 def new_session_id() -> str:
     """A fresh 12-hex session id."""
     return secrets.token_hex(SESSION_ID_BYTES)
+
+
+class SessionSink:
+    """An `EventSink` for objects built before their session (the control socket, the router).
+
+    Records go through `session.emit` once `session` is set. Before that there is no session
+    to name, and `append` raises `AuditUnavailable`: the audit log is always fail-closed (01, F4).
+    """
+
+    def __init__(self) -> None:
+        self.session: HubSession | None = None
+
+    def append(self, event: str, **fields: object) -> None:
+        """Writes through the bound session; raises `AuditUnavailable` like `HubSession.emit`."""
+        if self.session is None:
+            raise AuditUnavailable(f"no session yet for the {event} audit record")
+        self.session.emit(event, **fields)
 
 
 def parse_origin(origin: str) -> tuple[Origin, str | None]:
@@ -130,6 +149,8 @@ class HubSession:
     rate: RateLimiter
     audit: EventSink
     workspaces: Callable[[], tuple[Path, ...]] = _no_workspaces
+    search_urls: SearchUrls = field(default_factory=SearchUrls)
+    home: Path = field(default_factory=Path.home)  # where `~/` in path arguments and roots points
     remote_addr: str | None = None
     last_human_message: str = ""
     taint: Taint | None = None  # None: the starting level for `kind`
@@ -175,22 +196,25 @@ class HubSession:
         *,
         routine_steps_sha256: str | None = None,
         approver: bool = True,
+        meta: ToolMeta | None = None,
     ) -> Context:
         """01's `Context` for one call at `now`, with the paths `prepare` resolved.
 
-        `approver=False` (nested calls) reports no approver whatever the session holds.
+        `approver=False` (nested calls) reports no approver whatever the session holds; `meta`
+        adds the tool's own rate count to the snapshot.
         """
         return Context(
             now=now,
             session_kind=self.kind,
             taint=self.current_taint(),
             grants=self.grants.snapshot(self.id),
-            rate=self.rate.snapshot(),
+            rate=self.rate.snapshot(self.id, self.policy, meta),
             approver_available=approver and self.approver is not None and self.approver.available(),
             paths=resolved,
             workspaces=self.workspaces(),
-            home=Path.home(),
+            home=self.home,
             routine_steps_sha256=routine_steps_sha256,
+            search_urls=self.search_urls.urls(self.id),
         )
 
     def current_taint(self) -> Taint:
@@ -224,8 +248,10 @@ class HubSession:
             self._audit_taint(before, after, cause="human_message", surface=surface, text=text)
 
     def close(self) -> None:
-        """Ends the session: its `once` and `session` grants are dropped."""
+        """Ends the session: its grants, rate counts and search URLs are dropped."""
         self.grants.end_session(self.id)
+        self.rate.forget(self.id)
+        self.search_urls.forget(self.id)
 
     def _audit_taint(
         self, before: Taint, after: Taint, *, cause: str, surface: str | None = None, text: str = ""

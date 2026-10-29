@@ -111,13 +111,12 @@ from halkit import paths
 from halkit import secrets as halsecrets
 from halkit.config import ConfigError
 
-from . import _control_standin as control
-from . import _policy_standin as policy
-from ._approvals_standin import ApprovalRequest, ApprovalRouter, Approver, Decision
-from ._audit_standin import AuditLog, AuditUnavailable
+from . import policy
+from .approvals import ApprovalRequest, ApprovalRouter, Approver, Decision, control
+from .audit import AuditLog, AuditUnavailable
 from .hub import CallResult, Hub, new_call_id
 from .manifest import ToolSpec
-from .session import HubSession, new_session_id
+from .session import HubSession, SessionSink, new_session_id
 from .surfaces import (
     ELICITATION_KEY,
     ElicitationSurface,
@@ -394,7 +393,7 @@ class _ConnectionApprover:
     shows_all_args = True
 
     def __init__(
-        self, mode: ApprovalMode, control_server: control.ControlServer, origin: str, audit: Any
+        self, mode: ApprovalMode, control_server: control.ControlServer, origin: str, audit: SessionSink
     ) -> None:
         self._mode = mode
         self._control = control_server
@@ -743,12 +742,7 @@ def _open(hub: Hub, opts: ServeOptions) -> _Connection:
         session = hub.open_session(kind=kind, profile=opts.profile, approver=opts.approver, **where)
         return _Connection(session, owned=True)
     session_id = new_session_id()
-    holder: list[HubSession] = []
-
-    def audit(event: str, **fields: object) -> None:
-        if holder:
-            holder[0].emit(event, **fields)
-
+    audit = SessionSink()
     server = control.ControlServer(session_id, audit=audit, on_pending=_waiting)
     approver = None
     if opts.approvals != "deny":
@@ -760,7 +754,7 @@ def _open(hub: Hub, opts: ServeOptions) -> _Connection:
     except BaseException:
         server.close()
         raise
-    holder.append(session)
+    audit.session = session
     return _Connection(session, opts.approvals, server, owned=True)
 
 

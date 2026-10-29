@@ -8,8 +8,8 @@ import threading
 
 import pytest
 
-from halhub._approvals_standin import ApprovalRequest, ApprovalRouter
-from halhub._policy_standin import Origin, Scope, Taint, Tier
+from halhub.approvals import ApprovalRequest, ApprovalRouter
+from halhub.policy import Origin, Scope, Taint, Tier
 from halhub.surfaces import (
     HARNESS_ENV,
     PREVIEW_CHARS,

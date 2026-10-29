@@ -11,23 +11,14 @@ import json
 import textwrap
 import threading
 import time
+from pathlib import Path
 
 import pytest
-from hubkit import DEMO_TOKEN
+from hubkit import DEMO_TOKEN, FakeTerminal, short_approval_timeout
 
 from halhub import __version__, cli
-from halhub import _control_standin as control
+from halhub.approvals import control
 from halhub.surfaces import HARNESS_ENV
-
-
-class FakeTerminal:
-    """Stands in for a terminal on stdin; the tests never read from it."""
-
-    def isatty(self) -> bool:
-        return True
-
-    def fileno(self) -> int:
-        raise OSError("not a real terminal")
 
 
 @pytest.fixture
@@ -148,15 +139,15 @@ def test_tool_error_exits_1(home, capsys):
     assert code == 1 and "disk on fire" in err and out == ""
 
 
-def test_ask_without_a_terminal_waits_for_approve_then_exits_3(home, capsys):
-    home.policy.write_text("schema_version = 1\n[approval]\ntimeout_s = 1\n")
-    code, out, err = run(capsys, "demo_wipe", "path=/tmp/x")
+def test_ask_without_a_terminal_waits_for_approve_then_exits_3(home, capsys, monkeypatch):
+    short_approval_timeout(monkeypatch)
+    code, out, err = run(capsys, "demo_wipe", "path=~/Downloads/x")
     assert code == 3 and "approval-timeout" in err and out == ""
     assert "hal-hub approve apr_" in err
 
 
 def test_ask_without_a_terminal_runs_after_approval_on_the_control_socket(home, capsys, monkeypatch):
-    monkeypatch.setattr(control, "peer_in_harness", lambda pid: False)
+    monkeypatch.setattr(control, "read_environ", lambda pid: b"")
 
     def approve_when_listed() -> None:
         deadline = time.monotonic() + 10
@@ -169,28 +160,28 @@ def test_ask_without_a_terminal_runs_after_approval_on_the_control_socket(home, 
 
     approver = threading.Thread(target=approve_when_listed, daemon=True)
     approver.start()
-    code, out, _ = run(capsys, "demo_wipe", "path=/tmp/x")
+    code, out, _ = run(capsys, "demo_wipe", "path=~/Downloads/x")
     approver.join(5)
-    assert code == 0 and json.loads(out) == "wiped /tmp/x"
+    assert code == 0 and json.loads(out) == f"wiped {Path.home() / 'Downloads' / 'x'}"
 
 
 def test_yes_is_refused_without_terminal(home, capsys):
-    code, _, err = run(capsys, "demo_wipe", "path=/tmp/x", "--yes")
+    code, _, err = run(capsys, "demo_wipe", "path=~/Downloads/x", "--yes")
     assert code == 2 and "terminal" in err
 
 
 def test_yes_is_refused_under_a_harness(home, capsys, monkeypatch):
     monkeypatch.setattr("sys.stdin", FakeTerminal())
     monkeypatch.setenv(HARNESS_ENV, "claude")
-    code, _, err = run(capsys, "demo_wipe", "path=/tmp/x", "--yes")
+    code, _, err = run(capsys, "demo_wipe", "path=~/Downloads/x", "--yes")
     assert code == 2 and "HAL_HARNESS" in err
 
 
 def test_json_and_yes_work_together(home, capsys, monkeypatch):
     monkeypatch.setattr("sys.stdin", FakeTerminal())
     monkeypatch.delenv(HARNESS_ENV, raising=False)
-    code, out, err = run(capsys, "call", "demo_wipe", "--json", '{"path": "/tmp/x"}', "--yes")
-    assert code == 0 and json.loads(out) == "wiped /tmp/x"
+    code, out, err = run(capsys, "call", "demo_wipe", "--json", '{"path": "~/Downloads/x"}', "--yes")
+    assert code == 0 and json.loads(out) == f"wiped {Path.home() / 'Downloads' / 'x'}"
     assert "demo_wipe" in err and "--yes" in err  # the person sees what --yes approved
 
 
@@ -307,11 +298,11 @@ def waiting(home, monkeypatch):
     """A pending request on a control socket of this process, and the decision it gets."""
     from datetime import timedelta
 
-    from halhub._approvals_standin import ApprovalRequest
-    from halhub._policy_standin import Origin, Scope, Taint, Tier
+    from halhub.approvals import ApprovalRequest
+    from halhub.policy import Origin, Scope, Taint, Tier
     from halkit.timeutil import iso_z, utc_now
 
-    monkeypatch.setattr(control, "peer_in_harness", lambda pid: False)
+    monkeypatch.setattr(control, "read_environ", lambda pid: b"")
     now = utc_now()
     req = ApprovalRequest(
         id="apr_00000000000000aa",
@@ -324,8 +315,8 @@ def waiting(home, monkeypatch):
         tier=Tier.ACT,
         key="sha256:" + "c" * 64,
         reason="tier:act - act tools ask",
-        args={"path": "/tmp/x"},
-        display="demo_wipe  [act]  demo\n  path: /tmp/x",
+        args={"path": "~/Downloads/x"},
+        display="demo_wipe  [act]  demo\n  path: ~/Downloads/x",
         summary="Allow demo_wipe (act, pack demo)?",
         content=False,
         challenge=None,
@@ -357,7 +348,7 @@ def test_approve_shows_the_call_and_allows_once(waiting, capsys, monkeypatch):
     code, out, _ = run(capsys, "approve", "apr_00000000000000aa")
     waiting["join"]()
     decision = waiting["decision"]
-    assert code == 0 and "path: /tmp/x" in out and "Allow this exact call once?" in out
+    assert code == 0 and "path: ~/Downloads/x" in out and "Allow this exact call once?" in out
     assert (decision.verdict, decision.scope.value, decision.source) == ("allow", "once", "control")
 
 

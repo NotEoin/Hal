@@ -70,17 +70,16 @@ from pathlib import Path
 
 from halkit import log as halkit_log
 from halkit.config import ConfigError
+from halkit.termsafe import escape
 
-from . import _control_standin as control
-from . import _policy_standin as policy
-from . import install
-from ._approvals_standin import ApprovalRequest, ApprovalRouter, escape
+from . import install, policy
+from .approvals import ApprovalRequest, ApprovalRouter, control
 from .config import HubConfig
 from .hub import CallResult, Hub
 from .manifest import ModuleSpec, ToolSpec
 from .registry import Registry, RegistryError
 from .runner import SecretError, WorkerError, resolve_secrets
-from .session import HubSession, new_session_id
+from .session import HubSession, SessionSink, new_session_id
 from .surfaces import YES_ANSWERS, TtySurface, person_at_terminal, yes_allowed
 
 EXIT_OK = 0
@@ -771,19 +770,14 @@ def _session(hub: Hub, *, profile: str | None = None, approver_yes: bool = False
     """The CLI session: kind `hub`, origin `cli`, with 01's router over the `tty` surface on a
     terminal, else over this process's control socket (REQ-HUB-58)."""
     session_id = new_session_id()
-    holder: list[HubSession] = []
-
-    def audit(event: str, **fields: object) -> None:
-        if holder:
-            holder[0].emit(event, **fields)
-
+    audit = SessionSink()
     tty = TtySurface(yes=approver_yes)
     server = control.ControlServer(session_id, audit=audit, on_pending=_waiting)
     router = ApprovalRouter([tty] if tty.available() else [server], audit=audit)
     session = hub.open_session(
         kind="hub", origin="cli", profile=profile, approver=router, session_id=session_id
     )
-    holder.append(session)
+    audit.session = session
     try:
         yield session
     finally:

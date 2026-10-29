@@ -1,8 +1,7 @@
 """The tool policy engine: tiers, profiles, `policy.toml`, and the pure decision for each call.
 
-01-security owns the design ("Decision algorithm", "`policy.toml` schema"). This package is
-built in steps; the hub still calls the phase-1 stand-in `halhub._policy_standin`, which
-shares these types, until 01's "Route hub calls through policy engine" switches it over.
+01-security owns the design ("Decision algorithm", "`policy.toml` schema"). The hub calls
+`prepare` and then `decide` for every call on every front end.
 """
 
 from .decide import decide, explain

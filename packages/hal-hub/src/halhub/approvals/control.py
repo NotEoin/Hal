@@ -123,7 +123,7 @@ class ControlServer:
         audit: EventSink | None = None,
         on_pending: Callable[[ApprovalRequest, Path], None] | None = None,
         peer: Callable[[socket.socket], Peer] = peer_credentials,
-        environ: Callable[[int], bytes] = read_environ,
+        environ: Callable[[int], bytes] | None = None,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self.session_id = session_id
@@ -295,7 +295,9 @@ class ControlServer:
 
     def _in_harness(self, pid: int) -> bool:
         try:
-            return environ_has_harness(self._environ(pid))
+            # looked up per call so a test can replace the module's `read_environ`
+            reader = self._environ if self._environ is not None else read_environ
+            return environ_has_harness(reader(pid))
         except OSError:
             return True  # fail closed: an unreadable peer may be a harness
 

@@ -6,8 +6,7 @@ import dataclasses
 
 import pytest
 
-from halhub import _policy_standin
-from halhub.policy.model import ParamSpec, Rate, RateSettings, Taint, Tier, ToolMeta
+from halhub.policy.model import ParamSpec, Rate, RateSettings, Taint
 
 
 @pytest.mark.parametrize(
@@ -42,7 +41,3 @@ def test_param_defaults_are_a_plain_string_of_at_most_65536_characters():
 def test_taint_orders_from_clean_to_flagged_and_has_lowercase_labels():
     assert Taint.CLEAN < Taint.UNTRUSTED < Taint.FLAGGED
     assert [t.label for t in Taint] == ["clean", "untrusted", "flagged"]
-
-
-def test_phase_one_stand_in_shares_the_policy_types():
-    assert _policy_standin.ToolMeta is ToolMeta and _policy_standin.Tier is Tier

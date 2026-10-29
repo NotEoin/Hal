@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from halhub._policy_standin import Tier, ToolMeta
 from halhub.mcp import annotations
+from halhub.policy import Tier, ToolMeta
 
 
 def meta(tier: str, *, network: bool = False, reversible: bool = False) -> ToolMeta:

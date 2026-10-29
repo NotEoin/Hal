@@ -36,8 +36,8 @@ import time
 from collections.abc import Callable, Mapping
 from typing import Any, TextIO
 
-from ._approvals_standin import ApprovalRequest, Decision
-from ._policy_standin import Scope
+from .approvals import ApprovalRequest, Decision
+from .policy.model import Scope
 
 __all__ = [
     "ELICITATION_KEY",

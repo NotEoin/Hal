@@ -30,9 +30,18 @@ hubkit = _load_hubkit()
 
 
 @pytest.fixture(autouse=True)
-def hal_home() -> Iterator[TempHalHome]:
-    """Every hub test runs against a throwaway config, state, data and runtime directory."""
+def hal_home(monkeypatch) -> Iterator[TempHalHome]:
+    """Every hub test runs against a throwaway config, state, data, runtime and home directory.
+
+    `policy.toml` starts empty with mode 0600, so a test's `write_text` keeps a mode the
+    loader accepts (01 REQ-SEC-15). `HOME` points at an empty home whose `~/Downloads` is the
+    shipped write root, so demo-pack paths there pass the path rules.
+    """
     with TempHalHome() as home:
+        home.policy.touch(mode=0o600)
+        user_home = home.root / "home"
+        (user_home / "Downloads").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(user_home))
         yield home
 
 

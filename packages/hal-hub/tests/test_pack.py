@@ -11,7 +11,7 @@ import json
 import pytest
 
 from halhub import mcp, pack
-from halhub._audit_standin import tail
+from halhub.audit import tail
 
 
 @pytest.fixture

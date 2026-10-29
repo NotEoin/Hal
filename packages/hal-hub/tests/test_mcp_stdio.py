@@ -14,6 +14,7 @@ import subprocess
 import sys
 import textwrap
 import time
+from pathlib import Path
 
 import anyio
 import pytest
@@ -185,8 +186,9 @@ def test_elicitation_approves_a_call_over_stdio(served, mode):
         async with Client(
             params, mode=mode, read_timeout_seconds=SERVE_TIMEOUT_S, elicitation_callback=accept_once
         ) as client:
-            return await client.call_tool("demo_wipe", {"path": "/tmp/stdio"})
+            return await client.call_tool("demo_wipe", {"path": "~/Downloads/stdio"})
 
     result = anyio.run(main)
-    assert result.content[0].text == "wiped /tmp/stdio" and not result.is_error
-    assert len(forms) == 1 and "path: /tmp/stdio" in forms[0]
+    expanded = Path.home() / "Downloads" / "stdio"  # the server runs the tool with the resolved path
+    assert result.content[0].text == f"wiped {expanded}" and not result.is_error
+    assert len(forms) == 1 and f"path: {expanded}" in forms[0]

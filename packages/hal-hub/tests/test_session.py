@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 from hubkit import ScriptedApprover, SpyRunner, answer
 
-from halhub._audit_standin import tail
-from halhub._policy_standin import Origin, Scope, Taint
+from halhub.audit import tail
+from halhub.policy import Origin, Scope, Taint
 from halhub.session import active_workspaces, parse_origin
 
 
@@ -32,7 +32,8 @@ def test_chat_session_starts_clean(make_hub):
     assert open_session(make_hub()).current_taint() is Taint.CLEAN
 
 
-def test_untrusted_result_raises_taint(make_hub):
+def test_untrusted_result_raises_taint(make_hub, hal_home):
+    hal_home.policy.write_text('schema_version = 1\n[egress]\ndomains = ["example.org"]\n')
     hub = make_hub(runner=SpyRunner(result="page"))
     s = open_session(hub)
     hub.call("demo_fetch", {"url": "https://example.org/"}, s, front_end="python")
@@ -97,7 +98,7 @@ def test_pending_request_writes_no_files(make_hub, hal_home):
     hub = make_hub()
     s = open_session(hub, approver=ScriptedApprover(look))
     before = _files(hal_home)
-    hub.call("demo_wipe", {"path": "/tmp/a"}, s, front_end="python")
+    hub.call("demo_wipe", {"path": "~/Downloads/a"}, s, front_end="python")
     assert seen["during"] == before and _files(hal_home) == before
 
 
@@ -105,11 +106,11 @@ def test_session_close_drops_session_grants(make_hub):
     approver = ScriptedApprover(answer("allow", Scope.SESSION))
     hub = make_hub()
     s = open_session(hub, approver=approver)
-    hub.call("demo_wipe", {"path": "/tmp/a"}, s, front_end="python")
+    hub.call("demo_wipe", {"path": "~/Downloads/a"}, s, front_end="python")
     assert s.grants.snapshot(s.id)
     s.close()
     assert s.grants.snapshot(s.id) == ()
-    hub.call("demo_wipe", {"path": "/tmp/a"}, s, front_end="python")
+    hub.call("demo_wipe", {"path": "~/Downloads/a"}, s, front_end="python")
     assert len(approver.requests) == 2
 
 

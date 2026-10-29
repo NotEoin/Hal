@@ -32,9 +32,9 @@ from typing import Literal
 
 from halkit import paths
 
-from ._policy_standin import ParamSpec as PolicyParamSpec
-from ._policy_standin import Tier as PolicyTier
-from ._policy_standin import ToolMeta
+from .policy.model import ParamSpec as PolicyParamSpec
+from .policy.model import Tier as PolicyTier
+from .policy.model import ToolMeta
 
 log = logging.getLogger(__name__)
 

@@ -8,9 +8,6 @@ request's id and key (REQ-SEC-22, REQ-SEC-23). There is no yes-matcher and no "a
 `request_json` and `decision_from_json` are the wire forms ("Approval surfaces and protocol"):
 the same object on every transport. A client's `source` is never read; the host-side code of
 the surface sets it.
-
-Until 01's "Route hub calls through policy engine" step, the hub still uses
-`halhub._approvals_standin`, which has the same shapes.
 """
 
 from __future__ import annotations
