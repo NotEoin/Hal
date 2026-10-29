@@ -42,11 +42,13 @@ class ToolError(Exception):
 
 
 class ToolCallError(Exception):
-    """A nested `call_tool` was refused or failed; `type` is the hub's error type."""
+    """A nested `call_tool` was refused or failed; `type` is the hub's error type, `rule` the
+    policy rule id of a refusal (empty otherwise)."""
 
-    def __init__(self, error_type: str, message: str) -> None:
+    def __init__(self, error_type: str, message: str, rule: str = "") -> None:
         self.type = error_type
         self.message = message
+        self.rule = rule
         super().__init__(f"{error_type}: {message}")
 
 
@@ -121,7 +123,11 @@ def call_tool(tool: str, args: dict | None = None) -> object:
                 if message.get("ok"):
                     return message.get("result")
                 error = message.get("error") or {}
-                raise ToolCallError(str(error.get("type", "tool_error")), str(error.get("message", "")))
+                raise ToolCallError(
+                    str(error.get("type", "tool_error")),
+                    str(error.get("message", "")),
+                    str(error.get("rule", "")),
+                )
             raise ToolCallError("protocol_error", f"expected tool_result {nested_id}, got {op!r}")
 
 

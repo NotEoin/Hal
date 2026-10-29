@@ -31,8 +31,12 @@ Design decisions:
   (01 REQ-SEC-34, REQ-SEC-96).
 - 01's modules are phase 2: until then the pipeline uses `_policy_standin`,
   `_approvals_standin`, `_audit_standin` and `_guard_standin`, whose headers list what each
-  one leaves out. Nested calls (plan step 12), providers (step 13), search and listings
-  (steps 14 and 15) join this facade in later steps.
+  one leaves out. Providers (plan step 13), search and listings (steps 14 and 15) join this
+  facade in later steps.
+- A worker's nested `tool_call` runs through this same pipeline with the parent's session and
+  no approver: it must be in the calling module's `calls`, get a plain `allow` (no grant), stay
+  one level deep, and finish within the parent's remaining time (REQ-HUB-31, D15). The calling
+  module is the one the runner knows owns the worker, never a name the worker sends.
 """
 
 from __future__ import annotations
@@ -60,7 +64,7 @@ from .args import ArgumentError, call_arguments, normalise
 from .config import HubConfig
 from .manifest import ModuleSpec, ToolSpec
 from .registry import Registry
-from .runner import Runner, RunOutcome, SecretError, cut_output, resolve_secrets, scrub
+from .runner import NestedCall, Runner, RunOutcome, SecretError, cut_output, resolve_secrets, scrub
 from .session import EventSink, HubSession, SessionKind, default_workspaces, new_session_id, parse_origin
 
 log = logging.getLogger(__name__)
@@ -225,11 +229,16 @@ class Hub:
         front_end: FrontEnd,
         cancel: threading.Event | None = None,
         routine: RoutineRun | None = None,
+        timeout: float | None = None,
     ) -> CallResult:
         """Runs one call through every pipeline step; never raises for a tool or policy problem.
 
         `routine` is set only by the routines daemon's client calls (origin `routine`): the hub
         recomputes the stored step list's hash so `decide` can match the routine grant.
+        `timeout` caps the tool's own timeout (`halhub.client.call`, and the parent's remaining
+        time for a nested call).
+        `front_end="nested"` has no approver, so an `ask` is denied, and a grant does not count
+        either: a nested call runs only on a plain `allow` (REQ-HUB-31, D15).
         """
         if front_end not in FRONT_ENDS:
             raise ValueError(f"unknown front end {front_end!r}")
@@ -295,7 +304,9 @@ class Hub:
         try:
             resolved = policy.prepare(call, meta, home=self._home) if meta else {}
             run_sha = self._run_sha256(routine, session) if routine else None
-            ctx = session.context(self._clock(), resolved, routine_steps_sha256=run_sha)
+            ctx = session.context(
+                self._clock(), resolved, routine_steps_sha256=run_sha, approver=front_end != "nested"
+            )
             decision = policy.decide(call, meta, session.policy, ctx)
         except Exception:  # REQ-HUB-19: any policy failure is a deny, never a run
             log.exception("policy failed for %s; denying the call", name)
@@ -324,6 +335,12 @@ class Hub:
         if decision.verdict is policy.Verdict.DENY:
             return finish(**_deny_fields(name, target, decision))
         assert target is not None  # decide denies an unknown tool
+        if front_end == "nested" and decision.grant_id is not None:
+            return finish(
+                **_denied(
+                    "nested:grant", f"{name} is covered only by a grant; a nested call needs a plain allow."
+                )
+            )
         if decision.verdict is policy.Verdict.ASK:
             session.rate.record(meta, asked=True)
             refusal = self._approve(target, call, decision, session, steps)
@@ -336,7 +353,9 @@ class Hub:
                 rule="grant-used",
                 message=f"grant {decision.grant_id} was already used",
             )
-        return self._execute(target, decision, session, call_id, cancel, warnings, finish)
+        limit = target.tool.timeout if timeout is None else min(target.tool.timeout, timeout)
+        nested = front_end == "nested"
+        return self._execute(target, decision, session, call_id, cancel, warnings, finish, limit, nested)
 
     # -- pipeline steps --
 
@@ -350,6 +369,64 @@ class Hub:
             self._secret_values.update(v for v in values.values() if v)
         return _Target(tool, module, tool.meta(module), values, None)
 
+    def _nested_handler(
+        self, session: HubSession, *, deadline: float, depth_ok: bool
+    ) -> Callable[[NestedCall], RunOutcome]:
+        """Answers a worker's `tool_call`: declared in `calls`, one level deep, parent's time left."""
+
+        def handle(request: NestedCall) -> RunOutcome:
+            if not depth_ok:
+                return self._refuse_nested(
+                    session, request, "nested:depth", "a nested call cannot make another"
+                )
+            if request.tool not in request.module.calls:
+                reason = f"{request.module.name} does not list {request.tool} in its calls"
+                return self._refuse_nested(session, request, "nested:undeclared", reason)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return RunOutcome(
+                    False, error_type="timeout", message=f"{request.parent_tool.name} ran out of time"
+                )
+            r = self.call(request.tool, request.args, session, front_end="nested", timeout=remaining)
+            return RunOutcome(r.status == "ok", r.result, r.error_type, r.message, rule=r.rule)
+
+        return handle
+
+    def _refuse_nested(self, session: HubSession, request: NestedCall, rule: str, reason: str) -> RunOutcome:
+        """Audits a nested call refused before `decide` and returns the refusal for the worker."""
+        found = self.registry.lookup(request.tool)
+        meta = found[0].meta(found[1].spec) if found else None
+        try:
+            self._emit_refusal(session, new_call_id(), request.tool, meta, rule, reason)
+        except AuditUnavailable as exc:
+            return RunOutcome(False, error_type="audit_unavailable", message=str(exc))
+        return RunOutcome(False, error_type="policy_denied", message=reason, rule=rule)
+
+    def _emit_refusal(
+        self,
+        session: HubSession,
+        call_id: str,
+        name: str,
+        meta: policy.ToolMeta | None,
+        rule: str,
+        reason: str,
+    ) -> None:
+        session.emit(
+            "decision",
+            call=call_id,
+            pack=meta.pack if meta else None,
+            pack_version=meta.pack_version if meta else None,
+            tool=name,
+            tier=str(meta.tier) if meta else None,
+            key=None,
+            verdict="deny",
+            rule=rule,
+            reason=reason,
+            stripped=[],
+            taint=session.current_taint().label,
+            grant=None,
+        )
+
     def _refuse_early(
         self,
         session: HubSession,
@@ -361,23 +438,8 @@ class Hub:
         error_type: str,
     ) -> CallResult:
         """Audits and returns a refusal found before `decide` (unavailable module, bad arguments)."""
-        meta = target.meta
         try:
-            session.emit(
-                "decision",
-                call=call_id,
-                pack=meta.pack,
-                pack_version=meta.pack_version,
-                tool=meta.name,
-                tier=str(meta.tier),
-                key=None,
-                verdict="deny",
-                rule=rule,
-                reason=reason,
-                stripped=[],
-                taint=session.current_taint().label,
-                grant=None,
-            )
+            self._emit_refusal(session, call_id, target.meta.name, target.meta, rule, reason)
         except AuditUnavailable as exc:
             return finish("error", error_type="audit_unavailable", message=str(exc))
         return finish("error", error_type=error_type, rule=rule, message=reason)
@@ -731,10 +793,13 @@ class Hub:
         cancel: threading.Event | None,
         warnings: tuple[str, ...],
         finish: Callable[..., CallResult],
+        timeout: float,
+        nested: bool,
     ) -> CallResult:
         """Steps 9 to 12: run, scrub and cap, taint and guard, audit the result."""
         tool, module = target.tool, target.module
         started = time.monotonic()
+        handler = self._nested_handler(session, deadline=started + timeout, depth_ok=not nested)
         secret_values = dict(target.secrets)
         if target.secret_error is not None:
             outcome = RunOutcome(False, error_type="tool_error", message=target.secret_error)
@@ -743,9 +808,10 @@ class Hub:
                 module,
                 tool,
                 call_arguments(tool, d.args),
-                timeout=tool.timeout,
+                timeout=timeout,
                 secrets=secret_values,
                 cancel=cancel,
+                on_tool_call=handler,
             )
         ms = int((time.monotonic() - started) * 1000)
         guard: GuardLabel = "off"

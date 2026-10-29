@@ -61,6 +61,22 @@ def nested(tool: str) -> object:
     return call_tool(tool, {"text": "hi"})
 
 
+def client_call(tool: str, args: str = "{}", caller: str = "probe") -> object:
+    """Calls `tool` through `halhub.client` and returns its result, or how it was refused."""
+    import json
+
+    from halhub import client
+
+    try:
+        return client.call(tool, json.loads(args), caller=caller)
+    except client.ToolDenied as exc:
+        return f"denied {exc.rule}"
+    except client.ToolFailed as exc:
+        return f"failed {exc.error_type}"
+    except ValueError as exc:
+        return f"refused {exc}"
+
+
 def sleep(seconds: float, pidfile: str = "") -> str:
     """Starts a long child `sleep`, writes its pid to `pidfile`, then sleeps `seconds`."""
     child = subprocess.Popen(["sleep", CHILD_SLEEP_S])

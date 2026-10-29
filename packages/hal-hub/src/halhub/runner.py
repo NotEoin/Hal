@@ -125,6 +125,7 @@ class RunOutcome:
     message: str | None = None
     worker_pid: int | None = None
     seconds: float = 0.0
+    rule: str | None = None  # 01 rule id when a nested call was refused by policy
 
 
 @dataclass(frozen=True)
@@ -749,6 +750,8 @@ class Runner:
         if outcome.ok:
             return {"op": "tool_result", "id": nested_id, "ok": True, "result": outcome.result}
         error = {"type": outcome.error_type or "tool_error", "message": outcome.message or ""}
+        if outcome.rule:
+            error["rule"] = outcome.rule  # optional field: older workers ignore it
         return {"op": "tool_result", "id": nested_id, "ok": False, "error": error}
 
     # -- one-shot (v1 exec) --

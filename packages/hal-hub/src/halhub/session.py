@@ -169,16 +169,24 @@ class HubSession:
         self.audit.append(event, **self.fields(), **fields)
 
     def context(
-        self, now: datetime, resolved: Mapping[str, ResolvedPath], *, routine_steps_sha256: str | None = None
+        self,
+        now: datetime,
+        resolved: Mapping[str, ResolvedPath],
+        *,
+        routine_steps_sha256: str | None = None,
+        approver: bool = True,
     ) -> Context:
-        """01's `Context` for one call at `now`, with the paths `prepare` resolved."""
+        """01's `Context` for one call at `now`, with the paths `prepare` resolved.
+
+        `approver=False` (nested calls) reports no approver whatever the session holds.
+        """
         return Context(
             now=now,
             session_kind=self.kind,
             taint=self.current_taint(),
             grants=self.grants.snapshot(self.id),
             rate=self.rate.snapshot(),
-            approver_available=self.approver is not None and self.approver.available(),
+            approver_available=approver and self.approver is not None and self.approver.available(),
             paths=resolved,
             workspaces=self.workspaces(),
             home=Path.home(),

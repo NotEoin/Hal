@@ -375,3 +375,52 @@ def test_real_worker_runs_an_allowed_call_end_to_end(make_hub):
     hub = make_hub(runner=Runner(RunnerConfig(kill_grace=0.3, bwrap="off")))
     r = hub.call("demo_echo", {"text": "hi", "times": 2}, session(hub), front_end="python")
     assert r.status == "ok" and r.result == "hi hi"
+
+
+# ---- nested calls (REQ-HUB-31), real workers -------------------------------------------------
+
+
+@pytest.fixture
+def nested_hub(make_hub, hal_home, tmp_path):
+    from hubkit import add_probe_key
+
+    add_probe_key(hal_home.config, tmp_path)
+    return make_hub("demo", "probe", runner=Runner(RunnerConfig(kill_grace=0.3, bwrap="off")))
+
+
+def nested(hub, tool: str, args: dict | None = None, approver=None, **kwargs) -> CallResult:
+    import json
+
+    s = session(hub, approver or ScriptedApprover())
+    return hub.call(
+        "probe_client", {"tool": tool, "args": json.dumps(args or {}), **kwargs}, s, front_end="python"
+    )
+
+
+def test_nested_call_to_a_declared_allowed_tool_runs(nested_hub):
+    r = nested(nested_hub, "demo_echo", {"text": "hi"})
+    assert r.status == "ok" and r.result == "hi"
+    decisions = [(e["tool"], e["rule"]) for e in events("decision")]
+    assert decisions == [("probe_client", "tier:read"), ("demo_echo", "tier:read")]
+
+
+def test_nested_call_to_undeclared_tool_is_denied(nested_hub):
+    assert nested(nested_hub, "demo_lights", {"colour": "red"}).result == "denied nested:undeclared"
+    assert events("decision")[-1]["rule"] == "nested:undeclared"
+
+
+def test_nested_ask_is_denied(nested_hub):
+    approver = ScriptedApprover()
+    r = nested(nested_hub, "demo_wipe", {"path": "/tmp/a"}, approver=approver)
+    assert r.result == "denied no-approver" and approver.requests == []
+
+
+def test_nested_call_cannot_nest_again(nested_hub):
+    r = nested(nested_hub, "probe_nested", {"tool": "demo_echo"})
+    assert r.result == "failed tool_error"  # probe_nested's own call_tool raised on the refusal
+    assert events("decision")[-1]["rule"] == "nested:depth"
+
+
+def test_nested_caller_must_be_the_workers_module(nested_hub):
+    r = nested(nested_hub, "demo_echo", {"text": "hi"}, caller="demo")
+    assert r.result.startswith("refused caller 'demo'")

@@ -6,7 +6,7 @@ name = "probe"
 summary = "Tools that print, fail, sleep, crash or read secrets"
 python = "halprobe.tools"
 env = ["PROBE_ALLOWED"]
-calls = ["demo_echo"]
+calls = ["demo_echo", "demo_wipe", "probe_nested"]
 
 [[module.secrets]]
 name = "probe_key"
@@ -68,6 +68,17 @@ description = "Call another tool through the hub."
 tier = "read"
 [tools.params.tool]
 required = true
+
+[[tools]]
+name = "probe_client"
+function = "client_call"
+description = "Call another tool through halhub.client and report the outcome."
+tier = "read"
+[tools.params.tool]
+required = true
+[tools.params.args]
+format = "json"
+[tools.params.caller]
 
 [[tools]]
 name = "probe_sleep"
