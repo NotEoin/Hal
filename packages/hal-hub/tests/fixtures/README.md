@@ -10,3 +10,4 @@ no real secrets.
 | `probe` | v2 pack whose tools print, raise, sleep with a child, crash, read secrets or connect |
 | `broken` | v2 pack whose tools module raises on import |
 | `oneshot` | v1 `exec` module: a small Python script speaking the one-shot protocol |
+| `routines` | v2 pack with one routine-defining tool (`routine = {id, steps}`) |

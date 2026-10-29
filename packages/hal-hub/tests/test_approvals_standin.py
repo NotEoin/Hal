@@ -199,3 +199,48 @@ def test_escape_shows_control_and_bidi_characters_as_code_points():
     text = "a\x1b[31mb" + chr(0x202E) + "c\td\ne"
     assert escape(text) == "a\\u001b[31mb\\u202ec\\td\ne"
     assert escape("x\ny", multiline=False) == "x\\ny"
+
+
+def _routine_grant(clock: FakeClock) -> Grant:
+    return Grant(
+        id=new_grant_id(),
+        scope=Scope.ROUTINE,
+        key=None,
+        pack=None,
+        tool=None,
+        session=None,
+        routine_id="morning",
+        steps_sha256="ab" * 32,
+        step_keys={"sha256:k": "sha256:m"},
+        meta_sha256=None,
+        created=clock.now(),
+        expires=clock.now() + timedelta(days=90),
+        used=False,
+        source="scripted",
+    )
+
+
+def test_routine_grant_is_persisted_for_another_store(tmp_path):
+    clock = FakeClock()
+    path = tmp_path / "state" / "routine-grants.jsonl"
+    grant = _routine_grant(clock)
+    GrantStore(path, clock=clock.now).add(grant, steps=[{"tool": "demo_echo", "args": {}}])
+    other = GrantStore(path, clock=clock.now)
+    assert other.snapshot("ffffffffffff") == (grant,)
+    assert other.routine_grants()[0].steps == ({"tool": "demo_echo", "args": {}},)
+    assert oct(path.stat().st_mode & 0o777) == "0o600"
+
+
+def test_unparsable_routine_grant_line_is_skipped(tmp_path):
+    clock = FakeClock()
+    path = tmp_path / "routine-grants.jsonl"
+    store = GrantStore(path, clock=clock.now)
+    store.add(_routine_grant(clock))
+    with path.open("a") as fh:
+        fh.write('{"op": "grant", "id": "g_broken"}\n')
+    assert len(GrantStore(path, clock=clock.now).snapshot(SID)) == 1
+
+
+def test_routine_grant_needs_a_file():
+    with pytest.raises(ValueError, match="no routine grant file"):
+        GrantStore(clock=FakeClock().now).add(_routine_grant(FakeClock()))

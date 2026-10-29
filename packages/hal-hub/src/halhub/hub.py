@@ -21,6 +21,11 @@ Design decisions:
   a secret that cannot be read fails the call only at the run step, as `tool_error`.
 - A `once` grant, whether from an approver, the reviewer or an earlier answer, is consumed
   under the grant store's lock right before the run, so two concurrent calls cannot share it.
+- A routine-defining tool's steps are parsed, normalised and decided before any prompt (a bad
+  step makes the save `invalid_arguments`), shown step by step in the request, and a human
+  `allow` adds one 01 `routine` grant whose `step_keys` are the steps that would ask, bound
+  to the routine id and the step list's hash (REQ-HUB-67). 01's grant model holds every
+  asking step in one grant, so the hub adds one grant per save, not one per step.
 - Results of `untrusted_output` tools come back inside 01's untrusted-content envelope, after
   secret scrubbing and output capping, so the guard scans exactly what the caller receives
   (01 REQ-SEC-34, REQ-SEC-96).
@@ -38,7 +43,7 @@ import logging
 import secrets
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -66,7 +71,7 @@ CALL_ID_BYTES = 8  # "c_" + 16 hex (01 ToolCall.call_id)
 ROUTINE_GRANTS = "routine-grants.jsonl"  # under state_dir(), 01 "Grant store"
 REVIEW_REASON_CHARS = 300  # 01 audit schema: the reviewer's reason, cut
 
-__all__ = ["CallResult", "FrontEnd", "Hub", "new_call_id"]
+__all__ = ["CallResult", "FrontEnd", "Hub", "RoutineRun", "RoutineStep", "new_call_id", "steps_sha256"]
 
 
 def new_call_id() -> str:
@@ -100,6 +105,33 @@ class CallResult:
         out["message"] = self.message
         out["error"] = self.message
         return out
+
+
+@dataclass(frozen=True)
+class RoutineRun:
+    """A routine step run by the routines daemon: the routine id and its stored step list."""
+
+    routine_id: str
+    steps: str  # the canonical JSON step list the routine was saved with
+
+
+@dataclass(frozen=True)
+class RoutineStep:
+    """One step of a routine being saved, normalised and decided as it would run unattended."""
+
+    tool: str
+    tier: str
+    args: Mapping[str, object]  # normalised, before path resolution: what the step list stores
+    verdict: str
+    rule: str
+    key: str | None
+    meta_sha256: str
+
+
+def steps_sha256(steps: Sequence[RoutineStep]) -> str:
+    """sha256 hex of `canonical_json([{"tool", "args"}, ...])` over the normalised steps (01 "Routines")."""
+    doc = [{"tool": step.tool, "args": dict(step.args)} for step in steps]
+    return hashlib.sha256(policy.canonical_json(doc)).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -192,8 +224,13 @@ class Hub:
         *,
         front_end: FrontEnd,
         cancel: threading.Event | None = None,
+        routine: RoutineRun | None = None,
     ) -> CallResult:
-        """Runs one call through every pipeline step; never raises for a tool or policy problem."""
+        """Runs one call through every pipeline step; never raises for a tool or policy problem.
+
+        `routine` is set only by the routines daemon's client calls (origin `routine`): the hub
+        recomputes the stored step list's hash so `decide` can match the routine grant.
+        """
         if front_end not in FRONT_ENDS:
             raise ValueError(f"unknown front end {front_end!r}")
         started = time.monotonic()
@@ -216,6 +253,7 @@ class Hub:
                 )
 
         warnings: tuple[str, ...] = ()
+        steps: tuple[RoutineStep, ...] = ()
         if target is not None:
             try:
                 normalised = normalise(target.tool, args, near_miss=front_end == "cli")
@@ -224,6 +262,19 @@ class Hub:
                     session, call_id, target, f"bad-args:{exc.code}", str(exc), finish, "invalid_arguments"
                 )
             raw, warnings = normalised.args, normalised.warnings
+            if target.tool.routine is not None:
+                try:
+                    steps = self._expand_steps(target.tool, raw, session)
+                except ArgumentError as exc:
+                    return self._refuse_early(
+                        session,
+                        call_id,
+                        target,
+                        "bad-args:routine-step",
+                        str(exc),
+                        finish,
+                        "invalid_arguments",
+                    )
         else:
             raw = dict(args) if isinstance(args, Mapping) else {}
 
@@ -237,12 +288,14 @@ class Hub:
             channel=session.channel,
             remote_client=remote_client,
             remote_addr=session.remote_addr,
+            routine_id=routine.routine_id if routine else None,
         )
         meta = target.meta if target else None
         failed = False
         try:
             resolved = policy.prepare(call, meta, home=self._home) if meta else {}
-            ctx = session.context(self._clock(), resolved)
+            run_sha = self._run_sha256(routine, session) if routine else None
+            ctx = session.context(self._clock(), resolved, routine_steps_sha256=run_sha)
             decision = policy.decide(call, meta, session.policy, ctx)
         except Exception:  # REQ-HUB-19: any policy failure is a deny, never a run
             log.exception("policy failed for %s; denying the call", name)
@@ -273,7 +326,7 @@ class Hub:
         assert target is not None  # decide denies an unknown tool
         if decision.verdict is policy.Verdict.ASK:
             session.rate.record(meta, asked=True)
-            refusal = self._approve(target, call, decision, session)
+            refusal = self._approve(target, call, decision, session, steps)
             if refusal is not None:
                 return finish(**refusal)
         elif decision.grant_id is not None and not session.grants.consume(decision.grant_id):
@@ -351,7 +404,12 @@ class Hub:
         session.emit("decision", **fields)
 
     def _approve(
-        self, target: _Target, call: policy.ToolCall, d: policy.Decision, session: HubSession
+        self,
+        target: _Target,
+        call: policy.ToolCall,
+        d: policy.Decision,
+        session: HubSession,
+        steps: tuple[RoutineStep, ...] = (),
     ) -> dict[str, object] | None:
         """Step 7: the reviewer or the session's approver; returns None when approved, else the refusal."""
         meta = target.meta
@@ -364,7 +422,7 @@ class Hub:
         approver = session.approver
         if approver is None or not approver.available():
             return _denied("no-approver", f"{meta.name} needs approval and no approval surface is available.")
-        request = self._request(meta, call, d, session)
+        request = self._request(meta, call, d, session, steps)
         surfaces = [s.name for s in getattr(approver, "surfaces", (approver,))]
         try:
             session.emit(
@@ -398,9 +456,10 @@ class Hub:
             except AuditUnavailable as exc:
                 log.error("approval_mismatch record failed: %s", exc)
             return _denied("approval-mismatch", "The approval answer did not match this exact call.")
-        grant = None
+        grant = routine_grant = None
         if answer.verdict == "allow" and answer.scope in request.scopes:
             grant = self._grant(meta, d, session, answer.scope, source=answer.source)
+            routine_grant = self._routine_grant(target, d, session, steps, source=answer.source)
         try:
             session.emit(
                 "approval",
@@ -411,11 +470,22 @@ class Hub:
                 scope=str(answer.scope) if answer.scope else None,
                 source=answer.source,
                 grant=grant.id if grant else None,
+                routine_grant=routine_grant.id if routine_grant else None,
                 ms=ms,
             )
         except AuditUnavailable as exc:
             return {"status": "error", "error_type": "audit_unavailable", "message": str(exc)}
         if grant is not None:
+            if routine_grant is not None:
+                try:
+                    session.grants.add(routine_grant, steps=[_step_view(step) for step in steps])
+                except OSError as exc:  # the save must not run when its grant was not stored
+                    log.error("routine grant for %s could not be stored: %s", call.call_id, exc)
+                    return {
+                        "status": "error",
+                        "error_type": "tool_error",
+                        "message": f"cannot store grant: {exc}",
+                    }
             session.grants.add(grant)
             if not session.grants.consume(grant.id):
                 return _denied("grant-used", f"grant {grant.id} expired before the call started")
@@ -469,7 +539,12 @@ class Hub:
         return decision == "approve"
 
     def _request(
-        self, meta: policy.ToolMeta, call: policy.ToolCall, d: policy.Decision, session: HubSession
+        self,
+        meta: policy.ToolMeta,
+        call: policy.ToolCall,
+        d: policy.Decision,
+        session: HubSession,
+        steps: tuple[RoutineStep, ...] = (),
     ) -> approvals.ApprovalRequest:
         now = self._clock()
         timeout_s = session.policy.approval.timeout_s
@@ -479,6 +554,10 @@ class Hub:
             value = d.args[key]
             text = value if isinstance(value, str) else json.dumps(value)
             lines.append(f"  {key}: {approvals.escape(text, multiline=key in content)}")
+        for number, step in enumerate(steps, 1):  # 01 "Routines" step 1: render every step
+            canonical = policy.canonical_json(dict(step.args)).decode("ascii")
+            lines.append(f"  step {number}: {step.tool}  [{step.tier}]  {step.verdict}")
+            lines.append(f"    {approvals.escape(canonical, multiline=False)}")
         assert d.key is not None  # an ask always carries the key of its validated arguments
         return approvals.ApprovalRequest(
             id=approvals.new_request_id(),
@@ -501,6 +580,113 @@ class Hub:
             guard=session.guard_label,
             created_at=iso_z(now, ms=True),
             expires_at=iso_z(now + timedelta(seconds=timeout_s), ms=True),
+        )
+
+    def _expand_steps(
+        self, tool: ToolSpec, args: Mapping[str, object], session: HubSession
+    ) -> tuple[RoutineStep, ...]:
+        """Step 8, before any prompt: parse, normalise and decide every step; raises `ArgumentError`."""
+        assert tool.routine is not None
+        text = args.get(tool.routine.steps_param)
+        if not isinstance(text, str):
+            return ()  # a missing or mistyped steps argument is decide's bad-args to report
+        return self._parse_steps(tool.name, text, session)
+
+    def _parse_steps(self, owner: str, text: str, session: HubSession) -> tuple[RoutineStep, ...]:
+        try:
+            raw = json.loads(text)
+        except ValueError as exc:
+            raise ArgumentError(owner, None, f"steps are not JSON: {exc}", code="routine-step") from None
+        items = [raw] if isinstance(raw, dict) else raw
+        if not isinstance(items, list) or not items:
+            raise ArgumentError(
+                owner, None, "steps must be a non-empty list of {tool, args}", code="routine-step"
+            )
+        steps = []
+        for number, item in enumerate(items, 1):
+            where = f"step {number}"
+            if not isinstance(item, dict) or not isinstance(item.get("tool"), str):
+                raise ArgumentError(owner, None, f"{where} needs a tool name", code="routine-step")
+            if set(item) - {"tool", "args"} or not isinstance(item.get("args", {}), dict):
+                raise ArgumentError(
+                    owner, None, f"{where} must be {{tool, args}} with object args", code="routine-step"
+                )
+            name = item["tool"]
+            step_tool = self.registry.tool(name)
+            if step_tool is None:
+                raise ArgumentError(
+                    owner, None, f"{where} names no available tool {name!r}", code="routine-step"
+                )
+            try:
+                normalised = normalise(step_tool, item.get("args", {})).args
+            except ArgumentError as exc:
+                raise ArgumentError(owner, None, f"{where}: {exc}", code="routine-step") from None
+            steps.append(self._decide_step(owner, where, step_tool, normalised, session))
+        return tuple(steps)
+
+    def _decide_step(
+        self, owner: str, where: str, tool: ToolSpec, args: Mapping[str, object], session: HubSession
+    ) -> RoutineStep:
+        """The step's verdict as it would run unattended: origin `routine`, no grants, clean taint."""
+        meta = tool.meta(self.registry.module_of(tool))
+        call = policy.ToolCall(tool.name, args, session.id, policy.Origin.ROUTINE, new_call_id())
+        resolved = policy.prepare(call, meta, home=self._home)
+        ctx = policy.Context(
+            now=self._clock(),
+            session_kind="routine",
+            taint=policy.Taint.CLEAN,
+            grants=(),
+            rate=policy.RateSnapshot(),
+            approver_available=True,
+            paths=resolved,
+            workspaces=session.workspaces(),
+            home=self._home,
+        )
+        d = policy.decide(call, meta, session.policy, ctx)
+        if d.rule.startswith("bad-args:"):
+            raise ArgumentError(owner, None, f"{where}: {d.reason}", code="routine-step")
+        return RoutineStep(
+            tool.name, str(meta.tier), dict(args), str(d.verdict), d.rule, d.key, policy.security_digest(meta)
+        )
+
+    def _run_sha256(self, routine: RoutineRun, session: HubSession) -> str | None:
+        """The stored step list's hash, recomputed; None when it no longer parses or validates."""
+        try:
+            return steps_sha256(self._parse_steps("routine", routine.steps, session))
+        except ArgumentError as exc:
+            log.warning("routine %s: stored steps no longer validate: %s", routine.routine_id, exc)
+            return None
+
+    def _routine_grant(
+        self,
+        target: _Target,
+        d: policy.Decision,
+        session: HubSession,
+        steps: tuple[RoutineStep, ...],
+        *,
+        source: str,
+    ) -> policy.Grant | None:
+        """01's `routine` grant for the steps that would ask, bound to the routine id and step hash."""
+        routine = target.tool.routine
+        asking = {s.key: s.meta_sha256 for s in steps if s.verdict == "ask" and s.key}
+        if routine is None or not asking or source == "reviewer":
+            return None
+        now = self._clock()
+        return policy.Grant(
+            id=approvals.new_grant_id(),
+            scope=policy.Scope.ROUTINE,
+            key=None,
+            pack=None,
+            tool=None,
+            session=None,
+            routine_id=str(d.args[routine.id_param]),
+            steps_sha256=steps_sha256(steps),
+            step_keys=asking,
+            meta_sha256=None,
+            created=now,
+            expires=now + timedelta(days=session.policy.approval.routine_max_days),
+            used=False,
+            source=source,
         )
 
     def _grant(
@@ -640,6 +826,11 @@ class Hub:
             session.emit("result", **fields)
         except AuditUnavailable as exc:  # REQ-HUB-51: the tool ran; return its result, the gap shows in seq
             log.error("result record for %s failed: %s", call_id, exc)
+
+
+def _step_view(step: RoutineStep) -> dict[str, object]:
+    """A step as stored beside its routine grant (01 `RoutineGrantView`)."""
+    return {"tool": step.tool, "tier": step.tier, "args": dict(step.args), "verdict": step.verdict}
 
 
 def _denied(rule: str, message: str) -> dict[str, object]:

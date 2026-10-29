@@ -1,0 +1,20 @@
+# Synthetic routines-like pack: one routine-defining tool, for the routine grant tests.
+schema = 2
+
+[module]
+name = "routines"
+summary = "Save a routine of tool calls"
+python = "halroutines.tools"
+
+[[tools]]
+name = "routines_save"
+function = "save"
+description = "Save a named routine: a JSON list of tool calls to run later."
+tier = "act"
+routine = {id = "name", steps = "steps"}
+[tools.params.name]
+required = true
+[tools.params.steps]
+required = true
+format = "json"
+content = true
