@@ -166,3 +166,69 @@ def add_probe_key(config: Path, directory: Path) -> None:
     key.chmod(0o600)
     with config.open("a") as fh:
         fh.write(f'[probe]\nkey_file = "{key}"\n')
+
+
+class FakeGuard:
+    """A guard relay on a unix socket that answers each scan from a script (01 "Fakes").
+
+    Each entry of `script` is used for one request, the last one for every request after it:
+    `("score", 0.97)` replies with that score, `("error", "why")` with a worker error,
+    `("hang", seconds)` waits that long before replying, `("garbage", "text")` sends a line
+    that is not JSON, and `("other-id", score)` answers another request id.
+    """
+
+    def __init__(self, path: Path, script: list[tuple[str, object]]) -> None:
+        import socket
+
+        self.path = path
+        self.script = list(script)
+        self.requests: list[dict] = []
+        self._listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._listener.bind(str(path))
+        self._listener.listen(8)
+        self._listener.settimeout(0.2)
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def _serve(self) -> None:
+        while not self._stop.is_set():
+            try:
+                conn, _ = self._listener.accept()
+            except TimeoutError:
+                continue
+            except OSError:
+                return
+            threading.Thread(target=self._answer, args=(conn,), daemon=True).start()
+
+    def _answer(self, conn) -> None:
+        import json
+        import time
+
+        with conn:
+            line = conn.makefile("rb").readline()
+            if not line:
+                return  # a connect-only probe
+            request = json.loads(line)
+            self.requests.append(request)
+            kind, value = self.script[min(len(self.requests), len(self.script)) - 1]
+            reply: object = {"v": 1, "id": request["id"], "windows": 1, "ms": 5, "model": "fake-guard"}
+            if kind == "hang":
+                time.sleep(float(value))  # type: ignore[arg-type]  # the script gives seconds
+                kind, value = "score", 0.0
+            if kind == "score":
+                reply["score"] = value  # type: ignore[index]
+            elif kind == "error":
+                reply = {"v": 1, "id": request["id"], "error": value}
+            elif kind == "other-id":
+                reply.update(id="g_other", score=value)  # type: ignore[attr-defined]
+            data = (str(value) if kind == "garbage" else json.dumps(reply)).encode() + b"\n"
+            try:
+                conn.sendall(data)
+            except OSError:
+                pass  # the client gave up first
+
+    def close(self) -> None:
+        self._stop.set()
+        self._listener.close()
+        self._thread.join(1)

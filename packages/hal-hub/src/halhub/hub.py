@@ -29,10 +29,11 @@ Design decisions:
 - Results of `untrusted_output` tools come back inside 01's untrusted-content envelope, after
   secret scrubbing and output capping, so the guard scans exactly what the caller receives
   (01 REQ-SEC-34, REQ-SEC-96).
-- The policy, approvals, audit and envelope are 01's modules. The guard client and the
-  reviewer are still the protocols of `_guard_standin` until 01 adds `halhub.guard` and
-  `halhub.reviewer`; with `[guard] enabled = true` and no client every scan is an error,
-  which flags the session (fail closed).
+- The policy, approvals, audit, envelope and guard client are 01's modules. With
+  `[guard] enabled = true` and no scanner passed in, each scan goes through a
+  `halhub.guard.GuardClient` for the session's `[guard]` settings; a relay that is not
+  running makes every scan an error, which flags the session (fail closed, REQ-SEC-35). The
+  reviewer is still the protocol of `_guard_standin` until 01 adds `halhub.reviewer`.
 - After a result of a tool in `[egress].search_tools`, the session records the result's
   URLs for `url:from-search` (01 REQ-SEC-92). Rate counts are recorded per session: a prompt
   when an `ask` reaches the approver, a call when it ran (REQ-SEC-12).
@@ -74,11 +75,12 @@ from halkit.termsafe import escape
 from halkit.timeutil import iso_z, utc_now
 
 from . import approvals, builtin, policy, search
-from ._guard_standin import GuardClient, GuardResult, Reviewer, ReviewRequest
+from ._guard_standin import Reviewer, ReviewRequest
 from .approvals.keys import security_digest
 from .args import ArgumentError, call_arguments, normalise
 from .audit import AuditLog, AuditUnavailable
 from .config import HubConfig
+from .guard import GuardClient, GuardResult, GuardScanner
 from .manifest import ModuleSpec, ToolSpec
 from .policy.rate import RateLimiter
 from .providers import (
@@ -188,7 +190,7 @@ class Hub:
         registry: Registry | None = None,
         *,
         runner: Runner | None = None,
-        guard: GuardClient | None = None,
+        guard: GuardScanner | None = None,
         reviewer: Reviewer | None = None,
         config: HubConfig | None = None,
         policy_path: Path | None = None,
@@ -1059,16 +1061,15 @@ class Hub:
     def _scan(
         self, session: HubSession, call_id: str, tool: ToolSpec, text: str
     ) -> tuple[GuardLabel, float | None]:
-        """Step 11: the guard scan when `[guard]` is on; a missing client or a failure flags (REQ-SEC-35)."""
-        if not session.policy.guard.enabled:
+        """Step 11: the guard scan when `[guard]` is on; any failure flags (REQ-SEC-35)."""
+        settings = session.policy.guard
+        if not settings.enabled:
             return "off", None
-        if self.guard is None:
-            result = GuardResult("error", None, 0, 0, "none", error="guard enabled but no guard client")
-        else:
-            try:
-                result = self.guard.scan(text, source_tool=tool.name)
-            except Exception as exc:  # fail closed: a guard failure counts as a flag
-                result = GuardResult("error", None, 0, 0, "unknown", error=str(exc))
+        scanner = self.guard if self.guard is not None else GuardClient(settings)
+        try:
+            result = scanner.scan(text, source_tool=tool.name)
+        except Exception as exc:  # fail closed: a guard failure counts as a flag
+            result = GuardResult("error", None, 0, 0, settings.model, error=str(exc))
         label: GuardLabel = {"benign": "clean", "injection": "flagged"}.get(result.label, "error")
         session.guard_label = label
         if label != "clean":

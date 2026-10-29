@@ -75,6 +75,7 @@ from halkit.termsafe import escape
 from . import install, policy
 from .approvals import ApprovalRequest, ApprovalRouter, control
 from .config import HubConfig
+from .guard import GuardClient, GuardUnavailable
 from .hub import CallResult, Hub
 from .manifest import ModuleSpec, ToolSpec
 from .registry import Registry, RegistryError
@@ -403,7 +404,13 @@ def _mcp(argv: list[str]) -> int:
     if opts.origin is not None and not remote:
         raise UsageError("--origin is accepted only with --channel remote")
     # a bad policy, profile or channel exits 2 before serving
-    policy.load_policy(None, profile=profile, channel=opts.channel)
+    loaded = policy.load_policy(None, profile=profile, channel=opts.channel)
+    if loaded.guard.enabled:  # 01 REQ-SEC-35: an enabled guard that cannot run stops the server
+        try:
+            GuardClient(loaded.guard).check()
+        except GuardUnavailable as exc:
+            _error(f"hal-hub mcp: {exc}")
+            return EXIT_USAGE
     hub = _new_hub()
     try:
         tools = opts.tools if scope.modules is None else _pack_tools(hub, scope, opts.module, opts.tools)
