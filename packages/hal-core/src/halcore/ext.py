@@ -23,7 +23,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from . import config, hub as hubmod, units
+from . import config, units
 
 PACKS = {
     "assistant": ["memory", "calendar", "tasks", "notify", "clock", "web", "briefing", "voice"],
@@ -129,11 +129,9 @@ def remove(name: str) -> int:
 
 def list_all() -> None:
     have, known, off = installed(), catalog(), set(disabled())
-    hub = hubmod.load()
     counts = {}
-    if hub:
-        for t in hub.all_tools().values():
-            counts[t.module.name] = counts.get(t.module.name, 0) + 1
+    for t in config.hub().all_tools().values():
+        counts[t.module.name] = counts.get(t.module.name, 0) + 1
     print("Installed:")
     for name, root in have.items():
         state = "disabled" if name in off else f"{counts.get(name, 0)} tools"
@@ -183,10 +181,6 @@ def main(argv: list[str]) -> int:
             print(f"  {name:12} {'ok' if r.returncode == 0 else r.stderr.strip()[:100]}")
         return 0
     if args.cmd == "doctor":
-        hub = hubmod.load()
-        if not hub:
-            print("hal-hub is not installed, so no extension can be used")
-            return 1
         from halhub.__main__ import main as hub_main  # noqa: PLC0415
         return hub_main(["doctor"]) or 0
     list_all()

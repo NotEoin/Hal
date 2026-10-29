@@ -27,7 +27,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterator
 
-from . import config, hub as hubmod
+from . import config
 
 PERSONA = """You are Hal, a calm, precise assistant running entirely on this computer. You look after
 {user_ref}'s calendar, tasks, notes, files and computer through your tools, and answer questions
@@ -129,7 +129,7 @@ class Brain:
         self.persona = (persona or cfg["persona"] or PERSONA).strip()
         self.deep_mode = str(cfg["deep_work"])
         self.deep_dir = Path(cfg["deep_work_dir"] or shared["vault"]).expanduser()
-        self.hub = hubmod.load() if tools else None
+        self.hub = config.hub() if tools else None
         self.log_turns = log_turns
         self.history: list[dict] = []
         self.last_turn: dict = {}

@@ -21,7 +21,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import config, evaluate, hub as hubmod
+from . import config, evaluate
 from .brain import Brain
 
 PAGE = Path(__file__).with_name("console.html")
@@ -61,7 +61,7 @@ def auto_check(case: dict, turn: dict) -> dict:
             live_case.pop(key, None)
     if case.get("no_extensions"):
         return {"ran": False, "problems": [], "note": "raw-hal case: try it with `hal chat --no-tools`"}
-    hub = hubmod.load()
+    hub = config.hub()
     problems = evaluate.check(live_case, [turn], hub, turn.get("reply", ""))
     note = "data checks skipped: this case seeds a sandbox" if case.get("setup") else ""
     return {"ran": True, "problems": problems, "note": note}
@@ -91,7 +91,7 @@ def _sync_calendar(turn: dict) -> str:
         return ""
     if not config.load().get("calendar", {}).get("caldav", {}).get("url"):
         return "CalDAV is not set up, so nothing was synced"
-    got = hubmod.load().call("calendar_sync", {})
+    got = config.hub().call("calendar_sync", {})
     return f"synced: {json.dumps(got.get('result', got))[:200]}"
 
 
@@ -125,7 +125,7 @@ def _finish(case_id: str, turn: dict) -> dict:
 
 
 def undo(case_id: str) -> dict:
-    hub = hubmod.load()
+    hub = config.hub()
     done = [f"{name}: {'ok' if 'error' not in hub.call(name, args) else 'failed'}"
             for name, args in _created.pop(case_id, [])]
     return {"undone": done or ["nothing recorded to undo"], "sync": _sync_calendar({"tools": [{"name": "calendar_"}]})}
@@ -141,12 +141,12 @@ def grade(body: dict) -> dict:
 
 
 def info() -> dict:
-    hub = hubmod.load()
+    hub = config.hub()
     b = brain()
     return {"model": b.model, "tools": len(hub.all_tools()) if hub else 0,
             "modules": sorted({t.module.name for t in hub.all_tools().values()}) if hub else [],
             "caldav": bool(config.load().get("calendar", {}).get("caldav", {}).get("url")),
-            "voice": hubmod.has("voice_say")}
+            "voice": bool(config.hub().get("voice_say"))}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -180,7 +180,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/grade": lambda: grade(body),
                 "/api/undo": lambda: undo(body["id"]),
                 "/api/reset": lambda: (brain().reset(), {"reset": True})[1],
-                "/api/speak": lambda: hubmod.load().call("voice_say", {"text": body["text"]}),
+                "/api/speak": lambda: config.hub().call("voice_say", {"text": body["text"]}),
             }
             if self.path not in routes:
                 self._send(404, {"error": "not found"})

@@ -27,6 +27,12 @@ wheels = [
 [[package]]
 name = "hal-core"
 source = { editable = "packages/hal-core" }
+dependencies = [
+    { name = "hal-hub" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "hal-hub", editable = "packages/hal-hub" }]
 
 [[package]]
 name = "hal-hub"

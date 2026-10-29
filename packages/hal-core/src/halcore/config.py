@@ -6,12 +6,18 @@ move the config file, data and state, which is how tests run Hal in a sandbox.
 """
 from __future__ import annotations
 
+import importlib
 import os
 import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]          # the core hal checkout: src/halcore/config.py sits in packages/hal-core/src
 ECOSYSTEM = ROOT.parents[1]                         # hal-ecosystem, when hal sits in core/
+
+def hub():
+    """The `halhub` module, looked up each call because `hal eval` swaps it for a fresh one."""
+    return importlib.import_module("halhub")
+
 
 SHARED = {
     "vault": "~/Documents/vaults/Hal",

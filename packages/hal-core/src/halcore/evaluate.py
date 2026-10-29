@@ -117,9 +117,7 @@ def _fresh_hub():
         # Extension code may hold open databases from the previous sandbox.
         if name == "halhub" or name.startswith("halhub.") or str(getattr(mod, "__file__", "") or "").startswith(ext):
             del sys.modules[name]
-    from . import hub
-    hub._hub, hub._looked = None, False
-    return hub.load()
+    return config.hub()
 
 
 # ---- checking -------------------------------------------------------------------------

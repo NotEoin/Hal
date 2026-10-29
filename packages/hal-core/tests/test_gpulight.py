@@ -9,7 +9,7 @@ import json
 import unittest
 from unittest import mock
 
-from halcore_env import SRC, LightCase
+from halcore_env import HUB_SRC, SRC, LightCase
 from halcore import gpulight
 
 
@@ -46,7 +46,7 @@ class ClaimTest(LightCase):
             gpulight.claim("Hal session", "test")
 
     def test_the_command_line_exits_0_when_the_claim_fails(self):
-        env = {**os.environ, "PYTHONPATH": str(SRC), "FAKE_GPU_LIGHT_CLAIM_EXIT": "1"}
+        env = {**os.environ, "PYTHONPATH": f"{SRC}:{HUB_SRC}", "FAKE_GPU_LIGHT_CLAIM_EXIT": "1"}
         proc = subprocess.run([sys.executable, "-m", "halcore", "gpulight", "claim", "hal", "--no-wait"],
                               capture_output=True, text=True, env=env, timeout=30)
         self.assertEqual(proc.returncode, 0)

@@ -18,7 +18,9 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[3]  # repository root
 SRC = ROOT / "packages" / "hal-core" / "src"
+HUB_SRC = ROOT / "packages" / "hal-hub" / "src"
 sys.path.insert(0, str(SRC))
+sys.path.insert(0, str(HUB_SRC))
 TMP = tempfile.mkdtemp(prefix="halcore-test-")
 os.environ.update(HAL_CONFIG=f"{TMP}/config.toml", HAL_STATE=f"{TMP}/state", HAL_DATA=f"{TMP}/data")
 

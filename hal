@@ -25,7 +25,7 @@ set -uo pipefail
 
 # Resolve real location even when called through the ~/.local/bin/hal symlink
 HAL_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-HALCORE_SRC="$HAL_ROOT/packages/hal-core/src"
+HALCORE_SRC="$HAL_ROOT/packages/hal-core/src:$HAL_ROOT/packages/hal-hub/src"
 halcore() { PYTHONPATH="$HALCORE_SRC${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m halcore "$@"; }
 
 # ---- Commands that need neither hal.conf nor Claude Code --------------------

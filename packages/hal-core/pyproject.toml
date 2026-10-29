@@ -9,7 +9,10 @@ description = "The hal command: agent loop host, extensions, services, eval and 
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-dependencies = []
+dependencies = ["hal-hub"]
+
+[tool.uv.sources]
+hal-hub = { workspace = true }
 
 [tool.hatch.version]
 path = "src/halcore/__init__.py"
