@@ -66,6 +66,20 @@ laptop over SSH. That session uses the `remote` policy channel (tier `system` an
 and records the laptop's address from `HAL_REMOTE_ADDR` in every audit record. `--origin` is
 accepted only with `--channel remote`.
 
+`hal-hub mcp --transport http` serves `http://127.0.0.1:8742/mcp` (MCP streamable HTTP) for
+harnesses that prefer a URL. It binds only `127.0.0.1` or `::1` (`--host`; anything else exits
+2), and every request needs `Authorization: Bearer <token>`, with the token in
+`~/.config/hal/hub-token` (created mode 0600 on first use; the server refuses a token file
+others can read). A request with a foreign `Host` or an `Origin` not given with
+`--allow-origin` is refused with 403, so a web page cannot reach the hub. `hal-hub token` prints
+the token file's path and `hal-hub token --rotate` writes a new token. All HTTP clients share
+one session and one approval socket. For Claude Code:
+
+```bash
+claude mcp add --transport http hal http://127.0.0.1:8742/mcp \
+  --header "Authorization: Bearer $(cat ~/.config/hal/hub-token)"
+```
+
 ## Use
 
 The command line covers every module:
@@ -158,8 +172,9 @@ disabled = ["phone"]                                  # modules to ignore
 ```
 
 `HAL_MODULE_PATH` (colon-separated) overrides `module_paths`. `[hub.mcp]` holds the MCP
-server's defaults: `mode` (`meta` or `flat`) and `approvals` (`auto`, `elicit`, `out-of-band`
-or `deny`); the `hal-hub mcp` options override them.
+server's defaults: `mode` (`meta` or `flat`), `approvals` (`auto`, `elicit`, `out-of-band`
+or `deny`), `http_host`, `http_port` and `allow_origins`; the `hal-hub mcp` options override
+them.
 
 ## Licence
 

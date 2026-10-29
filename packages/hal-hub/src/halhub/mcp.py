@@ -4,7 +4,8 @@
 `tools/list` and `tools/call` handlers run the hub's one call pipeline (`Hub.call` with
 `front_end="mcp"`). `serve_streams` runs it on any pair of SDK streams (the broker's unix
 socket, an in-memory test transport); `serve_stdio` runs it on this process's stdin and
-stdout for `hal-hub mcp`.
+stdout for `hal-hub mcp`; `serve_http` serves streamable HTTP on loopback behind a bearer
+token for `hal-hub mcp --transport http`.
 
     {"mcpServers": {"hal-hub": {"command": "hal-hub", "args": ["mcp"]}}}
 
@@ -71,29 +72,49 @@ Design decisions:
   (REQ-HUB-47); every result carries `_meta.hal` as 02-sandbox defines it (REQ-HUB-46). The
   hub has already scrubbed, cut and, for `untrusted_output` tools, wrapped the text.
 
-Not here yet (later plan step): HTTP (step 22).
+- Streamable HTTP (REQ-HUB-43 to REQ-HUB-45): the SDK's `streamable_http_app` with sessions
+  on (`stateless_http=False`), so handshake-era clients can receive `elicitation/create`,
+  under uvicorn on `127.0.0.1` or `::1` only; any other host is a `ConfigError` before
+  binding. An ASGI guard runs first, in this order: `Host` must name the loopback address and
+  the bound port (403); an `Origin`, when present, must be on the allow list (403); and
+  `Authorization` must be `Bearer <token>` under `hmac.compare_digest` (401). The SDK alone
+  accepts a missing `Origin`, any `http://localhost:*` origin, and answers a bad `Host` with
+  421; its DNS-rebinding check stays on as a second layer. Refusals are audited as
+  `listener_auth_failed`, at most `AUTH_FAIL_LIMIT` a minute and then one summary. The token
+  is `config_dir()/hub-token`, created 0600 through `halkit.secrets` and refused when others
+  can read it.
+- The SDK enters the server lifespan once for the whole HTTP listener, not per client, so
+  every HTTP client shares one session and one control socket. They all hold the same
+  user's token, and the 2026-07-28 envelope gives no stable client identity to split them by.
 """
 
 from __future__ import annotations
 
 import contextvars
 import dataclasses
+import hmac
 import json
 import logging
 import re
+import socket
 import sys
 import threading
 import time
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, get_args
 
+from halkit import paths
+from halkit import secrets as halsecrets
+from halkit.config import ConfigError
+
 from . import _control_standin as control
 from . import _policy_standin as policy
 from ._approvals_standin import ApprovalRequest, ApprovalRouter, Approver, Decision
+from ._audit_standin import AuditLog, AuditUnavailable
 from .hub import CallResult, Hub, new_call_id
 from .manifest import ToolSpec
 from .session import HubSession, new_session_id
@@ -116,9 +137,14 @@ __all__ = [
     "ServeOptions",
     "annotations",
     "build_server",
+    "check_http_host",
+    "load_token",
     "render",
+    "rotate_token",
+    "serve_http",
     "serve_stdio",
     "serve_streams",
+    "token_path",
 ]
 
 ORIGIN = "host_mcp"  # 01 `Origin.HOST_MCP`: a harness on the host speaking MCP to the hub
@@ -133,6 +159,14 @@ WAIT_POLL_S = 0.5  # a backstop only: the event wakes the waiter as soon as anyt
 RESULT_KEEP_S = 300.0  # an answered 2026-07-28 request waits this long for the client's retry
 STATE_PREFIX = "hal-approval:"  # `requestState` = prefix + approval id; it carries no authority
 CLIENT_CAPS = "io.modelcontextprotocol/clientCapabilities"  # 2026-07-28 per-request `_meta` key
+HTTP_HOSTS = ("127.0.0.1", "::1")  # loopback only (REQ-HUB-43, 00 REQ-SYS-09)
+HTTP_PORT = 8742  # 00-overview's ports table (RESOLUTIONS D14)
+HTTP_PATH = "/mcp"
+TOKEN_FILE = "hub-token"  # under config_dir()
+LISTENER = "hub-http"  # the `listener` field of `listener_auth_failed`
+AUTH_FAIL_LIMIT = 10  # 01 audit schema: at most 10 `listener_auth_failed` a minute per listener
+AUTH_FAIL_WINDOW_S = 60.0
+LISTEN_BACKLOG = 64  # connections the kernel queues while uvicorn starts
 FLAT_WARN_TOOLS = 100  # some clients cap the tool count (04-hub "Modes"; the cap differs per client)
 INSTRUCTIONS_FLAT = "Hal's tools for this computer and its owner."
 INSTRUCTIONS = (
@@ -502,6 +536,151 @@ def serve_stdio(hub: Hub, options: ServeOptions | None = None) -> None:
                 sys.stdout = saved
 
     anyio.run(run)
+
+
+def serve_http(
+    hub: Hub,
+    options: ServeOptions | None = None,
+    *,
+    host: str = HTTP_HOSTS[0],
+    port: int = HTTP_PORT,
+    token: str,
+    allow_origins: Sequence[str] = (),
+    on_ready: Callable[[str], None] | None = None,
+) -> None:
+    """Serves streamable HTTP at `http://<host>:<port>/mcp` until interrupted.
+
+    Raises `ConfigError` for a host that is not loopback and `OSError` when the port is
+    taken. `port=0` picks a free port; `on_ready` receives the URL once the socket listens.
+    """
+    import uvicorn
+
+    check_http_host(host)
+    if not token:
+        raise ValueError("the HTTP transport needs a bearer token")
+    server = build_server(hub, options)
+    app = server.streamable_http_app(
+        streamable_http_path=HTTP_PATH, json_response=False, stateless_http=False, host=host
+    )
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    listener = socket.socket(family, socket.SOCK_STREAM)
+    try:
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind((host, port))
+        listener.listen(LISTEN_BACKLOG)
+        bound = listener.getsockname()[1]
+        audit = AuditLog(settings=policy.load_policy(None).audit, secrets=hub.known_secrets)
+        guarded = _Guard(app, port=bound, token=token, allow_origins=allow_origins, audit=audit)
+        config = uvicorn.Config(guarded, lifespan="on", access_log=False, log_config=None)
+        url = f"http://{'[' + host + ']' if ':' in host else host}:{bound}{HTTP_PATH}"
+        if on_ready is not None:
+            on_ready(url)
+        uvicorn.Server(config).run(sockets=[listener])
+    finally:
+        listener.close()
+
+
+def check_http_host(host: str) -> None:
+    """Raises `ConfigError` unless `host` is `127.0.0.1` or `::1` (REQ-HUB-43)."""
+    if host not in HTTP_HOSTS:
+        raise ConfigError(
+            f"the hub's HTTP transport binds only {' or '.join(HTTP_HOSTS)}, not {host!r}; "
+            "remote use goes through hal remote (SSH)",
+            path=paths.config_file(),
+            table="hub.mcp",
+            key="http_host",
+        )
+
+
+def token_path() -> Path:
+    """Where the HTTP bearer token lives: `config_dir()/hub-token`."""
+    return paths.config_dir() / TOKEN_FILE
+
+
+def load_token(path: Path | None = None) -> str:
+    """The HTTP token, created (mode 0600) when missing; `ConfigError` when others can read it."""
+    where = path or token_path()
+    try:
+        return halsecrets.generate_token(where)
+    except halsecrets.UnsafeSecretError as exc:
+        raise ConfigError(str(exc), path=where) from None
+
+
+def rotate_token(path: Path | None = None) -> Path:
+    """Replaces the HTTP token with a new random one and returns its path; old clients get 401."""
+    where = path or token_path()
+    where.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fresh = where.with_name(f".{where.name}.new")
+    fresh.unlink(missing_ok=True)
+    halsecrets.generate_token(fresh)
+    fresh.replace(where)
+    return where
+
+
+class _Guard:
+    """The ASGI layer in front of the SDK app: Host, then Origin, then the bearer token."""
+
+    def __init__(
+        self, app: Any, *, port: int, token: str, allow_origins: Sequence[str], audit: AuditLog
+    ) -> None:
+        self._app = app
+        self._hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+        self._origins = frozenset(allow_origins)
+        self._expected = f"Bearer {token}".encode()
+        self._audit = audit
+        self._lock = threading.Lock()
+        self._window_start = 0.0
+        self._failures = 0
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope["type"] == "lifespan":
+            await self._app(scope, receive, send)
+            return
+        if scope["type"] != "http":  # no websockets on this listener
+            await _refuse(send, 403, "Forbidden")
+            return
+        headers = {k.decode("latin-1").lower(): v for k, v in scope.get("headers", [])}
+        client = scope.get("client") or ("", 0)
+        if headers.get("host", b"").decode("latin-1").lower() not in self._hosts:
+            self._failed("host", client[0])
+            await _refuse(send, 403, "Forbidden")
+            return
+        origin = headers.get("origin")
+        if origin is not None and origin.decode("latin-1") not in self._origins:
+            self._failed("origin", client[0])
+            await _refuse(send, 403, "Forbidden")
+            return
+        if not hmac.compare_digest(headers.get("authorization", b""), self._expected):
+            self._failed("token", client[0])
+            await _refuse(send, 401, "Unauthorized", [(b"www-authenticate", b"Bearer")])
+            return
+        await self._app(scope, receive, send)
+
+    def _failed(self, reason: str, remote: str) -> None:
+        """Audits a refusal, at most `AUTH_FAIL_LIMIT` a minute and then one summary."""
+        now = time.monotonic()
+        with self._lock:
+            if now - self._window_start > AUTH_FAIL_WINDOW_S:
+                self._window_start, self._failures = now, 0
+            self._failures += 1
+            count = self._failures
+        fields: dict[str, object] = {"listener": LISTENER, "reason": reason, "remote_addr": remote}
+        if count > AUTH_FAIL_LIMIT + 1:
+            return
+        if count == AUTH_FAIL_LIMIT + 1:
+            fields["summary"] = f"more than {AUTH_FAIL_LIMIT} refusals this minute; the rest are not recorded"
+        log.warning("refused an HTTP request (%s) from %s", reason, remote)
+        try:
+            self._audit.append("listener_auth_failed", origin=ORIGIN, **fields)
+        except AuditUnavailable as exc:  # the refusal stands; the gap shows in `seq`
+            log.error("listener_auth_failed record failed: %s", exc)
+
+
+async def _refuse(send: Any, status: int, text: str, extra: Sequence[tuple[bytes, bytes]] = ()) -> None:
+    body = f"{status} {text}\n".encode()
+    headers = [(b"content-type", b"text/plain; charset=utf-8"), (b"content-length", str(len(body)).encode())]
+    await send({"type": "http.response.start", "status": status, "headers": [*headers, *extra]})
+    await send({"type": "http.response.body", "body": body})
 
 
 def annotations(meta: policy.ToolMeta) -> dict[str, bool]:

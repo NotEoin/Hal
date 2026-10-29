@@ -26,6 +26,7 @@ from .manifest import DEFAULTS, MAX_WORKERS_LIMIT, ManifestDefaults
 from .runner import RunnerConfig
 
 MAX_SCAN_DEPTH = 8  # deeper trees are unusual and slow to walk (04-hub "Configuration")
+MAX_PORT = 65535
 PACKS_RECORD = "packs.json"  # under state_dir(), written by 06-core-cli's installer (RESOLUTIONS C8)
 
 
@@ -44,6 +45,12 @@ def _scan_depth(value: object) -> str | None:
 def _positive(value: object) -> str | None:
     if not isinstance(value, int | float) or isinstance(value, bool) or value <= 0:
         return "must be above 0"
+    return None
+
+
+def _port(value: object) -> str | None:
+    if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= MAX_PORT:
+        return f"must be 1 to {MAX_PORT}"
     return None
 
 
@@ -101,6 +108,17 @@ MCP_TABLE = config.register(
         keys=(
             config.Key("mode", str, "meta", choices=MCP_MODES, doc="List the meta tools or every tool"),
             config.Key("approvals", str, "auto", choices=MCP_APPROVALS, doc="Where MCP approvals come from"),
+            config.Key(
+                "http_host", str, "127.0.0.1", choices=("127.0.0.1", "::1"), doc="HTTP bind, loopback"
+            ),
+            config.Key("http_port", int, 8742, check=_port, doc="HTTP port (00-overview's ports table)"),
+            config.Key(
+                "allow_origins",
+                list,
+                [],
+                check=_string_list,
+                doc="Browser origins the HTTP transport accepts",
+            ),
         ),
     )
 )
@@ -112,11 +130,16 @@ class McpConfig:
 
     mode: str = "meta"
     approvals: str = "auto"
+    http_host: str = "127.0.0.1"
+    http_port: int = 8742
+    allow_origins: tuple[str, ...] = ()
 
 
 def load_mcp_config(path: Path | None = None, *, environ: Mapping[str, str] | None = None) -> McpConfig:
     """Reads `[hub.mcp]`; raises `halkit.config.ConfigError`."""
-    return McpConfig(**config.load(MCP_TABLE, path=path, environ=environ))
+    values = dict(config.load(MCP_TABLE, path=path, environ=environ))
+    values["allow_origins"] = tuple(values["allow_origins"])
+    return McpConfig(**values)
 
 
 def load_runner_config(path: Path | None = None, *, environ: Mapping[str, str] | None = None) -> RunnerConfig:

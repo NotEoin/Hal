@@ -7,13 +7,15 @@
       modules [--all] [--json]                     modules with status, source and path
       call TOOL [key=value ...] [--json ARGS] [--yes] [--profile P] [--raw]
       TOOL [key=value ...] [--yes]                 shorthand for call (tool names contain "_")
-      mcp [--mode meta|flat] [--profile P] [--approvals auto|elicit|out-of-band|deny]
-          [--channel remote --origin remote:CLIENT] [--packs A,B] [--tools X,Y]
-                                                   serve the tools over MCP on stdio
+      mcp [--transport stdio|http] [--mode meta|flat] [--profile P]
+          [--approvals auto|elicit|out-of-band|deny] [--channel remote --origin remote:CLIENT]
+          [--packs A,B] [--tools X,Y] [--host 127.0.0.1] [--port 8742] [--allow-origin O]...
+                                                   serve the tools over MCP
       approvals [--json]                           pending approval requests of this user
       approve ID                                   allow one pending request, once
       deny ID                                      refuse one pending request
       doctor [--json]                              check manifests, workers and signatures
+      token [--rotate]                             path of the HTTP bearer token, or a new token
       version
 
 Exit codes (REQ-HUB-56): 0 success, 1 tool error, 2 usage or configuration error, 3 denied
@@ -75,7 +77,19 @@ EXIT_DENIED = 3
 USAGE_ERRORS = frozenset({"unknown_tool", "invalid_arguments"})
 CLI_FIND_LIMIT = 15  # a terminal shows more than the 8 a chat model gets (v1's CLI value)
 DESCRIPTION_COLUMNS = 80
-SUBCOMMANDS = ("tools", "show", "modules", "call", "mcp", "approvals", "approve", "deny", "doctor", "version")
+SUBCOMMANDS = (
+    "tools",
+    "show",
+    "modules",
+    "call",
+    "mcp",
+    "approvals",
+    "approve",
+    "deny",
+    "doctor",
+    "token",
+    "version",
+)
 SECRET_ENV_RE = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL", re.IGNORECASE)
 LOG_LEVELS = {-1: "ERROR", 0: "WARNING", 1: "DEBUG"}
 REMOTE_ADDR_ENV = "HAL_REMOTE_ADDR"  # set by 07-remote's forced command; read only with --channel remote
@@ -147,6 +161,7 @@ def _main(args: list[str]) -> int:
         "approve": _approve,
         "deny": _deny,
         "doctor": _doctor,
+        "token": _token,
     }[command]
     return handler(rest)
 
@@ -301,8 +316,8 @@ def _modules(argv: list[str]) -> int:
 
 
 def _mcp(argv: list[str]) -> int:
-    parser = _parser("mcp", "serve the tools over MCP on stdio")
-    parser.add_argument("--transport", choices=("stdio",), default="stdio")
+    parser = _parser("mcp", "serve the tools over MCP on stdio or loopback HTTP")
+    parser.add_argument("--transport", choices=("stdio", "http"), default="stdio")
     parser.add_argument("--mode", choices=("meta", "flat"), help="default: [hub.mcp].mode")
     parser.add_argument("--profile", help="policy profile for this server's sessions")
     parser.add_argument("--channel", choices=("remote",), help="remote: a laptop over SSH (hal remote)")
@@ -312,7 +327,15 @@ def _mcp(argv: list[str]) -> int:
     )
     parser.add_argument("--packs", type=_names, help="serve only these packs (A,B)")
     parser.add_argument("--tools", type=_names, help="serve only these tools (X,Y)")
+    parser.add_argument("--host", help="HTTP bind, 127.0.0.1 or ::1 (default: [hub.mcp].http_host)")
+    parser.add_argument(
+        "--port", type=int, help="HTTP port, 0 for any free one (default: [hub.mcp].http_port)"
+    )
+    parser.add_argument("--allow-origin", action="append", default=None, help="a browser origin to accept")
     opts = parser.parse_args(argv)
+    http = opts.transport == "http"
+    if not http and (opts.host or opts.port is not None or opts.allow_origin):
+        raise UsageError("--host, --port and --allow-origin need --transport http")
     from . import mcp  # deferred: only this command needs the SDK
 
     remote = opts.channel == mcp.REMOTE_CHANNEL
@@ -338,9 +361,36 @@ def _mcp(argv: list[str]) -> int:
         hub.close()
         raise UsageError(str(exc)) from None
     try:
-        mcp.serve_stdio(hub, options)
+        if http:
+            host = opts.host or hub.config.mcp.http_host
+            mcp.check_http_host(host)  # before the token file, so a bad host changes nothing
+            mcp.serve_http(
+                hub,
+                options,
+                host=host,
+                port=hub.config.mcp.http_port if opts.port is None else opts.port,
+                token=mcp.load_token(),
+                allow_origins=tuple(opts.allow_origin or hub.config.mcp.allow_origins),
+                on_ready=lambda url: _error(f"serving MCP on {url} (token in {mcp.token_path()})"),
+            )
+        else:
+            mcp.serve_stdio(hub, options)
     finally:
         hub.close()
+    return EXIT_OK
+
+
+def _token(argv: list[str]) -> int:
+    parser = _parser("token", "print the path of the HTTP bearer token, or rotate it")
+    parser.add_argument("--rotate", action="store_true", help="write a new token; old clients get 401")
+    opts = parser.parse_args(argv)
+    from . import mcp  # deferred: the token helpers live with the server
+
+    if opts.rotate:
+        print(mcp.rotate_token())
+        return EXIT_OK
+    mcp.load_token()  # creates it on first use and refuses one others can read
+    print(mcp.token_path())
     return EXIT_OK
 
 
