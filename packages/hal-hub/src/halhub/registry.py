@@ -80,7 +80,7 @@ def search_paths() -> list[Path]:
     configured = load_config().get("hub", {}).get("module_paths")
     if configured:
         return [Path(p).expanduser() for p in configured]
-    here = Path(__file__).resolve().parents[2]      # the folder holding hal-hub
+    here = Path(__file__).resolve().parents[3]      # the folder holding hal-hub: src/halhub/registry.py sits in <folder>/src
     ecosystem = here.parent
     if (ecosystem / "extensions").is_dir():
         return [ecosystem / "core", ecosystem / "extensions"]

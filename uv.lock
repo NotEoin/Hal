@@ -5,6 +5,7 @@ requires-python = ">=3.11"
 [manifest]
 members = [
     "hal-core",
+    "hal-hub",
     "hal-kit",
 ]
 
@@ -26,6 +27,10 @@ wheels = [
 [[package]]
 name = "hal-core"
 source = { editable = "packages/hal-core" }
+
+[[package]]
+name = "hal-hub"
+source = { editable = "packages/hal-hub" }
 
 [[package]]
 name = "hal-kit"

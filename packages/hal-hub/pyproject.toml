@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hal-hub"
+dynamic = ["version"]
+description = "One way in to every Hal module's tools: registry, search, runner and MCP server"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = []
+
+[project.scripts]
+hal-hub = "halhub.__main__:main"
+
+[tool.hatch.version]
+path = "src/halhub/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/halhub"]

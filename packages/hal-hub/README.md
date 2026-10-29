@@ -15,12 +15,12 @@ Claude Code over MCP, so Hal's voice, chat and terminal clients share one set of
 
 ## Install
 
-hal-hub needs Python 3.11 or later and nothing from PyPI. Clone it into your ecosystem folder and
-put its launcher on your `PATH`:
+hal-hub needs Python 3.11 or later and nothing from PyPI. It lives in the Hal monorepo as
+`packages/hal-hub`. Put its launcher on your `PATH`, or run `uv sync --all-packages` in the
+repository root to get a `hal-hub` console script:
 
 ```bash
-git clone <url> ~/src/hal-ecosystem/hal-hub
-ln -s ~/src/hal-ecosystem/hal-hub/bin/hal-hub ~/.local/bin/hal-hub
+ln -s ~/src/Hal/packages/hal-hub/bin/hal-hub ~/.local/bin/hal-hub
 ```
 
 To give Claude Code the tools, add the server to a project's `.mcp.json`:

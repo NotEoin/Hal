@@ -20,6 +20,8 @@ if (not os.environ.get("SSL_CERT_FILE") and not os.path.exists(ssl.get_default_v
         and os.path.exists(_SYSTEM_CA)):
     os.environ["SSL_CERT_FILE"] = _SYSTEM_CA
 
+__version__ = "0.1.0.dev0"
+
 __all__ = ["Tool", "call", "find", "get", "ollama_tools", "all_tools", "CORE"]
 
 # Offered to a chat model on every turn whatever the request, so it can always
