@@ -40,7 +40,6 @@ exclude = [
     "packages/hal-hub/README.md",
     "packages/hal-hub/src/halhub/__main__.py",
     "packages/hal-hub/src/halhub/mcp.py",
-    "packages/hal-hub/src/halhub/search.py",
     "packages/hal-hub/src/halhub/v1_registry.py",
     "packages/hal-hub/src/halhub/v1_runner.py",
 ]

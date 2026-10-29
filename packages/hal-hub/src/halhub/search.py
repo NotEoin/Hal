@@ -1,9 +1,17 @@
-"""Ranks tools against a request so an assistant sees only the few it needs.
+"""Ranks tools against a request so an assistant sees only the few it needs (04-hub.md, "Search").
 
-Plain keyword scoring (BM25) over each tool's name, module, description and keywords
-(the tool's and its module's), with a small synonym table for everyday phrasing. The
-caller passes only the tools its session may use. Stdlib only.
+The v1 algorithm, kept: tokens are `[a-z0-9]+` after lower-casing and replacing `_` with a
+space; a tool's document is its name twice, its module name, its description, its keywords
+and its module's keywords; scoring is Okapi BM25 with naive plural stripping, and matches
+under `SCORE_FLOOR` of the best score are dropped. Stdlib only. Design decisions:
+
+- The synonym table holds only generic rewrites that name no pack (REQ-HUB-34). A pack's
+  vocabulary comes from its manifest `keywords`, so installing a pack brings its words and the
+  hub knows no pack by name.
+- The caller passes only the tools its session may use; this module knows nothing of policy.
+- Ties sort by tool name, so results are deterministic.
 """
+
 from __future__ import annotations
 
 import math
@@ -13,27 +21,25 @@ from collections.abc import Mapping, Sequence
 
 from .manifest import ToolSpec
 
-SYNONYMS = {
-    "remind": "reminder calendar task", "appointment": "event calendar", "meeting": "event calendar",
-    "schedule": "calendar event", "todo": "task", "to-do": "task", "chore": "task",
-    "remember": "memory note", "note": "memory", "forget": "memory", "recall": "memory search",
-    "music": "media play", "song": "media play", "volume": "audio volume", "louder": "volume",
-    "quieter": "volume", "pause": "media", "skip": "media next", "lights": "rgb light colour",
-    "light": "rgb colour", "color": "colour rgb", "colour": "rgb", "weather": "forecast",
-    "rain": "weather", "temperature": "weather sensor", "cpu": "system", "gpu": "system",
-    "ram": "memory system", "disk": "storage system", "file": "files", "folder": "files directory",
-    "screenshot": "screen capture", "screen": "screen", "clipboard": "copy paste",
-    "timer": "timer clock", "alarm": "clock timer", "wake": "alarm", "email": "mail", "inbox": "mail",
-    "job": "jobs application", "jobs": "application", "phone": "device", "wifi": "network",
-    "internet": "network web", "ip": "network", "search": "find", "google": "web search",
-    "news": "headlines", "define": "dictionary", "translate": "language", "convert": "units",
-    "calculate": "math", "shutdown": "power", "reboot": "power restart", "sleep": "power suspend",
-    "lock": "session power", "battery": "power", "update": "packages", "install": "packages",
-    "git": "repo code", "commit": "git", "habit": "habits", "water": "habits", "spend": "ledger money",
-    "money": "ledger", "birthday": "contacts people", "person": "contacts", "who": "contacts",
-    "window": "desktop", "open": "launch", "app": "launch application", "print": "printer",
-    "bluetooth": "device", "headphones": "bluetooth audio", "brief": "briefing", "morning": "briefing",
-    "focus": "routine scene", "routine": "automation", "model": "ollama", "running": "process",
+__all__ = ["B", "K1", "SCORE_FLOOR", "SYNONYMS", "rank"]
+
+K1 = 1.2  # Okapi BM25 term-frequency saturation, the usual default
+B = 0.75  # Okapi BM25 length normalisation, the usual default
+SCORE_FLOOR = 0.25  # share of the best score; matches that weak came only from common words in v1 use
+PLURAL_MIN_LENGTH = 4  # "bus" and "gas" are not plurals; v1 stripped only longer words
+
+# Generic everyday phrasing -> the word tools use (04-hub "Search"). Never a pack or module name.
+SYNONYMS: Mapping[str, str] = {
+    "remind": "reminder",
+    "appointment": "event",
+    "meeting": "event",
+    "todo": "task",
+    "chore": "task",
+    "search": "find",
+    "color": "colour",
+    "louder": "volume",
+    "quieter": "volume",
+    "recall": "remember",
 }
 
 _WORD = re.compile(r"[a-z0-9]+")
@@ -44,38 +50,56 @@ def _tokens(text: str) -> list[str]:
 
 
 def _expand(query: str) -> list[str]:
+    """The query's words plus their singular forms and the synonyms of both."""
     words = _tokens(query)
     out = list(words)
-    for w in words:
-        out += _tokens(SYNONYMS.get(w, ""))
-        if w.endswith("s") and len(w) > 3:
-            out.append(w[:-1])
+    for word in words:
+        forms = [word]
+        if word.endswith("s") and len(word) >= PLURAL_MIN_LENGTH:
+            forms.append(word[:-1])
+            out.append(word[:-1])
+        for form in forms:
+            out += _tokens(SYNONYMS.get(form, ""))
     return out
 
 
-def rank(query: str, tools: Sequence[ToolSpec], limit: int = 8, *,
-         module_keywords: Mapping[str, Sequence[str]] | None = None) -> list[ToolSpec]:
-    """Returns up to `limit` tools most relevant to `query`, best first; ties sort by name."""
+def rank(
+    query: str,
+    tools: Sequence[ToolSpec],
+    limit: int = 8,
+    *,
+    module_keywords: Mapping[str, Sequence[str]] | None = None,
+) -> list[ToolSpec]:
+    """Up to `limit` tools most relevant to `query`, best first; ties sort by name.
+
+    `module_keywords` maps a module name to its manifest `keywords`, which count for each of
+    its tools.
+    """
     extra = module_keywords or {}
-    docs = [_tokens(f"{t.name} {t.name} {t.module} {t.description} {' '.join(t.keywords)} "
-                    f"{' '.join(extra.get(t.module, ()))}") for t in tools]
+    docs = [
+        _tokens(
+            f"{t.name} {t.name} {t.module} {t.description} {' '.join(t.keywords)} "
+            f"{' '.join(extra.get(t.module, ()))}"
+        )
+        for t in tools
+    ]
     if not docs:
         return []
-    avg = sum(len(d) for d in docs) / len(docs)
-    df = Counter(w for d in docs for w in set(d))
-    q = _expand(query)
-    scored = []
+    average = sum(len(d) for d in docs) / len(docs)
+    df = Counter(word for doc in docs for word in set(doc))
+    query_words = _expand(query)
+    scored: list[tuple[float, str, ToolSpec]] = []
     for tool, doc in zip(tools, docs, strict=True):
         tf = Counter(doc)
         score = 0.0
-        for w in q:
-            if w not in tf:
+        for word in query_words:
+            if word not in tf:
                 continue
-            idf = math.log(1 + (len(docs) - df[w] + 0.5) / (df[w] + 0.5))
-            score += idf * tf[w] * 2.2 / (tf[w] + 1.2 * (0.25 + 0.75 * len(doc) / avg))
+            idf = math.log(1 + (len(docs) - df[word] + 0.5) / (df[word] + 0.5))
+            norm = K1 * (1 - B + B * len(doc) / average)
+            score += idf * tf[word] * (K1 + 1) / (tf[word] + norm)
         if score > 0:
             scored.append((score, tool.name, tool))
-    scored.sort(key=lambda x: (-x[0], x[1]))
-    # Matches far weaker than the best are noise from common words.
-    floor = scored[0][0] * 0.25 if scored else 0
-    return [t for s, _, t in scored[:limit] if s >= floor]
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    floor = scored[0][0] * SCORE_FLOOR if scored else 0.0
+    return [tool for score, _, tool in scored[:limit] if score >= floor]

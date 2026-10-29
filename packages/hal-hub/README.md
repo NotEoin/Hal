@@ -80,6 +80,11 @@ description = "town or city"
 required = true
 ```
 
+Search matches a tool's name, description and `keywords`, plus the module's `keywords`. The hub
+knows only a few generic synonyms (`meeting` finds `event`, `todo` finds `task`) and no pack's
+words, so list the words people use for your tools in `keywords`, such as `["lights"]` for a
+colour tool.
+
 With `python`, the hub imports the module and calls the function with keyword arguments. With
 `exec`, it runs the command with the function name as the last argument and the arguments as JSON on
 stdin, and reads JSON from stdout. A tool returns anything JSON can encode; raising an exception
