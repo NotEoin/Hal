@@ -1542,8 +1542,11 @@ dead. Writes use `halkit.files.append_jsonl` with its `flock` and 5 s timeout.
 
 Durable allows are not grants. `hal policy allow` (06-core-cli, "Command tree") calls
 `halhub.policy.edit.allow_rule(path, tool, *, args: Mapping[str, object] | None = None,
-domain: str | None = None) -> str`, which returns the new `policy.toml` text with a
-`[tools.<tool>]` `allow_args` entry (exact values) or `domains` entry added. 06 shows the diff,
+domain: str | None = None, meta: ToolMeta | None = None) -> str`, which returns the new
+`policy.toml` text with a `[tools.<tool>]` `allow_args` entry (exact values, glob characters
+escaped) or `domains` entry added; given `meta` it refuses a `system` or `runs_code` tool and
+unknown argument names, and it refuses to merge two multi-parameter `allow_args` rules (the
+merged table would allow combinations nobody approved). 06 shows the diff,
 asks for a typed `yes` on a terminal with `HAL_HARNESS` unset, validates the result with
 `load_policy` (so a REQ-SEC-08 invariant cannot be broken) and writes it atomically, mode
 0600 (REQ-SEC-28).
