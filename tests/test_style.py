@@ -124,7 +124,6 @@ LEGACY: dict[tuple[str, str], int] = {
     ("packages/hal-core/src/halcore/ext.py", STRFTIME): 1,
     ("packages/hal-core/src/halcore/power.py", NO_TIMEOUT): 1,
     ("packages/hal-core/src/halcore/units.py", NO_TIMEOUT): 3,
-    ("packages/hal-hub/src/halhub/v1_runner.py", STRFTIME): 1,
 }  # fmt: skip
 
 
@@ -256,5 +255,5 @@ def test_print_is_banned_outside_entry_points_by_the_ruff_config():
         for pattern, rules in config["per-file-ignores"].items()
         if any(r.startswith("T20") for r in rules)
     ]
-    legacy = {"packages/hal-core/src/halcore/*.py", "packages/hal-hub/src/halhub/v1_registry.py"}
+    legacy = {"packages/hal-core/src/halcore/*.py"}
     assert set(ignored) <= {"**/__main__.py", "**/cli.py"} | legacy

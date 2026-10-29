@@ -25,19 +25,12 @@ select = ["E", "F", "W", "I", "B", "UP", "T20", "RUF001", "RUF002", "RUF003", "P
 # the module that needs it: T201 (print in library modules), E501, I001, UP035, F401.
 "packages/hal-core/src/halcore/*.py" = ["T201", "E501", "I001", "UP035"]
 "packages/hal-core/tests/*.py" = ["E501", "I001", "F401"]
-# hal-hub's v1 modules, moved unchanged until 04-hub's plan replaces each one (step 26 removes
-# the last). New hub modules get no ignores.
-"packages/hal-hub/src/halhub/v1_registry.py" = ["T201", "E501", "UP037"]
-"packages/hal-hub/src/halhub/v1_runner.py" = ["E501", "I001"]
 
 [tool.ruff.format]
-# Same reason: formatting the moved halcore and the v1 hub modules would bury the move in a
-# rewrite of every line.
+# Same reason: formatting the moved halcore would bury the move in a rewrite of every line.
 exclude = [
     "packages/hal-core/**",
     "packages/hal-hub/README.md",
-    "packages/hal-hub/src/halhub/v1_registry.py",
-    "packages/hal-hub/src/halhub/v1_runner.py",
 ]
 
 [tool.pytest.ini_options]

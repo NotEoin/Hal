@@ -9,7 +9,8 @@ Claude Code over MCP, so Hal's voice, chat and terminal clients share one set of
 - Modules are plain folders with a manifest; installing one is cloning it, removing one is deleting it.
 - Tool search ranks tools against a request, so a chat model sees eight tools, not two hundred.
 - One MCP server with three meta-tools (`hal_find_tools`, `hal_call`, `hal_modules`), plus any tools you pin.
-- Stdlib-only Python modules run in-process; modules with their own dependencies run as a subprocess.
+- Tools run in worker processes with enforced timeouts, so a hung or crashing tool never takes
+  the hub down; tools that declare no network lose it when bubblewrap is available.
 - Every call goes through one policy pipeline. Tools that act on the desktop, send data or
   change the system ask a host surface for approval; a model can never approve its own call,
   and a call nobody can approve is denied.
@@ -18,12 +19,13 @@ Claude Code over MCP, so Hal's voice, chat and terminal clients share one set of
 ## Install
 
 hal-hub needs Python 3.11 or later and one package from PyPI, the official MCP SDK
-(`mcp>=2.3,<3`). It lives in the Hal monorepo as
-`packages/hal-hub`. Put its launcher on your `PATH`, or run `uv sync --all-packages` in the
-repository root to get a `hal-hub` console script:
+(`mcp>=2.3,<3`). It lives in the Hal monorepo as `packages/hal-hub`; `uv sync --all-packages`
+in the repository root installs it with its `hal-hub` console script in `.venv/bin/`, and Hal's
+installer puts that script on your `PATH`:
 
 ```bash
-ln -s ~/src/Hal/packages/hal-hub/bin/hal-hub ~/.local/bin/hal-hub
+cd ~/src/Hal && uv sync --all-packages
+.venv/bin/hal-hub version
 ```
 
 To give Claude Code the tools, add the server to a project's `.mcp.json`:

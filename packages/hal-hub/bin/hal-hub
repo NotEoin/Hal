@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-# Runs the hal-hub command line from anywhere: hal-hub tools, hal-hub <tool> key=value, hal-hub mcp.
-set -euo pipefail
-HERE="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-PYTHONPATH="$HERE/src${PYTHONPATH:+:$PYTHONPATH}" exec "${HAL_PYTHON:-python3}" -m halhub "$@"
