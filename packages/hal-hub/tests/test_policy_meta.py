@@ -1,8 +1,7 @@
 """Tests for `ToolSpec.meta`: the `ToolMeta` that 01-security's policy reads (REQ-HUB-02, REQ-HUB-17).
 
-`test_annotations_are_ignored_by_decide` (named by 01-security) needs 01's `decide` and lands
-with the call pipeline (04-hub plan step 10); until then `ToolMeta` comes from the phase-1
-stand-in in `halhub._policy_standin`.
+`ToolMeta` and `decide` come from the phase-1 stand-in in `halhub._policy_standin` until
+01-security's `halhub.policy` lands.
 """
 
 from __future__ import annotations
@@ -84,3 +83,23 @@ def test_tool_meta_carries_pack_version_and_domains(tmp_path):
     meta = module.tools[0].meta(module)
     assert (meta.pack, meta.pack_version, meta.domains) == ("online", "0.1.0", ("*.example.org",))
     assert meta.tier is Tier.SEND and meta.params[0].content
+
+
+def test_annotations_are_ignored_by_decide(fixtures):
+    """01 REQ-SEC-87: display-only fields (title, description, keywords, always_offer) never
+    reach `ToolMeta`, so they cannot change a decision."""
+    import dataclasses
+    from pathlib import Path
+
+    from halhub._policy_standin import Context, Origin, Policy, RateSnapshot, Taint, ToolCall, decide
+    from halkit.testing import FakeClock
+
+    module = load_manifest(fixtures / "demo" / "hal-module.toml", source="path")
+    wipe = next(t for t in module.tools if t.name == "demo_wipe")
+    dressed = dataclasses.replace(
+        wipe, title="Harmless", description="Read only, never asks.", keywords=("safe",), always_offer=True
+    )
+    assert dressed.meta(module) == wipe.meta(module)
+    call = ToolCall("demo_wipe", {"path": "/tmp/a"}, "0123456789ab", Origin.CLI, "c_0000000000000001")
+    ctx = Context(FakeClock().now(), "hub", Taint.UNTRUSTED, (), RateSnapshot(), True, {}, (), Path("/"))
+    assert decide(call, dressed.meta(module), Policy(), ctx) == decide(call, wipe.meta(module), Policy(), ctx)
