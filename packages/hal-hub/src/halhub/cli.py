@@ -16,6 +16,7 @@
       deny ID                                      refuse one pending request
       doctor [--json]                              check manifests, workers and signatures
       setup MODULE... [--dry-run] [--force]        run declared install steps (typed y per step)
+      new NAME [--dir DIR] [--exec]                create a v2 pack skeleton, hal-NAME/
       token [--rotate]                             path of the HTTP bearer token, or a new token
       version
 
@@ -99,6 +100,7 @@ SUBCOMMANDS = (
     "approve",
     "deny",
     "doctor",
+    "new",
     "setup",
     "token",
     "version",
@@ -211,6 +213,7 @@ def _main(args: list[str]) -> int:
         "approve": _approve,
         "deny": _deny,
         "doctor": _doctor,
+        "new": _new,
         "setup": _setup,
         "token": _token,
     }[command]
@@ -451,6 +454,25 @@ def _pack_tools(
     if not found:
         raise UsageError(f"no usable tools found for pack {scope.pack}; run {scope.prog} doctor")
     return found if tools is None else found & tools
+
+
+def _new(argv: list[str]) -> int:
+    parser = _parser("new", "create the skeleton of a v2 tool pack")
+    parser.add_argument("name", help="lowercase letters and digits; also the tool name prefix")
+    parser.add_argument("--dir", type=Path, default=Path.cwd(), help="where to create hal-NAME/")
+    parser.add_argument(
+        "--exec", action="store_true", help="a stdlib worker script; imports nothing from Hal"
+    )
+    opts = parser.parse_args(argv)
+    from . import scaffold  # deferred: only this command writes a skeleton
+
+    try:
+        written = scaffold.create(opts.name, opts.dir, exec_worker=opts.exec)
+    except (ValueError, FileExistsError) as exc:
+        raise UsageError(str(exc)) from None
+    for path in written:
+        print(path)
+    return EXIT_OK
 
 
 def _setup(argv: list[str]) -> int:

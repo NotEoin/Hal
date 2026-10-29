@@ -165,7 +165,11 @@ weather` shows each step and runs it only after you type `y` on a terminal; ther
 already succeeded with the same command is skipped (`--force` runs it again, `--dry-run` only
 prints the plan). `hal-hub doctor` lists steps that have not run.
 
-`scaffold.py` in the ecosystem folder creates a module with this layout.
+`hal-hub new weather [--dir DIR]` creates `hal-weather/`, a v2 pack with a `pyproject.toml`
+(depending on `hal-kit` and `hal-hub`, with a `hal-weather` command and a `hal.packs` entry
+point), a README, an MIT licence, the manifest and one example `read` tool in
+`src/hal_weather/`, and a test. `--exec` instead writes a pack that imports nothing from Hal:
+an `exec` manifest and a stdlib worker script. It never overwrites a file.
 
 ## Run a pack on its own
 
