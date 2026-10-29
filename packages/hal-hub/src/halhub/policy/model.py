@@ -362,3 +362,133 @@ class ToolPolicy:
     write_roots: tuple[str, ...] = DEFAULT_WRITE_ROOTS
     domains: tuple[str, ...] = ()
     allow_args: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class Policy:
+    """Resolved `policy.toml` for one profile and channel (01-security, "Decision algorithm").
+
+    `tool(meta)` applies REQ-SEC-07's precedence (later wins): the profile's tier table, its
+    `act_reversible` verdict and its built-in per-tool entries; `[packs.<p>]`; `[tools.<t>]`;
+    `[profiles.<active>.packs.<p>]`; `[profiles.<active>.tools.<t>]`; then the channel profile,
+    which only tightens. REQ-SEC-08's invariants are applied last, so even a policy built in
+    code cannot let a `system` tool resolve to `allow` or a `runs_code` tool escape `deny`;
+    the loader also rejects files that try (see `halhub.policy.load`).
+    """
+
+    profile: Profile
+    channel_profile: ChannelProfile | None = None
+    tools: Mapping[str, Rule] = field(default_factory=dict)
+    packs: Mapping[str, Rule] = field(default_factory=dict)
+    profile_tools: Mapping[str, Rule] = field(default_factory=dict)  # [profiles.<active>.tools]
+    profile_packs: Mapping[str, Rule] = field(default_factory=dict)  # [profiles.<active>.packs]
+    approval: ApprovalSettings = ApprovalSettings()
+    audit: AuditSettings = AuditSettings()
+    guard: GuardSettings = GuardSettings()
+    reviewer: ReviewerSettings = ReviewerSettings()
+    paths: PathSettings = PathSettings()
+    egress: EgressSettings = EgressSettings()
+    rate: RateSettings = RateSettings()
+    path: Path | None = None  # the file read; None for built-ins only
+    _memo: dict[tuple[object, ...], ToolPolicy] = field(
+        default_factory=dict, compare=False, repr=False, hash=False
+    )
+
+    @property
+    def channel(self) -> str | None:
+        """The channel profile's name, or None outside a channel."""
+        return self.channel_profile.name if self.channel_profile else None
+
+    @property
+    def sandbox_require(self) -> Literal["any", "container"]:
+        """02-sandbox `[sandbox].require` as this profile sets it (`strict`: container, REQ-SEC-102)."""
+        return self.profile.sandbox_require
+
+    def tool(self, meta: ToolMeta) -> ToolPolicy:
+        """The tool's verdict, rule and settings after precedence and invariants; memoised."""
+        memo_key = (
+            meta.pack,
+            meta.name,
+            meta.tier,
+            meta.reversible,
+            meta.runs_code,
+            meta.reviewable,
+            meta.domains,
+        )
+        cached = self._memo.get(memo_key)
+        if cached is None:
+            cached = self._memo[memo_key] = self._resolve(meta)
+        return cached
+
+    def _resolve(self, meta: ToolMeta) -> ToolPolicy:
+        profile = self.profile
+        verdict = profile.tiers[meta.tier]
+        rule = f"tier:{meta.tier}" if verdict is not Verdict.DENY else f"tier:{meta.tier}@{profile.name}"
+        if meta.tier is Tier.ACT and meta.reversible:
+            verdict, rule = profile.act_reversible, "act-reversible"
+        enabled, reviewable = True, meta.reviewable
+        rate: Rate | None = None
+        read_roots, write_roots = self.paths.read_roots, self.paths.write_roots
+        domains, allow_args = meta.domains, {}
+        user_named_ask = False  # REQ-SEC-08: only a by-name `ask` lets a runs_code tool run
+        levels = (
+            (profile.tools.get(meta.name), f"profile-tool:{meta.name}@{profile.name}", False),
+            (self.packs.get(meta.pack), f"pack:{meta.pack}", False),
+            (self.tools.get(meta.name), f"tool:{meta.name}", True),
+            (self.profile_packs.get(meta.pack), f"profile-pack:{meta.pack}@{profile.name}", False),
+            (self.profile_tools.get(meta.name), f"profile-tool:{meta.name}@{profile.name}", True),
+        )
+        for entry, entry_rule, by_name in levels:
+            if entry is None:
+                continue
+            if entry.verdict is not None:
+                verdict, rule = entry.verdict, entry_rule
+                user_named_ask = by_name and entry.verdict is Verdict.ASK
+            if entry.enabled is not None:
+                enabled = entry.enabled
+            if entry.reviewable is not None:
+                reviewable = entry.reviewable
+            if entry.rate is not None:
+                rate = entry.rate
+            if entry.read_roots is not None:
+                read_roots = entry.read_roots
+            if entry.write_roots is not None:
+                write_roots = entry.write_roots
+            if entry.domains is not None:
+                domains = entry.domains
+            if entry.allow_args is not None:
+                allow_args = dict(entry.allow_args)
+        if meta.tier is Tier.SYSTEM:
+            reviewable = False
+            if verdict is Verdict.ALLOW:
+                verdict, rule = Verdict.ASK, "system-never-allow"
+        if meta.runs_code and not (user_named_ask and verdict is Verdict.ASK):
+            verdict, rule = Verdict.DENY, "runs-code"
+        channel = self.channel_profile
+        if channel is not None and verdict is not Verdict.DENY:
+            if meta.tier in channel.denied_tiers:
+                verdict, rule = Verdict.DENY, f"tier:{meta.tier}@{channel.name}"
+            elif meta.pack in channel.denied_packs:
+                verdict, rule = Verdict.DENY, f"pack:{meta.pack}@{channel.name}"
+            elif meta.runs_code:
+                verdict, rule = Verdict.DENY, f"runs-code@{channel.name}"
+        return ToolPolicy(
+            verdict=verdict,
+            rule=rule,
+            enabled=enabled,
+            reviewable=reviewable,
+            rate=rate,
+            read_roots=read_roots,
+            write_roots=write_roots,
+            domains=domains,
+            allow_args=allow_args,
+        )
+
+    def allowed_scopes(self, meta: ToolMeta) -> tuple[Scope, ...]:
+        """Scopes a prompt may offer: the profile's, only `once` in a channel or for `system` tools."""
+        scopes = tuple(s for s in self.profile.scopes if s is not Scope.ROUTINE)
+        if self.channel_profile is not None:
+            scopes = tuple(s for s in scopes if s in self.channel_profile.scopes)
+        if meta.tier is Tier.SYSTEM:
+            scopes = tuple(s for s in scopes if s is Scope.ONCE)
+        return scopes

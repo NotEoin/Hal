@@ -159,3 +159,88 @@ def hard_deny_paths(*, home: Path, environ: Mapping[str, str] | None = None) -> 
     """The built-in hard-deny paths for `home`, expanded lexically (no file is touched)."""
     paths = (expand(entry, home=home, environ=environ) for entry in HARD_DENY_PATHS)
     return tuple(p for p in paths if p is not None)
+
+
+# `hal policy init` writes this; every setting is commented out at its default, so the file
+# changes nothing until the user edits it. The test uncomments every line and loads the result.
+TEMPLATE = """\
+# Hal tool policy. Reference: docs/design/01-security.md, "policy.toml schema".
+# Every setting below is commented out at its default. Uncomment a line to change it.
+schema_version = 1
+# profile = "default"                # default | strict | trusted | standalone | a [profiles.<name>]
+
+# [approval]
+# timeout_s = 120                    # 10..3600: a prompt nobody answers becomes deny
+# once_ttl_s = 600                   # 10..3600: an unused once grant is dropped after this
+# session_max_h = 12                 # 1..72: a session grant ends with the session or after this
+# routine_max_days = 90              # 1..365: a routine grant expires this long after approval
+# notify = true                      # desktop notification when no terminal UI is attached
+
+# [audit]
+# content = false                    # log message bodies and result text in full
+# args = true                        # log (redacted) arguments; false keeps only the key
+# retention_days = 90                # 1..3650
+# max_file_mb = 64                   # 1..1024: rotate a day file above this size
+
+# [guard]
+# enabled = false
+# model = "prompt-guard-2-86m"       # or "prompt-guard-2-22m"
+# threshold = 0.5                    # 0..1: malicious-class probability that flags
+# max_scan_chars = 24000             # larger texts are flagged without scanning
+# timeout_s = 15                     # per result
+# threads = 2                        # 1..16 CPU threads for the worker
+# on_flag = "ask"                    # ask | deny
+# backend = "auto"                   # auto | docker | bwrap
+
+# [reviewer]
+# enabled = false
+# model = "hal-fast"                 # gateway role alias
+# timeout_s = 20
+# when_untrusted = true              # may review while the session is untrusted
+
+# [paths]
+# read_roots = ["~/Documents", "~/Downloads", "~/Desktop", "~/Pictures", "~/Music", "~/Videos"]
+# write_roots = ["~/Downloads"]
+# deny = []                          # paths or globs added to the built-in hard-deny list
+
+# [egress]
+# domains = []                       # hosts allowed for every network tool
+# unlisted = "ask"                   # ask | deny
+# allow_http = false
+# allow_ip_literals = false
+# allow_private = false              # loopback, RFC 1918, link-local, *.local
+# max_redirects = 3                  # 0..10
+# search_tools = ["web_search"]      # tools whose result URLs feed url:from-search
+# from_search = ["web_read"]         # tools whose URL arguments url:from-search may allow
+# from_search_exclude = ["docs.google.com", "forms.gle"]  # hosts that accept writes by GET
+
+# [rate]
+# session = "2000/h"                 # all calls in one session
+# asks = "40/h"                      # approval prompts in one session
+# act = "120/h"
+# send = "30/h"
+# system = "10/h"
+
+# [packs.organiser]                  # per pack, any profile
+# enabled = true                     # false hides and denies every tool of the pack
+# verdict = "ask"                    # allow | ask | deny: overrides the tier default
+# reviewable = false
+# domains = []
+
+# [tools.web_read]                   # per tool, any profile
+# enabled = true
+# verdict = "ask"                    # system tools reject allow
+# reviewable = false
+# rate = "10/h"
+# read_roots = []                    # replaces [paths].read_roots for this tool
+# write_roots = []                   # replaces [paths].write_roots for this tool
+# domains = ["docs.python.org"]      # hosts that turn ask into allow
+# allow_args = {}                    # param -> list of exact values or globs; all must match
+
+# [profiles.careful]                 # a custom profile, or overrides of a built-in one
+# extends = "default"
+# tiers = { read = "allow", write = "allow", act = "ask", send = "ask", system = "ask" }
+# act_reversible = "ask"             # verdict for act tools with reversible = true
+# reviewer = true                    # the reviewer may run under this profile
+# scopes = ["once", "session"]       # subset of once and session; there is no always
+"""
