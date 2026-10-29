@@ -17,7 +17,8 @@ Claude Code over MCP, so Hal's voice, chat and terminal clients share one set of
 
 ## Install
 
-hal-hub needs Python 3.11 or later and nothing from PyPI. It lives in the Hal monorepo as
+hal-hub needs Python 3.11 or later and one package from PyPI, the official MCP SDK
+(`mcp>=2.3,<3`). It lives in the Hal monorepo as
 `packages/hal-hub`. Put its launcher on your `PATH`, or run `uv sync --all-packages` in the
 repository root to get a `hal-hub` console script:
 
@@ -30,6 +31,15 @@ To give Claude Code the tools, add the server to a project's `.mcp.json`:
 ```json
 {"mcpServers": {"hal-hub": {"command": "/home/you/.local/bin/hal-hub", "args": ["mcp"]}}}
 ```
+
+`hal-hub mcp [--profile P]` serves on stdio. It answers clients that use the `initialize`
+handshake (protocol 2024-11-05 to 2025-11-25) and clients that use the 2026-07-28 per-request
+envelope. It lists the three meta-tools, then the `always_offer` and pinned tools your policy
+lets the session use; any tool can still be called by name or through `hal_call`, and policy
+decides every call. Each result carries `_meta.hal` (`status`, `untrusted`, `guard`). When a
+call needs approval, the server writes the request id to stderr and waits for
+`hal-hub approve ID` (or `hal approve ID`) up to `[approval].timeout_s`; with no answer the
+call is denied with rule `approval-timeout`.
 
 ## Use
 

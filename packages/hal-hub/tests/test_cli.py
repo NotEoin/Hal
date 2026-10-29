@@ -203,6 +203,16 @@ def test_malformed_config_exits_2_naming_the_file_without_traceback(hal_home, ca
     assert code == 2 and str(hal_home.config) in err and "Traceback" not in err
 
 
+def test_mcp_with_an_unknown_profile_exits_2_before_serving(home, capsys):
+    code, out, err = run(capsys, "mcp", "--profile", "no-such-profile")
+    assert code == 2 and "no-such-profile" in err and out == ""
+
+
+def test_mcp_with_an_unknown_option_exits_2(home, capsys):
+    code, _, err = run(capsys, "mcp", "--transport", "carrier-pigeon")
+    assert code == 2 and "invalid choice" in err
+
+
 def test_malformed_policy_exits_2_naming_the_file(home, capsys):
     home.policy.write_text("schema_version = 1\n[tools.demo_echo\n")
     code, _, err = run(capsys, "demo_echo", "text=hi")

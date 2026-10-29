@@ -7,7 +7,7 @@
       modules [--all] [--json]                     modules with status, source and path
       call TOOL [key=value ...] [--json ARGS] [--yes] [--profile P] [--raw]
       TOOL [key=value ...] [--yes]                 shorthand for call (tool names contain "_")
-      mcp                                          serve the tools over MCP on stdio
+      mcp [--transport stdio] [--profile P]        serve the tools over MCP on stdio
       approvals [--json]                           pending approval requests of this user
       approve ID                                   allow one pending request, once
       deny ID                                      refuse one pending request
@@ -298,11 +298,18 @@ def _modules(argv: list[str]) -> int:
 
 
 def _mcp(argv: list[str]) -> int:
-    if argv:
-        raise UsageError(f"hal-hub mcp takes no options yet: {' '.join(argv)}")
-    from . import mcp  # deferred: only this command needs the server
+    parser = _parser("mcp", "serve the tools over MCP on stdio")
+    parser.add_argument("--transport", choices=("stdio",), default="stdio")
+    parser.add_argument("--profile", help="policy profile for this server's sessions")
+    opts = parser.parse_args(argv)
+    from . import mcp  # deferred: only this command needs the SDK
 
-    mcp.serve()
+    policy.load_policy(None, profile=opts.profile)  # a bad policy or profile exits 2 before serving
+    hub = Hub()
+    try:
+        mcp.serve_stdio(hub, mcp.ServeOptions(profile=opts.profile))
+    finally:
+        hub.close()
     return EXIT_OK
 
 
