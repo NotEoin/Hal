@@ -390,8 +390,9 @@ class Policy:
     egress: EgressSettings = EgressSettings()
     rate: RateSettings = RateSettings()
     path: Path | None = None  # the file read; None for built-ins only
+    # init=False: `dataclasses.replace` must start a new memo, never share the old policy's
     _memo: dict[tuple[object, ...], ToolPolicy] = field(
-        default_factory=dict, compare=False, repr=False, hash=False
+        default_factory=dict, init=False, compare=False, repr=False, hash=False
     )
 
     @property

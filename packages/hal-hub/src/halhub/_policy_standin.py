@@ -5,9 +5,9 @@
 fakes". Its types (`Tier` to `Decision`) now come from `halhub.policy.model`, so the stand-in
 and the real engine share one `ToolMeta`. The rest copies 01-security.md, "Decision algorithm",
 with the same names, fields and defaults, so phase 2 replaces it with an import change:
-`Policy` with `Policy.tool`, `load_policy`, `prepare` and `decide`. It also holds the "Approval
-binding" functions (`canonical_json`, `approval_key`, `security_digest`) until `halkit.canon`
-and `halhub.approvals.keys` land.
+`Policy` with `Policy.tool`, `load_policy`, `prepare` and `decide`. It re-exports
+`canonical_json` (`halkit.canon`), `approval_key` and `security_digest`
+(`halhub.approvals.keys`) for the hub modules that still import them from here.
 
 What `decide` implements, in 01's order: unknown tool, disabled tool, reserved-key stripping
 and self-approval detection, argument validation with 01's `bad-args:<code>` codes, the
@@ -30,7 +30,6 @@ What is missing on purpose, each fail-closed or neutral until 01 lands:
 
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 import json
 import os
@@ -45,7 +44,9 @@ from urllib.parse import urlsplit
 
 from halkit import config as halconfig
 from halkit import paths
+from halkit.canon import canonical_json  # noqa: F401 - re-exported for hub modules until 01 step 20
 
+from .approvals.keys import approval_key, security_digest
 from .policy.model import (
     Context,
     Decision,
@@ -62,8 +63,6 @@ from .policy.model import (
     Verdict,
 )
 
-APPROVAL_KEY_TAG = b"hal-approval/v1\n"  # 01 "Approval binding": lets a future encoding coexist
-TOOLMETA_TAG = b"hal-toolmeta/v1\n"
 MAX_PATH_BYTES = 4096  # PATH_MAX on Linux; 01 `prepare` rejects longer paths
 SELF_APPROVAL_RE = re.compile(r"(?i)^_*(confirm|approv|consent|authori[sz]|yes$|force$)")  # REQ-SEC-06
 PRIVATE_SUFFIXES = (".localhost", ".local", ".internal", ".home.arpa")  # REQ-SEC-10
@@ -293,48 +292,6 @@ class RateLimiter:
 
 
 # ---- approval binding ----------------------------------------------------------------------
-
-
-def canonical_json(value: object) -> bytes:
-    """01's canonical encoding: sorted keys, no spaces, ASCII escapes, no NaN; strings untouched."""
-    return json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
-    ).encode("ascii")
-
-
-def approval_key(pack: str, tool: str, args: Mapping[str, object]) -> str:
-    """`"sha256:" + sha256(tag + pack + tool + canonical_json(args))` (REQ-SEC-19, RESOLUTIONS B1)."""
-    digest = hashlib.sha256(
-        APPROVAL_KEY_TAG + pack.encode() + b"\n" + tool.encode() + b"\n" + canonical_json(dict(args))
-    )
-    return "sha256:" + digest.hexdigest()
-
-
-def security_digest(meta: ToolMeta) -> str:
-    """Digest of every field the policy reads, so a pack update that changes one voids grants."""
-    doc = {
-        "tier": str(meta.tier),
-        "network": meta.network,
-        "untrusted_output": meta.untrusted_output,
-        "reviewable": meta.reviewable,
-        "reversible": meta.reversible,
-        "runs_code": meta.runs_code,
-        "domains": sorted(meta.domains),
-        "params": [
-            {
-                "name": p.name,
-                "type": p.type,
-                "required": p.required,
-                "enum": list(p.enum) if p.enum is not None else None,
-                "max_length": p.max_length,
-                "format": p.format,
-                "access": p.access,
-                "content": p.content,
-            }
-            for p in sorted(meta.params, key=lambda p: p.name)
-        ],
-    }
-    return "sha256:" + hashlib.sha256(TOOLMETA_TAG + canonical_json(doc)).hexdigest()
 
 
 # ---- loading -------------------------------------------------------------------------------

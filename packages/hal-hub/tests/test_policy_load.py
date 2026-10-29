@@ -23,6 +23,7 @@ from halhub.policy.model import (
     PathSettings,
     RateSettings,
     ReviewerSettings,
+    Rule,
     Scope,
     Tier,
     ToolMeta,
@@ -327,3 +328,10 @@ def test_init_template_loads_as_is_and_with_every_line_uncommented(tmp_path):
     policy = load_policy(path)
     assert policy.profile.name == "default" and "careful" not in policy.profile.name
     assert policy.tools["web_read"].domains == ("docs.python.org",)
+
+
+def test_a_replaced_policy_never_reuses_the_old_memo(tmp_path):
+    policy = load_policy(tmp_path / "absent.toml")
+    assert policy.tool(meta()).verdict is Verdict.ASK
+    loosened = dataclasses.replace(policy, tools={"lights_on": Rule(verdict=Verdict.ALLOW)})
+    assert loosened.tool(meta()).verdict is Verdict.ALLOW

@@ -28,7 +28,8 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from ._policy_standin import canonical_json
+from halkit.canon import canonical_json
+
 from .manifest import ParamSpec, ToolSpec
 
 log = logging.getLogger(__name__)

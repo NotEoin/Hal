@@ -5,6 +5,7 @@ built in steps; the hub still calls the phase-1 stand-in `halhub._policy_standin
 shares these types, until 01's "Route hub calls through policy engine" switches it over.
 """
 
+from .decide import decide, explain
 from .load import ConfigError, check_rules, load_policy
 from .model import (
     ApprovalSettings,
@@ -37,6 +38,8 @@ from .model import (
 from .profiles import CHANNEL_PROFILES, PROFILES
 
 __all__ = [
+    "decide",
+    "explain",
     "check_rules",
     "load_policy",
     "CHANNEL_PROFILES",
