@@ -54,6 +54,12 @@ Design decisions:
   it could be audited as a mismatch.
 - While a call runs or waits, `notifications/progress` goes out every `PROGRESS_S` when the
   request carried a progress token (REQ-HUB-41).
+- Channel `remote` (07-remote's forced command, REQ-HUB-71): a session of kind `remote` on
+  01's `remote` channel profile (which only tightens), origin `remote:<client>`, and
+  `remote_addr` from `HAL_REMOTE_ADDR` in every audit record. Its approval mode is always
+  `auto`: the laptop client's dialog when it has one, else `hal approve` on the desktop. It
+  never gets 01's `notify` surface: a desktop notification is not where the person at the
+  laptop is, and it cannot show every argument.
 - `Hub.call` blocks (workers, approvals), so it runs in a worker thread. A cancelled request
   sets the call's cancel event, which stops the tool's worker; the thread is not waited for.
 - stdio hygiene (REQ-HUB-37): the SDK points fd 1 at stderr while serving, but an unflushed
@@ -65,7 +71,7 @@ Design decisions:
   (REQ-HUB-47); every result carries `_meta.hal` as 02-sandbox defines it (REQ-HUB-46). The
   hub has already scrubbed, cut and, for `untrusted_output` tools, wrapped the text.
 
-Not here yet (later plan steps): the remote channel (step 21) and HTTP (step 22).
+Not here yet (later plan step): HTTP (step 22).
 """
 
 from __future__ import annotations
@@ -74,6 +80,7 @@ import contextvars
 import dataclasses
 import json
 import logging
+import re
 import sys
 import threading
 import time
@@ -115,6 +122,8 @@ __all__ = [
 ]
 
 ORIGIN = "host_mcp"  # 01 `Origin.HOST_MCP`: a harness on the host speaking MCP to the hub
+REMOTE_CHANNEL = "remote"
+REMOTE_ORIGIN_RE = re.compile(r"^remote:[a-z0-9][a-z0-9-]{0,31}$")  # 04-hub "Remote sessions"
 UNAVAILABLE_ERRORS = frozenset({"unknown_tool", "unavailable"})  # 02's `_meta.hal` status `unavailable`
 ApprovalMode = Literal["auto", "elicit", "out-of-band", "callback", "deny"]
 APPROVAL_MODES: tuple[str, ...] = get_args(ApprovalMode)
@@ -201,6 +210,9 @@ class ServeOptions:
 
     mode: Literal["meta", "flat"] = "meta"
     profile: str | None = None  # None: the policy's default profile (01-security precedence)
+    channel: Literal["remote"] | None = None  # "remote": a laptop over SSH (07-remote)
+    origin: str = ORIGIN  # or "remote:<client>" with channel "remote"
+    remote_addr: str | None = None  # from HAL_REMOTE_ADDR, recorded in every audit record
     approvals: ApprovalMode = "auto"
     approver: Approver | None = None  # 01 protocol; required for "callback" without a session
     session: HubSession | None = None  # the broker passes its own (mode "callback")
@@ -219,6 +231,14 @@ class ServeOptions:
             raise ValueError("approval mode callback needs the caller's approver or session")
         if self.approvals != "callback" and (self.approver is not None or self.session is not None):
             raise ValueError("an approver or session of the caller's own needs approval mode callback")
+        if self.channel not in (None, REMOTE_CHANNEL):
+            raise ValueError(f"unknown channel {self.channel!r}; hal-hub mcp serves only channel remote")
+        if self.origin != ORIGIN and not REMOTE_ORIGIN_RE.fullmatch(self.origin):
+            raise ValueError(f"origin {self.origin!r} must be remote:<client> ({REMOTE_ORIGIN_RE.pattern})")
+        if self.channel != REMOTE_CHANNEL and (self.origin != ORIGIN or self.remote_addr is not None):
+            raise ValueError("a remote origin or address needs channel remote")
+        if self.channel == REMOTE_CHANNEL and self.approvals != "auto":
+            raise ValueError("channel remote always uses approval mode auto (REQ-HUB-71)")
         for name, limit in (("packs", self.packs), ("tools", self.tools)):
             if limit is not None and not limit:
                 raise ValueError(f"an empty {name} limit would serve nothing; leave it unset instead")
@@ -538,8 +558,10 @@ def render(result: CallResult) -> types.CallToolResult:
 def _open(hub: Hub, opts: ServeOptions) -> _Connection:
     if opts.session is not None:
         return _Connection(opts.session)
+    kind = "remote" if opts.channel == REMOTE_CHANNEL else "hub"
+    where = {"origin": opts.origin, "channel": opts.channel, "remote_addr": opts.remote_addr}
     if opts.approvals == "callback":
-        session = hub.open_session(kind="hub", origin=ORIGIN, profile=opts.profile, approver=opts.approver)
+        session = hub.open_session(kind=kind, profile=opts.profile, approver=opts.approver, **where)
         return _Connection(session, owned=True)
     session_id = new_session_id()
     holder: list[HubSession] = []
@@ -549,12 +571,12 @@ def _open(hub: Hub, opts: ServeOptions) -> _Connection:
             holder[0].emit(event, **fields)
 
     server = control.ControlServer(session_id, audit=audit, on_pending=_waiting)
-    approver = (
-        None if opts.approvals == "deny" else _ConnectionApprover(opts.approvals, server, ORIGIN, audit)
-    )
+    approver = None
+    if opts.approvals != "deny":
+        approver = _ConnectionApprover(opts.approvals, server, opts.origin, audit)
     try:
         session = hub.open_session(
-            kind="hub", origin=ORIGIN, profile=opts.profile, approver=approver, session_id=session_id
+            kind=kind, profile=opts.profile, approver=approver, session_id=session_id, **where
         )
     except BaseException:
         server.close()

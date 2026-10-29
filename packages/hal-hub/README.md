@@ -60,6 +60,12 @@ as you and could answer its own dialog, so treat `hal-hub mcp` approvals as prot
 a model's mistakes, not against a hostile harness. Sandboxed agents (`hal box`) never get a
 dialog.
 
+`hal remote` (07-remote) starts `hal-hub mcp --channel remote --origin remote:CLIENT` for a
+laptop over SSH. That session uses the `remote` policy channel (tier `system` and the
+`desktop` pack are denied), always uses `--approvals auto` (another value is a usage error),
+and records the laptop's address from `HAL_REMOTE_ADDR` in every audit record. `--origin` is
+accepted only with `--channel remote`.
+
 ## Use
 
 The command line covers every module:

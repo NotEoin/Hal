@@ -8,7 +8,8 @@
       call TOOL [key=value ...] [--json ARGS] [--yes] [--profile P] [--raw]
       TOOL [key=value ...] [--yes]                 shorthand for call (tool names contain "_")
       mcp [--mode meta|flat] [--profile P] [--approvals auto|elicit|out-of-band|deny]
-          [--packs A,B] [--tools X,Y]              serve the tools over MCP on stdio
+          [--channel remote --origin remote:CLIENT] [--packs A,B] [--tools X,Y]
+                                                   serve the tools over MCP on stdio
       approvals [--json]                           pending approval requests of this user
       approve ID                                   allow one pending request, once
       deny ID                                      refuse one pending request
@@ -77,6 +78,7 @@ DESCRIPTION_COLUMNS = 80
 SUBCOMMANDS = ("tools", "show", "modules", "call", "mcp", "approvals", "approve", "deny", "doctor", "version")
 SECRET_ENV_RE = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL", re.IGNORECASE)
 LOG_LEVELS = {-1: "ERROR", 0: "WARNING", 1: "DEBUG"}
+REMOTE_ADDR_ENV = "HAL_REMOTE_ADDR"  # set by 07-remote's forced command; read only with --channel remote
 
 __all__ = ["main"]
 
@@ -303,6 +305,8 @@ def _mcp(argv: list[str]) -> int:
     parser.add_argument("--transport", choices=("stdio",), default="stdio")
     parser.add_argument("--mode", choices=("meta", "flat"), help="default: [hub.mcp].mode")
     parser.add_argument("--profile", help="policy profile for this server's sessions")
+    parser.add_argument("--channel", choices=("remote",), help="remote: a laptop over SSH (hal remote)")
+    parser.add_argument("--origin", help="remote:<client>, with --channel remote only")
     parser.add_argument(
         "--approvals", choices=("auto", "elicit", "out-of-band", "deny"), help="default: [hub.mcp].approvals"
     )
@@ -311,15 +315,28 @@ def _mcp(argv: list[str]) -> int:
     opts = parser.parse_args(argv)
     from . import mcp  # deferred: only this command needs the SDK
 
-    policy.load_policy(None, profile=opts.profile)  # a bad policy or profile exits 2 before serving
+    remote = opts.channel == mcp.REMOTE_CHANNEL
+    if remote and opts.approvals not in (None, "auto"):
+        raise UsageError("--channel remote always uses --approvals auto (the laptop's dialog or hal approve)")
+    if opts.origin is not None and not remote:
+        raise UsageError("--origin is accepted only with --channel remote")
+    # a bad policy, profile or channel exits 2 before serving
+    policy.load_policy(None, profile=opts.profile, channel=opts.channel)
     hub = Hub()
-    options = mcp.ServeOptions(
-        mode=opts.mode or hub.config.mcp.mode,
-        profile=opts.profile,
-        approvals=opts.approvals or hub.config.mcp.approvals,
-        packs=opts.packs,
-        tools=opts.tools,
-    )
+    try:
+        options = mcp.ServeOptions(
+            mode=opts.mode or hub.config.mcp.mode,
+            profile=opts.profile,
+            channel=opts.channel,
+            origin=opts.origin or mcp.ORIGIN,
+            remote_addr=(os.environ.get(REMOTE_ADDR_ENV) or None) if remote else None,
+            approvals="auto" if remote else opts.approvals or hub.config.mcp.approvals,
+            packs=opts.packs,
+            tools=opts.tools,
+        )
+    except ValueError as exc:
+        hub.close()
+        raise UsageError(str(exc)) from None
     try:
         mcp.serve_stdio(hub, options)
     finally:
