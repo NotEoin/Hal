@@ -158,6 +158,13 @@ With `python`, the hub imports the module and calls the function with keyword ar
 stdin, and reads JSON from stdout. A tool returns anything JSON can encode; raising an exception
 reports an error to the caller.
 
+A module that needs a download or a build declares `[[install]]` steps (an `id`, a `summary`,
+an argv `run` with no shell, an optional `timeout`, `network` and `cwd`). `hal-hub setup
+weather` shows each step and runs it only after you type `y` on a terminal; there is no
+`--yes`, and it refuses without a terminal. It stops at the first failure, and a step that
+already succeeded with the same command is skipped (`--force` runs it again, `--dry-run` only
+prints the plan). `hal-hub doctor` lists steps that have not run.
+
 `scaffold.py` in the ecosystem folder creates a module with this layout.
 
 ## Run a pack on its own

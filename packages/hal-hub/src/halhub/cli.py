@@ -15,6 +15,7 @@
       approve ID                                   allow one pending request, once
       deny ID                                      refuse one pending request
       doctor [--json]                              check manifests, workers and signatures
+      setup MODULE... [--dry-run] [--force]        run declared install steps (typed y per step)
       token [--rotate]                             path of the HTTP bearer token, or a new token
       version
 
@@ -34,6 +35,9 @@ or approval missing. Design decisions:
   message (file and line when known) and no traceback (REQ-HUB-55).
 - `--config` and `--policy` set `HAL_CONFIG` and `HAL_POLICY` for this process, so the
   registry, the policy and secret lookups all read the same files.
+- `setup` runs a module's `[[install]]` steps only after a `y` typed on a terminal for each
+  step; there is no `--yes`, and without a terminal it refuses (REQ-HUB-59). `--dry-run`
+  prints the plan and works anywhere. A declined step exits 3, a failed one 1.
 - `approvals`, `approve` and `deny` are thin wrappers over the control-socket client that
   06's `hal approvals`, `hal approve` and `hal deny` use, with the same checks: stdin and
   stdout are terminals and `HAL_HARNESS` is unset, and no flag skips the question
@@ -68,6 +72,7 @@ from halkit.config import ConfigError
 
 from . import _control_standin as control
 from . import _policy_standin as policy
+from . import install
 from ._approvals_standin import ApprovalRequest, ApprovalRouter, escape
 from .config import HubConfig
 from .hub import CallResult, Hub
@@ -94,6 +99,7 @@ SUBCOMMANDS = (
     "approve",
     "deny",
     "doctor",
+    "setup",
     "token",
     "version",
 )
@@ -205,6 +211,7 @@ def _main(args: list[str]) -> int:
         "approve": _approve,
         "deny": _deny,
         "doctor": _doctor,
+        "setup": _setup,
         "token": _token,
     }[command]
     return handler(rest)
@@ -446,6 +453,54 @@ def _pack_tools(
     return found if tools is None else found & tools
 
 
+def _setup(argv: list[str]) -> int:
+    parser = _parser("setup", "run a module's declared install steps, each after a typed y")
+    parser.add_argument("modules", nargs="+", metavar="MODULE")
+    parser.add_argument("--dry-run", action="store_true", help="print the steps and their state only")
+    parser.add_argument("--force", action="store_true", help="also run steps that already succeeded")
+    opts = parser.parse_args(argv)
+    if not opts.dry_run:
+        _require_person("setup")
+    hub = _new_hub()
+    try:
+        specs = []
+        for name in opts.modules:
+            state = hub.registry.modules.get(name)
+            if state is None:
+                raise UsageError(f"no module named {name}; see hal-hub modules")
+            specs.append(state.spec)
+    finally:
+        hub.close()
+    for spec in specs:
+        steps = install.plan(spec)
+        if not steps:
+            print(f"{spec.name}: no install steps")
+            continue
+        for step, prior in steps:
+            done = "done" if prior is not None and prior.status == "ok" else "to run"
+            net = ", downloads" if step.network else ""
+            print(f"{spec.name}/{step.id} [{done}{net}, up to {step.timeout:g} s]: {escape(step.summary)}")
+            print(f"    {escape(' '.join(step.run), multiline=False)}")
+        if opts.dry_run:
+            continue
+        states = install.run_steps(spec, confirm=_confirm_step, force=opts.force)
+        for state in states:
+            print(f"{spec.name}/{state.step}: {state.status} (exit {state.exit_code})")
+        if any(s.status != "ok" for s in states):
+            return EXIT_TOOL_ERROR
+        remaining = [step for step, prior in install.plan(spec) if prior is None or prior.status != "ok"]
+        if remaining:
+            _error(f"{spec.name}: stopped before {remaining[0].id}; nothing else ran")
+            return EXIT_DENIED
+    return EXIT_OK
+
+
+def _confirm_step(step: object) -> bool:
+    """A typed `y` on the terminal for one install step; anything else stops."""
+    print(f"Run step {getattr(step, 'id', '?')}? Type y and Enter to run it: ", end="", flush=True)
+    return sys.stdin.readline().strip().lower() in YES_ANSWERS
+
+
 def _token(argv: list[str]) -> int:
     parser = _parser("token", "print the path of the HTTP bearer token, or rotate it")
     parser.add_argument("--rotate", action="store_true", help="write a new token; old clients get 401")
@@ -573,6 +628,11 @@ def doctor_report(hub: Hub) -> dict[str, object]:
             f"env {name} looks like a secret; declare it in [[module.secrets]]"
             for name in spec.env
             if SECRET_ENV_RE.search(name)
+        ]
+        notes += [
+            f"install step {step.id} has not run; run: hal-hub setup {spec.name}"
+            for step, prior in install.plan(spec)
+            if prior is None or prior.status != "ok"
         ]
         modules.append(
             {
