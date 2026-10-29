@@ -10,9 +10,7 @@ from __future__ import annotations
 import os
 import ssl
 
-from . import search
-from . import v1_registry as registry
-from . import v1_runner as runner
+from . import search, v1_registry, v1_runner
 from .v1_registry import Tool
 
 # Tools run in-process inside the caller's Python; a relocated virtualenv can point OpenSSL at a
@@ -36,7 +34,7 @@ _cache: dict[str, Tool] | None = None
 def all_tools(refresh: bool = False) -> dict[str, Tool]:
     global _cache
     if _cache is None or refresh:
-        _cache = registry.tools()
+        _cache = v1_registry.tools()
     return _cache
 
 
@@ -50,11 +48,11 @@ def find(query: str, limit: int = 8) -> list[Tool]:
 
 
 def call(name: str, args: dict | None = None) -> dict:
-    """Runs a tool by name; see runner.call for the result shape."""
+    """Runs a tool by name; see v1_runner.call for the result shape."""
     tool = get(name) or all_tools(refresh=True).get(name)
     if tool is None:
         return {"error": f"no tool named {name}; use hal_find_tools to search"}
-    return runner.call(tool, args)
+    return v1_runner.call(tool, args)
 
 
 def ollama_tools(query: str, limit: int = 8) -> list[dict]:
