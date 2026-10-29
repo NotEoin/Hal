@@ -16,6 +16,15 @@ running one call at a time. Design decisions:
   injectable `clock`; waits on pipes use real time.
 - A protocol line over `MAX_MESSAGE_BYTES` kills the worker (`output_too_large`); results are
   cut to the tool's `max_output` by `cut_output`, which the call pipeline applies.
+- Secrets travel only inside the `call` message to a worker of the declaring module, and every
+  injected value is replaced with `[redacted]` in the result, the error message and the
+  worker's logged stderr (REQ-HUB-69, 01 REQ-SEC-50, REQ-SEC-51).
+- Workers are pooled per `(module, network)`. When bubblewrap works, workers for tools with
+  `network = false` run without a network (REQ-HUB-70, D23); the drop is defence in depth, so
+  without bubblewrap they run as before and `doctor` says so. bwrap gets `--unshare-pid` on
+  top of the spec's flags: `--new-session` puts the tool in its own session, out of reach of
+  the process-group kill, and a pid namespace makes killing bwrap end every process inside
+  [verified 2026-10-29: a grandchild `sleep` survived `killpg` without it and died with it].
 """
 
 from __future__ import annotations
@@ -38,7 +47,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from halkit import paths
+from halkit import config as halconfig
+from halkit import paths, proc
+from halkit.secrets import UnsafeSecretError, read_secret
 
 from .manifest import ModuleSpec, ToolSpec
 
@@ -54,6 +65,11 @@ STDERR_TAIL_LINES = 50  # kept for `doctor` and crash messages
 CRASH_LINE_CHARS = 200  # the last stderr line quoted in a `worker_crashed` message
 REAP_TIMEOUT_S = 5.0  # time allowed to collect a killed worker's exit status
 REAPER_INTERVAL_S = 30.0  # idle workers are checked this often; idle_timeout is minutes
+REDACTED = "[redacted]"  # 01-security's replacement text for a secret value
+BWRAP = "bwrap"
+BWRAP_COMMON = ("--dev-bind", "/", "/", "--unshare-pid", "--die-with-parent", "--new-session")
+BWRAP_OFFLINE = ("--unshare-net",)
+BWRAP_PROBE_TIMEOUT_S = 5.0  # 04-hub "Network drop with bubblewrap"
 
 ENV_ALLOWLIST = frozenset(
     {
@@ -132,6 +148,81 @@ class WorkerError(Exception):
         super().__init__(f"{error_type}: {message}")
 
 
+class SecretError(Exception):
+    """A declared secret cannot be read; the message names the secret and the fix."""
+
+
+def resolve_secrets(module: ModuleSpec, *, config_path: Path | None = None) -> dict[str, str]:
+    """Reads every secret `module` declares: the config value at `config_key`, else `default_path`.
+
+    Raises `SecretError` when any one is missing, empty or loosely permissioned, so no worker
+    ever sees a partial set (04-hub failure table).
+    """
+    if not module.secrets:
+        return {}
+    data = halconfig.read_toml(config_path or paths.config_file())
+    values = {}
+    for spec in module.secrets:
+        configured = _dotted(data, spec.config_key)
+        if configured is not None and not isinstance(configured, str):
+            raise SecretError(
+                f"secret {spec.name} of {module.name}: {spec.config_key} must be a file path string"
+            )
+        path = Path(configured or spec.default_path).expanduser()
+        try:
+            values[spec.name] = read_secret(path)
+        except FileNotFoundError:
+            raise SecretError(
+                f"secret {spec.name} of {module.name} is not set: create {path} (mode 0600) "
+                f"or set {spec.config_key} in config.toml"
+            ) from None
+        except (UnsafeSecretError, ValueError, OSError) as exc:
+            raise SecretError(f"secret {spec.name} of {module.name}: {exc}") from None
+    return values
+
+
+def _dotted(data: Mapping[str, object], key: str) -> object:
+    node: object = data
+    for part in key.split("."):
+        if not isinstance(node, Mapping) or part not in node:
+            return None
+        node = node[part]
+    return node
+
+
+def scrub(value: object, secrets: Mapping[str, str] | set[str] | frozenset[str]) -> object:
+    """`value` with every exact secret value replaced by `[redacted]`, in strings at any depth."""
+    needles = sorted(
+        {v for v in (secrets.values() if isinstance(secrets, Mapping) else secrets) if v}, key=len
+    )
+    if not needles:
+        return value
+    return _scrub(value, needles[::-1])
+
+
+def _scrub(value: object, needles: list[str]) -> object:
+    if isinstance(value, str):
+        for needle in needles:
+            value = value.replace(needle, REDACTED)
+        return value
+    if isinstance(value, list):
+        return [_scrub(item, needles) for item in value]
+    if isinstance(value, dict):
+        return {_scrub(k, needles): _scrub(v, needles) for k, v in value.items()}
+    return value
+
+
+def bwrap_available() -> bool:
+    """True when bubblewrap can start an unprivileged sandbox with no network here."""
+    try:
+        result = proc.run(
+            [BWRAP, *BWRAP_COMMON, *BWRAP_OFFLINE, "--", "true"], timeout=BWRAP_PROBE_TIMEOUT_S, check=False
+        )
+    except (OSError, proc.ProcTimeout):
+        return False
+    return result.returncode == 0
+
+
 def cut_output(text: str, limit: int) -> str:
     """`text` cut to head and tail around a marker giving the characters removed (REQ-HUB-33)."""
     if len(text) <= limit:
@@ -195,6 +286,9 @@ class _Worker:
         self.last_used = 0.0
         self.info: WorkerInfo | None = None
         self.stderr_tail: collections.deque[str] = collections.deque(maxlen=STDERR_TAIL_LINES)
+        self.known_secrets: frozenset[str] = (
+            frozenset()
+        )  # values given to this worker; rebound, never mutated
         self._buffer = b""
         self._stderr_thread = threading.Thread(
             target=self._drain_stderr, name=f"hal-worker-{module.name}", daemon=True
@@ -211,7 +305,7 @@ class _Worker:
     def _drain_stderr(self) -> None:
         assert self.proc.stderr is not None
         for raw in iter(self.proc.stderr.readline, b""):
-            line = raw.decode("utf-8", "replace").rstrip("\n")
+            line = str(scrub(raw.decode("utf-8", "replace").rstrip("\n"), self.known_secrets))
             self.stderr_tail.append(line)
             log.debug("[%s %d] %s", self.module.name, self.proc.pid, line)
 
@@ -327,6 +421,7 @@ class Runner:
         self._ids = itertools.count(1)
         self._closed = threading.Event()
         self._reaper: threading.Thread | None = None
+        self._bwrap: bool | None = None  # probed on first use
 
     # -- public API --
 
@@ -337,11 +432,20 @@ class Runner:
         args: Mapping[str, object],
         *,
         timeout: float,
+        secrets: Mapping[str, str] | None = None,
         cancel: threading.Event | None = None,
         on_tool_call: Callable[[NestedCall], RunOutcome] | None = None,
     ) -> RunOutcome:
-        """Runs `tool` with `args` (already split by `call_arguments`) and returns the outcome."""
+        """Runs `tool` with `args` (already split by `call_arguments`) and returns the outcome.
+
+        `secrets` must name only secrets `module` declares (from `resolve_secrets`); raises
+        `ValueError` otherwise, because sending one module's secret to another is a bug.
+        """
         started = time.monotonic()
+        secrets = dict(secrets or {})
+        undeclared = set(secrets) - {s.name for s in module.secrets}
+        if undeclared:
+            raise ValueError(f"{module.name} does not declare the secrets {sorted(undeclared)}")
         if self._closed.is_set():
             return RunOutcome(False, error_type="worker_failed", message="the runner is closed")
         pool_key = (module.name, self._needs_network(module, tool))
@@ -351,12 +455,16 @@ class Runner:
             return RunOutcome(
                 False, error_type=exc.error_type, message=exc.message, seconds=self._since(started)
             )
-        outcome = self._call(worker, module, tool, args, started, timeout, cancel, on_tool_call)
-        return outcome
+        outcome = self._call(worker, module, tool, args, secrets, started, timeout, cancel, on_tool_call)
+        if not secrets:
+            return outcome
+        return dataclasses.replace(
+            outcome, result=scrub(outcome.result, secrets), message=scrub(outcome.message, secrets)
+        )
 
     def probe(self, module: ModuleSpec) -> WorkerInfo:
         """Starts a worker, reads its `ready`, and shuts it down; raises `WorkerError` (for `doctor`)."""
-        worker = self._start(module)
+        worker = self._start(module, network=any(t.network for t in module.tools))
         try:
             assert worker.info is not None
             return dataclasses.replace(worker.info, stderr_tail=tuple(worker.stderr_tail))
@@ -380,6 +488,24 @@ class Runner:
 
     def _needs_network(self, module: ModuleSpec, tool: ToolSpec) -> bool:
         return tool.network
+
+    def sandbox_status(self) -> str:
+        """One line for `doctor`: whether workers without network get it dropped."""
+        if self.config.bwrap == "off":
+            return 'network drop off ([hub.runner].bwrap = "off"); tools without network keep it'
+        if self._uses_bwrap():
+            return "network drop on: workers of tools without network run under bubblewrap"
+        return "network drop unavailable: bubblewrap cannot start a sandbox here; tools keep the network"
+
+    def _uses_bwrap(self) -> bool:
+        if self.config.bwrap == "off":
+            return False
+        with self._lock:
+            if self._bwrap is None:
+                self._bwrap = bwrap_available()
+                if not self._bwrap:
+                    log.warning("bubblewrap is unavailable; tools without network run with it (REQ-HUB-70)")
+            return self._bwrap
 
     def _pool(self, key: tuple[str, bool]) -> _Pool:
         with self._lock:
@@ -416,7 +542,7 @@ class Runner:
                     )
                 pool.condition.wait(remaining)
         try:
-            return self._start(module)
+            return self._start(module, network=key[1])
         except WorkerError as exc:
             with pool.condition:
                 pool.total -= 1
@@ -461,9 +587,11 @@ class Runner:
 
     # -- workers --
 
-    def _start(self, module: ModuleSpec) -> _Worker:
+    def _start(self, module: ModuleSpec, *, network: bool) -> _Worker:
         try:
             argv = worker_argv(module)
+            if self._uses_bwrap():
+                argv = [BWRAP, *BWRAP_COMMON, *(() if network else BWRAP_OFFLINE), "--", *argv]
             proc = self._popen(
                 argv,
                 stdin=subprocess.PIPE,
@@ -507,6 +635,7 @@ class Runner:
         module: ModuleSpec,
         tool: ToolSpec,
         args: Mapping[str, object],
+        secrets: Mapping[str, str],
         started: float,
         timeout: float,
         cancel: threading.Event | None,
@@ -525,6 +654,7 @@ class Runner:
             outcome = RunOutcome(False, error_type=error_type, message=message, worker_pid=pid)
             return done(_timed(outcome, started), keep=keep)
 
+        worker.known_secrets = worker.known_secrets | {v for v in secrets.values() if v}
         try:
             worker.send(
                 {
@@ -532,7 +662,7 @@ class Runner:
                     "id": call_id,
                     "function": tool.function,
                     "args": dict(args),
-                    "secrets": {},
+                    "secrets": dict(secrets),
                     "timeout_s": timeout,
                 }
             )

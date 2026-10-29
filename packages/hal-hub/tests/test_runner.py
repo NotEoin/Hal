@@ -29,7 +29,8 @@ from halhub.runner import (
 )
 from halkit.testing import FakeClock
 
-FAST = RunnerConfig(kill_grace=0.3, queue_timeout=0.3)
+# bwrap off: the hermetic tests must not depend on user namespaces; test_runner_sandbox.py covers it
+FAST = RunnerConfig(kill_grace=0.3, queue_timeout=0.3, bwrap="off")
 
 
 class CountingPopen:
@@ -226,14 +227,14 @@ def test_busy_when_every_worker_stays_busy(make_runner, probe):
 
 
 def test_worker_is_recycled_after_max_calls(make_runner, probe):
-    runner = make_runner(RunnerConfig(kill_grace=0.3, max_calls_per_worker=2))
+    runner = make_runner(dataclasses.replace(FAST, max_calls_per_worker=2))
     pids = [run(runner, probe, "probe_shout", {"text": "x"}).worker_pid for _ in range(3)]
     assert pids[0] == pids[1] != pids[2]
 
 
 def test_idle_worker_is_reaped(make_runner, probe):
     clock = FakeClock()
-    runner = make_runner(RunnerConfig(kill_grace=0.3, idle_timeout=600), clock=clock.monotonic)
+    runner = make_runner(dataclasses.replace(FAST, idle_timeout=600), clock=clock.monotonic)
     first = run(runner, probe, "probe_shout", {"text": "x"})
     clock.advance(601)
     runner.reap_idle()
@@ -319,3 +320,48 @@ def test_runner_limits_become_manifest_defaults(hal_home):
     config = HubConfig.load(environ={})
     assert config.runner.max_timeout == 90 and config.manifest_defaults.max_timeout == 90
     assert config.manifest_defaults.max_result_chars == 500
+
+
+# ---- bubblewrap wiring (hermetic: bwrap itself is not run) ------------------------------------
+
+
+class UnwrappingPopen(CountingPopen):
+    """Records the argv, then starts the command without the bwrap prefix."""
+
+    def __call__(self, argv, **kwargs):
+        self.started.append(list(argv))
+        if argv[0] == "bwrap":
+            argv = argv[argv.index("--") + 1 :]
+        return subprocess.Popen(argv, **kwargs)
+
+
+def test_offline_tool_gets_a_network_drop_and_online_tool_does_not(make_runner, probe, monkeypatch):
+    monkeypatch.setattr("halhub.runner.bwrap_available", lambda: True)
+    popen = UnwrappingPopen()
+    runner = make_runner(dataclasses.replace(FAST, bwrap="auto"), popen=popen)
+    assert run(runner, probe, "probe_shout", {"text": "x"}).ok
+    assert run(runner, probe, "probe_online", {"port": 1}).error_type == "tool_error"
+    offline, online = popen.started
+    assert offline[:1] == ["bwrap"] and "--unshare-net" in offline and "--unshare-pid" in offline
+    assert online[:1] == ["bwrap"] and "--unshare-net" not in online
+    assert offline[offline.index("--") + 1 :][-4:-2] == ["--module", "halprobe.tools"]
+
+
+def test_missing_bwrap_runs_workers_without_it_and_says_so(make_runner, probe, monkeypatch, caplog):
+    monkeypatch.setattr("halhub.runner.bwrap_available", lambda: False)
+    popen = CountingPopen()
+    runner = make_runner(dataclasses.replace(FAST, bwrap="auto"), popen=popen)
+    assert run(runner, probe, "probe_shout", {"text": "x"}).ok
+    assert popen.started[0][0] != "bwrap"
+    assert "unavailable" in runner.sandbox_status()
+    assert sum("bubblewrap is unavailable" in r.getMessage() for r in caplog.records) == 1
+
+
+def test_bwrap_off_never_probes(make_runner, probe, monkeypatch):
+    def explode():
+        raise AssertionError("probed")
+
+    monkeypatch.setattr("halhub.runner.bwrap_available", explode)
+    runner = make_runner()
+    assert run(runner, probe, "probe_shout", {"text": "x"}).ok
+    assert "off" in runner.sandbox_status()
