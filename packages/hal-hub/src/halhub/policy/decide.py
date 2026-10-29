@@ -22,7 +22,10 @@ canonically equal to a search-result URL of this session (`Context.search_urls`,
 except for `system` tools and hosts on `[egress].from_search_exclude`; the flagged-turn rule
 runs after it, so a flagged turn still asks.
 
-Not here yet, added by its own step of 01's implementation plan: rate limits.
+Rate limits (REQ-SEC-12) come after the URL checks: `Context.rate` is a snapshot taken by
+`halhub.policy.rate.RateLimiter`, and `check_rate` compares it with `[rate]` and the tool's own
+`rate`. The prompt budget (`rate:asks`) is checked only when the call would raise a prompt,
+after grants, so a granted call never counts against it.
 """
 
 from __future__ import annotations
@@ -52,6 +55,7 @@ from .model import (
     Verdict,
 )
 from .paths import check_path
+from .rate import check_rate
 
 SELF_APPROVAL_RE = re.compile(r"(?i)^_*(confirm|approv|consent|authori[sz]|yes$|force$)")  # REQ-SEC-06
 NO_LEADING_DASH_FORMATS = frozenset({"url", "host", "email", "phone"})  # REQ-SEC-56
@@ -304,6 +308,12 @@ def _verdict(
             host_listed = listed if host_listed is None else (host_listed and listed)
             # a bare host argument is never a search result, so it keeps url:from-search off
             url_values.append(args[p.name] if p.format == "url" else "")
+    limited = check_rate(meta, tp, policy, ctx.rate)
+    b.step("rate")
+    if limited:
+        return b.done(
+            Verdict.DENY, limited, f"{meta.name}: the {limited[5:]} rate limit for this session is used up."
+        )
     verdict, rule = tp.verdict, tp.rule
     if verdict is Verdict.ASK and tp.allow_args and args_match(args, tp.allow_args):
         verdict, rule = Verdict.ALLOW, "allow-args"
@@ -346,6 +356,12 @@ def _verdict(
                 grant_id=grant.id,
             )
         b.step("grants:none")
+    if ctx.rate.counts.get("asks", 0) >= policy.rate.asks.count:
+        return b.done(
+            Verdict.DENY,
+            "rate:asks",
+            "Too many approval prompts in this session; stop and summarise for the user.",
+        )
     if not ctx.approver_available:
         return b.done(
             Verdict.DENY, "no-approver", f"{meta.name} needs approval and no approval surface is attached."
