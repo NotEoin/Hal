@@ -4,15 +4,18 @@
 01-security's policy engine, testing them "against their published interfaces with fakes".
 This module copies only the published shapes the hub constructs (`Tier`, `ParamSpec` and
 `ToolMeta`, from 01-security.md, "Decision algorithm") with the same names, fields and
-defaults, so switching to `halhub.policy` is an import change.
+defaults, so switching to `halhub.policy` is an import change. It also holds
+`canonical_json` with the encoding of 01-security.md, "Approval binding", until
+`halkit.canon` lands (00-overview, "halkit API").
 
 What is missing on purpose: `prepare`, `decide`, `Policy`, grants and everything else that
 makes a decision. Nothing here decides anything. This module is deleted when 01-security's
-`halhub.policy` lands.
+`halhub.policy` and `halkit.canon` land.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal
@@ -57,3 +60,10 @@ class ToolMeta:
     reversible: bool = False
     runs_code: bool = False
     domains: tuple[str, ...] = ()
+
+
+def canonical_json(value: object) -> bytes:
+    """01's canonical encoding: sorted keys, no spaces, ASCII escapes, no NaN; strings untouched."""
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
+    ).encode("ascii")
