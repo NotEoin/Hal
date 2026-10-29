@@ -5,6 +5,7 @@ REQ-SYS-03: runtime dependencies are a subset of the "Third-party dependencies" 
 docs/design/00-overview.md, and hal-kit has none. Any other dependency needs a reason in the
 spec and a line in `THIRD_PARTY` below.
 Internal `hal-*` dependencies follow the layering table and cover every import edge.
+01 REQ-SEC-36: the guard's model stack stays out of every package and the workspace lock.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ DIST_OF = {
     "halremote": "hal-remote",
     "halcore": "hal-core",
 }
+GUARD_STACK = frozenset({"torch", "transformers", "tokenizers", "safetensors"})  # guard image only
 MCP_SPEC = ">=2.3,<3"  # the official SDK range the brief fixes
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*")
 
@@ -82,6 +84,19 @@ def test_runtime_dependencies_are_in_the_allowlist(dist):
     assert third_party <= THIRD_PARTY[dist], (
         f"{dist} has unlisted dependencies {third_party - THIRD_PARTY[dist]}"
     )
+
+
+@pytest.mark.parametrize("dist", sorted(PROJECTS))
+def test_guard_model_stack_is_no_package_dependency(dist):
+    project = PROJECTS[dist]["project"]
+    extras = [r for group in project.get("optional-dependencies", {}).values() for r in group]
+    names = {dependency_name(r) for r in [*project.get("dependencies", []), *extras]}
+    assert not names & GUARD_STACK
+
+
+def test_guard_model_stack_is_not_in_the_workspace_lock():
+    lock = tomllib.loads((REPO / "uv.lock").read_text(encoding="utf-8"))
+    assert not {normalise(p["name"]) for p in lock.get("package", [])} & GUARD_STACK
 
 
 def test_hal_kit_has_no_dependencies_at_all():
