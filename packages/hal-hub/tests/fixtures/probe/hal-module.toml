@@ -1,0 +1,132 @@
+# Synthetic v2 pack whose tools misbehave on purpose, for the worker and runner tests.
+schema = 2
+
+[module]
+name = "probe"
+summary = "Tools that print, fail, sleep, crash or read secrets"
+python = "halprobe.tools"
+env = ["PROBE_ALLOWED"]
+calls = ["demo_echo"]
+
+[[module.secrets]]
+name = "probe_key"
+config_key = "probe.key_file"
+default_path = "~/.config/hal/probe-key"
+
+[[tools]]
+name = "probe_shout"
+function = "shout"
+description = "Print to stdout and fd 1, then return the text in capitals."
+tier = "read"
+[tools.params.text]
+required = true
+
+[[tools]]
+name = "probe_boom"
+function = "boom"
+description = "Raise a ValueError."
+tier = "read"
+
+[[tools]]
+name = "probe_fail"
+function = "fail"
+description = "Raise a ToolError."
+tier = "read"
+
+[[tools]]
+name = "probe_when"
+function = "when"
+description = "Return a datetime."
+tier = "read"
+
+[[tools]]
+name = "probe_nan"
+function = "nan"
+description = "Return NaN, which JSON cannot carry."
+tier = "read"
+
+[[tools]]
+name = "probe_later"
+function = "later"
+description = "An async tool."
+tier = "read"
+[tools.params.text]
+required = true
+
+[[tools]]
+name = "probe_secret"
+function = "reveal"
+description = "Return a secret's value (tests check that it is scrubbed)."
+tier = "read"
+[tools.params.name]
+required = true
+
+[[tools]]
+name = "probe_nested"
+function = "nested"
+description = "Call another tool through the hub."
+tier = "read"
+[tools.params.tool]
+required = true
+
+[[tools]]
+name = "probe_sleep"
+function = "sleep"
+description = "Start a child sleep, record its pid, then sleep."
+tier = "read"
+timeout = 1
+[tools.params.seconds]
+type = "number"
+required = true
+[tools.params.pidfile]
+description = "where to write the child's pid"
+
+[[tools]]
+name = "probe_crash"
+function = "crash"
+description = "Exit the worker process."
+tier = "read"
+[tools.params.code]
+type = "integer"
+required = true
+
+[[tools]]
+name = "probe_env"
+function = "env"
+description = "Return the worker's environment and argv."
+tier = "read"
+
+[[tools]]
+name = "probe_cwd"
+function = "cwd"
+description = "Return the worker's working directory."
+tier = "read"
+
+[[tools]]
+name = "probe_big"
+function = "big"
+description = "Return a long string."
+tier = "read"
+max_output = 100
+[tools.params.size]
+type = "integer"
+required = true
+
+[[tools]]
+name = "probe_connect"
+function = "connect"
+description = "Open a TCP connection to a local port."
+tier = "read"
+[tools.params.port]
+type = "integer"
+required = true
+
+[[tools]]
+name = "probe_online"
+function = "connect"
+description = "Open a TCP connection to a local port, allowed the network."
+tier = "read"
+network = true
+[tools.params.port]
+type = "integer"
+required = true

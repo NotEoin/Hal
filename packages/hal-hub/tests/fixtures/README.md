@@ -7,3 +7,5 @@ no real secrets.
 | --- | --- |
 | `demo` | v2 pack: read, act, reversible and untrusted-output tools, one declared secret |
 | `legacy` | v1 module in the shape of the old `hal-ecosystem/scaffold.py` template |
+| `probe` | v2 pack whose tools print, raise, sleep with a child, crash, read secrets or connect |
+| `broken` | v2 pack whose tools module raises on import |

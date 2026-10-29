@@ -1,0 +1,13 @@
+# Synthetic v2 pack whose import raises, for the runner's startup failure tests.
+schema = 2
+
+[module]
+name = "broken"
+summary = "A module that cannot be imported"
+python = "halbroken.tools"
+
+[[tools]]
+name = "broken_any"
+function = "anything"
+description = "Never runs."
+tier = "read"
