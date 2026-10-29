@@ -1,0 +1,11 @@
+# Files the ASCII gate skips (scripts/check-ascii.sh). One `path  # reason` per line.
+# Existing non-ASCII in lines nobody is changing stays until the file is rewritten; a sweep is
+# its own commit, made only when asked.
+README.md  # public README: emoji headings and badges are allowed
+SETUP.md  # pre-monorepo text, replaced by docs/user in the README rewrite
+setup.sh  # pre-monorepo launcher text, replaced by scripts/install.sh (06-core-cli)
+hal  # pre-monorepo launcher text, replaced by the hal command (06-core-cli)
+.gitignore  # pre-monorepo comment text
+eval/scenarios.toml  # test data: matches the degree sign in model replies
+packages/hal-core/src/halcore/console.html  # pre-monorepo page text, rewritten with the console (06-core-cli)
+uv.lock  # generated
