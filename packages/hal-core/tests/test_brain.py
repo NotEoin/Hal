@@ -1,22 +1,12 @@
-"""Tests for halcore: the brain's tool loop and confirmation gate, the eval checks, units and config edits.
+"""Tests for `halcore.brain`: the tool loop and the confirmation gate.
 
 No model or network: the model's replies are scripted and hal-hub is a fake.
 Run with: uv run pytest packages/hal-core
 """
-import json
-import os
-import sys
-import tempfile
 import unittest
-from datetime import date
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]  # repository root
-sys.path.insert(0, str(ROOT / "packages" / "hal-core" / "src"))
-TMP = tempfile.mkdtemp(prefix="halcore-test-")
-os.environ.update(HAL_CONFIG=f"{TMP}/config.toml", HAL_STATE=f"{TMP}/state", HAL_DATA=f"{TMP}/data")
-
-from halcore import brain as brainmod, evaluate, ext, units  # noqa: E402
+import halcore_env  # noqa: F401  (sets up the import path and a throwaway Hal state)
+from halcore import brain as brainmod
 
 
 class FakeTool:
@@ -119,62 +109,6 @@ class BrainTest(unittest.TestCase):
         b = brainmod.Brain(tools=False, log_turns=False)
         self.assertIn("extension", b.system_prompt())
         self.assertEqual([t["function"]["name"] for t in b.tools_for("hi")], ["deep_work"])
-
-
-class EvalTest(unittest.TestCase):
-    def test_placeholders(self):
-        sat = date(2026, 10, 10)
-        self.assertEqual(evaluate.fill("{date:thursday}T10:00", sat), "2026-10-15T10:00")
-        self.assertEqual(evaluate.fill("{date:tomorrow}", sat), "2026-10-11")
-        self.assertEqual(evaluate.fill("{weekday:today}", sat), "Saturday")
-        self.assertEqual(evaluate.fill("{day:saturday}", sat), "17")
-
-    def test_checks(self):
-        case = {"tools": ["calendar_add"], "args": {"calendar_add": {"title": "(?i)dentist"}},
-                "reply": "(?i)thursday", "max_chars": 50}
-        good = [{"tools": [{"name": "calendar_add", "args": {"title": "Dentist"}, "confirm": False}]}]
-        self.assertEqual(evaluate.check(case, good, None, "Booked for Thursday."), [])
-        bad = [{"tools": []}]
-        problems = evaluate.check(case, bad, None, "x" * 60)
-        self.assertEqual(len(problems), 3)
-
-    def test_confirm_first(self):
-        case = {"confirm_first": ["system_kill"]}
-        unasked = [{"tools": [{"name": "system_kill", "args": {}, "confirm": False}]}]
-        self.assertTrue(evaluate.check(case, unasked, None, "done"))
-
-    def test_scenarios_parse(self):
-        cases = evaluate.load_cases()
-        self.assertGreater(len(cases), 30)
-        self.assertEqual(len({c["id"] for c in cases}), len(cases))
-        for c in cases:
-            self.assertTrue(c.get("ask") or c.get("turns"), c["id"])
-
-
-class UnitsTest(unittest.TestCase):
-    def test_render_and_gpu_guard(self):
-        root = Path(TMP) / "mod"
-        (root / "systemd").mkdir(parents=True)
-        (root / "systemd" / "x.service").write_text(
-            "[Unit]\nDescription=x\nX-HalGPU=yes\n\n[Service]\nWorkingDirectory=@ROOT@\nExecStart=@CORE@/hal\n")
-        units.UNIT_DIR = Path(TMP) / "units"
-        record = {}
-        self.assertEqual(units.install_module(root, record), ["x.service"])
-        text = (units.UNIT_DIR / "x.service").read_text()
-        self.assertIn(f"WorkingDirectory={root}", text)
-        self.assertIn("ConditionPathExists=!", text)
-        self.assertTrue(units.is_gpu(units.UNIT_DIR / "x.service"))
-
-
-class ExtTest(unittest.TestCase):
-    def test_set_disabled_keeps_the_rest(self):
-        Path(os.environ["HAL_CONFIG"]).write_text('[hal]\nvault = "v"\n\n[hub]\npinned = ["a"]\n')
-        ext.set_disabled(["phone"])
-        ext.set_disabled(["phone", "mail"])
-        text = Path(os.environ["HAL_CONFIG"]).read_text()
-        self.assertIn('disabled = ["mail", "phone"]', text)
-        self.assertIn('pinned = ["a"]', text)
-        self.assertEqual(text.count("disabled"), 1)
 
 
 if __name__ == "__main__":
