@@ -1,4 +1,4 @@
-"""Test helpers for the hub's pipeline tests: a spy runner and a scripted approval surface.
+"""Test helpers for the hub's pipeline tests: a spy runner and scripted approval surfaces.
 
 Plain classes, imported by `conftest.py` and the test files (pytest puts this directory on
 `sys.path`), so no test imports from `conftest`.
@@ -6,6 +6,7 @@ Plain classes, imported by `conftest.py` and the test files (pytest puts this di
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from halhub._approvals_standin import Decision
@@ -64,6 +65,44 @@ def answer(verdict: str, scope=None, *, source: str = "scripted", key: str | Non
 
 def allow_once(request):
     return Decision(request.id, request.key, "allow", Scope.ONCE, "scripted")
+
+
+SILENT_CAP_S = 5.0  # a silent FakeSurface waits to be withdrawn, never past this
+
+
+class FakeSurface:
+    """01's `FakeSurface`: an `Approver` with a chosen `shows_all_args` that answers with a
+    scripted answer function, or never (it then blocks until withdrawn).
+
+    Uses `halhub.approvals.Decision`; `answer` functions build their own decisions.
+    """
+
+    def __init__(
+        self, name: str, answer=None, *, shows_all_args: bool = True, available: bool = True
+    ) -> None:
+        self.name = name
+        self.shows_all_args = shows_all_args
+        self._answer = answer
+        self._available = available
+        self.seen: list = []
+        self.withdrawn: list[str] = []
+        self._gone = threading.Event()
+
+    def available(self) -> bool:
+        return self._available
+
+    def decide(self, request, timeout_s: float):
+        from halhub.approvals import Decision as RealDecision
+
+        self.seen.append(request)
+        if self._answer is None:
+            self._gone.wait(SILENT_CAP_S)
+            return RealDecision(request.id, request.key, "deny", None, "timeout")
+        return self._answer(request)
+
+    def withdraw(self, request_id: str) -> None:
+        self.withdrawn.append(request_id)
+        self._gone.set()
 
 
 PROBE_KEY = "probe-key-canary-value"  # synthetic; never a real credential
