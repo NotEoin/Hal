@@ -9,5 +9,6 @@ from .broker import FakeBroker
 from .clock import FakeClock
 from .home import TempHalHome
 from .model_server import FakeModelServer, Reply
+from .resolver import FakeResolver
 
-__all__ = ["FakeBroker", "FakeClock", "FakeModelServer", "Reply", "TempHalHome"]
+__all__ = ["FakeBroker", "FakeClock", "FakeModelServer", "FakeResolver", "Reply", "TempHalHome"]

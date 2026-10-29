@@ -19,7 +19,7 @@ requirement in `docs/design/`; the code and its tests cite them.
 
 | Path | What it holds |
 | --- | --- |
-| `packages/hal-kit` | `halkit`: stdlib-only paths, config, files, time, logging, subprocess, secrets, test fakes |
+| `packages/hal-kit` | `halkit`: stdlib-only paths, config, files, time, logging, subprocess, secrets, redaction, canonical JSON, terminal escaping, symlink-safe file access, egress URL checks, test fakes |
 | `packages/hal-hub` | `halhub`: tool registry, runner, MCP server |
 | `packages/hal-core` | `halcore`: the code behind the `hal` command |
 | `packages/hal-agent`, `hal-sandbox`, `hal-gateway`, `hal-remote` | skeletons, filled in by later phases |

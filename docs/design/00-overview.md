@@ -636,7 +636,9 @@ def check_url(url: str, *, domains: Collection[str], allow_http: bool, allow_ip_
               allow_private: bool) -> tuple[str | None, bool]: ...       # (deny rule, host listed)
 def fetch(url: str, *, domains: Collection[str], timeout: float, max_bytes: int,
           max_redirects: int = 3, method: str = "GET", headers: Mapping[str, str] | None = None,
-          body: bytes | None = None, resolver: Callable[[str], list[str]] | None = None) -> Response: ...
+          body: bytes | None = None, resolver: Callable[[str], list[str]] | None = None,
+          allow_http: bool = False, allow_ip_literals: bool = False, allow_private: bool = False,
+          context: ssl.SSLContext | None = None) -> Response: ...   # context: tests trust a local CA
 ```
 
 `fetch` raises `BlockedURL` when `check_url` names a deny rule for the URL or any redirect
