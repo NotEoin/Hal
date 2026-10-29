@@ -16,10 +16,13 @@ the reviewable flag (REQ-SEC-37). Path rules (REQ-SEC-09) live in `halhub.policy
 URL and host arguments (REQ-SEC-10) are checked with `halkit.netguard.check_url`, which never
 resolves a name; a listed host turns `ask` into `allow` (`domain-allowlist`, never for
 `system` tools), and an unlisted host turns `allow` into `ask`, or denies when
-`[egress].unlisted = "deny"`.
+`[egress].unlisted = "deny"`. A tool in `[egress].from_search` whose every URL argument is
+canonically equal to a search-result URL of this session (`Context.search_urls`, recorded by
+`halhub.policy.provenance`) turns `ask` into `allow` with `url:from-search` (REQ-SEC-92),
+except for `system` tools and hosts on `[egress].from_search_exclude`; the flagged-turn rule
+runs after it, so a flagged turn still asks.
 
-Not here yet, each added by its own step of 01's implementation plan: `url:from-search` and
-rate limits.
+Not here yet, added by its own step of 01's implementation plan: rate limits.
 """
 
 from __future__ import annotations
@@ -159,6 +162,26 @@ def check_url_arg(value: str, fmt: str, tp: ToolPolicy, policy: Policy) -> tuple
     )
 
 
+def from_search(url: str, policy: Policy, ctx: Context) -> bool:
+    """True when `url` is a search result of this session and its host is not excluded (REQ-SEC-92)."""
+    try:
+        canonical = netguard.canonical_url(url)
+    except ValueError:
+        return False
+    if canonical not in ctx.search_urls:
+        return False
+    # check_url's "listed" flag is reused as the exclusion match, so `*.host` entries work the
+    # same way as in [egress].domains; the URL already passed REQ-SEC-10 with the real settings
+    _, excluded = netguard.check_url(
+        url,
+        domains=policy.egress.from_search_exclude,
+        allow_http=True,
+        allow_ip_literals=True,
+        allow_private=True,
+    )
+    return not excluded
+
+
 def args_match(args: Mapping[str, object], allow_args: Mapping[str, tuple[str, ...]]) -> bool:
     """True when every `allow_args` parameter is present and matches one of its values or globs."""
     for name, patterns in allow_args.items():
@@ -271,6 +294,7 @@ def _verdict(
     b: _Builder,
 ) -> Decision:
     host_listed: bool | None = None
+    url_values: list[str] = []
     for p in meta.params:
         if p.format in URL_FORMATS and isinstance(args.get(p.name), str):
             problem, listed = check_url_arg(args[p.name], p.format, tp, policy)
@@ -278,6 +302,8 @@ def _verdict(
             if problem:
                 return b.done(Verdict.DENY, problem, f"{p.name}: {_URL_REASONS[problem]}")
             host_listed = listed if host_listed is None else (host_listed and listed)
+            # a bare host argument is never a search result, so it keeps url:from-search off
+            url_values.append(args[p.name] if p.format == "url" else "")
     verdict, rule = tp.verdict, tp.rule
     if verdict is Verdict.ASK and tp.allow_args and args_match(args, tp.allow_args):
         verdict, rule = Verdict.ALLOW, "allow-args"
@@ -289,6 +315,15 @@ def _verdict(
         return b.done(Verdict.DENY, "url:unlisted", "The host is not on an allowed domain list.")
     if host_listed is False and verdict is Verdict.ALLOW:
         verdict, rule = Verdict.ASK, "url:unlisted"
+        b.step(rule)
+    if (
+        verdict is Verdict.ASK
+        and meta.tier is not Tier.SYSTEM
+        and meta.name in policy.egress.from_search
+        and url_values
+        and all(from_search(u, policy, ctx) for u in url_values)
+    ):
+        verdict, rule = Verdict.ALLOW, "url:from-search"
         b.step(rule)
     fresh_only = False
     if ctx.taint is Taint.FLAGGED and meta.tier in ESCALATING_TIERS:

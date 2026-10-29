@@ -1,4 +1,5 @@
-"""Tests for the policy's URL and domain rules (REQ-SEC-10), including attack cases ATK-23 and ATK-42.
+"""Tests for the policy's URL and domain rules (REQ-SEC-10), including attack cases ATK-23 and ATK-42,
+and the `url:from-search` provenance rule (REQ-SEC-92).
 
 `decide` checks URLs without DNS: the purity test in `test_policy_decide.py` covers that, and
 here a name that would resolve to a private address is still only judged by its text.
@@ -24,6 +25,7 @@ from halhub.policy.model import (
     ToolMeta,
     Verdict,
 )
+from halhub.policy.provenance import SearchUrls
 
 WEB_READ = ToolMeta(
     "web_read", "online", "0.1.0", Tier.SEND, (ParamSpec("url", format="url", required=True),)
@@ -147,3 +149,85 @@ def test_flagged_turn_still_asks_for_a_listed_send(tmp_path):
     )
     d = decide(call, meta, pol, replace(CTX, taint=Taint.FLAGGED))
     assert (d.verdict, d.rule) == (Verdict.ASK, "flagged-turn")
+
+
+# ---- url:from-search (REQ-SEC-92) -------------------------------------------------------------
+
+SEARCH_RESULT = (
+    "1. Example A - https://Example.org:443/a?q=1#top\n"
+    "2. Form - https://docs.google.com/forms/d/x/formResponse?entry.1=hi\n"
+)
+SYSTEM_FETCH = ToolMeta(
+    "web_read", "system", "0.1.0", Tier.SYSTEM, (ParamSpec("url", format="url", required=True),)
+)
+
+
+def search_ctx(session: str = "0123456789ab", text: str = SEARCH_RESULT, **kw: object) -> Context:
+    urls = SearchUrls()
+    urls.record(session, text)
+    return replace(CTX, search_urls=urls.urls("0123456789ab"), **kw)
+
+
+def run_ctx(meta: ToolMeta, value: str, pol, ctx: Context):
+    call = ToolCall(meta.name, {"url": value}, "0123456789ab", Origin.TUI, "c_" + "0" * 16)
+    return decide(call, meta, pol, ctx)
+
+
+def test_search_result_url_is_allowed_once_canonical(tmp_path):
+    d = run_ctx(WEB_READ, "https://example.org/a?q=1", policy(tmp_path), search_ctx())
+    assert (d.verdict, d.rule) == (Verdict.ALLOW, "url:from-search")
+
+
+def test_url_differing_in_path_or_query_still_asks(tmp_path):
+    pol = policy(tmp_path)
+    for url in ("https://example.org/a?q=2", "https://example.org/A?q=1", "https://example.org/a"):
+        d = run_ctx(WEB_READ, url, pol, search_ctx())
+        assert (d.verdict, d.rule) == (Verdict.ASK, "tier:send"), url
+
+
+def test_url_from_other_session_still_asks(tmp_path):
+    d = run_ctx(WEB_READ, "https://example.org/a?q=1", policy(tmp_path), search_ctx(session="ba9876543210"))
+    assert (d.verdict, d.rule) == (Verdict.ASK, "tier:send")
+
+
+def test_excluded_host_still_asks(tmp_path):
+    url = "https://docs.google.com/forms/d/x/formResponse?entry.1=hi"
+    d = run_ctx(WEB_READ, url, policy(tmp_path), search_ctx())
+    assert (d.verdict, d.rule) == (Verdict.ASK, "tier:send")
+
+
+def test_wildcard_exclusion_covers_subdomains(tmp_path):
+    pol = policy(tmp_path, "[egress]\nfrom_search_exclude = ['*.example.org']\n")
+    ctx = search_ctx(text="https://www.example.org/x")
+    d = run_ctx(WEB_READ, "https://www.example.org/x", pol, ctx)
+    assert (d.verdict, d.rule) == (Verdict.ASK, "tier:send")
+
+
+def test_tool_not_listed_in_from_search_still_asks(tmp_path):
+    pol = policy(tmp_path, "[egress]\nfrom_search = []\n")
+    d = run_ctx(WEB_READ, "https://example.org/a?q=1", pol, search_ctx())
+    assert (d.verdict, d.rule) == (Verdict.ASK, "tier:send")
+
+
+def test_search_result_never_allows_a_system_tool(tmp_path):
+    d = run_ctx(SYSTEM_FETCH, "https://example.org/a?q=1", policy(tmp_path), search_ctx())
+    assert d.verdict is Verdict.ASK
+    assert d.rule != "url:from-search"
+
+
+def test_flagged_turn_asks_even_for_a_search_result(tmp_path):
+    ctx = search_ctx(taint=Taint.FLAGGED)
+    d = run_ctx(WEB_READ, "https://example.org/a?q=1", policy(tmp_path), ctx)
+    assert (d.verdict, d.rule, d.fresh_only) == (Verdict.ASK, "flagged-turn", True)
+
+
+def test_search_result_does_not_bypass_url_checks(tmp_path):
+    ctx = search_ctx(text="http://example.org/a")
+    d = run_ctx(WEB_READ, "http://example.org/a", policy(tmp_path), ctx)
+    assert (d.verdict, d.rule) == (Verdict.DENY, "url:scheme")
+
+
+def test_search_result_does_not_beat_unlisted_deny(tmp_path):
+    pol = policy(tmp_path, "[egress]\nunlisted = 'deny'\n")
+    d = run_ctx(WEB_READ, "https://example.org/a?q=1", pol, search_ctx())
+    assert (d.verdict, d.rule) == (Verdict.DENY, "url:unlisted")
