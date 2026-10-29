@@ -167,3 +167,17 @@ def test_agents_md_commands_are_the_ones_ci_runs():
         "scripts/check-ascii.sh",
     ):
         assert command in agents and command in workflow
+
+
+def test_security_policy_and_contributing_guide_exist_and_link_the_threat_model():
+    security = (REPO / "SECURITY.md").read_text(encoding="utf-8")
+    contributing = (REPO / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    assert "docs/design/01-security.md" in security
+    assert "SECURITY.md" in contributing and "AGENTS.md" in contributing
+
+
+def test_relative_links_in_the_root_documents_resolve():
+    link = re.compile(r"\]\((?!https?:|#|mailto:)([^)#]+)")
+    for name in ("AGENTS.md", "CLAUDE.md", "SECURITY.md", "CONTRIBUTING.md"):
+        for target in link.findall((REPO / name).read_text(encoding="utf-8")):
+            assert (REPO / target).exists(), f"{name} links to missing {target}"
