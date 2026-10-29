@@ -2,7 +2,8 @@
 
 Lists three meta-tools (find, call, modules) plus any tools pinned in
 ~/.config/hal/config.toml [hub].pinned, so a client's context holds a handful
-of schemas rather than every tool of every module. Stdlib only.
+of schemas rather than every tool of every module. Stdlib only. Calls go through the hub
+facade's pipeline (`halhub.api.run`); plan step 18 moves this loop onto the mcp SDK.
 
     "hal-hub": {"command": "hal-hub", "args": ["mcp"]}
 """
@@ -12,7 +13,7 @@ import json
 import sys
 
 import halhub
-from .v1_registry import load_config
+from . import api
 
 PROTOCOL = "2025-06-18"
 
@@ -26,8 +27,8 @@ META = [
          "limit": {"type": "integer", "description": "most tools to return (default 8)"}},
          "required": ["query"]}},
     {"name": "hal_call",
-     "description": "Run one of Hal's tools by name with its arguments. A result with needs_confirmation "
-                    "means ask the user first, then call again with arguments._confirmed = true.",
+     "description": "Run one of Hal's tools by name. Some tools need the user's approval; the user is "
+                    "asked by Hal, not by you.",
      "inputSchema": {"type": "object", "properties": {
          "tool": {"type": "string", "description": "tool name from hal_find_tools"},
          "arguments": {"type": "object", "description": "the tool's arguments"}},
@@ -39,12 +40,12 @@ META = [
 
 
 def _pinned() -> list[dict]:
-    names = load_config().get("hub", {}).get("pinned", [])
+    names = api.default_hub().config.pinned
     out = []
     for name in names:
         t = halhub.get(name)
         if t is not None:
-            out.append({"name": t.name, "description": t.description, "inputSchema": t.schema()})
+            out.append({"name": t.name, "description": t.description, "inputSchema": t.input_schema()})
     return out
 
 
@@ -69,16 +70,10 @@ def handle(msg: dict) -> dict | None:
     elif method == "tools/call":
         params = msg.get("params", {})
         name, args = params.get("name"), params.get("arguments") or {}
-        if name == "hal_find_tools":
-            from .tools import find_tools
-            data = find_tools(args.get("query", ""), args.get("limit", 8))
-        elif name == "hal_call":
-            data = halhub.call(args.get("tool", ""), args.get("arguments") or {})
-        elif name == "hal_modules":
-            from .tools import modules
-            data = modules()
+        if name == "hal_call":
+            data = api.run(args.get("tool", ""), args.get("arguments") or {}, front_end="mcp")
         else:
-            data = halhub.call(name, args)
+            data = api.run(name, args, front_end="mcp")
         result = _text(data)
     elif method == "ping":
         result = {}

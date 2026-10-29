@@ -169,7 +169,7 @@ def check(case: dict, turns: list[dict], hub, reply: str) -> list[str]:
 def missing_needs(case: dict, hub) -> list[str]:
     if case.get("no_extensions"):
         return []
-    have = {t.module.name for t in hub.all_tools().values()} if hub else set()
+    have = {t.module for t in hub.all_tools().values()} if hub else set()
     return [n for n in case.get("needs", []) if n not in have]
 
 

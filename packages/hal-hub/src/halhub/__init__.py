@@ -1,65 +1,65 @@
-"""hal-hub: one way in to every Hal module's tools.
+"""hal-hub: one way in to every Hal pack's tools.
 
     import halhub
-    halhub.find("add a dentist appointment on thursday")   # -> [Tool, ...]
-    halhub.call("calendar_add", {"title": "Dentist", "when": "thursday 10am"})
-    halhub.ollama_tools("turn the lights red")               # function specs for a chat model
+    halhub.find("add a dentist appointment on thursday")   # -> [ToolSpec, ...]
+    halhub.function_specs("turn the lights red")           # function specs for a chat model
+    halhub.client.call("calendar_add", {...}, caller="mypack")
+
+The module-level API (04-hub.md, "Hub facade and Python API") is loaded lazily on first use,
+so `import halhub` stays cheap and never imports `mcp` (REQ-HUB-62); the names resolve to
+`halhub.api`, which runs everything through one process-wide `Hub`. The v1 `CORE` tuple is
+gone (tools set `always_offer` instead), and so is v1's import-time `SSL_CERT_FILE` change:
+the fix lives in the worker, the process that needs it.
 """
+
 from __future__ import annotations
 
-import os
-import ssl
-
-from . import search, v1_registry, v1_runner
-from .v1_registry import Tool
-
-# Tools run in-process inside the caller's Python; a relocated virtualenv can point OpenSSL at a
-# certificate bundle that no longer exists, which breaks every HTTPS tool. Fall back to the system's.
-_SYSTEM_CA = "/etc/ssl/certs/ca-certificates.crt"
-if (not os.environ.get("SSL_CERT_FILE") and not os.path.exists(ssl.get_default_verify_paths().openssl_cafile)
-        and os.path.exists(_SYSTEM_CA)):
-    os.environ["SSL_CERT_FILE"] = _SYSTEM_CA
+import importlib
+from typing import TYPE_CHECKING
 
 __version__ = "0.1.0.dev0"
 
-__all__ = ["Tool", "call", "find", "get", "ollama_tools", "all_tools", "CORE"]
+if TYPE_CHECKING:  # the lazy names, for type checkers and editors
+    from .api import all_tools, call, default_hub, find, function_specs, get, ollama_tools
+    from .hub import CallResult, Hub
+    from .manifest import ToolSpec
 
-# Offered to a chat model on every turn whatever the request, so it can always
-# look further and keep its memory.
-CORE = ("hal_find_tools", "memory_remember", "memory_fact", "memory_search")
+_LAZY = {
+    "default_hub": "api",
+    "call": "api",
+    "find": "api",
+    "get": "api",
+    "all_tools": "api",
+    "function_specs": "api",
+    "ollama_tools": "api",
+    "Hub": "hub",
+    "CallResult": "hub",
+    "ToolSpec": "manifest",
+}
 
-_cache: dict[str, Tool] | None = None
-
-
-def all_tools(refresh: bool = False) -> dict[str, Tool]:
-    global _cache
-    if _cache is None or refresh:
-        _cache = v1_registry.tools()
-    return _cache
-
-
-def get(name: str) -> Tool | None:
-    return all_tools().get(name)
-
-
-def find(query: str, limit: int = 8) -> list[Tool]:
-    """Returns the tools most relevant to a request."""
-    return search.rank(query, list(all_tools().values()), limit)
-
-
-def call(name: str, args: dict | None = None) -> dict:
-    """Runs a tool by name; see v1_runner.call for the result shape."""
-    tool = get(name) or all_tools(refresh=True).get(name)
-    if tool is None:
-        return {"error": f"no tool named {name}; use hal_find_tools to search"}
-    return v1_runner.call(tool, args)
+__all__ = [
+    "CallResult",
+    "Hub",
+    "ToolSpec",
+    "all_tools",
+    "call",
+    "default_hub",
+    "find",
+    "function_specs",
+    "get",
+    "ollama_tools",
+]
 
 
-def ollama_tools(query: str, limit: int = 8) -> list[dict]:
-    """Returns function specs for the core tools plus those relevant to `query`."""
-    picked = [t for t in (get(n) for n in CORE) if t is not None]
-    for t in find(query, limit):
-        if t not in picked:
-            picked.append(t)
-    return [{"type": "function", "function": {"name": t.name, "description": t.description,
-                                              "parameters": t.schema()}} for t in picked]
+def __getattr__(name: str) -> object:
+    """Imports the module that holds `name` on first use."""
+    module = _LAZY.get(name)
+    if module is None:
+        raise AttributeError(f"module 'halhub' has no attribute {name!r}")
+    value = getattr(importlib.import_module(f"{__name__}.{module}"), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(_LAZY))

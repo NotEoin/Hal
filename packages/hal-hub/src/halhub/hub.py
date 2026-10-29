@@ -31,7 +31,16 @@ Design decisions:
   (01 REQ-SEC-34, REQ-SEC-96).
 - 01's modules are phase 2: until then the pipeline uses `_policy_standin`,
   `_approvals_standin`, `_audit_standin` and `_guard_standin`, whose headers list what each
-  one leaves out. Search and listings (plan steps 14 and 15) join this facade later.
+  one leaves out.
+- Listings (`find`, `function_specs`, `tools`, `get`, `describe`, `modules`) leave out every
+  tool whose listing verdict, `session.policy.tool(meta)` without arguments, is `deny` or
+  disabled (REQ-HUB-23). Argument-dependent rules (paths, domains) cannot hide a tool; they
+  can only deny a call.
+- A hub that loaded its own registry reloads it on a miss (an unknown tool name), at most once
+  per `REFRESH_MIN_INTERVAL`, so a long-lived process sees a newly installed pack without
+  rescanning on every typo. A registry passed in by the caller is never replaced.
+- The built-in `hub` module's tools run in-process with the hub and session bound by
+  `halhub.builtin.bound`, so they answer for the calling session.
 - Provider tools (host MCP servers, `providers.py`) are looked up after the registry and run
   through the same steps; only the run itself goes to the provider.
 - A worker's nested `tool_call` runs through this same pipeline with the parent's session and
@@ -60,6 +69,7 @@ from halkit.timeutil import iso_z, utc_now
 
 from . import _approvals_standin as approvals
 from . import _policy_standin as policy
+from . import builtin, search
 from ._audit_standin import AuditLog, AuditUnavailable
 from ._guard_standin import GuardClient, GuardLabel, GuardResult, Reviewer, ReviewRequest, wrap
 from .args import ArgumentError, call_arguments, normalise
@@ -84,6 +94,9 @@ FRONT_ENDS: tuple[str, ...] = get_args(FrontEnd)
 CALL_ID_BYTES = 8  # "c_" + 16 hex (01 ToolCall.call_id)
 ROUTINE_GRANTS = "routine-grants.jsonl"  # under state_dir(), 01 "Grant store"
 REVIEW_REASON_CHARS = 300  # 01 audit schema: the reviewer's reason, cut
+REFRESH_MIN_INTERVAL = 30.0  # seconds between registry reloads on a miss (04-hub "Hub facade")
+MAX_ALWAYS_OFFER = 8  # 04-hub "Search": fixed tools stay a small share of a chat model's context
+FIND_DESCRIPTION_CHARS = 300  # 04-hub "MCP server": hal_find_tools cuts each description
 
 __all__ = ["CallResult", "FrontEnd", "Hub", "RoutineRun", "RoutineStep", "new_call_id", "steps_sha256"]
 
@@ -176,7 +189,10 @@ class Hub:
         home: Path | None = None,
     ) -> None:
         self.config = config if config is not None else HubConfig.load()
+        self._owns_registry = registry is None
         self.registry = registry if registry is not None else Registry.load(self.config)
+        self._registry_loaded = time.monotonic()
+        self._refresh_lock = threading.Lock()
         self.runner = runner if runner is not None else Runner(self.config.runner)
         self.guard = guard
         self.reviewer = reviewer
@@ -274,6 +290,107 @@ class Hub:
             except Exception:  # one provider failing to stop must not leave the others running
                 log.exception("provider %s did not close cleanly", provider.name)
 
+    # -- listings --
+
+    def refresh(self, *, force: bool = False) -> bool:
+        """Reloads the registry if this hub loaded it and `REFRESH_MIN_INTERVAL` has passed (or
+        `force`); True if it did. Raises `RegistryError` when the new scan cannot be built."""
+        if not self._owns_registry:
+            return False
+        with self._refresh_lock:
+            if not force and time.monotonic() - self._registry_loaded < REFRESH_MIN_INTERVAL:
+                return False
+            self.registry = Registry.load(self.config)
+            self._registry_loaded = time.monotonic()
+        log.info("reloaded the registry after a miss")
+        return True
+
+    def _meta(self, tool: ToolSpec) -> policy.ToolMeta:
+        if tool.name in self._provider_tools:
+            return provider_meta(tool)
+        return tool.meta(self.registry.module_of(tool))
+
+    def listed(self, tool: ToolSpec, session: HubSession) -> policy.ToolPolicy | None:
+        """The tool's listing policy for `session`, or None when the session may not see it."""
+        resolved = session.policy.tool(self._meta(tool))
+        if resolved.verdict is policy.Verdict.DENY or not resolved.enabled:
+            return None
+        return resolved
+
+    def tools(self, session: HubSession) -> list[ToolSpec]:
+        """Every tool of an `ok` module or a provider that `session` may use, sorted by name."""
+        every = self.registry.tools() + self.provider_tools()
+        return sorted((t for t in every if self.listed(t, session) is not None), key=lambda t: t.name)
+
+    def get(self, name: str, session: HubSession) -> ToolSpec | None:
+        """The tool called `name` if `session` may use it; a miss may reload the registry once."""
+        found = self._usable(name, session)
+        if found is None and self.refresh():
+            found = self._usable(name, session)
+        return found
+
+    def _usable(self, name: str, session: HubSession) -> ToolSpec | None:
+        tool = self.registry.tool(name)
+        if tool is None and name in self._provider_tools:
+            tool = self._provider_tools[name][0]
+        return tool if tool is not None and self.listed(tool, session) is not None else None
+
+    def find(self, query: str, limit: int = 8, *, session: HubSession) -> list[ToolSpec]:
+        """Up to `limit` tools that `session` may use, best match for `query` first (04-hub "Search")."""
+        keywords = {name: state.spec.keywords for name, state in self.registry.modules.items()}
+        return search.rank(query, self.tools(session), limit, module_keywords=keywords)
+
+    def function_specs(self, query: str, limit: int = 8, *, session: HubSession) -> list[dict[str, object]]:
+        """OpenAI-style function definitions: `always_offer` tools, `[hub].pinned`, then search hits.
+
+        At most `MAX_ALWAYS_OFFER` `always_offer` tools are offered, sorted by name; more are
+        left out with a warning. No tool appears twice (REQ-HUB-35).
+        """
+        usable = {t.name: t for t in self.tools(session)}
+        always = [t for t in usable.values() if t.always_offer]
+        if len(always) > MAX_ALWAYS_OFFER:
+            dropped = ", ".join(t.name for t in always[MAX_ALWAYS_OFFER:])
+            log.warning("more than %d always_offer tools; left out: %s", MAX_ALWAYS_OFFER, dropped)
+            always = always[:MAX_ALWAYS_OFFER]
+        pinned = [usable[name] for name in self.config.pinned if name in usable]
+        picked: dict[str, ToolSpec] = {}
+        for tool in always + pinned + self.find(query, limit, session=session):
+            picked.setdefault(tool.name, tool)
+        return [
+            {
+                "type": "function",
+                "function": {"name": t.name, "description": t.description, "parameters": t.input_schema()},
+            }
+            for t in picked.values()
+        ]
+
+    def describe(self, tool: ToolSpec, session: HubSession) -> dict[str, object]:
+        """What `hal_find_tools` returns for one tool (04-hub "MCP server"); `approval` is `ask` or `none`."""
+        resolved = self.listed(tool, session)
+        return {
+            "name": tool.name,
+            "module": tool.module,
+            "pack": tool.pack,
+            "description": tool.description[:FIND_DESCRIPTION_CHARS],
+            "tier": tool.tier,
+            "approval": "ask" if resolved is not None and resolved.verdict is policy.Verdict.ASK else "none",
+            "parameters": tool.input_schema(),
+        }
+
+    def modules(self, session: HubSession) -> list[dict[str, object]]:
+        """Each registry module with its pack, summary, status and the tools `session` may use."""
+        usable = {t.name for t in self.tools(session)}
+        return [
+            {
+                "module": name,
+                "pack": state.spec.pack,
+                "summary": state.spec.summary,
+                "status": state.status,
+                "tools": [t.name for t in state.spec.tools if t.name in usable],
+            }
+            for name, state in self.registry.modules.items()
+        ]
+
     # -- the pipeline --
 
     def call(
@@ -306,6 +423,8 @@ class Hub:
             return CallResult(status, call_id, name, seconds=time.monotonic() - started, **fields)
 
         found = self.registry.lookup(name)
+        if found is None and name not in self._provider_tools and self.refresh():
+            found = self.registry.lookup(name)
         target = None
         if found is not None:
             tool, state = found
@@ -866,15 +985,16 @@ class Hub:
             outcome = RunOutcome(False, error_type="tool_error", message=target.secret_error)
         else:
             assert module is not None  # only provider tools have no module
-            outcome = self.runner.run(
-                module,
-                tool,
-                call_arguments(tool, d.args),
-                timeout=timeout,
-                secrets=secret_values,
-                cancel=cancel,
-                on_tool_call=handler,
-            )
+            with builtin.bound(self, session):
+                outcome = self.runner.run(
+                    module,
+                    tool,
+                    call_arguments(tool, d.args),
+                    timeout=timeout,
+                    secrets=secret_values,
+                    cancel=cancel,
+                    on_tool_call=handler,
+                )
         ms = int((time.monotonic() - started) * 1000)
         guard: GuardLabel = "off"
         if outcome.ok:

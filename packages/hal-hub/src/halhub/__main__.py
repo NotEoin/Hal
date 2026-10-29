@@ -3,7 +3,6 @@
     hal-hub tools [QUERY]             list tools, or the best matches for a request
     hal-hub modules                   installed modules
     hal-hub TOOL [key=value ...]      run a tool (or: hal-hub call TOOL --json '{...}')
-    hal-hub TOOL --yes ...            run a tool that asks for confirmation
     hal-hub mcp                       serve the tools over MCP on stdio
     hal-hub doctor                    check every module's manifest and entry point
 """
@@ -13,6 +12,7 @@ import json
 import sys
 
 import halhub
+from . import api
 from . import v1_registry as registry
 
 
@@ -29,8 +29,8 @@ def _args(argv: list[str]) -> dict:
     out = {}
     for a in argv:
         if a == "--yes":
-            out["_confirmed"] = True
-        elif "=" in a:
+            raise SystemExit("--yes no longer approves a call; Hal asks for approval itself")
+        if "=" in a:
             k, v = a.split("=", 1)
             out[k] = v
         else:
@@ -67,8 +67,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {t.name:28} {t.description.splitlines()[0][:90]}")
         return 0
     if cmd == "modules":
-        from .tools import modules
-        for m in modules():
+        for m in api.run("hal_modules", {}, front_end="cli").get("result", []):
             print(f"  {m['module']:14} {len(m['tools']):3} tools  {m['summary']}")
         return 0
     if cmd == "mcp":
@@ -79,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
         return doctor()
     if cmd == "call":
         cmd, rest = rest[0], rest[1:]
-    out = halhub.call(cmd, _args(rest))
+    out = api.run(cmd, _args(rest), front_end="cli")
     _print(out.get("result", out) if "result" in out else out)
     return 1 if "error" in out else 0
 

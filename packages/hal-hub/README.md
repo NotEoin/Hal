@@ -10,8 +10,10 @@ Claude Code over MCP, so Hal's voice, chat and terminal clients share one set of
 - Tool search ranks tools against a request, so a chat model sees eight tools, not two hundred.
 - One MCP server with three meta-tools (`hal_find_tools`, `hal_call`, `hal_modules`), plus any tools you pin.
 - Stdlib-only Python modules run in-process; modules with their own dependencies run as a subprocess.
-- Tools marked `confirm` return a confirmation request until called again with `_confirmed: true`.
-- Every call is logged to `~/.local/state/hal/hub-calls.jsonl`.
+- Every call goes through one policy pipeline. Tools that act on the desktop, send data or
+  change the system ask a host surface for approval; a model can never approve its own call,
+  and a call nobody can approve is denied.
+- Every decision is appended to the audit log in `~/.local/state/hal/audit/`.
 
 ## Install
 
@@ -37,17 +39,26 @@ The command line covers every module:
 hal-hub modules                                  # what is installed
 hal-hub tools "remind me about the dentist"      # the best tools for a request
 hal-hub calendar_add title=Dentist when="thursday 10am"
-hal-hub power_shutdown --yes                     # a tool that asks for confirmation
 hal-hub doctor                                   # check every manifest and entry point
 ```
 
-From Python, the same calls are available to any client, such as hal-voice:
+From Python, `import halhub` is cheap: the API loads on first use and runs every call through
+one process-wide hub. A pack calls another pack's tool with `halhub.client.call`, which returns
+the result or raises `ToolDenied` or `ToolFailed`:
 
 ```python
 import halhub
-specs = halhub.ollama_tools("turn the lights red")   # function specs for a chat model
-halhub.call("rgb_colour", {"colour": "red"})
+from halhub import client
+
+specs = halhub.function_specs("turn the lights red")    # function specs for a chat model
+tools = halhub.find("add a dentist appointment")        # ToolSpec objects, best match first
+client.call("rgb_colour", {"colour": "red"}, caller="mypack")
 ```
+
+Listings leave out tools that policy denies. A tool sets `always_offer = true` in its manifest
+to be offered on every turn (at most eight are). `halhub.call` and `halhub.ollama_tools` still
+work but are deprecated and warn once: `halhub.call` returns the v1 dict (`status`, then
+`result` or `error`) and never returns `needs_confirmation`.
 
 ## Write a module
 

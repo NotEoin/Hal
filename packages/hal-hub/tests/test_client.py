@@ -7,23 +7,10 @@ import json
 import pytest
 from hubkit import SpyRunner, add_probe_key
 
-from halhub import client
+from halhub import api, client
 from halhub._audit_standin import tail
 from halhub.hub import RoutineRun
 from halhub.runner import Runner, RunnerConfig, RunOutcome
-
-
-@pytest.fixture
-def process_hub(make_hub, monkeypatch):
-    """Points the client's process hub at a test hub; the client forgets it afterwards."""
-
-    def use(**kwargs):
-        hub = make_hub("demo", "routines", **kwargs)
-        monkeypatch.setattr(client, "_process_hub", lambda: hub)
-        return hub
-
-    yield use
-    client._sessions.clear()
 
 
 def test_allowed_call_returns_the_result(process_hub):
@@ -92,6 +79,6 @@ def test_reset_closes_the_process_hub(monkeypatch):
         def close(self):
             closed.append(True)
 
-    monkeypatch.setattr(client, "_hub", FakeHub())
+    monkeypatch.setattr(api, "_hub", FakeHub())
     client.reset()
-    assert closed == [True] and client._hub is None
+    assert closed == [True] and api._hub is None

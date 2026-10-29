@@ -144,7 +144,7 @@ def info() -> dict:
     hub = config.hub()
     b = brain()
     return {"model": b.model, "tools": len(hub.all_tools()) if hub else 0,
-            "modules": sorted({t.module.name for t in hub.all_tools().values()}) if hub else [],
+            "modules": sorted({t.module for t in hub.all_tools().values()}) if hub else [],
             "caldav": bool(config.load().get("calendar", {}).get("caldav", {}).get("url")),
             "voice": bool(config.hub().get("voice_say"))}
 

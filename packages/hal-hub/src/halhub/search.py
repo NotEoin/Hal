@@ -1,15 +1,17 @@
 """Ranks tools against a request so an assistant sees only the few it needs.
 
-Plain keyword scoring (BM25) over each tool's name, description and keywords,
-with a small synonym table for everyday phrasing. Stdlib only.
+Plain keyword scoring (BM25) over each tool's name, module, description and keywords
+(the tool's and its module's), with a small synonym table for everyday phrasing. The
+caller passes only the tools its session may use. Stdlib only.
 """
 from __future__ import annotations
 
 import math
 import re
 from collections import Counter
+from collections.abc import Mapping, Sequence
 
-from .v1_registry import Tool
+from .manifest import ToolSpec
 
 SYNONYMS = {
     "remind": "reminder calendar task", "appointment": "event calendar", "meeting": "event calendar",
@@ -51,16 +53,19 @@ def _expand(query: str) -> list[str]:
     return out
 
 
-def rank(query: str, tools: list[Tool], limit: int = 8) -> list[Tool]:
-    """Returns up to `limit` tools most relevant to `query`, best first."""
-    docs = [_tokens(f"{t.name} {t.name} {t.module.name} {t.description} {t.keywords}") for t in tools]
+def rank(query: str, tools: Sequence[ToolSpec], limit: int = 8, *,
+         module_keywords: Mapping[str, Sequence[str]] | None = None) -> list[ToolSpec]:
+    """Returns up to `limit` tools most relevant to `query`, best first; ties sort by name."""
+    extra = module_keywords or {}
+    docs = [_tokens(f"{t.name} {t.name} {t.module} {t.description} {' '.join(t.keywords)} "
+                    f"{' '.join(extra.get(t.module, ()))}") for t in tools]
     if not docs:
         return []
     avg = sum(len(d) for d in docs) / len(docs)
     df = Counter(w for d in docs for w in set(d))
     q = _expand(query)
     scored = []
-    for tool, doc in zip(tools, docs):
+    for tool, doc in zip(tools, docs, strict=True):
         tf = Counter(doc)
         score = 0.0
         for w in q:

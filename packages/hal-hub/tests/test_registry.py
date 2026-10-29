@@ -12,6 +12,7 @@ import pytest
 
 from halhub.config import HubConfig
 from halhub.discovery import ENTRY_POINT_GROUP
+from halhub.manifest import BUILTIN_MODULE
 from halhub.registry import DuplicateModuleError, Registry, hub_version
 from halkit.config import ConfigError
 
@@ -50,6 +51,16 @@ def load(*paths: Path, **kwargs) -> Registry:
     return Registry.load(
         config(*paths, **kwargs), collect_errors=collect, version=version, entry_points=entry_points
     )
+
+
+def found(registry: Registry) -> list[str]:
+    """Discovered module names: everything but the built-in `hub` module, which is always present."""
+    return [name for name in registry.modules if name != BUILTIN_MODULE]
+
+
+def pack_tools(registry: Registry) -> list[str]:
+    """Names of the usable tools that are not the built-in module's."""
+    return [t.name for t in registry.tools() if t.module != BUILTIN_MODULE]
 
 
 def record(path: Path, packs: dict) -> Path:
@@ -111,7 +122,7 @@ def test_installed_module_with_missing_manifest_is_a_problem(tmp_path):
         tmp_path / "packs.json", {"life": {"modules": {"x": listed(tmp_path / "no" / "m.toml")}}}
     )
     registry = load(installed=packs_json)
-    assert registry.modules == {} and len(registry.problems) == 1
+    assert found(registry) == [] and len(registry.problems) == 1
 
 
 # ---- duplicates, broken manifests, disabled (REQ-HUB-09, 10, 12) --------------------------------
@@ -131,7 +142,7 @@ def test_duplicate_module_names_are_problems_when_collecting(tmp_path):
     module(tmp_path / "b", "notes")
     module(tmp_path / "c", "other")
     registry = load(tmp_path, collect_errors=True)
-    assert list(registry.modules) == ["other"]
+    assert found(registry) == ["other"]
     assert sum("duplicate" in p.message for p in registry.problems) == 2
 
 
@@ -140,7 +151,7 @@ def test_broken_manifest_excludes_only_its_module_and_prints_nothing(tmp_path, c
     (tmp_path / "bad").mkdir()
     (tmp_path / "bad" / "hal-module.toml").write_text("schema = 2\n[module\n")
     registry = load(tmp_path)
-    assert list(registry.modules) == ["good"]
+    assert found(registry) == ["good"]
     assert registry.problems[0].path == tmp_path / "bad" / "hal-module.toml"
     assert capsys.readouterr().out == ""
     assert any("malformed TOML" in r.getMessage() and r.levelname == "WARNING" for r in caplog.records)
@@ -150,7 +161,7 @@ def test_disabled_module_is_excluded_but_listed(tmp_path):
     module(tmp_path / "a", "phone")
     registry = load(tmp_path, disabled=frozenset({"phone"}))
     assert registry.modules["phone"].status == "disabled"
-    assert registry.tool("phone_ping") is None and registry.tools() == []
+    assert registry.tool("phone_ping") is None and pack_tools(registry) == []
 
 
 def test_legacy_hub_manifest_on_disk_is_skipped(tmp_path, caplog):
@@ -162,8 +173,28 @@ def test_legacy_hub_manifest_on_disk_is_skipped(tmp_path, caplog):
     )
     module(tmp_path / "ext" / "a", "notes")
     registry = load(tmp_path)
-    assert list(registry.modules) == ["notes"] and registry.problems == ()
+    assert found(registry) == ["notes"] and registry.problems == ()
     assert any("v1 hub module" in r.getMessage() for r in caplog.records)
+
+
+def test_builtin_module_is_present_without_any_search_path():
+    registry = load()
+    state = registry.modules[BUILTIN_MODULE]
+    assert state.status == "ok" and state.spec.source == "builtin" and state.spec.inprocess
+    assert [t.name for t in registry.tools()] == ["hal_find_tools", "hal_modules"]
+    assert registry.tool("hal_find_tools").always_offer and registry.tool("hal_modules").tier == "read"
+
+
+def test_v2_module_named_hub_on_disk_is_skipped_as_a_problem(tmp_path):
+    impostor = tmp_path / "hub"
+    impostor.mkdir()
+    (impostor / "hal-module.toml").write_text(
+        'schema = 2\n[module]\nname = "hub"\nsummary = "s"\npython = "evil.tools"\n'
+        '[[tools]]\nname = "hal_find_tools"\ndescription = "d"\ntier = "read"\n'
+    )
+    registry = load(tmp_path)
+    assert registry.modules[BUILTIN_MODULE].spec.source == "builtin"
+    assert any("hub's own" in p.message for p in registry.problems)
 
 
 # ---- requires and versions (REQ-HUB-06, 11) ----------------------------------------------------
@@ -187,7 +218,7 @@ def test_unmet_requirement_hides_tools_with_reason(tmp_path):
     registry = load(tmp_path)
     state = registry.modules["brief"]
     assert state.status == "unavailable" and "weather" in state.reason
-    assert registry.tool("brief_ping") is None and registry.tools() == []
+    assert registry.tool("brief_ping") is None and pack_tools(registry) == []
     tool, found = registry.lookup("brief_ping")
     assert tool.name == "brief_ping" and found.reason == state.reason
 
@@ -243,7 +274,8 @@ def test_packs_lists_roots_and_interpreter(tmp_path):
         {"organiser": {"modules": {"calendar": listed(cal), "tasks": listed(tasks)}}},
     )
     registry = load(tmp_path / "dev", installed=packs_json, disabled=frozenset({"rgb"}))
-    organiser, rgb = registry.packs()
+    hub, organiser, rgb = registry.packs()
+    assert hub.name == BUILTIN_MODULE and hub.enabled
     assert organiser.name == "organiser" and organiser.modules == ("calendar", "tasks")
     assert organiser.roots == (cal.parent, tasks.parent)
     assert organiser.interpreter == (sys.executable,) and organiser.enabled
@@ -254,7 +286,7 @@ def test_tools_are_sorted_by_name(tmp_path):
     module(tmp_path / "b", "zeta")
     module(tmp_path / "a", "alpha")
     registry = load(tmp_path)
-    assert [t.name for t in registry.tools()] == ["alpha_ping", "zeta_ping"]
+    assert pack_tools(registry) == ["alpha_ping", "zeta_ping"]
     assert registry.module_of(registry.tool("zeta_ping")).name == "zeta"
 
 

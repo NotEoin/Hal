@@ -131,7 +131,7 @@ def list_all() -> None:
     have, known, off = installed(), catalog(), set(disabled())
     counts = {}
     for t in config.hub().all_tools().values():
-        counts[t.module.name] = counts.get(t.module.name, 0) + 1
+        counts[t.module] = counts.get(t.module, 0) + 1
     print("Installed:")
     for name, root in have.items():
         state = "disabled" if name in off else f"{counts.get(name, 0)} tools"

@@ -1,0 +1,32 @@
+# The hub's own module (04-hub.md, "Discovery and registry"): always present, never discovered.
+# Its tools are hub code, so it is the one module that runs in the hub process by default.
+schema = 2
+
+[module]
+name = "hub"
+summary = "Find and list the tools of every installed Hal pack"
+python = "halhub.builtin.tools"
+inprocess = true
+
+[[tools]]
+name = "hal_find_tools"
+function = "find_tools"
+description = "Search all of Hal's tools for ones that can do what the user asked. Use this whenever no listed tool fits. Returns names, tiers, whether approval is needed, and parameters."
+tier = "read"
+always_offer = true
+[tools.params.query]
+description = "what you want to do, in plain words"
+required = true
+max_length = 500
+[tools.params.limit]
+type = "integer"
+description = "most tools to return"
+minimum = 1
+maximum = 20
+default = 8
+
+[[tools]]
+name = "hal_modules"
+function = "modules"
+description = "List the installed Hal packs and their tool names."
+tier = "read"

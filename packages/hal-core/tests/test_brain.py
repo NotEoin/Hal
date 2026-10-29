@@ -23,7 +23,7 @@ class FakeHub:
     def get(self, name):
         return FakeTool(name, name in self.confirm)
 
-    def ollama_tools(self, text, limit):
+    def function_specs(self, text, limit):
         return [{"type": "function", "function": {"name": n, "description": "", "parameters":
                  {"type": "object", "properties": {}}}} for n in ("calendar_add", "calendar_delete")]
 

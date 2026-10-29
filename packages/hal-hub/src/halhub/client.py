@@ -3,7 +3,8 @@
 Inside a worker (`HAL_HUB_WORKER=1`) the call goes over the worker's nested-call channel, so
 the hub that runs the parent call decides it with the parent's session: only tools in the
 module's `calls`, only on a plain `allow`, one level deep. Anywhere else (a pack daemon such
-as the routines scheduler or a reminders unit) it goes through one process-local `Hub`.
+as the routines scheduler or a reminders unit) it goes through the process-wide `Hub` of
+`halhub.api`, which the module-level `halhub` API shares.
 
 Design decisions:
 
@@ -22,23 +23,17 @@ Design decisions:
 
 from __future__ import annotations
 
-import atexit
 import importlib
 import os
-import threading
 from collections.abc import Mapping
 
-from .hub import CallResult, Hub, RoutineRun
-from .session import HubSession
+from . import api
+from .hub import CallResult, RoutineRun
 
 __all__ = ["RoutineRun", "ToolDenied", "ToolFailed", "call"]
 
 WORKER_ENV = "HAL_HUB_WORKER"  # set by the runner in every worker's environment
 MODULE_ENV = "HAL_MODULE"
-
-_lock = threading.Lock()
-_hub: Hub | None = None
-_sessions: dict[str, HubSession] = {}
 
 
 class ToolDenied(Exception):
@@ -75,8 +70,8 @@ def call(
     """
     if os.environ.get(WORKER_ENV) == "1":
         return _call_nested(tool, args, caller)
-    session = _session(routine is not None, unattended)
-    result = _process_hub().call(tool, args, session, front_end="python", routine=routine, timeout=timeout)
+    session = api.session(routine=routine is not None, unattended=unattended)
+    result = api.default_hub().call(tool, args, session, front_end="python", routine=routine, timeout=timeout)
     return _unwrap(result)
 
 
@@ -101,35 +96,6 @@ def _unwrap(result: CallResult) -> object:
     raise ToolFailed(result.error_type or "tool_error", result.message or "")
 
 
-def _process_hub() -> Hub:
-    """The process-wide hub, created on first use and closed at exit."""
-    global _hub
-    with _lock:
-        if _hub is None:
-            _hub = Hub()
-            atexit.register(_hub.close)
-        return _hub
-
-
-def _session(routine: bool, unattended: bool) -> HubSession:
-    """One session per kind of caller in this process."""
-    key = f"{'routine' if routine else 'hub'}:{'unattended' if unattended else 'attended'}"
-    hub = _process_hub()
-    with _lock:
-        if key not in _sessions:
-            kind, origin = ("routine", "routine") if routine else ("hub", "cli")
-            _sessions[key] = hub.open_session(kind=kind, origin=origin, approver=None)
-        return _sessions[key]
-
-
 def reset() -> None:
     """Closes the process hub and forgets its sessions (for tests and for a pack reloading config)."""
-    global _hub
-    with _lock:
-        hub, _hub = _hub, None
-        sessions = list(_sessions.values())
-        _sessions.clear()
-    for session in sessions:
-        session.close()
-    if hub is not None:
-        hub.close()
+    api.reset()

@@ -157,13 +157,8 @@ class Brain:
         deep = [DEEP_WORK] if self.deep_mode != "off" else []
         if not self.hub:
             return deep
-        specs = self.hub.ollama_tools(text, self.tool_limit)
-        for spec in specs:
-            tool = self.hub.get(spec["function"]["name"])
-            if tool is not None and tool.confirm:
-                spec["function"]["parameters"]["properties"]["_confirmed"] = {
-                    "type": "boolean", "description": "true only after the user has agreed"}
-        return specs + deep
+        # no `_confirmed` parameter: approvals come from Hal, never from the model (RESOLUTIONS B5)
+        return self.hub.function_specs(text, self.tool_limit) + deep
 
     def reset(self) -> None:
         self.history = []

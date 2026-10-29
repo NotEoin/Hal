@@ -12,7 +12,9 @@ each module's pack, refuse duplicate names, apply `[hub].disabled`, then check
   and the `[packs.<p>]` policy rules, so a third-party pack must not claim another's.
 - One broken manifest drops only its own module (REQ-HUB-10). Problems are logged, never
   printed: stdout belongs to the CLI and the MCP stdio stream.
-- The built-in `hub` module joins the registry with the hub facade (plan step 14).
+- The built-in `hub` module (`halhub/builtin/hal-module.toml`) is always present and never
+  discovered. Any other manifest named `hub` is skipped: the name and its `hal_` tool prefix
+  belong to hub code. A built-in manifest that does not parse is a hub bug and raises.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from .builtin import MANIFEST as BUILTIN_MANIFEST
 from .config import HubConfig
 from .discovery import Candidate, Problem, discover
 from .manifest import (
@@ -38,6 +41,8 @@ from .manifest import (
 )
 
 log = logging.getLogger(__name__)
+
+HUB_DISTRIBUTION = "hal-hub"  # the built-in module's version is the installed hub's
 
 Status = Literal["ok", "disabled", "unavailable"]
 
@@ -129,7 +134,13 @@ class Registry:
             entry_points=entry_points,
             problems=problems,
         )
-        specs = [spec for c in candidates if (spec := _parse(c, config, problems)) is not None]
+        builtin = load_manifest(
+            BUILTIN_MANIFEST,
+            source="builtin",
+            distribution=HUB_DISTRIBUTION,
+            defaults=config.manifest_defaults,
+        )
+        specs = [builtin] + [spec for c in candidates if (spec := _parse(c, config, problems)) is not None]
         specs = _without_duplicates(specs, problems, collect_errors)
         states = _check(specs, config.disabled, version or hub_version(), problems)
         return cls(states, problems)
@@ -195,6 +206,9 @@ def _parse(candidate: Candidate, config: HubConfig, problems: list[Problem]) -> 
         return None
     if spec.name == BUILTIN_MODULE and spec.schema == 1 and candidate.source == "path":
         log.warning("%s: skipped the v1 hub module (the old core/hal-hub checkout)", spec.manifest)
+        return None
+    if spec.name == BUILTIN_MODULE:
+        _problem(problems, spec.manifest, f"skipped: the module name {BUILTIN_MODULE!r} is the hub's own")
         return None
     return _settle_pack(spec, candidate, problems)
 

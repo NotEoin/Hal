@@ -424,3 +424,103 @@ def test_nested_call_cannot_nest_again(nested_hub):
 def test_nested_caller_must_be_the_workers_module(nested_hub):
     r = nested(nested_hub, "demo_echo", {"text": "hi"}, caller="demo")
     assert r.result.startswith("refused caller 'demo'")
+
+
+# ---- listings and search (REQ-HUB-23, REQ-HUB-35) ----------------------------------------------
+
+
+def spec_names(specs: list[dict]) -> list[str]:
+    return [s["function"]["name"] for s in specs]
+
+
+def test_function_specs_offer_always_offer_then_pinned_then_hits_without_duplicates(
+    demo_token, fixtures, tmp_path
+):
+    from halhub.config import HubConfig
+    from halhub.hub import Hub
+    from halhub.registry import Registry
+
+    config = HubConfig(
+        module_paths=(fixtures / "demo",), use_entry_points=False, pinned=("demo_lights", "demo_echo")
+    )
+    hub = Hub(Registry.load(config, version="0.1.0"), runner=SpyRunner(), config=config, home=tmp_path)
+    try:
+        names = spec_names(hub.function_specs("pretend to delete a file", session=session(hub)))
+    finally:
+        hub.close()
+    assert names[:3] == ["demo_echo", "hal_find_tools", "demo_lights"]
+    assert "demo_wipe" in names[3:] and len(names) == len(set(names))
+
+
+def test_more_than_eight_always_offer_tools_are_cut_with_a_warning(make_hub, tmp_path, caplog):
+    many = tmp_path / "many"
+    many.mkdir()
+    tools = "".join(
+        f'[[tools]]\nname = "many_t{i}"\ndescription = "d"\ntier = "read"\nalways_offer = true\n'
+        for i in range(9)
+    )
+    (many / "hal-module.toml").write_text(
+        f'schema = 2\n[module]\nname = "many"\nsummary = "s"\npython = "m.tools"\n{tools}'
+    )
+    hub = make_hub(paths=(many,))
+    names = spec_names(hub.function_specs("", session=session(hub)))
+    always = sorted(["demo_echo", "hal_find_tools"] + [f"many_t{i}" for i in range(9)])
+    assert names == always[:8]
+    assert any("always_offer" in r.getMessage() for r in caplog.records)
+
+
+def test_denied_tool_is_left_out_of_every_listing(make_hub, hal_home):
+    hal_home.policy.write_text('schema_version = 1\n[tools.demo_echo]\nverdict = "deny"\n')
+    hub = make_hub()
+    s = session(hub)
+    assert "demo_echo" not in [t.name for t in hub.tools(s)]
+    assert hub.get("demo_echo", s) is None
+    assert "demo_echo" not in [t.name for t in hub.find("echo text", session=s)]
+    assert "demo_echo" not in spec_names(hub.function_specs("echo text", session=s))
+    demo = next(m for m in hub.modules(s) if m["module"] == "demo")
+    assert "demo_echo" not in demo["tools"] and "demo_wipe" in demo["tools"]
+
+
+def test_find_ranks_the_matching_tool_first(make_hub):
+    hub = make_hub()
+    assert hub.find("pretend to delete a file", session=session(hub))[0].name == "demo_wipe"
+
+
+def test_describe_reports_tier_and_approval_need(make_hub):
+    hub = make_hub()
+    s = session(hub)
+    wipe = hub.describe(hub.get("demo_wipe", s), s)
+    echo = hub.describe(hub.get("demo_echo", s), s)
+    assert (wipe["tier"], wipe["approval"], wipe["pack"]) == ("act", "ask", "demo")
+    assert (echo["tier"], echo["approval"]) == ("read", "none")
+    assert wipe["parameters"]["required"] == ["path"]
+
+
+def test_unknown_tool_reloads_own_registry_at_most_once_per_interval(demo_token, fixtures, tmp_path):
+    from halhub import hub as hubmod
+    from halhub.config import HubConfig
+
+    late = tmp_path / "late"
+    config = HubConfig(module_paths=(fixtures / "demo", late), use_entry_points=False)
+    hub = hubmod.Hub(runner=SpyRunner(), config=config, home=tmp_path)
+    try:
+        s = session(hub)
+        late.mkdir()
+        (late / "hal-module.toml").write_text(
+            'schema = 2\n[module]\nname = "late"\nsummary = "s"\npython = "m.tools"\n'
+            '[[tools]]\nname = "late_ping"\ndescription = "d"\ntier = "read"\n'
+        )
+        assert hub.call("late_ping", {}, s, front_end="python").error_type == "unknown_tool"
+        hub._registry_loaded -= hubmod.REFRESH_MIN_INTERVAL
+        assert hub.call("late_ping", {}, s, front_end="python").status == "ok"
+    finally:
+        hub.close()
+
+
+def test_registry_passed_in_is_never_reloaded(make_hub):
+    from halhub.hub import REFRESH_MIN_INTERVAL
+
+    hub = make_hub()
+    before = hub.registry
+    hub._registry_loaded -= REFRESH_MIN_INTERVAL
+    assert hub.refresh(force=True) is False and hub.registry is before

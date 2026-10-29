@@ -39,6 +39,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import contextlib
+import contextvars
 import dataclasses
 import importlib
 import inspect
@@ -843,8 +844,10 @@ class Runner:
             message = f"{module.name} overran a timeout in-process and is refused until the hub restarts"
             return RunOutcome(False, error_type="worker_failed", message=message)
         box: dict[str, RunOutcome] = {}
+        # the built-in tools read the hub and session of the call from a context variable
+        context = contextvars.copy_context()
         thread = threading.Thread(
-            target=lambda: box.setdefault("outcome", _call_inprocess(module, tool, args)),
+            target=lambda: box.setdefault("outcome", context.run(_call_inprocess, module, tool, args)),
             name=f"hal-inprocess-{module.name}",
             daemon=True,
         )

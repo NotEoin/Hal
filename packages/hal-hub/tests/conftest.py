@@ -72,3 +72,18 @@ def make_hub(demo_token, tmp_path):
     yield make
     for hub in hubs:
         hub.close()
+
+
+@pytest.fixture
+def process_hub(make_hub, monkeypatch):
+    """Makes a test hub over the given packs (default `demo` and `routines`) the process hub of
+    `halhub.api`, which `halhub.client` and the module-level API share; forgets it afterwards."""
+    from halhub import api
+
+    def use(*packs: str, **kwargs):
+        hub = make_hub(*(packs or ("demo", "routines")), **kwargs)
+        monkeypatch.setattr(api, "_hub", hub)
+        return hub
+
+    yield use
+    api._sessions.clear()
