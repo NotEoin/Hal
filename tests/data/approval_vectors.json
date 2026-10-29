@@ -1,0 +1,30 @@
+[
+  {
+    "pack": "organiser",
+    "tool": "calendar_delete",
+    "args": {"id": 42},
+    "canonical": "{\"id\":42}",
+    "key": "sha256:3131b12eb47b092f9ad8557b8c632cc18a7b24f2698f137aa6fcc79e639fb02e"
+  },
+  {
+    "pack": "comms",
+    "tool": "mail_send",
+    "args": {"to": "ann@example.org", "subject": "Notes", "body": "See you at 10."},
+    "canonical": "{\"body\":\"See you at 10.\",\"subject\":\"Notes\",\"to\":\"ann@example.org\"}",
+    "key": "sha256:d3a842d997b0c31e00f281e5487cf85c647f61156a8b6784de0abefc556ca734"
+  },
+  {
+    "pack": "comms",
+    "tool": "mail_send",
+    "args": {"body": "See you at 10.", "to": "ann@example.org", "subject": "Notes"},
+    "canonical": "{\"body\":\"See you at 10.\",\"subject\":\"Notes\",\"to\":\"ann@example.org\"}",
+    "key": "sha256:d3a842d997b0c31e00f281e5487cf85c647f61156a8b6784de0abefc556ca734"
+  },
+  {
+    "pack": "comms",
+    "tool": "mail_send",
+    "args": {"to": "ann@example.org ", "subject": "Notes", "body": "See you at 10."},
+    "canonical": "{\"body\":\"See you at 10.\",\"subject\":\"Notes\",\"to\":\"ann@example.org \"}",
+    "key": "sha256:831735ef4fdb28d5335ec0cedee10df75250cd7a05aca4240b011cf45c3bb7cf"
+  }
+]
