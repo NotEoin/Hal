@@ -31,8 +31,9 @@ Design decisions:
   (01 REQ-SEC-34, REQ-SEC-96).
 - 01's modules are phase 2: until then the pipeline uses `_policy_standin`,
   `_approvals_standin`, `_audit_standin` and `_guard_standin`, whose headers list what each
-  one leaves out. Providers (plan step 13), search and listings (steps 14 and 15) join this
-  facade in later steps.
+  one leaves out. Search and listings (plan steps 14 and 15) join this facade later.
+- Provider tools (host MCP servers, `providers.py`) are looked up after the registry and run
+  through the same steps; only the run itself goes to the provider.
 - A worker's nested `tool_call` runs through this same pipeline with the parent's session and
   no approver: it must be in the calling module's `calls`, get a plain `allow` (no grant), stay
   one level deep, and finish within the parent's remaining time (REQ-HUB-31, D15). The calling
@@ -41,6 +42,7 @@ Design decisions:
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import logging
@@ -63,6 +65,14 @@ from ._guard_standin import GuardClient, GuardLabel, GuardResult, Reviewer, Revi
 from .args import ArgumentError, call_arguments, normalise
 from .config import HubConfig
 from .manifest import ModuleSpec, ToolSpec
+from .providers import (
+    PROVIDER_NAME_RE,
+    PROVIDER_PACK_PREFIX,
+    PROVIDER_TOOL_RE,
+    TOOL_SEPARATOR,
+    ToolProvider,
+    provider_meta,
+)
 from .registry import Registry
 from .runner import NestedCall, Runner, RunOutcome, SecretError, cut_output, resolve_secrets, scrub
 from .session import EventSink, HubSession, SessionKind, default_workspaces, new_session_id, parse_origin
@@ -140,13 +150,14 @@ def steps_sha256(steps: Sequence[RoutineStep]) -> str:
 
 @dataclass(frozen=True)
 class _Target:
-    """A resolved tool with its module, policy metadata and the module's secrets."""
+    """A resolved tool with its module (or provider), policy metadata and the module's secrets."""
 
     tool: ToolSpec
-    module: ModuleSpec
+    module: ModuleSpec | None  # None for a provider tool
     meta: policy.ToolMeta
     secrets: Mapping[str, str]
     secret_error: str | None  # why the secrets could not be read; the run step reports it
+    provider: ToolProvider | None = None
 
 
 class Hub:
@@ -174,6 +185,8 @@ class Hub:
         self._clock = clock
         self._home = home if home is not None else Path.home()
         self._secret_values: set[str] = set()
+        self._providers: dict[str, ToolProvider] = {}
+        self._provider_tools: dict[str, tuple[ToolSpec, ToolProvider]] = {}
         self._secret_lock = threading.Lock()
 
     # -- sessions --
@@ -214,9 +227,52 @@ class Hub:
         with self._secret_lock:
             return tuple(self._secret_values)
 
+    def add_provider(self, provider: ToolProvider) -> None:
+        """Adds a provider's tools under pack `mcp-<name>`; raises `ValueError` on any name clash.
+
+        The hub sets each tool's tier from `provider.default_tier`, `untrusted_output` true and
+        `reviewable` false, whatever the provider returned.
+        """
+        name = provider.name
+        if not PROVIDER_NAME_RE.fullmatch(name):
+            raise ValueError(f"provider name {name!r} must match {PROVIDER_NAME_RE.pattern}")
+        if name in self._providers:
+            raise ValueError(f"a provider named {name!r} is already added")
+        added: dict[str, tuple[ToolSpec, ToolProvider]] = {}
+        for spec in provider.tools():
+            if not spec.name.startswith(name + TOOL_SEPARATOR) or not PROVIDER_TOOL_RE.fullmatch(spec.name):
+                raise ValueError(
+                    f"provider {name} offers {spec.name!r}; its tools must be named {name}__<tool>"
+                )
+            if spec.name in added or spec.name in self._provider_tools or self.registry.lookup(spec.name):
+                raise ValueError(f"provider {name} offers {spec.name!r}, which another tool already uses")
+            added[spec.name] = (
+                dataclasses.replace(
+                    spec,
+                    module=name,
+                    pack=PROVIDER_PACK_PREFIX + name,
+                    tier=str(provider.default_tier),
+                    tier_inferred=False,
+                    untrusted_output=True,
+                    reviewable=False,
+                ),
+                provider,
+            )
+        self._providers[name] = provider
+        self._provider_tools.update(added)
+
+    def provider_tools(self) -> list[ToolSpec]:
+        """Every provider tool, sorted by name."""
+        return sorted((spec for spec, _ in self._provider_tools.values()), key=lambda t: t.name)
+
     def close(self) -> None:
-        """Stops every worker."""
+        """Stops every worker and every provider."""
         self.runner.close()
+        for provider in self._providers.values():
+            try:
+                provider.close()
+            except Exception:  # one provider failing to stop must not leave the others running
+                log.exception("provider %s did not close cleanly", provider.name)
 
     # -- the pipeline --
 
@@ -260,6 +316,9 @@ class Hub:
                 return self._refuse_early(
                     session, call_id, target, "unavailable", reason, finish, "unavailable"
                 )
+        elif name in self._provider_tools:
+            spec, provider = self._provider_tools[name]
+            target = _Target(spec, None, provider_meta(spec), {}, None, provider)
 
         warnings: tuple[str, ...] = ()
         steps: tuple[RoutineStep, ...] = ()
@@ -801,9 +860,12 @@ class Hub:
         started = time.monotonic()
         handler = self._nested_handler(session, deadline=started + timeout, depth_ok=not nested)
         secret_values = dict(target.secrets)
-        if target.secret_error is not None:
+        if target.provider is not None:
+            outcome = _provider_call(target.provider, tool, call_arguments(tool, d.args), timeout, cancel)
+        elif target.secret_error is not None:
             outcome = RunOutcome(False, error_type="tool_error", message=target.secret_error)
         else:
+            assert module is not None  # only provider tools have no module
             outcome = self.runner.run(
                 module,
                 tool,
@@ -892,6 +954,21 @@ class Hub:
             session.emit("result", **fields)
         except AuditUnavailable as exc:  # REQ-HUB-51: the tool ran; return its result, the gap shows in seq
             log.error("result record for %s failed: %s", call_id, exc)
+
+
+def _provider_call(
+    provider: ToolProvider,
+    tool: ToolSpec,
+    args: Mapping[str, object],
+    timeout: float,
+    cancel: threading.Event | None,
+) -> RunOutcome:
+    """Runs a provider tool; a provider that raises gives `tool_error`, never a traceback to the caller."""
+    try:
+        return provider.call(tool.function, args, timeout=timeout, cancel=cancel)
+    except Exception as exc:  # 02 owns the upstream; its failures are this call's error
+        log.exception("provider %s failed on %s", provider.name, tool.name)
+        return RunOutcome(False, error_type="tool_error", message=f"{provider.name} failed: {exc}")
 
 
 def _step_view(step: RoutineStep) -> dict[str, object]:
