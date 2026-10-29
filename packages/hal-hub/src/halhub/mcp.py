@@ -12,7 +12,7 @@ import json
 import sys
 
 import halhub
-from .registry import load_config
+from .v1_registry import load_config
 
 PROTOCOL = "2025-06-18"
 

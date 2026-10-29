@@ -68,12 +68,12 @@ class HubTest(unittest.TestCase):
         self.assertIn("no parameter", self.hub.call("demo_add", {"a": 1, "b": 2, "c": 3})["error"])
 
     def test_secrets_are_kept_out_of_the_log(self):
-        from halhub import runner
+        from halhub import v1_runner as runner
         self.assertEqual(runner.redact({"username": "a", "password": "p", "api_key": "k"}),
                          {"username": "a", "password": "***", "api_key": "***"})
 
     def test_near_miss_argument_names_are_mapped(self):
-        from halhub import runner
+        from halhub import v1_runner as runner
         known = {"when_text": None, "title": None}
         self.assertEqual(runner._alias("when", known), "when_text")
         self.assertEqual(runner._alias("whentext", known), "when_text")

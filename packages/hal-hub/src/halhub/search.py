@@ -9,7 +9,7 @@ import math
 import re
 from collections import Counter
 
-from .registry import Tool
+from .v1_registry import Tool
 
 SYNONYMS = {
     "remind": "reminder calendar task", "appointment": "event calendar", "meeting": "event calendar",

@@ -15,7 +15,7 @@ def find_tools(query: str, limit: int = 8) -> list[dict]:
 
 def modules() -> list[dict]:
     """Returns each installed module with its tool names."""
-    from .registry import modules as installed
+    from .v1_registry import modules as installed
     return [{"module": m.name, "summary": m.summary, "path": str(m.root),
              "tools": [t.name for t in m.tools]} for m in installed()]
 

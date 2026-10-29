@@ -13,7 +13,7 @@ import json
 import sys
 
 import halhub
-from . import registry
+from . import v1_registry as registry
 
 
 def _print(data) -> None:

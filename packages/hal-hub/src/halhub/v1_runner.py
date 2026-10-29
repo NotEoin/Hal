@@ -17,7 +17,7 @@ import time
 import traceback
 from pathlib import Path
 
-from .registry import Tool
+from .v1_registry import Tool
 
 LOG = Path(os.environ.get("HAL_STATE", "~/.local/state/hal")).expanduser() / "hub-calls.jsonl"
 

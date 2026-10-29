@@ -10,8 +10,10 @@ from __future__ import annotations
 import os
 import ssl
 
-from . import registry, runner, search
-from .registry import Tool
+from . import search
+from . import v1_registry as registry
+from . import v1_runner as runner
+from .v1_registry import Tool
 
 # Tools run in-process inside the caller's Python; a relocated virtualenv can point OpenSSL at a
 # certificate bundle that no longer exists, which breaks every HTTPS tool. Fall back to the system's.
