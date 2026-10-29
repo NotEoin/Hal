@@ -2,6 +2,7 @@
 
 REQ-SYS-19: every requirement id in `docs/design/*.md` is `REQ-<PREFIX>-<nn>`, unique across the
 specs, uses the prefix of the spec that defines it, and names a test.
+REQ-SEC-90: `docs/dev/threat-model.md` carries the threat table and residual risks of 01-security.
 REQ-SYS-25: `docs/README.md` indexes every file under `docs/` in a `| Document | What it is |`
 table, and each folder with its own README does the same for its files.
 
@@ -181,3 +182,21 @@ def test_relative_links_in_the_root_documents_resolve():
     for name in ("AGENTS.md", "CLAUDE.md", "SECURITY.md", "CONTRIBUTING.md"):
         for target in link.findall((REPO / name).read_text(encoding="utf-8")):
             assert (REPO / target).exists(), f"{name} links to missing {target}"
+
+
+def _threat_ids(text: str) -> list[str]:
+    return re.findall(r"^\| (T\d{2}) \|", text, flags=re.M)
+
+
+def _residual_risks(text: str) -> list[str]:
+    section = text.split("Residual risks (documented, not hidden)", 1)[1]
+    return re.findall(r"^(\d+)\. ", section, flags=re.M)
+
+
+def test_threat_model_carries_every_threat_and_residual_risk_of_the_security_spec():
+    spec = (DESIGN / "01-security.md").read_text(encoding="utf-8")
+    model = (DOCS / "dev" / "threat-model.md").read_text(encoding="utf-8")
+    spec_part = spec.split("## Threat model", 1)[1].split("\n## Design", 1)[0]
+    assert _threat_ids(model) == _threat_ids(spec_part) and len(_threat_ids(model)) >= 31
+    assert _residual_risks(model) == _residual_risks(spec_part)
+    assert "| Id | Threat | Adversary | Entry point | Mitigations | Residual risk |" in model
