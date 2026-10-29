@@ -1,13 +1,13 @@
-"""Phase-1 stand-in for 01-security's `halhub.policy`: the types, a loader and a reduced `decide`.
+"""Phase-1 stand-in for 01-security's `halhub.policy`: a loader and a reduced `decide`.
 
 04-hub's implementation plan lands the hub's call pipeline before 01-security's policy engine
 (01's implementation plan is phase 2) and tests it "against their published interfaces with
-fakes". This module copies 01-security.md, "Decision algorithm", with the same names, fields
-and defaults, so phase 2 replaces it with an import change: `Tier`, `Verdict`, `Taint`,
-`Origin`, `Scope`, `ParamSpec`, `ToolMeta`, `ToolCall`, `ResolvedPath`, `RateSnapshot`,
-`Grant`, `Context`, `Decision`, `Policy` with `Policy.tool`, `load_policy`, `prepare` and
-`decide`. It also holds the "Approval binding" functions (`canonical_json`, `approval_key`,
-`security_digest`) until `halkit.canon` and `halhub.approvals.keys` land.
+fakes". Its types (`Tier` to `Decision`) now come from `halhub.policy.model`, so the stand-in
+and the real engine share one `ToolMeta`. The rest copies 01-security.md, "Decision algorithm",
+with the same names, fields and defaults, so phase 2 replaces it with an import change:
+`Policy` with `Policy.tool`, `load_policy`, `prepare` and `decide`. It also holds the "Approval
+binding" functions (`canonical_json`, `approval_key`, `security_digest`) until `halkit.canon`
+and `halhub.approvals.keys` land.
 
 What `decide` implements, in 01's order: unknown tool, disabled tool, reserved-key stripping
 and self-approval detection, argument validation with 01's `bad-args:<code>` codes, the
@@ -39,14 +39,28 @@ import threading
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from datetime import datetime
-from enum import IntEnum, StrEnum
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
 from halkit import config as halconfig
 from halkit import paths
+
+from .policy.model import (
+    Context,
+    Decision,
+    Grant,
+    Origin,
+    ParamSpec,
+    RateSnapshot,
+    ResolvedPath,
+    Scope,
+    Taint,
+    Tier,
+    ToolCall,
+    ToolMeta,
+    Verdict,
+)
 
 APPROVAL_KEY_TAG = b"hal-approval/v1\n"  # 01 "Approval binding": lets a future encoding coexist
 TOOLMETA_TAG = b"hal-toolmeta/v1\n"
@@ -55,175 +69,6 @@ SELF_APPROVAL_RE = re.compile(r"(?i)^_*(confirm|approv|consent|authori[sz]|yes$|
 PRIVATE_SUFFIXES = (".localhost", ".local", ".internal", ".home.arpa")  # REQ-SEC-10
 POLICY_SCHEMA_VERSION = 1
 CHANNELS = ("voice", "telegram", "remote")
-
-
-class Tier(StrEnum):
-    """A tool's tier; what each one means for policy is 01-security's tier table."""
-
-    READ = "read"
-    WRITE = "write"
-    ACT = "act"
-    SEND = "send"
-    SYSTEM = "system"
-
-
-class Verdict(StrEnum):
-    """What policy says about a call."""
-
-    ALLOW = "allow"
-    ASK = "ask"
-    DENY = "deny"
-
-
-class Taint(IntEnum):
-    """A session's taint level (REQ-SEC-32); higher is less trusted."""
-
-    CLEAN = 0
-    UNTRUSTED = 1
-    FLAGGED = 2
-
-    @property
-    def label(self) -> str:
-        """The lowercase name the audit log and approval requests use."""
-        return self.name.lower()
-
-
-class Origin(StrEnum):
-    """Where a call came from; set by the host from the socket or process, never by the caller."""
-
-    TUI = "tui"
-    BOX_AGENT = "box_agent"
-    BOX_HARNESS = "box_harness"
-    HOST_MCP = "host_mcp"
-    ACP = "acp"
-    ROUTINE = "routine"
-    CLI = "cli"
-    REMOTE = "remote"
-
-
-class Scope(StrEnum):
-    """A grant's scope; there is no "always" (RESOLUTIONS B2)."""
-
-    ONCE = "once"
-    SESSION = "session"
-    ROUTINE = "routine"
-
-
-@dataclass(frozen=True)
-class ParamSpec:
-    """The parameter facts 01's `decide` validates (type, enum, length, format, access)."""
-
-    name: str
-    type: Literal["string", "integer", "number", "boolean"] = "string"
-    required: bool = False
-    enum: tuple[object, ...] | None = None
-    max_length: int = 65536
-    format: Literal["text", "path", "url", "host", "email", "phone", "command", "json"] = "text"
-    access: Literal["read", "write"] = "read"
-    content: bool = False
-
-
-@dataclass(frozen=True)
-class ToolMeta:
-    """Everything 01's policy reads about one tool; built by `ToolSpec.meta`."""
-
-    name: str
-    pack: str
-    pack_version: str
-    tier: Tier
-    params: tuple[ParamSpec, ...]
-    network: bool = False
-    untrusted_output: bool = False
-    reviewable: bool = False
-    reversible: bool = False
-    runs_code: bool = False
-    domains: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class ToolCall:
-    """One call as the host received it."""
-
-    tool: str
-    args: Mapping[str, object]
-    session: str
-    origin: Origin
-    call_id: str
-    routine_id: str | None = None
-    channel: str | None = None
-    remote_client: str | None = None
-    remote_addr: str | None = None
-
-
-@dataclass(frozen=True)
-class ResolvedPath:
-    """A `format = "path"` argument after `prepare`; `resolved` is None when it failed."""
-
-    original: str
-    resolved: Path | None
-    error: str | None
-
-
-@dataclass(frozen=True)
-class RateSnapshot:
-    """Calls per rate scope in the current window."""
-
-    counts: Mapping[str, int] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class Grant:
-    """A standing approval for one key (`once`, `session`) or a routine's steps (`routine`)."""
-
-    id: str
-    scope: Scope
-    key: str | None
-    pack: str | None
-    tool: str | None
-    session: str | None
-    routine_id: str | None
-    steps_sha256: str | None
-    step_keys: Mapping[str, str]
-    meta_sha256: str | None
-    created: datetime
-    expires: datetime
-    used: bool
-    source: str
-
-
-@dataclass(frozen=True)
-class Context:
-    """The impure facts `decide` reads, gathered by the host before the decision."""
-
-    now: datetime
-    session_kind: Literal["code", "box", "chat", "headless", "routine", "remote", "hub"]
-    taint: Taint
-    grants: tuple[Grant, ...]
-    rate: RateSnapshot
-    approver_available: bool
-    paths: Mapping[str, ResolvedPath]
-    workspaces: tuple[Path, ...]
-    home: Path
-    routine_steps_sha256: str | None = None
-    search_urls: frozenset[str] = frozenset()
-
-
-@dataclass(frozen=True)
-class Decision:
-    """The policy's answer for one call; `args` are exactly what may run (REQ-SEC-18)."""
-
-    verdict: Verdict
-    rule: str
-    reason: str
-    key: str | None
-    args: Mapping[str, object]
-    stripped: tuple[str, ...]
-    self_approval: tuple[str, ...]
-    reviewable: bool = False
-    scopes: tuple[Scope, ...] = ()
-    grant_id: str | None = None
-    fresh_only: bool = False
-    trace: tuple[str, ...] = ()
 
 
 # ---- settings ------------------------------------------------------------------------------
