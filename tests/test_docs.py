@@ -150,3 +150,20 @@ def test_folder_index_lists_every_file_in_the_folder_and_nothing_else(folder):
 
 def test_docs_index_links_the_overview():
     assert "design/00-overview.md" in indexed_paths(DOCS / "README.md")
+
+
+def test_claude_md_points_to_agents_md_and_holds_no_rules_of_its_own():
+    claude = (REPO / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "[AGENTS.md](AGENTS.md)" in claude and "@AGENTS.md" in claude
+    assert len(claude.splitlines()) < 10
+
+
+def test_agents_md_commands_are_the_ones_ci_runs():
+    agents = (REPO / "AGENTS.md").read_text(encoding="utf-8")
+    workflow = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    for command in (
+        "uv run ruff check .",
+        "uv run ruff format --check packages tests",
+        "scripts/check-ascii.sh",
+    ):
+        assert command in agents and command in workflow
