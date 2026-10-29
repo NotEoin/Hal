@@ -24,6 +24,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import paths
+from .files import write_atomic
 
 log = logging.getLogger(__name__)
 
@@ -305,3 +306,8 @@ HAL_TABLE = register(
 def hal() -> Mapping[str, object]:
     """The `[hal]` table with defaults applied, read from the current config file."""
     return load(HAL_TABLE)
+
+
+def write_private(path: Path, text: str) -> None:
+    """Writes `text` to `path` atomically with mode 0600, for files that hold secrets."""
+    write_atomic(path, text, mode=0o600)

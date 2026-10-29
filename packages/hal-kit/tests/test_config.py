@@ -207,3 +207,12 @@ def test_hal_table_accepts_loopback_ollama_urls(tmp_path, url):
     path = tmp_path / "c.toml"
     path.write_text(f'[hal]\nollama_url = "{url}"\n')
     assert config.load(config.HAL_TABLE, path=path, environ={})["ollama_url"] == url
+
+
+def test_write_private_writes_mode_0600_atomically(tmp_path):
+    import stat
+
+    target = tmp_path / "sub" / "config.toml"
+    config.write_private(target, "[hal]\n")
+    assert target.read_text() == "[hal]\n"
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
