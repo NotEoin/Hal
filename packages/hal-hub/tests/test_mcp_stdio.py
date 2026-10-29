@@ -167,3 +167,26 @@ def test_sdk_client_lists_and_calls_over_stdio(served, mode):
     names, echoed = anyio.run(main)
     assert names[:3] == ["hal_find_tools", "hal_call", "hal_modules"]
     assert echoed.content[0].text == "yo" and echoed.meta["hal"]["status"] == "ok"
+
+
+@pytest.mark.parametrize("mode", ERAS)
+def test_elicitation_approves_a_call_over_stdio(served, mode):
+    import mcp_types as types
+
+    forms = []
+
+    async def accept_once(context, params):
+        forms.append(params.message)
+        return types.ElicitResult(action="accept", content={"decision": "once"})
+
+    params = StdioServerParameters(command=sys.executable, args=["-m", "halhub", "mcp"], env=dict(os.environ))
+
+    async def main():
+        async with Client(
+            params, mode=mode, read_timeout_seconds=SERVE_TIMEOUT_S, elicitation_callback=accept_once
+        ) as client:
+            return await client.call_tool("demo_wipe", {"path": "/tmp/stdio"})
+
+    result = anyio.run(main)
+    assert result.content[0].text == "wiped /tmp/stdio" and not result.is_error
+    assert len(forms) == 1 and "path: /tmp/stdio" in forms[0]

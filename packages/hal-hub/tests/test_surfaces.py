@@ -10,10 +10,23 @@ import pytest
 
 from halhub._approvals_standin import ApprovalRequest, ApprovalRouter
 from halhub._policy_standin import Origin, Scope, Taint, Tier
-from halhub.surfaces import HARNESS_ENV, TtySurface, in_harness, person_at_terminal, yes_allowed
+from halhub.surfaces import (
+    HARNESS_ENV,
+    PREVIEW_CHARS,
+    ElicitationSurface,
+    SurfaceUnavailable,
+    TtySurface,
+    elicitation_message,
+    elicitation_schema,
+    in_harness,
+    person_at_terminal,
+    yes_allowed,
+)
 
 
-def request(*, scopes=(Scope.ONCE, Scope.SESSION), content: bool = False) -> ApprovalRequest:
+def request(
+    *, scopes=(Scope.ONCE, Scope.SESSION), content: bool = False, display: str | None = None
+) -> ApprovalRequest:
     return ApprovalRequest(
         id="apr_0123456789abcdef",
         session="0123456789ab",
@@ -26,7 +39,7 @@ def request(*, scopes=(Scope.ONCE, Scope.SESSION), content: bool = False) -> App
         key="sha256:" + "0" * 64,
         reason="tier:act - act tools ask",
         args={"path": "/tmp/x"},
-        display="demo_wipe  [act]  demo\n  path: /tmp/x",
+        display=display if display is not None else "demo_wipe  [act]  demo\n  path: /tmp/x",
         summary="Allow demo_wipe (act, pack demo)?",
         content=content,
         challenge=None,
@@ -141,3 +154,65 @@ def test_content_call_never_reaches_a_surface_without_all_args():
     notifier = Notifier()
     answer = ApprovalRouter([notifier]).decide(request(content=True), 1)
     assert (answer.verdict, answer.source) == ("deny", "no-approver") and notifier.asked == []
+
+
+# ---- elicitation (REQ-HUB-40, REQ-HUB-66) ------------------------------------------------------
+
+
+def test_elicitation_unavailable_for_long_display():
+    surface = ElicitationSurface(lambda r, t: {"action": "accept", "content": {"decision": "once"}})
+    long = request(display="x" * (PREVIEW_CHARS + 1))
+    assert surface.shows_all_args and not surface.available_for(long)
+    assert surface.available_for(request(display="x" * PREVIEW_CHARS))
+    with pytest.raises(SurfaceUnavailable):
+        surface.decide(long, 1)
+
+
+def test_elicitation_offers_once_only():
+    sent = []
+    surface = ElicitationSurface(lambda r, t: sent.append(r))
+    assert not surface.available_for(request(scopes=(Scope.SESSION,)))
+    with pytest.raises(SurfaceUnavailable):
+        surface.decide(request(scopes=(Scope.SESSION,)), 1)
+    assert sent == []
+
+
+@pytest.mark.parametrize(
+    ("answer", "verdict"),
+    [
+        ({"action": "accept", "content": {"decision": "once"}}, "allow"),
+        ({"action": "accept", "content": {"decision": "deny"}}, "deny"),
+        ({"action": "accept", "content": {"decision": "session"}}, "deny"),
+        ({"action": "accept", "content": None}, "deny"),
+        ({"action": "decline", "content": {"decision": "once"}}, "deny"),
+        ({"action": "cancel"}, "deny"),
+    ],
+)
+def test_only_accept_with_once_allows(answer, verdict):
+    decision = ElicitationSurface(lambda r, t: answer).decide(request(), 1)
+    assert decision.verdict == verdict and decision.source == "elicitation"
+    assert decision.scope == (Scope.ONCE if verdict == "allow" else None)
+
+
+def test_no_elicitation_answer_is_a_timeout_and_a_failure_is_no_answer():
+    with pytest.raises(TimeoutError):
+        ElicitationSurface(lambda r, t: None).decide(request(), 1)
+
+    def broken(r, t):
+        raise ConnectionError("client went away")
+
+    with pytest.raises(SurfaceUnavailable):
+        ElicitationSurface(broken).decide(request(), 1)
+
+
+def test_elicitation_form_shows_every_argument_and_defaults_to_deny():
+    r = request()
+    assert r.display in elicitation_message(r) and r.id in elicitation_message(r)
+    field = elicitation_schema(r)["properties"]["decision"]
+    assert (field["enum"], field["default"]) == (["once", "deny"], "deny")
+
+
+def test_withdraw_cancels_a_pending_dialog():
+    cancelled = []
+    ElicitationSurface(lambda r, t: None, cancel=cancelled.append).withdraw("apr_1")
+    assert cancelled == ["apr_1"]

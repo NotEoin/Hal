@@ -31,10 +31,29 @@ Design decisions:
   nothing in Hal reads them back (REQ-HUB-39). Each listed tool also carries `_meta`
   `hal/tier` and `hal/approval` (`ask` or `none`, the listing verdict).
 - One `HubSession` per connection, opened in the server's lifespan (which the SDK enters
-  once per connection in both eras): kind `hub`, origin `host_mcp`, with 01's router over
-  this connection's control socket, so an `ask` waits for `hal approve ID` up to
-  `[approval].timeout_s` (REQ-HUB-41). The socket is bound on the first request only. A
-  caller that passes `ServeOptions.session` (the broker) keeps its own session and approver.
+  once per connection in both eras): kind `hub`, origin `host_mcp`. Its approver depends on
+  the approval mode (`[hub.mcp].approvals`, REQ-HUB-40 to REQ-HUB-42): `auto` offers the
+  `elicitation` surface when the call's client declared form elicitation, plus this
+  connection's control socket (`hal approve ID`); `elicit` only the first; `out-of-band` only
+  the second; `deny` none, so every `ask` is `no-approver`; `callback` (the broker) uses the
+  caller's approver or session and never elicits, because an in-box client could answer its
+  own dialog. The control socket is bound on the first request only. 01's `notify` surface
+  joins `auto` and `out-of-band` with 01's phase 2.
+- Elicitation, handshake era: the router thread sends `elicitation/create` on the event loop
+  (`anyio.from_thread` with the loop's token) and the call finishes in the same request; the
+  control socket stays open in parallel and the first valid answer wins.
+- Elicitation, 2026-07-28: the call runs on in its own thread, blocked in the router, and the
+  first `tools/call` returns `input_required` with `requestState = "hal-approval:" + id`.
+  The retry re-runs steps 1 to 5 on its own arguments (`Hub.approval_key`); another key is
+  audited `approval_mismatch` and refused as `approval_declined`, and the request stays
+  pending for the control socket. The state carries no authority: it only names a request of
+  this connection, so an unknown or expired id starts a fresh call. A matching retry whose
+  request another surface already decided gets that call's result instead of a second
+  prompt, so an approval given with `hal approve` is not lost. The SDK's `requestState`
+  sealing is not installed, because its request binding would refuse a changed retry before
+  it could be audited as a mismatch.
+- While a call runs or waits, `notifications/progress` goes out every `PROGRESS_S` when the
+  request carried a progress token (REQ-HUB-41).
 - `Hub.call` blocks (workers, approvals), so it runs in a worker thread. A cancelled request
   sets the call's cancel event, which stops the tool's worker; the thread is not waited for.
 - stdio hygiene (REQ-HUB-37): the SDK points fd 1 at stderr while serving, but an unflushed
@@ -46,30 +65,38 @@ Design decisions:
   (REQ-HUB-47); every result carries `_meta.hal` as 02-sandbox defines it (REQ-HUB-46). The
   hub has already scrubbed, cut and, for `untrusted_output` tools, wrapped the text.
 
-Not here yet (later plan steps): elicitation, the `elicit`, `callback` and `deny` approval modes and
-progress notifications while waiting (step 20); the remote channel (step 21); HTTP (step 22).
+Not here yet (later plan steps): the remote channel (step 21) and HTTP (step 22).
 """
 
 from __future__ import annotations
 
+import contextvars
 import dataclasses
 import json
 import logging
 import sys
 import threading
+import time
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, get_args
 
 from . import _control_standin as control
 from . import _policy_standin as policy
-from ._approvals_standin import ApprovalRequest, ApprovalRouter
+from ._approvals_standin import ApprovalRequest, ApprovalRouter, Approver, Decision
 from .hub import CallResult, Hub, new_call_id
 from .manifest import ToolSpec
 from .session import HubSession, new_session_id
+from .surfaces import (
+    ELICITATION_KEY,
+    ElicitationSurface,
+    elicitation_message,
+    elicitation_meta,
+    elicitation_schema,
+)
 
 if TYPE_CHECKING:  # the SDK is imported lazily: only `hal-hub mcp` and the broker need it
     import mcp_types as types
@@ -89,6 +116,14 @@ __all__ = [
 
 ORIGIN = "host_mcp"  # 01 `Origin.HOST_MCP`: a harness on the host speaking MCP to the hub
 UNAVAILABLE_ERRORS = frozenset({"unknown_tool", "unavailable"})  # 02's `_meta.hal` status `unavailable`
+ApprovalMode = Literal["auto", "elicit", "out-of-band", "callback", "deny"]
+APPROVAL_MODES: tuple[str, ...] = get_args(ApprovalMode)
+BOX_ORIGINS = frozenset({"box_harness", "box_agent"})  # never elicitation: an in-box client could answer
+PROGRESS_S = 15.0  # 04-hub REQ-HUB-41: some clients extend their tool timeout on progress
+WAIT_POLL_S = 0.5  # a backstop only: the event wakes the waiter as soon as anything changes
+RESULT_KEEP_S = 300.0  # an answered 2026-07-28 request waits this long for the client's retry
+STATE_PREFIX = "hal-approval:"  # `requestState` = prefix + approval id; it carries no authority
+CLIENT_CAPS = "io.modelcontextprotocol/clientCapabilities"  # 2026-07-28 per-request `_meta` key
 FLAT_WARN_TOOLS = 100  # some clients cap the tool count (04-hub "Modes"; the cap differs per client)
 INSTRUCTIONS_FLAT = "Hal's tools for this computer and its owner."
 INSTRUCTIONS = (
@@ -166,7 +201,9 @@ class ServeOptions:
 
     mode: Literal["meta", "flat"] = "meta"
     profile: str | None = None  # None: the policy's default profile (01-security precedence)
-    session: HubSession | None = None  # the broker passes its own; else one per connection
+    approvals: ApprovalMode = "auto"
+    approver: Approver | None = None  # 01 protocol; required for "callback" without a session
+    session: HubSession | None = None  # the broker passes its own (mode "callback")
     packs: frozenset[str] | None = None  # limit to these packs
     tools: frozenset[str] | None = None  # limit to these tools
     server_name: str = "hal-hub"
@@ -174,6 +211,14 @@ class ServeOptions:
     def __post_init__(self) -> None:
         if self.mode not in ("meta", "flat"):
             raise ValueError(f"unknown MCP mode {self.mode!r}; expected meta or flat")
+        if self.approvals not in APPROVAL_MODES:
+            raise ValueError(
+                f"unknown approval mode {self.approvals!r}; expected {', '.join(APPROVAL_MODES)}"
+            )
+        if self.approvals == "callback" and self.approver is None and self.session is None:
+            raise ValueError("approval mode callback needs the caller's approver or session")
+        if self.approvals != "callback" and (self.approver is not None or self.session is not None):
+            raise ValueError("an approver or session of the caller's own needs approval mode callback")
         for name, limit in (("packs", self.packs), ("tools", self.tools)):
             if limit is not None and not limit:
                 raise ValueError(f"an empty {name} limit would serve nothing; leave it unset instead")
@@ -184,17 +229,189 @@ class ServeOptions:
 
 
 @dataclass
+class _Parked:
+    """A 2026-07-28 call whose approval went back to the client as `input_required`.
+
+    The pipeline keeps running in its own thread, blocked in the router, so the control
+    socket can answer meanwhile; the client's retry either delivers the form answer or picks
+    up the result of a call another surface already decided.
+    """
+
+    request: ApprovalRequest | None = None
+    answer: Mapping[str, object] | None = None
+    result: CallResult | None = None
+    finished_at: float = 0.0
+    changed: threading.Event = field(default_factory=threading.Event)  # request set, or result
+    answered: threading.Event = field(default_factory=threading.Event)  # answer, or withdrawal
+
+    def ask(self, request: ApprovalRequest, timeout_s: float) -> Mapping[str, object] | None:
+        """The elicitation surface's `send`: publish the request, then wait for the retry's answer."""
+        self.request = request
+        self.changed.set()
+        self.answered.wait(timeout_s)
+        return self.answer
+
+    def deliver(self, answer: Mapping[str, object] | None) -> None:
+        """The retry's form answer; a retry without one answers `cancel`, which is a deny."""
+        self.answer = answer if answer is not None else {"action": "cancel"}
+        self.answered.set()
+
+    def stop(self) -> None:
+        """No answer will come (withdrawn, or the connection closed): `ask` returns None."""
+        self.answered.set()
+
+    def finish(self, result: CallResult) -> None:
+        self.result = result
+        self.finished_at = time.monotonic()
+        self.changed.set()
+        self.answered.set()
+
+
+@dataclass(frozen=True)
+class _Channel:
+    """How the current `tools/call` can reach its client: era, elicitation and the SDK context."""
+
+    modern: bool
+    elicits: bool
+    ctx: Any = None
+    token: Any = None  # the event loop's token, for a router thread that sends `elicitation/create`
+    parked: _Parked | None = None
+    scopes: dict[str, Any] = field(default_factory=dict)  # legacy: pending elicitations by id
+
+    def surface(self) -> ElicitationSurface:
+        """An elicitation surface over this call's transport."""
+        if self.modern:
+            assert self.parked is not None
+            return ElicitationSurface(self.parked.ask, cancel=lambda _id: self.parked and self.parked.stop())
+        return ElicitationSurface(self._legacy_send, cancel=self._legacy_cancel)
+
+    def _legacy_send(self, request: ApprovalRequest, timeout_s: float) -> Mapping[str, object] | None:
+        import anyio.from_thread
+
+        return anyio.from_thread.run(self._elicit, request, timeout_s, token=self.token)
+
+    async def _elicit(self, request: ApprovalRequest, timeout_s: float) -> Mapping[str, object] | None:
+        import anyio
+        import mcp_types as types
+        from mcp.shared.message import ServerMessageMetadata
+
+        message = types.ElicitRequest(
+            params=types.ElicitRequestFormParams(
+                message=elicitation_message(request),
+                requested_schema=elicitation_schema(request),
+                meta=elicitation_meta(request),
+            )
+        )
+        with anyio.move_on_after(timeout_s) as scope:
+            self.scopes[request.id] = scope
+            try:
+                result = await self.ctx.session.send_request(
+                    message,
+                    types.ElicitResult,
+                    metadata=ServerMessageMetadata(related_request_id=self.ctx.request_id),
+                )
+            finally:
+                self.scopes.pop(request.id, None)
+            return {"action": result.action, "content": result.content}
+        return None
+
+    def _legacy_cancel(self, request_id: str) -> None:
+        import anyio.from_thread
+
+        scope = self.scopes.get(request_id)
+        if scope is not None:
+            try:
+                anyio.from_thread.run_sync(scope.cancel, token=self.token)
+            except RuntimeError:  # the connection's loop is gone; nothing waits any more
+                pass
+
+
+_CHANNEL: contextvars.ContextVar[_Channel | None] = contextvars.ContextVar("halhub_mcp_channel", default=None)
+
+
+class _ConnectionApprover:
+    """The approver of a connection's own session: 01's router over this call's surfaces.
+
+    The surfaces depend on the call (its era, whether its client takes forms), so the router
+    is built per request from the `_CHANNEL` of the call being decided.
+    """
+
+    name = "router"
+    shows_all_args = True
+
+    def __init__(
+        self, mode: ApprovalMode, control_server: control.ControlServer, origin: str, audit: Any
+    ) -> None:
+        self._mode = mode
+        self._control = control_server
+        self._origin = origin
+        self._audit = audit
+
+    @property
+    def surfaces(self) -> tuple[Approver, ...]:
+        """The surfaces a request of the current call may go to (for the audit record)."""
+        return self._surfaces(None)
+
+    def available(self) -> bool:
+        return bool(self._surfaces(None))
+
+    def decide(self, request: ApprovalRequest, timeout_s: float) -> Decision:
+        surfaces = self._surfaces(request)
+        if not surfaces:
+            return Decision(request.id, request.key, "deny", None, "no-approver")
+        return ApprovalRouter(surfaces, audit=self._audit).decide(request, timeout_s)
+
+    def withdraw(self, request_id: str) -> None:
+        """Nothing to do: each request's router withdraws from its own surfaces."""
+
+    def _surfaces(self, request: ApprovalRequest | None) -> tuple[Approver, ...]:
+        out: list[Approver] = []
+        channel = _CHANNEL.get()
+        if self._mode in ("auto", "elicit") and channel is not None and channel.elicits:
+            if self._origin not in BOX_ORIGINS:
+                surface = channel.surface()
+                if request is None or surface.available_for(request):
+                    out.append(surface)
+        if self._mode in ("auto", "out-of-band"):
+            out.append(self._control)
+        return tuple(out)
+
+
+@dataclass
 class _Connection:
-    """One connection's session and the control socket it owns (none for a caller's session)."""
+    """One connection's session, the control socket it owns, and its parked 2026-07-28 calls."""
 
     session: HubSession
+    approvals: ApprovalMode = "callback"
     control: control.ControlServer | None = None
     owned: bool = False
     calls: set[threading.Event] = field(default_factory=set)
+    parked: dict[str, _Parked] = field(default_factory=dict)
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def park(self, parked: _Parked) -> None:
+        assert parked.request is not None
+        now = time.monotonic()
+        with self.lock:
+            for key in [
+                k
+                for k, v in self.parked.items()
+                if v.result is not None and now - v.finished_at > RESULT_KEEP_S
+            ]:
+                del self.parked[key]
+            self.parked[parked.request.id] = parked
+
+    def take(self, state: str | None) -> _Parked | None:
+        if not state or not state.startswith(STATE_PREFIX):
+            return None
+        with self.lock:
+            return self.parked.pop(state[len(STATE_PREFIX) :], None)
 
     def close(self) -> None:
         for cancel in list(self.calls):
             cancel.set()
+        for parked in list(self.parked.values()):
+            parked.stop()
         if self.control is not None:
             self.control.close()
         if self.owned:
@@ -226,10 +443,12 @@ def build_server(hub: Hub, options: ServeOptions | None = None) -> Server:
         listing = _listing(hub, connection.session, opts)
         return types.ListToolsResult(tools=[_tool(entry) for entry in listing])
 
-    async def call_tool(ctx: Any, params: types.CallToolRequestParams) -> types.CallToolResult:
+    async def call_tool(
+        ctx: Any, params: types.CallToolRequestParams
+    ) -> types.CallToolResult | types.InputRequiredResult:
         connection: _Connection = ctx.lifespan_context
-        result = await _call(hub, connection, opts, params.name, params.arguments)
-        return render(result)
+        result = await _call(hub, connection, opts, ctx, params)
+        return render(result) if isinstance(result, CallResult) else result
 
     return Server(
         opts.server_name,
@@ -319,6 +538,9 @@ def render(result: CallResult) -> types.CallToolResult:
 def _open(hub: Hub, opts: ServeOptions) -> _Connection:
     if opts.session is not None:
         return _Connection(opts.session)
+    if opts.approvals == "callback":
+        session = hub.open_session(kind="hub", origin=ORIGIN, profile=opts.profile, approver=opts.approver)
+        return _Connection(session, owned=True)
     session_id = new_session_id()
     holder: list[HubSession] = []
 
@@ -327,16 +549,18 @@ def _open(hub: Hub, opts: ServeOptions) -> _Connection:
             holder[0].emit(event, **fields)
 
     server = control.ControlServer(session_id, audit=audit, on_pending=_waiting)
-    router = ApprovalRouter([server], audit=audit)
+    approver = (
+        None if opts.approvals == "deny" else _ConnectionApprover(opts.approvals, server, ORIGIN, audit)
+    )
     try:
         session = hub.open_session(
-            kind="hub", origin=ORIGIN, profile=opts.profile, approver=router, session_id=session_id
+            kind="hub", origin=ORIGIN, profile=opts.profile, approver=approver, session_id=session_id
         )
     except BaseException:
         server.close()
         raise
     holder.append(session)
-    return _Connection(session, server, owned=True)
+    return _Connection(session, opts.approvals, server, owned=True)
 
 
 def _waiting(request: ApprovalRequest, path: Path) -> None:
@@ -405,11 +629,14 @@ _SNAKE = {
 
 
 async def _call(
-    hub: Hub, connection: _Connection, opts: ServeOptions, name: str, arguments: Mapping[str, Any] | None
-) -> CallResult:
-    """Runs one `tools/call` through the pipeline in a worker thread; `hal_call` unwraps first."""
-    import anyio
-
+    hub: Hub,
+    connection: _Connection,
+    opts: ServeOptions,
+    ctx: Any,
+    params: types.CallToolRequestParams,
+) -> CallResult | types.InputRequiredResult:
+    """Runs one `tools/call` through the pipeline; `hal_call` unwraps first."""
+    name, arguments = params.name, params.arguments
     if opts.mode == "flat" and name not in {e["name"] for e in _listing(hub, connection.session, opts)}:
         return _unknown(name, "this server did not list it")
     if opts.mode == "meta" and name == "hal_call":
@@ -422,19 +649,189 @@ async def _call(
         name, arguments = tool, inner
     if opts.mode == "meta" and name not in META_NAMES and not _admitted(hub, opts, name):
         return _unknown(name, "this server is limited to other packs or tools")
+    channel = _channel(ctx, connection)
+    if channel.modern and channel.elicits:
+        result = await _call_modern(hub, connection, channel, name, arguments, params)
+        if not isinstance(result, CallResult):
+            return result
+    else:
+        result = await _run(hub, connection, channel, name, arguments)
+    if opts.mode == "meta" and name in META_NAMES and result.status == "ok":
+        return dataclasses.replace(result, result=_narrow(hub, opts, name, result.result))
+    return result
+
+
+def _channel(ctx: Any, connection: _Connection) -> _Channel:
+    """The current call's era and whether its client takes elicitation forms (04-hub "Approvals over MCP")."""
+    import anyio.lowlevel
+
+    offered = connection.approvals in ("auto", "elicit")
+    caps = (ctx.meta or {}).get(CLIENT_CAPS) if ctx is not None else None
+    if isinstance(caps, Mapping):  # a 2026-07-28 request: capabilities ride on every request
+        elicitation = caps.get("elicitation")
+        # a bare `elicitation: {}` counts as form support, as the SDK treats it
+        forms = isinstance(elicitation, Mapping) and ("form" in elicitation or not elicitation)
+        return _Channel(modern=True, elicits=offered and forms, ctx=ctx)
+    elicits = False
+    if ctx is not None and offered:
+        params = ctx.session.client_params
+        elicitation = params.capabilities.elicitation if params is not None else None
+        forms = elicitation is not None and (elicitation.form is not None or elicitation.url is None)
+        elicits = forms and bool(getattr(ctx.session, "can_send_request", False))
+    return _Channel(modern=False, elicits=elicits, ctx=ctx, token=anyio.lowlevel.current_token())
+
+
+async def _run(
+    hub: Hub, connection: _Connection, channel: _Channel, name: str, arguments: Mapping[str, Any] | None
+) -> CallResult:
+    """Runs the pipeline in a worker thread, with progress notifications while it runs or waits."""
+    import anyio
+
     cancel = threading.Event()
     connection.calls.add(cancel)
     run = partial(hub.call, name, arguments, connection.session, front_end="mcp", cancel=cancel)
+    token = _CHANNEL.set(channel)  # the worker thread runs in a copy of this context
     try:
-        result = await anyio.to_thread.run_sync(run, abandon_on_cancel=True)
+        async with anyio.create_task_group() as tasks:
+            tasks.start_soon(_progress, channel.ctx)
+            try:
+                return await anyio.to_thread.run_sync(run, abandon_on_cancel=True)
+            finally:
+                tasks.cancel_scope.cancel()
     except anyio.get_cancelled_exc_class():
         cancel.set()  # stops the worker; the abandoned thread returns on its own
         raise
     finally:
+        _CHANNEL.reset(token)
         connection.calls.discard(cancel)
-    if opts.mode == "meta" and name in META_NAMES and result.status == "ok":
-        return dataclasses.replace(result, result=_narrow(hub, opts, name, result.result))
-    return result
+
+
+async def _call_modern(
+    hub: Hub,
+    connection: _Connection,
+    channel: _Channel,
+    name: str,
+    arguments: Mapping[str, Any] | None,
+    params: types.CallToolRequestParams,
+) -> CallResult | types.InputRequiredResult:
+    """A 2026-07-28 call from a client that takes forms: `input_required`, then the retry.
+
+    A retry whose state names a parked request is checked against it by key; anything else
+    (no state, an unknown or expired id) starts a fresh call.
+    """
+    import anyio
+    import mcp_types as types
+
+    parked = connection.take(params.request_state)
+    if parked is not None:
+        assert parked.request is not None
+        request = parked.request
+        key = await anyio.to_thread.run_sync(hub.approval_key, name, arguments, connection.session)
+        if key != request.key:
+            connection.park(parked)  # the request stays pending for the control socket
+            _mismatch(connection.session, request, key)
+            return CallResult(
+                "denied",
+                new_call_id(),
+                name,
+                error_type="approval_declined",
+                rule="approval-mismatch",
+                message="arguments changed after approval",
+            )
+        parked.deliver(_response(params.input_responses))
+        await _wait(channel.ctx, lambda: parked.result is not None, parked.changed)
+        assert parked.result is not None
+        return parked.result
+
+    parked = _Parked()
+    channel = dataclasses.replace(channel, parked=parked)
+    cancel = threading.Event()
+    connection.calls.add(cancel)
+    context = contextvars.copy_context()
+    context.run(_CHANNEL.set, channel)
+
+    def run() -> None:
+        try:
+            parked.finish(hub.call(name, arguments, connection.session, front_end="mcp", cancel=cancel))
+        finally:
+            connection.calls.discard(cancel)
+
+    threading.Thread(target=context.run, args=(run,), name="hal-mcp-call", daemon=True).start()
+    await _wait(channel.ctx, lambda: parked.result is not None or parked.request is not None, parked.changed)
+    if parked.request is None:
+        assert parked.result is not None
+        return parked.result
+    connection.park(parked)
+    request = parked.request
+    elicit = types.ElicitRequest(
+        params=types.ElicitRequestFormParams(
+            message=elicitation_message(request),
+            requested_schema=elicitation_schema(request),
+            meta=elicitation_meta(request),
+        )
+    )
+    return types.InputRequiredResult(
+        input_requests={ELICITATION_KEY: elicit}, request_state=STATE_PREFIX + request.id
+    )
+
+
+async def _wait(ctx: Any, done: Any, changed: threading.Event) -> None:
+    """Waits in a worker thread until `done()`, sending progress notifications meanwhile."""
+    import anyio
+
+    def block() -> None:
+        while True:
+            changed.clear()  # before the check: a change after it sets the event again
+            if done():
+                return
+            changed.wait(WAIT_POLL_S)
+
+    async with anyio.create_task_group() as tasks:
+        tasks.start_soon(_progress, ctx)
+        try:
+            await anyio.to_thread.run_sync(block, abandon_on_cancel=True)
+        finally:
+            tasks.cancel_scope.cancel()
+
+
+async def _progress(ctx: Any) -> None:
+    """`notifications/progress` every `PROGRESS_S` while a call runs or waits; a no-op without a token."""
+    import anyio
+
+    if ctx is None:
+        return
+    ticks = 0
+    while True:
+        await anyio.sleep(PROGRESS_S)
+        ticks += 1
+        try:
+            await ctx.session.report_progress(ticks)
+        except Exception as exc:  # progress is a courtesy; a failure must not end the call
+            log.debug("progress notification failed: %s", exc)
+            return
+
+
+def _response(responses: Mapping[str, Any] | None) -> Mapping[str, object] | None:
+    """The form answer of a retry's `inputResponses`, as `{"action", "content"}`."""
+    answer = (responses or {}).get(ELICITATION_KEY)
+    if answer is None:
+        return None
+    return {"action": getattr(answer, "action", None), "content": getattr(answer, "content", None)}
+
+
+def _mismatch(session: HubSession, request: ApprovalRequest, key: str | None) -> None:
+    """Audits a retry whose arguments give another key (01 REQ-SEC-23)."""
+    log.warning("approval %s: the retry's arguments do not match the request", request.id)
+    try:
+        session.emit(
+            "approval_mismatch",
+            approval=request.id,
+            key_expected=request.key,
+            key_got=key,
+            source="elicitation",
+        )
+    except Exception as exc:  # the refusal stands even when its record cannot be written
+        log.error("approval_mismatch record failed: %s", exc)
 
 
 def _admitted(hub: Hub, opts: ServeOptions, name: str) -> bool:

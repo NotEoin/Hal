@@ -27,11 +27,15 @@ ERAS = ("legacy", "2026-07-28")
 APPROVE_WAIT_S = 10  # how long the answering thread looks for the pending request
 
 
-def session_call(hub, mode, name, args=None, options=None):
-    """Lists the tools, then calls `name`; returns (tool names, result)."""
+def session_call(hub, mode, name, args=None, options=None, *, elicit=None):
+    """Lists the tools, then calls `name`; returns (tool names, result).
+
+    `elicit` is the client's elicitation callback; without one the client declares no
+    elicitation capability.
+    """
 
     async def main():
-        async with Client(build_server(hub, options), mode=mode) as client:
+        async with Client(build_server(hub, options), mode=mode, elicitation_callback=elicit) as client:
             listed = await client.list_tools()
             result = await client.call_tool(name, args or {})
             return [t.name for t in listed.tools], result
@@ -151,7 +155,8 @@ def test_ask_with_no_answer_is_denied_with_approval_timeout(make_hub, hal_home):
 def test_given_session_is_used_with_its_own_approver(make_hub):
     hub = make_hub()
     session = hub.open_session(kind="box", origin="box_agent")
-    _, result = session_call(hub, "legacy", "demo_wipe", {"path": "/x"}, ServeOptions(session=session))
+    options = ServeOptions(approvals="callback", session=session)
+    _, result = session_call(hub, "legacy", "demo_wipe", {"path": "/x"}, options)
     assert json.loads(text_of(result))["rule"] == "no-approver"
     assert {r["session"] for r in tail(n=0) if r["event"] == "decision"} == {session.id}
 
@@ -242,3 +247,216 @@ def test_bad_serve_options_raise():
 def test_flat_mode_instructions_drop_the_search_hint(make_hub):
     assert "hal_find_tools" not in build_server(make_hub(), ServeOptions(mode="flat")).instructions
     assert "hal_find_tools" in build_server(make_hub()).instructions
+
+
+# ---- approvals over MCP (REQ-HUB-40 to REQ-HUB-42) --------------------------------------------
+
+
+class Dialog:
+    """A client's elicitation callback that records each form and answers with `action`/`decision`."""
+
+    def __init__(self, action: str = "accept", decision: str = "once", *, hang: bool = False) -> None:
+        self.action, self.decision, self.hang = action, decision, hang
+        self.forms: list = []
+
+    async def __call__(self, context, params):
+        import mcp_types as types
+
+        self.forms.append(params)
+        if self.hang:
+            await anyio.sleep_forever()
+        return types.ElicitResult(action=self.action, content={"decision": self.decision})
+
+
+def approve_on_control_socket() -> threading.Thread:
+    """Starts a thread that approves the first request listed on any control socket, once."""
+
+    def run() -> None:
+        deadline = time.monotonic() + APPROVE_WAIT_S
+        while time.monotonic() < deadline:
+            pending = control.list_pending()
+            if pending:
+                control.answer(pending[0], "allow", scope="once")
+                return
+            time.sleep(0.05)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return thread
+
+
+def approvals_audited():
+    return [r for r in tail(n=0) if r["event"] in ("approval", "approval_mismatch")]
+
+
+def test_elicitation_approves_exact_arguments_modern(make_hub):
+    hub, dialog = make_hub(), Dialog()
+    _, result = session_call(hub, "2026-07-28", "demo_wipe", {"path": "/tmp/x"}, elicit=dialog)
+    assert (text_of(result), result.is_error) == ("ok", False)
+    assert [(n, a) for n, a, _ in hub.runner.calls] == [("demo_wipe", {"path": "/tmp/x"})]
+    form = dialog.forms[0]
+    assert "path: /tmp/x" in form.message and "apr_" in form.message
+    assert form.requested_schema["properties"]["decision"]["enum"] == ["once", "deny"]
+    assert [(r["verdict"], r["scope"], r["source"]) for r in approvals_audited()] == [
+        ("allow", "once", "elicitation")
+    ]
+
+
+def test_elicitation_approves_exact_arguments_legacy(make_hub):
+    hub, dialog = make_hub(), Dialog()
+    _, result = session_call(
+        hub, "legacy", "hal_call", {"tool": "demo_wipe", "arguments": {"path": "/tmp/y"}}, elicit=dialog
+    )
+    assert text_of(result) == "ok" and len(dialog.forms) == 1
+    assert [(n, a) for n, a, _ in hub.runner.calls] == [("demo_wipe", {"path": "/tmp/y"})]
+    assert approvals_audited()[0]["source"] == "elicitation"
+
+
+@pytest.mark.parametrize("mode", ERAS)
+@pytest.mark.parametrize("action", ["decline", "cancel"])
+def test_declined_elicitation_is_approval_declined(make_hub, mode, action):
+    hub = make_hub()
+    _, result = session_call(hub, mode, "demo_wipe", {"path": "/x"}, elicit=Dialog(action=action))
+    data = json.loads(text_of(result))
+    assert data["error_type"] == "approval_declined" and hub.runner.calls == []
+
+
+@pytest.mark.parametrize("mode", ERAS)
+def test_choosing_deny_in_the_form_is_approval_declined(make_hub, mode):
+    hub = make_hub()
+    _, result = session_call(hub, mode, "demo_wipe", {"path": "/x"}, elicit=Dialog(decision="deny"))
+    assert json.loads(text_of(result))["error_type"] == "approval_declined" and hub.runner.calls == []
+
+
+def test_retry_with_changed_arguments_is_refused(make_hub):
+    import mcp_types as types
+
+    hub = make_hub()
+    answer = {"hal_approval": types.ElicitResult(action="accept", content={"decision": "once"})}
+
+    async def main():
+        async with Client(build_server(hub), mode="2026-07-28", elicitation_callback=Dialog()) as client:
+            first = await client.session.call_tool("demo_wipe", {"path": "/tmp/a"}, allow_input_required=True)
+            assert isinstance(first, types.InputRequiredResult)
+            assert first.request_state.startswith("hal-approval:apr_")
+            return await client.session.call_tool(
+                "demo_wipe",
+                {"path": "/etc"},
+                input_responses=answer,
+                request_state=first.request_state,
+                allow_input_required=True,
+            )
+
+    result = anyio.run(main)
+    data = json.loads(text_of(result))
+    assert (data["error_type"], data["message"]) == ("approval_declined", "arguments changed after approval")
+    assert hub.runner.calls == []
+    audited = approvals_audited()
+    assert audited[0]["event"] == "approval_mismatch" and audited[0]["key_got"] != audited[0]["key_expected"]
+    assert all(r.get("verdict") != "allow" for r in audited)
+
+
+def test_unknown_request_state_starts_a_fresh_request(make_hub):
+    import mcp_types as types
+
+    hub = make_hub()
+    answer = types.ElicitResult(action="accept", content={"decision": "once"})
+
+    async def main():
+        async with Client(build_server(hub), mode="2026-07-28", elicitation_callback=Dialog()) as client:
+            return await client.session.call_tool(
+                "demo_wipe",
+                {"path": "/tmp/a"},
+                request_state="hal-approval:apr_0000000000000000",
+                input_responses={"hal_approval": answer},
+                allow_input_required=True,
+            )
+
+    assert isinstance(anyio.run(main), types.InputRequiredResult) and hub.runner.calls == []
+
+
+@pytest.mark.parametrize("mode", ERAS)
+def test_no_elicitation_capability_waits_for_host_surfaces(make_hub, mode, monkeypatch):
+    monkeypatch.setattr(control, "peer_in_harness", lambda pid: False)
+    hub = make_hub()
+    approver = approve_on_control_socket()
+    _, result = session_call(hub, mode, "demo_wipe", {"path": "/tmp/x"})
+    approver.join(5)
+    assert (text_of(result), result.is_error) == ("ok", False)
+    assert approvals_audited()[0]["source"] == "control"
+
+
+def test_control_socket_answers_while_the_dialog_is_open(make_hub, monkeypatch):
+    monkeypatch.setattr(control, "peer_in_harness", lambda pid: False)
+    hub, dialog = make_hub(), Dialog(hang=True)
+    approver = approve_on_control_socket()
+    _, result = session_call(hub, "legacy", "demo_wipe", {"path": "/tmp/x"}, elicit=dialog)
+    approver.join(5)
+    assert text_of(result) == "ok" and len(dialog.forms) == 1
+
+
+def test_unanswered_elicitation_times_out(make_hub, hal_home):
+    hal_home.policy.write_text("schema_version = 1\n[approval]\ntimeout_s = 1\n")
+    hub = make_hub()
+    options = ServeOptions(approvals="elicit")
+    _, result = session_call(hub, "legacy", "demo_wipe", {"path": "/x"}, options, elicit=Dialog(hang=True))
+    assert json.loads(text_of(result))["rule"] == "approval-timeout" and hub.runner.calls == []
+
+
+def test_elicit_mode_without_elicitation_is_no_approver(make_hub):
+    _, result = session_call(
+        make_hub(), "legacy", "demo_wipe", {"path": "/x"}, ServeOptions(approvals="elicit")
+    )
+    assert json.loads(text_of(result))["rule"] == "no-approver"
+
+
+def test_out_of_band_mode_never_elicits(make_hub, hal_home):
+    hal_home.policy.write_text("schema_version = 1\n[approval]\ntimeout_s = 1\n")
+    dialog = Dialog()
+    options = ServeOptions(approvals="out-of-band")
+    _, result = session_call(make_hub(), "2026-07-28", "demo_wipe", {"path": "/x"}, options, elicit=dialog)
+    assert json.loads(text_of(result))["rule"] == "approval-timeout" and dialog.forms == []
+
+
+@pytest.mark.parametrize("mode", ERAS)
+def test_callback_mode_ignores_elicitation(make_hub, mode):
+    from hubkit import ScriptedApprover
+
+    hub, dialog, approver = make_hub(), Dialog(), ScriptedApprover()
+    options = ServeOptions(approvals="callback", approver=approver)
+    _, result = session_call(hub, mode, "demo_wipe", {"path": "/x"}, options, elicit=dialog)
+    assert text_of(result) == "ok" and dialog.forms == [] and len(approver.requests) == 1
+
+
+def test_deny_mode_is_no_approver(make_hub):
+    dialog = Dialog()
+    options = ServeOptions(approvals="deny")
+    _, result = session_call(make_hub(), "legacy", "demo_wipe", {"path": "/x"}, options, elicit=dialog)
+    assert json.loads(text_of(result))["rule"] == "no-approver" and dialog.forms == []
+
+
+def test_long_request_skips_the_dialog_for_host_surfaces(make_hub, hal_home):
+    hal_home.policy.write_text("schema_version = 1\n[approval]\ntimeout_s = 1\n")
+    hub, dialog = make_hub(), Dialog()
+    _, result = session_call(hub, "legacy", "demo_wipe", {"path": "/" + "x" * 2100}, elicit=dialog)
+    assert dialog.forms == [] and json.loads(text_of(result))["rule"] == "approval-timeout"
+
+
+def test_box_origin_is_never_offered_elicitation():
+    from halhub.mcp import _CHANNEL, _Channel, _ConnectionApprover
+
+    server = control.ControlServer("00000000bbbb")
+    approver = _ConnectionApprover("auto", server, "box_harness", None)
+    token = _CHANNEL.set(_Channel(modern=False, elicits=True))
+    try:
+        assert [s.name for s in approver.surfaces] == ["control"]
+    finally:
+        _CHANNEL.reset(token)
+        server.close()
+
+
+def test_callback_mode_needs_an_approver():
+    with pytest.raises(ValueError, match="callback"):
+        ServeOptions(approvals="callback")
+    with pytest.raises(ValueError, match="callback"):
+        ServeOptions(approver=object())

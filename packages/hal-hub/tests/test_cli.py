@@ -220,6 +220,15 @@ def test_mcp_with_an_empty_limit_exits_2(home, capsys):
     assert code == 2 and "names" in err
 
 
+def test_mcp_approvals_cannot_be_set_to_callback(home, capsys):
+    code, _, err = run(capsys, "mcp", "--approvals", "callback")
+    assert code == 2 and "invalid choice" in err
+    with home.config.open("a") as fh:
+        fh.write('[hub.mcp]\napprovals = "callback"\n')
+    code, _, err = run(capsys, "mcp")
+    assert code == 2 and "approvals" in err
+
+
 def test_mcp_with_an_unknown_option_exits_2(home, capsys):
     code, _, err = run(capsys, "mcp", "--transport", "carrier-pigeon")
     assert code == 2 and "invalid choice" in err

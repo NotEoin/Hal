@@ -7,8 +7,8 @@
       modules [--all] [--json]                     modules with status, source and path
       call TOOL [key=value ...] [--json ARGS] [--yes] [--profile P] [--raw]
       TOOL [key=value ...] [--yes]                 shorthand for call (tool names contain "_")
-      mcp [--mode meta|flat] [--profile P] [--packs A,B] [--tools X,Y]
-                                                   serve the tools over MCP on stdio
+      mcp [--mode meta|flat] [--profile P] [--approvals auto|elicit|out-of-band|deny]
+          [--packs A,B] [--tools X,Y]              serve the tools over MCP on stdio
       approvals [--json]                           pending approval requests of this user
       approve ID                                   allow one pending request, once
       deny ID                                      refuse one pending request
@@ -303,6 +303,9 @@ def _mcp(argv: list[str]) -> int:
     parser.add_argument("--transport", choices=("stdio",), default="stdio")
     parser.add_argument("--mode", choices=("meta", "flat"), help="default: [hub.mcp].mode")
     parser.add_argument("--profile", help="policy profile for this server's sessions")
+    parser.add_argument(
+        "--approvals", choices=("auto", "elicit", "out-of-band", "deny"), help="default: [hub.mcp].approvals"
+    )
     parser.add_argument("--packs", type=_names, help="serve only these packs (A,B)")
     parser.add_argument("--tools", type=_names, help="serve only these tools (X,Y)")
     opts = parser.parse_args(argv)
@@ -311,7 +314,11 @@ def _mcp(argv: list[str]) -> int:
     policy.load_policy(None, profile=opts.profile)  # a bad policy or profile exits 2 before serving
     hub = Hub()
     options = mcp.ServeOptions(
-        mode=opts.mode or hub.config.mcp.mode, profile=opts.profile, packs=opts.packs, tools=opts.tools
+        mode=opts.mode or hub.config.mcp.mode,
+        profile=opts.profile,
+        approvals=opts.approvals or hub.config.mcp.approvals,
+        packs=opts.packs,
+        tools=opts.tools,
     )
     try:
         mcp.serve_stdio(hub, options)

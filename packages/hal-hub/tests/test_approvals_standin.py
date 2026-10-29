@@ -195,6 +195,27 @@ def test_failing_surface_counts_as_no_answer():
     assert decision.verdict == "deny"
 
 
+def test_surface_that_times_out_ends_as_timeout_not_no_approver():
+    def silent(request):
+        raise TimeoutError("no answer")
+
+    decision = ApprovalRouter([Surface("dialog", silent)]).decide(make_request(), timeout_s=1)
+    assert (decision.verdict, decision.source) == ("deny", "timeout")
+
+
+def test_surface_timeout_deny_does_not_beat_another_surface():
+    def own_timeout(request):
+        return Decision(request.id, request.key, "deny", None, "timeout")
+
+    def late_allow(request):
+        threading.Event().wait(0.2)
+        return allow()(request)
+
+    router = ApprovalRouter([Surface("quick", own_timeout), Surface("person", late_allow)])
+    decision = router.decide(make_request(), timeout_s=2)
+    assert (decision.verdict, decision.source) == ("allow", "person")
+
+
 def test_escape_shows_control_and_bidi_characters_as_code_points():
     text = "a\x1b[31mb" + chr(0x202E) + "c\td\ne"
     assert escape(text) == "a\\u001b[31mb\\u202ec\\td\ne"

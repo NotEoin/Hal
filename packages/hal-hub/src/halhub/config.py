@@ -93,11 +93,15 @@ RUNNER_TABLE = config.register(
 
 
 MCP_MODES = ("meta", "flat")
+MCP_APPROVALS = ("auto", "elicit", "out-of-band", "deny")  # "callback" is the broker's, never configured
 MCP_TABLE = config.register(
     config.Table(
         name="hub.mcp",
         owner="hal-hub",
-        keys=(config.Key("mode", str, "meta", choices=MCP_MODES, doc="List the meta tools or every tool"),),
+        keys=(
+            config.Key("mode", str, "meta", choices=MCP_MODES, doc="List the meta tools or every tool"),
+            config.Key("approvals", str, "auto", choices=MCP_APPROVALS, doc="Where MCP approvals come from"),
+        ),
     )
 )
 
@@ -107,6 +111,7 @@ class McpConfig:
     """`[hub.mcp]`: the MCP server's defaults, which `hal-hub mcp` options override."""
 
     mode: str = "meta"
+    approvals: str = "auto"
 
 
 def load_mcp_config(path: Path | None = None, *, environ: Mapping[str, str] | None = None) -> McpConfig:

@@ -539,6 +539,42 @@ class Hub:
         nested = front_end == "nested"
         return self._execute(target, decision, session, call_id, cancel, warnings, finish, limit, nested)
 
+    def approval_key(self, name: str, args: Mapping[str, object] | None, session: HubSession) -> str | None:
+        """The approval key `call` would bind for these arguments now, or None when there is none.
+
+        Repeats steps 1 to 5 (resolve, normalise, prepare, decide) without audit records and
+        without running anything, so an MCP retry that carries an approval answer can be
+        checked against the request it answers (04-hub "Approvals over MCP"). Any failure
+        gives None, which matches no request.
+        """
+        found = self.registry.lookup(name)
+        if found is not None:
+            target = self._target(found[0], found[1].spec)
+        elif name in self._provider_tools:
+            spec, provider = self._provider_tools[name]
+            target = _Target(spec, None, provider_meta(spec), {}, None, provider)
+        else:
+            return None
+        try:
+            raw = normalise(target.tool, args).args
+            origin, remote_client = parse_origin(session.origin)
+            call = policy.ToolCall(
+                tool=name,
+                args=raw,
+                session=session.id,
+                origin=origin,
+                call_id=new_call_id(),
+                channel=session.channel,
+                remote_client=remote_client,
+                remote_addr=session.remote_addr,
+            )
+            resolved = policy.prepare(call, target.meta, home=self._home)
+            ctx = session.context(self._clock(), resolved, approver=True)
+            return policy.decide(call, target.meta, session.policy, ctx).key
+        except Exception:  # a retry whose key cannot be computed matches nothing: fail closed
+            log.warning("could not recompute the approval key for %s", name, exc_info=True)
+            return None
+
     # -- pipeline steps --
 
     def _target(self, tool: ToolSpec, module: ModuleSpec) -> _Target:

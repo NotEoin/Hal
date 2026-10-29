@@ -41,10 +41,24 @@ call. In `flat` mode it lists every tool the session may use, so a harness can s
 per-tool rules (for Claude Code, `mcp__hal__calendar_add`), and refuses any name it did not
 list. `--packs` and `--tools` narrow what the server lists and runs. Each listed tool carries
 MCP annotations derived from its tier (display only) and `_meta` with `hal/tier` and
-`hal/approval`. Each result carries `_meta.hal` (`status`, `untrusted`, `guard`). When a
-call needs approval, the server writes the request id to stderr and waits for
-`hal-hub approve ID` (or `hal approve ID`) up to `[approval].timeout_s`; with no answer the
-call is denied with rule `approval-timeout`.
+`hal/approval`. Each result carries `_meta.hal` (`status`, `untrusted`, `guard`).
+
+When a call needs approval, `--approvals` (default `[hub.mcp].approvals`, `auto`) decides who
+is asked:
+
+| Mode | Who answers |
+| --- | --- |
+| `auto` | the client's own dialog (MCP elicitation, `Allow once` or `Deny`) when the client supports forms, and `hal-hub approve ID` from any terminal; the first answer wins |
+| `elicit` | the client's dialog only; a client without it gets `no-approver` |
+| `out-of-band` | `hal-hub approve ID` (or `hal approve ID`) only |
+| `deny` | nobody: every call that needs approval is denied |
+
+The request id goes to stderr. With no answer within `[approval].timeout_s` the call is
+denied with rule `approval-timeout`; long calls send `notifications/progress` every 15 s to
+clients that asked for progress. A dialog answer is advisory: a harness on your desktop runs
+as you and could answer its own dialog, so treat `hal-hub mcp` approvals as protection against
+a model's mistakes, not against a hostile harness. Sandboxed agents (`hal box`) never get a
+dialog.
 
 ## Use
 
@@ -137,8 +151,9 @@ pinned = ["memory_remember", "calendar_add"]          # also listed directly to 
 disabled = ["phone"]                                  # modules to ignore
 ```
 
-`HAL_MODULE_PATH` (colon-separated) overrides `module_paths`. The MCP server's default mode is
-`[hub.mcp]`: `mode = "flat"` makes `flat` the default for `hal-hub mcp`.
+`HAL_MODULE_PATH` (colon-separated) overrides `module_paths`. `[hub.mcp]` holds the MCP
+server's defaults: `mode` (`meta` or `flat`) and `approvals` (`auto`, `elicit`, `out-of-band`
+or `deny`); the `hal-hub mcp` options override them.
 
 ## Licence
 

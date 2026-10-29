@@ -340,6 +340,7 @@ class ApprovalRouter:
             ).start()
         deadline = time.monotonic() + timeout_s
         pending = len(surfaces)
+        timed_out = False
         winner: Decision | None = None
         while pending and winner is None:
             remaining = deadline - time.monotonic()
@@ -350,6 +351,12 @@ class ApprovalRouter:
             except queue.Empty:
                 break
             pending -= 1
+            # a surface's own timeout is no answer, never a "deny" that beats the other surfaces
+            if isinstance(answer, TimeoutError) or (
+                isinstance(answer, Decision) and answer.verdict == "deny" and answer.source == "timeout"
+            ):
+                timed_out = True
+                continue
             if isinstance(answer, BaseException):
                 log.warning("approval surface %s failed: %s", surface.name, answer)
                 continue
@@ -361,7 +368,7 @@ class ApprovalRouter:
             surface.withdraw(request.id)
         if winner is not None:
             return winner
-        source = "timeout" if pending else "no-approver"
+        source = "timeout" if pending or timed_out else "no-approver"
         return Decision(request.id, request.key, "deny", None, source)
 
     def _mismatch(self, request: ApprovalRequest, answer: Decision, surface: Approver) -> None:
