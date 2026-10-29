@@ -105,6 +105,30 @@ class FakeSurface:
         self._gone.set()
 
 
+class FakePeer:
+    """01's `FakePeer`: injected `SO_PEERCRED` values and `/proc/<pid>/environ` for control sockets.
+
+    Pass `peer=fake.peer, environ=fake.environ` to `ControlServer`; `environ=None` makes the
+    environment unreadable, like a process that already exited.
+    """
+
+    def __init__(self, *, uid: int | None = None, environ: bytes | None = b"PATH=/bin\0") -> None:
+        import os
+
+        self.pid, self.uid, self.gid = os.getpid(), os.getuid() if uid is None else uid, os.getgid()
+        self._environ = environ
+
+    def peer(self, conn):
+        from halhub.approvals.control import Peer
+
+        return Peer(self.pid, self.uid, self.gid)
+
+    def environ(self, pid: int) -> bytes:
+        if self._environ is None:
+            raise FileNotFoundError(f"/proc/{pid}/environ")
+        return self._environ
+
+
 PROBE_KEY = "probe-key-canary-value"  # synthetic; never a real credential
 
 
