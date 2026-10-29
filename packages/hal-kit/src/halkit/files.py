@@ -3,7 +3,7 @@
 `write_atomic` never leaves a half-written file: readers see the old content or the new,
 even after a crash. `append_jsonl` is for logs that several processes write (the audit log,
 turn logs): one `flock`-guarded `write` per record, rotation by size, ASCII-only output so a
-log survives any terminal or tool.
+log survives any terminal or tool. `locked` takes the same lock for a whole-file rewrite.
 
 `append_jsonl` needs `fcntl`, which Windows lacks; it raises there instead of writing an
 unguarded log. Nothing that runs on a Windows laptop appends to a shared log.
@@ -86,6 +86,19 @@ def _locked(lock_path: Path) -> Iterator[None]:
         yield
     finally:
         os.close(fd)  # closing the descriptor releases the lock
+
+
+@contextlib.contextmanager
+def locked(path: Path) -> Iterator[None]:
+    """Holds the lock `append_jsonl` takes for `path`, for a read-modify-write of the whole file.
+
+    Raises `LockTimeout` after 5 s, like `append_jsonl`. Used to compact an append-only file
+    without losing a record another process appends meanwhile.
+    """
+    path = Path(path)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with _locked(path.with_name(path.name + ".lock")):
+        yield
 
 
 def _rotate(path: Path, keep: int) -> None:

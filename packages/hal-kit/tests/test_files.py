@@ -125,3 +125,23 @@ def test_append_jsonl_times_out_when_another_process_holds_the_lock(tmp_path, mo
     finally:
         os.close(holder)
     assert not log.exists()
+
+
+def test_locked_blocks_appends_to_the_same_file_until_released(tmp_path, monkeypatch):
+    log = tmp_path / "log.jsonl"
+    monkeypatch.setattr(files, "LOCK_TIMEOUT_S", 0.05)
+    with files.locked(log):
+        result: list[BaseException] = []
+        writer = threading.Thread(target=lambda: _append_catching(log, result))
+        writer.start()
+        writer.join(timeout=5)
+    assert isinstance(result[0], files.LockTimeout)
+    files.append_jsonl(log, {"n": 2})
+    assert json.loads(log.read_text()) == {"n": 2}
+
+
+def _append_catching(log, result):
+    try:
+        files.append_jsonl(log, {"n": 1})
+    except files.LockTimeout as exc:
+        result.append(exc)

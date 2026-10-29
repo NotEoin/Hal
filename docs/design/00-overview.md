@@ -534,6 +534,7 @@ Behaviour:
 def write_atomic(path: Path, data: bytes | str, *, mode: int = 0o600) -> None: ...
 def append_jsonl(path: Path, record: Mapping[str, object], *,
                  max_bytes: int = 16 * 2**20, keep: int = 5) -> None: ...
+def locked(path: Path) -> ContextManager[None]: ...   # the lock append_jsonl takes for path
 ```
 
 `write_atomic` writes a temp file in the same directory, fsyncs, renames, then fsyncs the
@@ -541,7 +542,8 @@ directory. `append_jsonl` holds an `fcntl.flock` with a 5 s timeout (a writer ho
 one `write`, so 5 s means a stuck process), rotates at `max_bytes` and keeps `keep` old files,
 and serialises with `ensure_ascii=True`. The 16 MiB default bounds disk use for logs that have
 no rotation today (`turns.jsonl`); a caller with a retention rule, such as the audit log in
-01-security, passes its own values.
+01-security, passes its own values. `locked` holds the same lock so a caller can compact an
+append-only file (01's routine grant file) without losing a concurrent append.
 
 #### `halkit.timeutil`
 
