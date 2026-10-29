@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hal-gateway"
+dynamic = ["version"]
+description = "Hal model gateway: one authenticated local endpoint in front of llama.cpp and Ollama"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = ["hal-kit"]
+
+[tool.uv.sources]
+hal-kit = { workspace = true }
+
+[tool.hatch.version]
+path = "src/halgateway/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/halgateway"]

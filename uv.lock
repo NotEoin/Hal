@@ -4,9 +4,13 @@ requires-python = ">=3.11"
 
 [manifest]
 members = [
+    "hal-agent",
     "hal-core",
+    "hal-gateway",
     "hal-hub",
     "hal-kit",
+    "hal-remote",
+    "hal-sandbox",
 ]
 
 [manifest.dependency-groups]
@@ -25,6 +29,16 @@ wheels = [
 ]
 
 [[package]]
+name = "hal-agent"
+source = { editable = "packages/hal-agent" }
+dependencies = [
+    { name = "hal-kit" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "hal-kit", editable = "packages/hal-kit" }]
+
+[[package]]
 name = "hal-core"
 source = { editable = "packages/hal-core" }
 dependencies = [
@@ -35,12 +49,46 @@ dependencies = [
 requires-dist = [{ name = "hal-hub", editable = "packages/hal-hub" }]
 
 [[package]]
+name = "hal-gateway"
+source = { editable = "packages/hal-gateway" }
+dependencies = [
+    { name = "hal-kit" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "hal-kit", editable = "packages/hal-kit" }]
+
+[[package]]
 name = "hal-hub"
 source = { editable = "packages/hal-hub" }
 
 [[package]]
 name = "hal-kit"
 source = { editable = "packages/hal-kit" }
+
+[[package]]
+name = "hal-remote"
+source = { editable = "packages/hal-remote" }
+dependencies = [
+    { name = "hal-kit" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "hal-kit", editable = "packages/hal-kit" }]
+
+[[package]]
+name = "hal-sandbox"
+source = { editable = "packages/hal-sandbox" }
+dependencies = [
+    { name = "hal-hub" },
+    { name = "hal-kit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "hal-hub", editable = "packages/hal-hub" },
+    { name = "hal-kit", editable = "packages/hal-kit" },
+]
 
 [[package]]
 name = "iniconfig"

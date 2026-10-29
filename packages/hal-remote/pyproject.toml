@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hal-remote"
+dynamic = ["version"]
+description = "Hal remote: optional SSH add-on for Linux and Windows clients"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = ["hal-kit"]
+
+[tool.uv.sources]
+hal-kit = { workspace = true }
+
+[tool.hatch.version]
+path = "src/halremote/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/halremote"]
