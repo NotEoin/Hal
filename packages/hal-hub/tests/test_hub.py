@@ -13,12 +13,12 @@ import pytest
 from hubkit import DEMO_TOKEN, ScriptedApprover, SpyRunner, answer
 
 from halhub import policy
-from halhub._guard_standin import ReviewResult
 from halhub.approvals import approval_key
 from halhub.audit import tail
 from halhub.guard import GuardResult
 from halhub.hub import CallResult
 from halhub.policy import Scope
+from halhub.reviewer import ReviewResult
 from halhub.runner import Runner, RunnerConfig, RunOutcome
 from halkit.testing import FakeClock
 

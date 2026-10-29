@@ -33,7 +33,7 @@ Design decisions:
   `[guard] enabled = true` and no scanner passed in, each scan goes through a
   `halhub.guard.GuardClient` for the session's `[guard]` settings; a relay that is not
   running makes every scan an error, which flags the session (fail closed, REQ-SEC-35). The
-  reviewer is still the protocol of `_guard_standin` until 01 adds `halhub.reviewer`.
+  reviewer is `halhub.reviewer`; none is built by default (see that module's header).
 - After a result of a tool in `[egress].search_tools`, the session records the result's
   URLs for `url:from-search` (01 REQ-SEC-92). Rate counts are recorded per session: a prompt
   when an `ask` reaches the approver, a call when it ran (REQ-SEC-12).
@@ -75,7 +75,6 @@ from halkit.termsafe import escape
 from halkit.timeutil import iso_z, utc_now
 
 from . import approvals, builtin, policy, search
-from ._guard_standin import Reviewer, ReviewRequest
 from .approvals.keys import security_digest
 from .args import ArgumentError, call_arguments, normalise
 from .audit import AuditLog, AuditUnavailable
@@ -92,6 +91,7 @@ from .providers import (
     provider_meta,
 )
 from .registry import Registry
+from .reviewer import CallReviewer, ReviewRequest
 from .runner import NestedCall, Runner, RunOutcome, SecretError, cut_output, resolve_secrets, scrub
 from .session import EventSink, HubSession, SessionKind, default_workspaces, new_session_id, parse_origin
 from .untrusted import GuardLabel, wrap
@@ -191,7 +191,7 @@ class Hub:
         *,
         runner: Runner | None = None,
         guard: GuardScanner | None = None,
-        reviewer: Reviewer | None = None,
+        reviewer: CallReviewer | None = None,
         config: HubConfig | None = None,
         policy_path: Path | None = None,
         clock: Callable[[], datetime] = utc_now,
@@ -818,7 +818,13 @@ class Hub:
     ) -> bool:
         """Asks the reviewer; True only for `approve`. A reviewer failure escalates to the human."""
         assert self.reviewer is not None
-        request = ReviewRequest(session.last_human_message, target.meta, d.args, session.current_taint())
+        request = ReviewRequest(
+            session.last_human_message,
+            target.meta,
+            d.args,
+            session.current_taint(),
+            description=target.tool.description,
+        )
         error = None
         try:
             result = self.reviewer.review(request)
