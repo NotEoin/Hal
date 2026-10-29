@@ -1,0 +1,35 @@
+# Workspace root for the Hal monorepo. It is virtual: it installs nothing itself and only
+# holds the member list and the lint and test settings shared by every package.
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+# T20 keeps print out of library code (REQ-SYS-15); RUF001 to RUF003 and PLC2401 catch
+# non-ASCII text (REQ-SYS-20).
+select = ["E", "F", "W", "I", "B", "UP", "T20", "RUF001", "RUF002", "RUF003", "PLC2401"]
+
+[tool.ruff.lint.per-file-ignores]
+# Entry points print by design.
+"**/__main__.py" = ["T20"]
+"**/cli.py" = ["T20"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "packages"]
+markers = [
+    "gpu: needs a GPU",
+    "docker: needs a docker daemon",
+    "network: needs the network",
+    "slow: takes more than a few seconds",
+    "bwrap: needs bubblewrap",
+    "systemd: needs a systemd user session",
+    "live: needs a real model server",
+]
+addopts = '-m "not gpu and not docker and not network and not slow and not bwrap and not systemd and not live"'

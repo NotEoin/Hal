@@ -57,3 +57,8 @@ temp/
 *.tmp
 *.out
 /hal.conf.bak.*
+
+# ---- Test and tool caches ---------------------------------------------------
+.pytest_cache/
+.ruff_cache/
+*.bak
