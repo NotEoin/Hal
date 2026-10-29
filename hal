@@ -25,7 +25,8 @@ set -uo pipefail
 
 # Resolve real location even when called through the ~/.local/bin/hal symlink
 HAL_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-halcore() { PYTHONPATH="$HAL_ROOT${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m halcore "$@"; }
+HALCORE_SRC="$HAL_ROOT/packages/hal-core/src"
+halcore() { PYTHONPATH="$HALCORE_SRC${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m halcore "$@"; }
 
 # ---- Commands that need neither hal.conf nor Claude Code --------------------
 case "${1:-}" in
@@ -111,7 +112,7 @@ case "${1:-}" in
   stop)
     exec "$HAL_ROOT/hal-serve" stop ;;
   status)
-    PYTHONPATH="$HAL_ROOT" python3 -m halcore power status
+    PYTHONPATH="$HALCORE_SRC" python3 -m halcore power status
     [ "$BACKEND" = "llamacpp" ] && exec "$HAL_ROOT/hal-serve" status
     exit 0 ;;
   here)
@@ -226,11 +227,11 @@ fi
 # Ollama loads models on demand and drops them after a few idle minutes, so between requests
 # the GPU can look free while this session still needs it. The claim is bound to this shell's
 # pid, which `exec claude` keeps, so it ends with the session, even after a crash. On the max
-# profile hal-serve claims for the router instead. See halcore/gpulight.py. The 150 s limit
+# profile hal-serve claims for the router instead. See packages/hal-core/src/halcore/gpulight.py. The 150 s limit
 # covers the 60 s wait and the unloading of models Ollama split into RAM.
 if [ "$BACKEND" != "llamacpp" ] && [ -n "$MODEL" ] \
     && command -v "${HAL_GPU_LIGHT:-gpu-light}" >/dev/null 2>&1; then
-  PYTHONPATH="$HAL_ROOT${PYTHONPATH:+:$PYTHONPATH}" timeout 150 python3 -m halcore gpulight \
+  PYTHONPATH="$HALCORE_SRC${PYTHONPATH:+:$PYTHONPATH}" timeout 150 python3 -m halcore gpulight \
     claim "hal-session-$$" --pid $$ --reason "hal session on $MODEL" --timeout 60 \
     --unload-offloaded || true
 fi

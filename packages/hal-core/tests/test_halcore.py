@@ -1,7 +1,7 @@
 """Tests for halcore: the brain's tool loop and confirmation gate, the eval checks, units and config edits.
 
 No model or network: the model's replies are scripted and hal-hub is a fake.
-Run with: python3 -m unittest discover -s tests
+Run with: uv run pytest packages/hal-core
 """
 import json
 import os
@@ -11,8 +11,8 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+ROOT = Path(__file__).resolve().parents[3]  # repository root
+sys.path.insert(0, str(ROOT / "packages" / "hal-core" / "src"))
 TMP = tempfile.mkdtemp(prefix="halcore-test-")
 os.environ.update(HAL_CONFIG=f"{TMP}/config.toml", HAL_STATE=f"{TMP}/state", HAL_DATA=f"{TMP}/data")
 

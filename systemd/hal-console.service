@@ -8,6 +8,7 @@ X-HalGPU=yes
 WorkingDirectory=@CORE@
 ExecStart=/usr/bin/python3 -m halcore console
 Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=@CORE@/packages/hal-core/src
 Environment=PATH=%h/.npm-global/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=on-failure
 RestartSec=10

@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hal-core"
+dynamic = ["version"]
+description = "The hal command: agent loop host, extensions, services, eval and console"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = []
+
+[tool.hatch.version]
+path = "src/halcore/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/halcore"]

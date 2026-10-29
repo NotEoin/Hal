@@ -5,7 +5,7 @@
 #   hal-serve stop | status
 #
 # With gpu-light installed, start claims the GPU light as hal-serve and waits for background
-# GPU jobs to leave before any model loads; stop releases it (see halcore/gpulight.py).
+# GPU jobs to leave before any model loads; stop releases it (see packages/hal-core/src/halcore/gpulight.py).
 # Every mode claims, cpu included: it still uses about 3GB of VRAM for prompt processing.
 set -euo pipefail
 
@@ -41,7 +41,7 @@ die() { echo "hal-serve: $*" >&2; exit 1; }
 # Runs Hal's gpu-light hook. It does nothing without gpu-light, bounds every call with its own
 # timeout and always exits 0, so the light can delay the router but never stop it.
 gpu_light() {
-  PYTHONPATH="$HAL_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+  PYTHONPATH="$HAL_ROOT/packages/hal-core/src${PYTHONPATH:+:$PYTHONPATH}" \
     timeout "$((LIGHT_WAIT + 30))" python3 -m halcore gpulight "$@" || true
 }
 

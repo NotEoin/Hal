@@ -8,6 +8,7 @@ members = ["packages/*"]
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [tool.ruff]
+force-exclude = true  # pre-commit style runs that pass file names still honour excludes
 line-length = 110
 target-version = "py311"
 
@@ -20,6 +21,14 @@ select = ["E", "F", "W", "I", "B", "UP", "T20", "RUF001", "RUF002", "RUF003", "P
 # Entry points print by design.
 "**/__main__.py" = ["T20"]
 "**/cli.py" = ["T20"]
+# halcore is the pre-monorepo code, moved unchanged. Each ignore goes when 06-core-cli replaces
+# the module that needs it: T201 (print in library modules), E501, I001, UP035, F401.
+"packages/hal-core/src/halcore/*.py" = ["T201", "E501", "I001", "UP035"]
+"packages/hal-core/tests/*.py" = ["E501", "I001", "F401"]
+
+[tool.ruff.format]
+# Same reason: formatting the moved halcore would bury the move in a rewrite of every line.
+exclude = ["packages/hal-core/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "packages"]

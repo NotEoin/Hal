@@ -36,7 +36,7 @@ the computer itself) is an extension you add when you want it. Raw Hal works on 
 | Piece | What it does |
 |---|---|
 | `hal` | The launcher: chat, coding, on/off, extensions, eval and console |
-| `halcore/` | The brain (agent loop), extension management, services, eval and console |
+| `packages/hal-core/` | The brain (agent loop), extension management, services, eval and console |
 | `eval/scenarios.toml` | The requests Hal is tested against, and how each answer is checked |
 | `setup.sh` | Installs Ollama, the models for your GPU, Claude Code, and writes the config |
 | `hal-serve`, `hal-route.py`, `modes/` | The max profile's llama.cpp server and its five modes |
@@ -168,7 +168,7 @@ rendered with its own path, so it works wherever it is cloned; a unit marked `X-
 ## 💭 Feedback and contributing
 
 Questions, bugs and ideas welcome — open an [issue](https://github.com/NotEoin/Hal/issues) or start
-a [discussion](https://github.com/NotEoin/Hal/discussions). Run `python3 -m unittest discover -s tests`
+a [discussion](https://github.com/NotEoin/Hal/discussions). Run `uv sync --all-packages && uv run pytest`
 and `hal eval` before sending a change to the brain.
 
 ## 📄 Licence

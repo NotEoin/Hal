@@ -3,7 +3,7 @@
 A fake `gpu-light` logs its arguments, and HAL_GPU_LIGHT points at it, so a real gpu-light
 installed on the machine is never called. systemctl, Ollama and desktop notifications are
 replaced in-process; nothing here starts a service, loads a model or touches a GPU.
-Run with: python3 -m unittest discover -s tests
+Run with: uv run pytest packages/hal-core
 """
 import json
 import os
@@ -18,8 +18,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+ROOT = Path(__file__).resolve().parents[3]  # repository root
+SRC = ROOT / "packages" / "hal-core" / "src"
+sys.path.insert(0, str(SRC))
 TMP = tempfile.mkdtemp(prefix="halcore-gpulight-test-")
 os.environ.update(HAL_CONFIG=f"{TMP}/config.toml", HAL_STATE=f"{TMP}/state", HAL_DATA=f"{TMP}/data")
 
@@ -208,7 +209,7 @@ class ClaimTest(LightCase):
             gpulight.claim("Hal session", "test")
 
     def test_the_command_line_exits_0_when_the_claim_fails(self):
-        env = {**os.environ, "PYTHONPATH": str(ROOT), "FAKE_GPU_LIGHT_CLAIM_EXIT": "1"}
+        env = {**os.environ, "PYTHONPATH": str(SRC), "FAKE_GPU_LIGHT_CLAIM_EXIT": "1"}
         proc = subprocess.run([sys.executable, "-m", "halcore", "gpulight", "claim", "hal", "--no-wait"],
                               capture_output=True, text=True, env=env, timeout=30)
         self.assertEqual(proc.returncode, 0)

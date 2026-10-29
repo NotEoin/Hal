@@ -10,7 +10,7 @@ import os
 import tomllib
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]          # the core hal checkout
+ROOT = Path(__file__).resolve().parents[4]          # the core hal checkout: src/halcore/config.py sits in packages/hal-core/src
 ECOSYSTEM = ROOT.parents[1]                         # hal-ecosystem, when hal sits in core/
 
 SHARED = {
