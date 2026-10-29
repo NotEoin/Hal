@@ -25,14 +25,30 @@ select = ["E", "F", "W", "I", "B", "UP", "T20", "RUF001", "RUF002", "RUF003", "P
 # the module that needs it: T201 (print in library modules), E501, I001, UP035, F401.
 "packages/hal-core/src/halcore/*.py" = ["T201", "E501", "I001", "UP035"]
 "packages/hal-core/tests/*.py" = ["E501", "I001", "F401"]
-# hal-hub is the pre-monorepo code, moved unchanged until 04-hub rewrites it: T201 (print in
-# registry.py), E501, I001, UP037, B905.
-"packages/hal-hub/src/halhub/*.py" = ["T201", "E501", "I001", "UP037", "B905"]
-"packages/hal-hub/tests/*.py" = ["E501"]
+# hal-hub's v1 modules, moved unchanged until 04-hub's plan replaces each one (step 26 removes
+# the last). New hub modules get no ignores.
+"packages/hal-hub/src/halhub/registry.py" = ["T201", "E501", "UP037"]
+"packages/hal-hub/src/halhub/runner.py" = ["E501", "I001"]
+"packages/hal-hub/src/halhub/mcp.py" = ["I001"]
+"packages/hal-hub/src/halhub/search.py" = ["B905"]
+"packages/hal-hub/src/halhub/__main__.py" = ["E501", "I001"]
+"packages/hal-hub/tests/test_hub.py" = ["E501"]
 
 [tool.ruff.format]
-# Same reason: formatting the moved halcore would bury the move in a rewrite of every line.
-exclude = ["packages/hal-core/**", "packages/hal-hub/**"]
+# Same reason: formatting the moved halcore and the v1 hub modules would bury the move in a
+# rewrite of every line.
+exclude = [
+    "packages/hal-core/**",
+    "packages/hal-hub/README.md",
+    "packages/hal-hub/src/halhub/__init__.py",
+    "packages/hal-hub/src/halhub/__main__.py",
+    "packages/hal-hub/src/halhub/mcp.py",
+    "packages/hal-hub/src/halhub/registry.py",
+    "packages/hal-hub/src/halhub/runner.py",
+    "packages/hal-hub/src/halhub/search.py",
+    "packages/hal-hub/src/halhub/tools.py",
+    "packages/hal-hub/tests/test_hub.py",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "packages"]

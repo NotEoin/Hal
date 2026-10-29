@@ -1,0 +1,5 @@
+[Unit]
+Description=Synthetic unit for hub tests
+
+[Service]
+ExecStart=/bin/true

@@ -9,7 +9,10 @@ description = "One way in to every Hal module's tools: registry, search, runner 
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-dependencies = []
+dependencies = ["hal-kit"]
+
+[tool.uv.sources]
+hal-kit = { workspace = true }
 
 [project.scripts]
 hal-hub = "halhub.__main__:main"

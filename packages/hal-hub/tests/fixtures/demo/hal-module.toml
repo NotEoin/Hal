@@ -1,0 +1,65 @@
+# Synthetic v2 pack for the hub's tests: one tool per tier flag the policy reads.
+schema = 2
+
+[module]
+name = "demo"
+summary = "Synthetic tools for the hub's tests"
+python = "haldemo.tools"
+keywords = ["sample"]
+
+[[module.secrets]]
+name = "api_token"
+config_key = "demo.token_file"
+default_path = "~/.config/hal/demo-token"
+
+[[tools]]
+name = "demo_echo"
+function = "echo"
+description = "Return the text it is given."
+tier = "read"
+always_offer = true
+[tools.params.text]
+description = "what to echo"
+required = true
+max_length = 200
+[tools.params.times]
+type = "integer"
+description = "how many copies"
+minimum = 1
+maximum = 5
+default = 1
+
+[[tools]]
+name = "demo_wipe"
+function = "wipe"
+description = "Pretend to delete a file."
+tier = "act"
+[tools.params.path]
+description = "the file"
+required = true
+format = "path"
+access = "write"
+max_length = 4096
+
+[[tools]]
+name = "demo_lights"
+function = "lights"
+description = "Pretend to set the lights to a colour."
+tier = "act"
+reversible = true
+reviewable = true
+[tools.params.colour]
+required = true
+enum = ["red", "green", "blue"]
+aliases = ["color"]
+
+[[tools]]
+name = "demo_fetch"
+function = "fetch"
+description = "Pretend to fetch a web page."
+tier = "read"
+network = true
+untrusted_output = true
+[tools.params.url]
+required = true
+format = "url"

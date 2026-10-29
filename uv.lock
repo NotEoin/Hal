@@ -61,6 +61,12 @@ requires-dist = [{ name = "hal-kit", editable = "packages/hal-kit" }]
 [[package]]
 name = "hal-hub"
 source = { editable = "packages/hal-hub" }
+dependencies = [
+    { name = "hal-kit" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "hal-kit", editable = "packages/hal-kit" }]
 
 [[package]]
 name = "hal-kit"

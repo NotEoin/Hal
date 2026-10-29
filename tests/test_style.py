@@ -256,5 +256,5 @@ def test_print_is_banned_outside_entry_points_by_the_ruff_config():
         for pattern, rules in config["per-file-ignores"].items()
         if any(r.startswith("T20") for r in rules)
     ]
-    legacy = {"packages/hal-core/src/halcore/*.py", "packages/hal-hub/src/halhub/*.py"}
+    legacy = {"packages/hal-core/src/halcore/*.py", "packages/hal-hub/src/halhub/registry.py"}
     assert set(ignored) <= {"**/__main__.py", "**/cli.py"} | legacy

@@ -1,0 +1,29 @@
+# Synthetic v1 manifest in the shape the old scaffold wrote (no schema key).
+[module]
+name = "legacy"
+summary = "A v1 module for the hub's compatibility tests"
+python = "hallegacy.tools"
+
+[[tools]]
+name = "legacy_add"
+function = "add"
+description = "Add two numbers."
+keywords = "sum plus"
+[tools.params.a]
+type = "integer"
+required = true
+[tools.params.b]
+type = "integer"
+required = true
+
+[[tools]]
+name = "legacy_tag"
+function = "tag"
+description = "Tag a note."
+confirm = false
+timeout = 9000
+[tools.params.tags]
+type = "array"
+description = "tags"
+[tools.params.extra]
+type = "object"
