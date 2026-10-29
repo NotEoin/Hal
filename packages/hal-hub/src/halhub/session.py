@@ -5,11 +5,9 @@ client process or broker session; it holds what 01-security's policy reads (orig
 profile, taint, grants, rates, approver) and the sink every audit record goes through.
 Design decisions:
 
-- Taint starts per 01 REQ-SEC-32: sessions of kind `code`, `box`, `remote` and `hub` start
-  `untrusted`, because nothing tells them what the human last saw (REQ-HUB-68, D24). A human
-  message resets taint to the starting level, except that `voice` never clears `flagged`
-  (audio can come from a page or another person) and `headless` or `routine` text only
-  records the message (01 REQ-SEC-93).
+- Taint follows 01's `halhub.policy.taint.TaintTracker` (REQ-SEC-32, REQ-HUB-68): the
+  session holds one tracker and writes the `taint_change` record for each change it returns.
+  `resumed=True` marks a session reopened after a broker restart, which starts `untrusted`.
 - The last human message is kept in memory only, cut to `HUMAN_MESSAGE_CHARS` for the
   reviewer; the audit log gets its length and digest unless `[audit].content` is on.
 - A failed `taint_change` record never stops taint from rising: raising it is the safe
@@ -25,7 +23,6 @@ import json
 import logging
 import os
 import secrets
-import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -39,13 +36,12 @@ from .audit import AuditUnavailable
 from .policy.model import Context, Origin, Policy, ResolvedPath, Taint, ToolMeta
 from .policy.provenance import SearchUrls
 from .policy.rate import RateLimiter
+from .policy.taint import TaintChange, TaintTracker
 
 log = logging.getLogger(__name__)
 
 SessionKind = Literal["code", "box", "chat", "headless", "routine", "remote", "hub"]
 SESSION_KINDS: tuple[str, ...] = get_args(SessionKind)
-UNTRUSTED_START = frozenset({"code", "box", "remote", "hub"})  # 01 REQ-SEC-32
-RECORD_ONLY_SURFACES = frozenset({"headless", "routine"})  # 01 REQ-SEC-93: no taint reset
 HUMAN_MESSAGE_CHARS = 4000  # 01 "Taint, guard and reviewer": what the reviewer reads
 SESSION_ID_BYTES = 6  # 12 hex characters (RESOLUTIONS E2)
 REMOTE_PREFIX = "remote:"
@@ -153,9 +149,9 @@ class HubSession:
     home: Path = field(default_factory=Path.home)  # where `~/` in path arguments and roots points
     remote_addr: str | None = None
     last_human_message: str = ""
-    taint: Taint | None = None  # None: the starting level for `kind`
+    resumed: bool = False  # reopened after a broker restart: starts `untrusted` (01 F5)
     guard_label: str | None = None  # the last guard label, shown in approval requests
-    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    _taint: TaintTracker = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not paths.SESSION_ID_RE.fullmatch(self.id):
@@ -167,13 +163,12 @@ class HubSession:
         origin, _ = parse_origin(self.origin)
         if origin is Origin.REMOTE and self.channel != "remote":
             raise ValueError("origin remote:<client> needs the remote channel")
-        if self.taint is None:
-            self.taint = self.start_taint
+        self._taint = TaintTracker(self.kind, resumed=self.resumed)
 
     @property
     def start_taint(self) -> Taint:
-        """The level this session starts at and a human message resets it to."""
-        return Taint.UNTRUSTED if self.kind in UNTRUSTED_START else Taint.CLEAN
+        """The level a human message resets this session to."""
+        return self._taint.reset_level
 
     def fields(self) -> dict[str, object]:
         """The common audit fields this session supplies (01 "Audit log")."""
@@ -219,33 +214,23 @@ class HubSession:
 
     def current_taint(self) -> Taint:
         """The taint level now."""
-        with self._lock:
-            assert self.taint is not None  # set in __post_init__
-            return self.taint
+        return self._taint.level
 
     def raise_taint(self, level: Taint, *, cause: str) -> None:
         """Raises taint to at least `level` and audits the change; never lowers it."""
-        with self._lock:
-            before = self.taint
-            assert before is not None
-            if level <= before:
-                return
-            self.taint = level
-        self._audit_taint(before, level, cause=cause)
+        change = self._taint.raise_to(level, cause=cause)
+        if change is not None:
+            self._audit_taint(change)
 
     def human_message(self, text: str, *, surface: str) -> None:
-        """Keeps `text` for the reviewer and resets taint per 01 F5 and REQ-SEC-32."""
+        """Keeps `text` for the reviewer and resets taint per 01 F5 and REQ-SEC-32.
+
+        Raises `ValueError` for a surface `TaintTracker` does not know.
+        """
+        change = self._taint.human_message(surface)
         self.last_human_message = text[:HUMAN_MESSAGE_CHARS]
-        with self._lock:
-            before = self.taint
-            assert before is not None
-            reset = surface not in RECORD_ONLY_SURFACES and not (
-                surface == "voice" and before is Taint.FLAGGED
-            )
-            after = self.start_taint if reset else before
-            self.taint = after
-        if after != before:
-            self._audit_taint(before, after, cause="human_message", surface=surface, text=text)
+        if change is not None:
+            self._audit_taint(change, text=text)
 
     def close(self) -> None:
         """Ends the session: its grants, rate counts and search URLs are dropped."""
@@ -253,25 +238,22 @@ class HubSession:
         self.rate.forget(self.id)
         self.search_urls.forget(self.id)
 
-    def _audit_taint(
-        self, before: Taint, after: Taint, *, cause: str, surface: str | None = None, text: str = ""
-    ) -> None:
+    def _audit_taint(self, change: TaintChange, *, text: str = "") -> None:
         fields: dict[str, object] = {
-            "from": before.label,
-            "to": after.label,
-            "cause": cause,
-            "surface": surface,
+            "from": change.before.label,
+            "to": change.after.label,
+            "cause": change.cause,
+            "surface": change.surface,
         }
-        if cause == "human_message":
+        if change.cause == "human_message":
             content = self.policy.audit.content
             digest = hashlib.sha256(text.encode()).hexdigest()
             fields["message"] = text if content else {"chars": len(text), "sha256": digest}
         try:
             self.emit("taint_change", **fields)
         except AuditUnavailable as exc:
-            log.error(
-                "session %s: taint is now %s but the audit record failed: %s", self.id, after.label, exc
-            )
+            level = change.after.label
+            log.error("session %s: taint is now %s but the audit record failed: %s", self.id, level, exc)
 
 
 def default_workspaces() -> Callable[[], tuple[Path, ...]]:

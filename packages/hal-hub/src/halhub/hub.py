@@ -225,8 +225,12 @@ class Hub:
         audit: EventSink | None = None,
         session_id: str | None = None,
         remote_addr: str | None = None,
+        resumed: bool = False,
     ) -> HubSession:
-        """A session with this hub's defaults; raises `halkit.config.ConfigError` for a bad policy file."""
+        """A session with this hub's defaults; raises `halkit.config.ConfigError` for a bad policy file.
+
+        `resumed` marks a session reopened after a restart; it starts `untrusted` (01 F5).
+        """
         loaded = policy.load_policy(self._policy_path, profile=profile, channel=channel, home=self._home)
         if audit is None:
             audit = AuditLog(settings=loaded.audit, secrets=self.known_secrets, clock=self._clock)
@@ -244,6 +248,7 @@ class Hub:
             workspaces=default_workspaces(),
             home=self._home,
             remote_addr=remote_addr,
+            resumed=resumed,
         )
 
     def known_secrets(self) -> tuple[str, ...]:

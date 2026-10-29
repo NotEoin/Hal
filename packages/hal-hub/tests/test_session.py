@@ -32,6 +32,13 @@ def test_chat_session_starts_clean(make_hub):
     assert open_session(make_hub()).current_taint() is Taint.CLEAN
 
 
+def test_resumed_chat_session_starts_untrusted_until_the_human_speaks(make_hub):
+    s = open_session(make_hub(), resumed=True)
+    assert s.current_taint() is Taint.UNTRUSTED
+    s.human_message("carry on", surface="tui")
+    assert s.current_taint() is Taint.CLEAN
+
+
 def test_untrusted_result_raises_taint(make_hub, hal_home):
     hal_home.policy.write_text('schema_version = 1\n[egress]\ndomains = ["example.org"]\n')
     hub = make_hub(runner=SpyRunner(result="page"))
