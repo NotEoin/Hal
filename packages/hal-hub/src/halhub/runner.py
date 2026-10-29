@@ -25,13 +25,23 @@ running one call at a time. Design decisions:
   top of the spec's flags: `--new-session` puts the tool in its own session, out of reach of
   the process-group kill, and a pid namespace makes killing bwrap end every process inside
   [verified 2026-10-29: a grandchild `sleep` survived `killpg` without it and died with it].
+- v1 tools declare no `network`, so they keep it: dropping it would break every v1 tool that
+  fetches anything, and the drop is defence in depth, not the boundary.
+- v1 `exec` modules keep the one-shot protocol: one process per call, the function name as
+  the last argument, JSON on stdin, JSON or text on stdout (REQ-HUB-30).
+- In-process tools run only for a module that sets `inprocess = true` and is the built-in
+  module or listed in `[hub.runner].inprocess_modules` (REQ-HUB-24). Python cannot stop a
+  thread, so a timeout marks the module tainted until the hub restarts.
 """
 
 from __future__ import annotations
 
+import asyncio
 import collections
 import contextlib
 import dataclasses
+import importlib
+import inspect
 import itertools
 import json
 import logging
@@ -65,6 +75,7 @@ STDERR_TAIL_LINES = 50  # kept for `doctor` and crash messages
 CRASH_LINE_CHARS = 200  # the last stderr line quoted in a `worker_crashed` message
 REAP_TIMEOUT_S = 5.0  # time allowed to collect a killed worker's exit status
 REAPER_INTERVAL_S = 30.0  # idle workers are checked this often; idle_timeout is minutes
+ONESHOT_ERROR_CHARS = 800  # the tail of stderr a failed one-shot call reports, as v1 did
 REDACTED = "[redacted]"  # 01-security's replacement text for a secret value
 BWRAP = "bwrap"
 BWRAP_COMMON = ("--dev-bind", "/", "/", "--unshare-pid", "--die-with-parent", "--new-session")
@@ -422,6 +433,7 @@ class Runner:
         self._closed = threading.Event()
         self._reaper: threading.Thread | None = None
         self._bwrap: bool | None = None  # probed on first use
+        self._tainted: set[str] = set()  # in-process modules that overran a timeout
 
     # -- public API --
 
@@ -448,6 +460,13 @@ class Runner:
             raise ValueError(f"{module.name} does not declare the secrets {sorted(undeclared)}")
         if self._closed.is_set():
             return RunOutcome(False, error_type="worker_failed", message="the runner is closed")
+        if self._runs_inprocess(module):
+            return self._run_inprocess(module, tool, args, started, timeout, cancel)
+        if module.exec and module.protocol == "oneshot":
+            outcome = self._run_oneshot(module, tool, args, started, timeout, cancel)
+            return dataclasses.replace(
+                outcome, result=scrub(outcome.result, secrets), message=scrub(outcome.message, secrets)
+            )
         pool_key = (module.name, self._needs_network(module, tool))
         try:
             worker = self._acquire(module, pool_key)
@@ -487,7 +506,12 @@ class Runner:
     # -- pools --
 
     def _needs_network(self, module: ModuleSpec, tool: ToolSpec) -> bool:
-        return tool.network
+        return tool.network or module.schema == 1
+
+    def _wrap(self, argv: list[str], *, network: bool) -> list[str]:
+        if not self._uses_bwrap():
+            return argv
+        return [BWRAP, *BWRAP_COMMON, *(() if network else BWRAP_OFFLINE), "--", *argv]
 
     def sandbox_status(self) -> str:
         """One line for `doctor`: whether workers without network get it dropped."""
@@ -589,9 +613,7 @@ class Runner:
 
     def _start(self, module: ModuleSpec, *, network: bool) -> _Worker:
         try:
-            argv = worker_argv(module)
-            if self._uses_bwrap():
-                argv = [BWRAP, *BWRAP_COMMON, *(() if network else BWRAP_OFFLINE), "--", *argv]
+            argv = self._wrap(worker_argv(module), network=network)
             proc = self._popen(
                 argv,
                 stdin=subprocess.PIPE,
@@ -729,6 +751,116 @@ class Runner:
         error = {"type": outcome.error_type or "tool_error", "message": outcome.message or ""}
         return {"op": "tool_result", "id": nested_id, "ok": False, "error": error}
 
+    # -- one-shot (v1 exec) --
+
+    def _run_oneshot(
+        self,
+        module: ModuleSpec,
+        tool: ToolSpec,
+        args: Mapping[str, object],
+        started: float,
+        timeout: float,
+        cancel: threading.Event | None,
+    ) -> RunOutcome:
+        assert module.exec is not None
+        argv = self._wrap([*module.exec, tool.function], network=self._needs_network(module, tool))
+        payload = json.dumps(dict(args), ensure_ascii=True, default=str).encode("ascii")
+        try:
+            child = self._popen(
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=worker_environment(module),
+                cwd=module.root,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            return _timed(
+                RunOutcome(False, error_type="worker_failed", message=f"cannot run {argv[0]}: {exc}"), started
+            )
+        deadline = started + timeout
+        pending: bytes | None = payload
+        while True:
+            try:
+                stdout, stderr = child.communicate(input=pending, timeout=TICK_S)
+                break
+            except subprocess.TimeoutExpired:
+                pending = None  # communicate keeps the input it already took
+                stopped = cancel is not None and cancel.is_set()
+                if stopped or time.monotonic() >= deadline:
+                    _kill_group(child, self.config.kill_grace)
+                    if stopped:
+                        outcome = RunOutcome(
+                            False, error_type="cancelled", message=f"{tool.name} was cancelled"
+                        )
+                    else:
+                        message = f"{tool.name} took longer than {timeout:g} s and was stopped"
+                        outcome = RunOutcome(False, error_type="timeout", message=message)
+                    return _timed(dataclasses.replace(outcome, worker_pid=child.pid), started)
+        if len(stdout) > MAX_MESSAGE_BYTES:
+            outcome = RunOutcome(
+                False, error_type="output_too_large", message=f"output passed {MAX_MESSAGE_BYTES} bytes"
+            )
+        elif child.returncode != 0:
+            text = (stderr or stdout).decode("utf-8", "replace").strip()[-ONESHOT_ERROR_CHARS:]
+            outcome = RunOutcome(
+                False, error_type="tool_error", message=text or f"exit status {child.returncode}"
+            )
+        else:
+            text = stdout.decode("utf-8", "replace").strip()
+            try:
+                result: object = json.loads(text) if text else None
+            except ValueError:
+                result = text
+            outcome = RunOutcome(True, result=result)
+        return _timed(dataclasses.replace(outcome, worker_pid=child.pid), started)
+
+    # -- in-process --
+
+    def _runs_inprocess(self, module: ModuleSpec) -> bool:
+        if not module.inprocess:
+            return False
+        allowed = module.source == "builtin" or module.name in self.config.inprocess_modules
+        if allowed and module.secrets:
+            log.warning("%s declares secrets, so it runs in a worker, not in-process", module.name)
+            return False
+        return allowed and module.python is not None
+
+    def _run_inprocess(
+        self,
+        module: ModuleSpec,
+        tool: ToolSpec,
+        args: Mapping[str, object],
+        started: float,
+        timeout: float,
+        cancel: threading.Event | None,
+    ) -> RunOutcome:
+        if module.name in self._tainted:
+            message = f"{module.name} overran a timeout in-process and is refused until the hub restarts"
+            return RunOutcome(False, error_type="worker_failed", message=message)
+        box: dict[str, RunOutcome] = {}
+        thread = threading.Thread(
+            target=lambda: box.setdefault("outcome", _call_inprocess(module, tool, args)),
+            name=f"hal-inprocess-{module.name}",
+            daemon=True,
+        )
+        thread.start()
+        deadline = started + timeout
+        while thread.is_alive():
+            if cancel is not None and cancel.is_set():
+                self._tainted.add(module.name)
+                return _timed(
+                    RunOutcome(False, error_type="cancelled", message=f"{tool.name} was cancelled"), started
+                )
+            if time.monotonic() >= deadline:
+                self._tainted.add(module.name)
+                log.warning("in-process module %s overran %g s; refused until restart", module.name, timeout)
+                message = f"{tool.name} took longer than {timeout:g} s"
+                return _timed(RunOutcome(False, error_type="timeout", message=message), started)
+            thread.join(min(TICK_S, max(deadline - time.monotonic(), 0)))
+        return _timed(box["outcome"], started)
+
     def _crash_message(self, worker: _Worker) -> str:
         with contextlib.suppress(subprocess.TimeoutExpired):
             worker.proc.wait(timeout=worker.kill_grace)
@@ -740,6 +872,42 @@ class Runner:
     @staticmethod
     def _since(started: float) -> float:
         return round(time.monotonic() - started, 3)
+
+
+def _kill_group(child: subprocess.Popen[bytes], grace: float) -> None:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(child.pid, signal.SIGTERM)
+    try:
+        child.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        pass
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(child.pid, signal.SIGKILL)
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        child.communicate(timeout=REAP_TIMEOUT_S)
+
+
+def _call_inprocess(module: ModuleSpec, tool: ToolSpec, args: Mapping[str, object]) -> RunOutcome:
+    """Imports and calls the tool function in this process, mapping failures like the worker does."""
+    assert module.python is not None
+    try:
+        fn = getattr(importlib.import_module(module.python), tool.function)
+        inspect.signature(fn).bind(**args)
+    except TypeError as exc:
+        return RunOutcome(False, error_type="manifest_mismatch", message=str(exc))
+    except (ImportError, AttributeError) as exc:
+        return RunOutcome(False, error_type="worker_failed", message=f"cannot load {tool.function}: {exc}")
+    try:
+        with contextlib.redirect_stdout(sys.stderr):  # stdout may be an MCP stdio stream
+            result = asyncio.run(fn(**args)) if inspect.iscoroutinefunction(fn) else fn(**args)
+    except Exception as exc:  # noqa: BLE001 - a tool's failure is reported to the caller, never raised
+        log.debug("in-process tool %s failed", tool.name, exc_info=True)
+        return RunOutcome(False, error_type="tool_error", message=f"{type(exc).__name__}: {exc}")
+    try:
+        json.dumps(result, default=str, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        return RunOutcome(False, error_type="tool_error", message=f"the result cannot be sent as JSON: {exc}")
+    return RunOutcome(True, result=json.loads(json.dumps(result, default=str)))
 
 
 def _timed(outcome: RunOutcome, started: float) -> RunOutcome:

@@ -241,6 +241,12 @@ def test_secret_needs_every_key(tmp_path):
     rejects(tmp_path, HEADER + secret + TOOL, "module.secrets[0].default_path", "required")
 
 
+def test_oneshot_exec_module_cannot_declare_secrets(tmp_path):
+    secret = '[[module.secrets]]\nname = "pw"\nconfig_key = "demo.pw_file"\ndefault_path = "~/.pw"\n'
+    text = HEADER.replace('python = "haldemo.tools"', 'exec = ["w"]\nprotocol = "oneshot"') + secret + TOOL
+    rejects(tmp_path, text, "module.secrets", "jsonl")
+
+
 def test_max_workers_is_bounded(tmp_path):
     rejects(tmp_path, HEADER + "max_workers = 9\n" + TOOL, "module.max_workers")
 

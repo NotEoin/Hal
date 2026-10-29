@@ -633,6 +633,10 @@ class _Parser:
             if problem:
                 raise r.fail(f"module.domains[{index}]", problem)
         secrets = self.secrets(m)
+        if secrets and exec_argv is not None and protocol == "oneshot":
+            raise r.fail(
+                "module.secrets", 'a one-shot exec module cannot receive secrets; use protocol = "jsonl"'
+            )
         startup_timeout = r.get(m, "startup_timeout", "module", float, self.defaults.startup_timeout)
         if not 0 < startup_timeout <= self.defaults.max_timeout:
             raise r.fail(

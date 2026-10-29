@@ -365,3 +365,103 @@ def test_bwrap_off_never_probes(make_runner, probe, monkeypatch):
     runner = make_runner()
     assert run(runner, probe, "probe_shout", {"text": "x"}).ok
     assert "off" in runner.sandbox_status()
+
+
+# ---- one-shot v1 exec modules (REQ-HUB-30) -----------------------------------------------------
+
+
+@pytest.fixture
+def oneshot(fixtures) -> ModuleSpec:
+    return load_manifest(fixtures / "oneshot" / "hal-module.toml", source="path")
+
+
+def test_oneshot_v1_exec_module_still_runs(make_runner, oneshot):
+    outcome = run(make_runner(), oneshot, "oneshot_add", {"a": 2, "b": 3})
+    assert outcome.ok and outcome.result == {"sum": 5, "cwd_ok": True}
+
+
+def test_oneshot_output_that_is_not_json_is_returned_as_text(make_runner, oneshot):
+    assert run(make_runner(), oneshot, "oneshot_say").result == "plain words, not JSON"
+
+
+def test_oneshot_failure_reports_the_end_of_stderr(make_runner, oneshot):
+    outcome = run(make_runner(), oneshot, "oneshot_fail")
+    assert outcome.error_type == "tool_error" and outcome.message.endswith("the calendar file is locked")
+
+
+def test_oneshot_timeout_kills_the_process_group(make_runner, oneshot, tmp_path):
+    pidfile = tmp_path / "child.pid"
+    started = time.monotonic()
+    outcome = run(make_runner(), oneshot, "oneshot_sleep", {"pidfile": str(pidfile)}, timeout=0.5)
+    assert outcome.error_type == "timeout" and time.monotonic() - started < 0.5 + FAST.kill_grace + 1
+    assert not pid_alive(int(pidfile.read_text()))
+
+
+def test_oneshot_cancel_stops_the_call(make_runner, oneshot, tmp_path):
+    cancel = threading.Event()
+    threading.Timer(0.2, cancel.set).start()
+    outcome = run(
+        make_runner(), oneshot, "oneshot_sleep", {"pidfile": str(tmp_path / "p")}, timeout=10, cancel=cancel
+    )
+    assert outcome.error_type == "cancelled"
+
+
+# ---- in-process modules (REQ-HUB-24) -----------------------------------------------------------
+
+
+@pytest.fixture
+def inprocess_demo(fixtures, monkeypatch) -> ModuleSpec:
+    monkeypatch.syspath_prepend(str(fixtures / "demo"))
+    module = load_manifest(fixtures / "demo" / "hal-module.toml", source="path")
+    return dataclasses.replace(module, inprocess=True, secrets=())
+
+
+def test_inprocess_module_listed_in_config_runs_in_the_hub(make_runner, inprocess_demo):
+    runner = make_runner(dataclasses.replace(FAST, inprocess_modules=frozenset({"demo"})))
+    outcome = run(runner, inprocess_demo, "demo_echo", {"text": "hi", "times": 2})
+    assert outcome.ok and outcome.result == "hi hi" and outcome.worker_pid is None
+
+
+def test_inprocess_flag_without_config_still_runs_in_a_worker(make_runner, inprocess_demo):
+    outcome = run(make_runner(), inprocess_demo, "demo_echo", {"text": "hi"})
+    assert outcome.ok and outcome.worker_pid is not None
+
+
+def test_listed_module_without_the_flag_runs_in_a_worker(make_runner, inprocess_demo):
+    runner = make_runner(dataclasses.replace(FAST, inprocess_modules=frozenset({"demo"})))
+    module = dataclasses.replace(inprocess_demo, inprocess=False)
+    assert run(runner, module, "demo_echo", {"text": "hi"}).worker_pid is not None
+
+
+def test_tainted_inprocess_module_is_refused(make_runner, tmp_path, monkeypatch):
+    (tmp_path / "halslow.py").write_text(
+        "import time\n\n\ndef nap(seconds):\n    time.sleep(seconds)\n    return 'up'\n"
+    )
+    manifest = tmp_path / "hal-module.toml"
+    manifest.write_text(
+        'schema = 2\n[module]\nname = "slow"\nsummary = "s"\npython = "halslow"\ninprocess = true\n'
+        '[[tools]]\nname = "slow_nap"\nfunction = "nap"\ndescription = "d"\ntier = "read"\n'
+        '[tools.params.seconds]\ntype = "number"\n'
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    module = load_manifest(manifest, source="path")
+    runner = make_runner(dataclasses.replace(FAST, inprocess_modules=frozenset({"slow"})))
+    assert run(runner, module, "slow_nap", {"seconds": 1}, timeout=0.2).error_type == "timeout"
+    refused = run(runner, module, "slow_nap", {"seconds": 0}, timeout=5)
+    assert refused.error_type == "worker_failed" and "restarts" in refused.message
+
+
+def test_inprocess_errors_map_like_worker_errors(make_runner, inprocess_demo):
+    runner = make_runner(dataclasses.replace(FAST, inprocess_modules=frozenset({"demo"})))
+    assert (
+        run(runner, inprocess_demo, "demo_echo", {"text": "a", "loud": 1}).error_type == "manifest_mismatch"
+    )
+
+
+def test_v1_tools_keep_the_network_because_they_never_declared_it(make_runner, fixtures, monkeypatch):
+    monkeypatch.setattr("halhub.runner.bwrap_available", lambda: True)
+    legacy = load_manifest(fixtures / "legacy" / "hal-module.toml", source="path")
+    popen = UnwrappingPopen()
+    runner = make_runner(dataclasses.replace(FAST, bwrap="auto"), popen=popen)
+    assert run(runner, legacy, "legacy_add", {"a": 1, "b": 2}).result == 3
+    assert popen.started[0][0] == "bwrap" and "--unshare-net" not in popen.started[0]

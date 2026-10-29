@@ -9,3 +9,4 @@ no real secrets.
 | `legacy` | v1 module in the shape of the old `hal-ecosystem/scaffold.py` template |
 | `probe` | v2 pack whose tools print, raise, sleep with a child, crash, read secrets or connect |
 | `broken` | v2 pack whose tools module raises on import |
+| `oneshot` | v1 `exec` module: a small Python script speaking the one-shot protocol |

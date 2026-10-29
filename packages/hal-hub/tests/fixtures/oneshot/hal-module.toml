@@ -1,0 +1,30 @@
+# Synthetic v1 exec module speaking the one-shot protocol: function name last, JSON on stdin.
+[module]
+name = "oneshot"
+summary = "A v1 exec module run once per call"
+exec = ["{python}", "{root}/tool.py"]
+
+[[tools]]
+name = "oneshot_add"
+function = "add"
+description = "Add two numbers."
+[tools.params.a]
+type = "integer"
+[tools.params.b]
+type = "integer"
+
+[[tools]]
+name = "oneshot_say"
+function = "say"
+description = "Reply in plain text."
+
+[[tools]]
+name = "oneshot_fail"
+function = "fail"
+description = "Fail with a message on stderr."
+
+[[tools]]
+name = "oneshot_sleep"
+function = "sleep"
+description = "Start a child sleep, record its pid, then sleep."
+[tools.params.pidfile]
