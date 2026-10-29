@@ -3,6 +3,8 @@
 
 [tool.uv.workspace]
 members = ["packages/*"]
+# hal-hub joins when it gets its pyproject (next commit).
+exclude = ["packages/hal-hub"]
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]
