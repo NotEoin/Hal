@@ -8,6 +8,8 @@ written.
 | Document | What it is |
 | --- | --- |
 | [design/README.md](design/README.md) | Index of the design specs |
+| [dev/manifest.md](dev/manifest.md) | Tool manifest (`hal-module.toml`) reference: every table and key, placeholders, v1 rules |
+| [dev/worker-protocol.md](dev/worker-protocol.md) | The JSON-lines protocol between the tool hub and a tool worker, and the v1 one-shot protocol |
 | [design/00-overview.md](design/00-overview.md) | System overview: repos, packages, `halkit`, flows, configuration, ports, release plan |
 | [design/01-security.md](design/01-security.md) | Threat model, tool tiers, policy, approvals, guard, audit |
 | [design/02-sandbox.md](design/02-sandbox.md) | Container and bubblewrap backends, broker, sockets, checkpoints, `hal box` |

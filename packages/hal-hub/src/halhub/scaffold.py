@@ -272,7 +272,7 @@ def main() -> int:
         args = message.get("args") or {{}}
         if fn is None:
             send({{"op": "result", "id": request_id, "ok": False,
-                  "error": {{"type": "ArgumentsMismatch", "message": "no such function"}}}})
+                  "error": {{"type": "ProtocolError", "message": "no such function"}}}})
             continue
         try:
             inspect.signature(fn).bind(**args)

@@ -133,32 +133,42 @@ work but are deprecated and warn once: `halhub.call` returns the v1 dict (`statu
 ## Write a module
 
 A module is a folder with a `hal-module.toml` beside its code. The manifest names the module, says
-how to call it, and declares each tool:
+how to call it, and declares each tool with its tier (`read`, `write`, `act`, `send` or
+`system`), which sets the default policy:
 
 ```toml
+schema = 2
+
 [module]
 name = "weather"
 summary = "Forecasts"
-python = "halweather.tools"        # or: exec = ["{root}/.venv/bin/python", "-m", "halweather", "--stdin"]
+python = "halweather.tools"        # or: exec = ["{root}/worker"] for a program of your own
 
 [[tools]]
 name = "weather_now"
 function = "now"
 description = "Current weather for a place."
+tier = "read"
+network = true
+untrusted_output = true
 [tools.params.place]
 description = "town or city"
 required = true
+max_length = 100
 ```
+
+Every key is in the [manifest reference](../../docs/dev/manifest.md); a manifest without
+`schema = 2` loads as v1, with every tool at tier `act`.
 
 Search matches a tool's name, description and `keywords`, plus the module's `keywords`. The hub
 knows only a few generic synonyms (`meeting` finds `event`, `todo` finds `task`) and no pack's
 words, so list the words people use for your tools in `keywords`, such as `["lights"]` for a
 colour tool.
 
-With `python`, the hub imports the module and calls the function with keyword arguments. With
-`exec`, it runs the command with the function name as the last argument and the arguments as JSON on
-stdin, and reads JSON from stdout. A tool returns anything JSON can encode; raising an exception
-reports an error to the caller.
+With `python`, the hub's worker imports the module and calls the function with keyword
+arguments. With `exec`, the hub runs your program as the worker and talks to it with the
+[worker protocol](../../docs/dev/worker-protocol.md). A tool returns anything JSON can encode;
+raising an exception reports an error to the caller.
 
 A module that needs a download or a build declares `[[install]]` steps (an `id`, a `summary`,
 an argv `run` with no shell, an optional `timeout`, `network` and `cwd`). `hal-hub setup
