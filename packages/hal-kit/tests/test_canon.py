@@ -1,10 +1,41 @@
-"""Tests for `halkit.canon.canonical_json` (01-security "Approval binding")."""
+"""Tests for `halkit.canon.canonical_json` (01-security "Approval binding").
+
+The shared vectors in `tests/data/approval_vectors.json` at the repository root are read by
+the tests of 01, 04 and 06 (RESOLUTIONS B1); here they check the encoding and that each
+vector's key follows from its canonical text by the formula of REQ-SEC-19.
+"""
 
 from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
 
 import pytest
 
 from halkit.canon import MAX_DEPTH, CanonicalJSONError, canonical_json
+
+VECTORS = Path(__file__).resolve().parents[3] / "tests" / "data" / "approval_vectors.json"
+KEY_TAG = b"hal-approval/v1\n"  # REQ-SEC-19
+
+
+def _vectors() -> list[dict]:
+    return json.loads(VECTORS.read_text(encoding="ascii"))
+
+
+@pytest.mark.parametrize("vector", _vectors(), ids=lambda v: f"{v['pack']}-{v['tool']}-{v['key'][7:15]}")
+def test_shared_approval_vectors_encode_to_their_canonical_text_and_key(vector):
+    canonical = canonical_json(vector["args"])
+    assert canonical == vector["canonical"].encode("ascii")
+    digest = hashlib.sha256(
+        KEY_TAG + vector["pack"].encode() + b"\n" + vector["tool"].encode() + b"\n" + canonical
+    )
+    assert "sha256:" + digest.hexdigest() == vector["key"]
+
+
+def test_shared_vectors_cover_reordered_keys_and_a_trailing_space():
+    keys = [v["key"] for v in _vectors()]
+    assert len(keys) >= 4 and len(set(keys)) == len(keys) - 1
 
 
 def test_keys_are_sorted_and_whitespace_is_dropped():
