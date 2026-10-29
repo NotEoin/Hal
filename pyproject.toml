@@ -14,8 +14,13 @@ target-version = "py311"
 
 [tool.ruff.lint]
 # T20 keeps print out of library code (REQ-SYS-15); RUF001 to RUF003 and PLC2401 catch
-# non-ASCII text (REQ-SYS-20).
-select = ["E", "F", "W", "I", "B", "UP", "T20", "RUF001", "RUF002", "RUF003", "PLC2401"]
+# non-ASCII text (REQ-SYS-20). The S rules are 01-security's shell and unsafe-load checks:
+# S602 and S604 (shell=True), S605 (os.system and friends), S301 (pickle), S307 (eval),
+# S506 (yaml.load without a safe loader).
+select = [
+    "E", "F", "W", "I", "B", "UP", "T20", "RUF001", "RUF002", "RUF003", "PLC2401",
+    "S602", "S604", "S605", "S301", "S307", "S506",
+]
 
 [tool.ruff.lint.per-file-ignores]
 # Entry points print by design.

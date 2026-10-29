@@ -7,6 +7,9 @@ Part 2 (REQ-SYS-14, REQ-SYS-15): an AST scan of every `packages/*/src` file for 
 bypass `halkit.timeutil` and subprocess calls without a timeout. Code that predates the
 monorepo is listed in `LEGACY` with the phase that rewrites it; the test fails on any
 violation not listed and on any listed entry that no longer occurs, so the list only shrinks.
+
+Part 3 (01-security "Test plan"): no shell execution with arguments anywhere in the packages,
+by AST (`shell=True`, `os.system`, `os.popen`) and by the ruff S rules in the root config.
 """
 
 from __future__ import annotations
@@ -257,3 +260,57 @@ def test_print_is_banned_outside_entry_points_by_the_ruff_config():
     ]
     legacy = {"packages/hal-core/src/halcore/*.py"}
     assert set(ignored) <= {"**/__main__.py", "**/cli.py"} | legacy
+
+
+# ---- shell execution (01-security) --------------------------------------------------------------
+
+SHELL_CALLS = frozenset({"os.system", "os.popen"})
+BANDIT_RULES = ("S602", "S604", "S605", "S301", "S307", "S506")  # 01-security "Implementation plan"
+
+
+def shell_uses(source: str) -> list[int]:
+    """Lines that run a shell: `shell=` anything but literal False, `os.system` or `os.popen`."""
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        shell = [k for k in node.keywords if k.arg == "shell"]
+        if any(not (isinstance(k.value, ast.Constant) and k.value.value is False) for k in shell):
+            found.append(node.lineno)
+        elif dotted(node.func) in SHELL_CALLS:
+            found.append(node.lineno)
+    return found
+
+
+def test_no_shell_execution_with_arguments():
+    files = sorted(REPO.glob("packages/**/*.py"))
+    assert files
+    offenders = {
+        path.relative_to(REPO).as_posix(): lines
+        for path in files
+        if ".venv" not in path.parts and (lines := shell_uses(path.read_text(encoding="utf-8")))
+    }
+    assert offenders == {}
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "subprocess.run(cmd, shell=True)",
+        "subprocess.Popen(cmd, shell=flag)",
+        "os.system('ls ' + name)",
+        "os.popen(cmd)",
+    ],
+)
+def test_shell_detector_flags_every_shell_form(line):
+    assert shell_uses(src("import os, subprocess", line)) == [2]
+
+
+def test_shell_false_and_argv_calls_are_fine():
+    assert shell_uses(src("import subprocess", "subprocess.run(['ls'], shell=False, timeout=5)")) == []
+
+
+def test_bandit_rules_are_selected_in_the_ruff_config():
+    config = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["ruff"]["lint"]
+    assert set(BANDIT_RULES) <= set(config["select"])
+    assert not any(r.startswith("S") for rules in config["per-file-ignores"].values() for r in rules)
