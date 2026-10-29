@@ -4,16 +4,24 @@ One module decides every path so packages never build their own. Environment var
 read at call time, never at import, so tests and daemons see the current environment. The
 user id is read on first use, never at import, so this module imports on Windows.
 
-Runtime directory (resolution F6), first match wins: `$XDG_RUNTIME_DIR/hal`, then
+`HAL_STATE_DIR`, `HAL_DATA_DIR` and `HAL_RUNTIME_DIR` move a whole install, so two installs with
+different values share nothing (ported from the per-install state directory of hal-private,
+commit b279740). The older `HAL_STATE` and `HAL_DATA` still work and log one warning.
+
+Runtime directory (resolution F6), first match wins: `HAL_RUNTIME_DIR`, then
+`$XDG_RUNTIME_DIR/hal`, then
 `/run/user/<uid>/hal` when `/run/user/<uid>` exists, then `%LOCALAPPDATA%\\hal\\run` on
 Windows. There is no `/tmp` fallback: a world-writable parent is not a place for sockets.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 # A sockaddr_un path holds 108 bytes including the NUL terminator.
 MAX_SOCKET_PATH_BYTES = 107
@@ -36,6 +44,18 @@ class SocketPathTooLong(ValueError):
 
 def _env(name: str) -> str:
     return os.environ.get(name, "").strip()
+
+
+_warned: set[str] = set()  # deprecated variables already reported in this process
+
+
+def _deprecated(old: str, new: str) -> str:
+    """Returns the value of the deprecated variable `old`, warning once per process."""
+    value = _env(old)
+    if value and old not in _warned:
+        _warned.add(old)
+        log.warning("%s is deprecated; use %s", old, new)
+    return value
 
 
 def _xdg(var: str, fallback: str) -> Path:
@@ -73,12 +93,18 @@ def policy_file() -> Path:
 
 
 def state_dir() -> Path:
-    """The state directory, `$XDG_STATE_HOME/hal`."""
+    """`HAL_STATE_DIR`, else `HAL_STATE` (deprecated), else `$XDG_STATE_HOME/hal`."""
+    override = _env("HAL_STATE_DIR") or _deprecated("HAL_STATE", "HAL_STATE_DIR")
+    if override:
+        return Path(override).expanduser()
     return _xdg("XDG_STATE_HOME", ".local/state") / "hal"
 
 
 def data_dir() -> Path:
-    """The data directory, `$XDG_DATA_HOME/hal`."""
+    """`HAL_DATA_DIR`, else `HAL_DATA` (deprecated), else `$XDG_DATA_HOME/hal`."""
+    override = _env("HAL_DATA_DIR") or _deprecated("HAL_DATA", "HAL_DATA_DIR")
+    if override:
+        return Path(override).expanduser()
     return _xdg("XDG_DATA_HOME", ".local/share") / "hal"
 
 
@@ -95,6 +121,9 @@ def runtime_dir() -> Path:
 
 
 def _runtime_candidate() -> Path:
+    override = _env("HAL_RUNTIME_DIR")
+    if override:
+        return Path(override).expanduser()
     xdg = _env("XDG_RUNTIME_DIR")
     if _is_windows():
         local = _env("LOCALAPPDATA")

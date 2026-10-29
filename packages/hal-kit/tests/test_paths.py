@@ -11,6 +11,11 @@ from halkit import paths
 HAL_ENV = (
     "HAL_CONFIG",
     "HAL_POLICY",
+    "HAL_STATE_DIR",
+    "HAL_DATA_DIR",
+    "HAL_RUNTIME_DIR",
+    "HAL_STATE",
+    "HAL_DATA",
     "XDG_CONFIG_HOME",
     "XDG_STATE_HOME",
     "XDG_DATA_HOME",
@@ -25,6 +30,7 @@ def clean_env(monkeypatch, tmp_path):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setattr(paths, "RUN_USER_ROOT", tmp_path / "run-user")
+    monkeypatch.setattr(paths, "_warned", set())
 
 
 def test_config_file_defaults_to_xdg_config_under_home(tmp_path):
@@ -166,3 +172,50 @@ def test_a_session_socket_path_is_short_enough():
     sock = Path("/run/user/1000/hal/s/0123456789ab/run/broker.sock")
     assert len(os.fsencode(sock)) < 60
     assert paths.check_socket_path(sock) == sock
+
+
+def test_hal_state_dir_overrides_the_state_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "st"))
+    assert paths.state_dir() == tmp_path / "st"
+
+
+def test_hal_data_dir_overrides_the_data_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv("HAL_DATA_DIR", str(tmp_path / "da"))
+    assert paths.data_dir() == tmp_path / "da"
+
+
+def test_hal_runtime_dir_wins_over_xdg_runtime_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "xrd"))
+    monkeypatch.setenv("HAL_RUNTIME_DIR", str(tmp_path / "rt"))
+    assert paths.runtime_dir() == tmp_path / "rt"
+
+
+def test_two_installs_with_different_state_dirs_share_nothing(monkeypatch, tmp_path):
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "one"))
+    first = paths.state_dir()
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "two"))
+    assert first != paths.state_dir()
+
+
+def test_deprecated_hal_state_is_honoured_with_one_warning(monkeypatch, tmp_path, caplog):
+    monkeypatch.setenv("HAL_STATE", str(tmp_path / "old"))
+    with caplog.at_level("WARNING", logger="halkit.paths"):
+        assert paths.state_dir() == tmp_path / "old"
+        assert paths.state_dir() == tmp_path / "old"
+    assert [r.getMessage() for r in caplog.records] == ["HAL_STATE is deprecated; use HAL_STATE_DIR"]
+
+
+def test_deprecated_hal_data_is_honoured_with_one_warning(monkeypatch, tmp_path, caplog):
+    monkeypatch.setenv("HAL_DATA", str(tmp_path / "old"))
+    with caplog.at_level("WARNING", logger="halkit.paths"):
+        assert paths.data_dir() == tmp_path / "old"
+        paths.data_dir()
+    assert len(caplog.records) == 1
+
+
+def test_new_variable_beats_the_deprecated_one_without_a_warning(monkeypatch, tmp_path, caplog):
+    monkeypatch.setenv("HAL_STATE", str(tmp_path / "old"))
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "new"))
+    with caplog.at_level("WARNING", logger="halkit.paths"):
+        assert paths.state_dir() == tmp_path / "new"
+    assert not caplog.records
