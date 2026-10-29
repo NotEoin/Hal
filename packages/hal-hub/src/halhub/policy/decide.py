@@ -315,7 +315,9 @@ def _verdict(
             Verdict.DENY, limited, f"{meta.name}: the {limited[5:]} rate limit for this session is used up."
         )
     verdict, rule = tp.verdict, tp.rule
-    if verdict is Verdict.ASK and tp.allow_args and args_match(args, tp.allow_args):
+    # REQ-SEC-08: allow_args never promotes a system or runs_code tool, even if check_rules was skipped
+    promotable = meta.tier is not Tier.SYSTEM and not meta.runs_code
+    if verdict is Verdict.ASK and promotable and tp.allow_args and args_match(args, tp.allow_args):
         verdict, rule = Verdict.ALLOW, "allow-args"
         b.step(rule)
     if host_listed is True and verdict is Verdict.ASK and meta.tier is not Tier.SYSTEM:

@@ -453,7 +453,8 @@ def check_rules(policy: Policy, metas: Iterable[ToolMeta]) -> None:
     """Raises `ConfigError` for a user rule that breaks a REQ-SEC-08 invariant for a known tool.
 
     A `system` tool may not be set to `allow` or `reviewable` by name or through its pack; a
-    `runs_code` tool may only be set to `ask`, and only by name.
+    `runs_code` tool may only be set to `ask`, and only by name. Neither may have `allow_args`,
+    which would turn its `ask` into `allow`.
     """
     where = policy.path or halpaths.policy_file()
     prefix = f"profiles.{policy.profile.name}."
@@ -480,6 +481,8 @@ def check_rules(policy: Policy, metas: Iterable[ToolMeta]) -> None:
                 raise refuse(f"{key}.reviewable", f"{meta.name} is a system tool and is never reviewable")
             if meta.runs_code and rule.verdict is Verdict.ALLOW:
                 raise refuse(f"{key}.verdict", f"{meta.name} runs code; only verdict = 'ask' by name")
+            if (meta.tier is Tier.SYSTEM or meta.runs_code) and rule.allow_args:
+                raise refuse(f"{key}.allow_args", f"{meta.name} must always ask; allow_args would allow it")
 
 
 def settings_fields(section: str) -> tuple[str, ...]:

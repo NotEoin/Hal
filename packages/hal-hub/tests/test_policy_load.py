@@ -283,6 +283,17 @@ def test_invariant_runs_code_allow_rule_is_rejected(tmp_path):
         check_rules(policy, [meta("test_run", Tier.ACT, "work", runs_code=True)])
 
 
+@pytest.mark.parametrize(
+    ("name", "tier", "runs_code"), [("power_shutdown", Tier.SYSTEM, False), ("test_run", Tier.ACT, True)]
+)
+def test_invariant_allow_args_on_a_system_or_runs_code_tool_is_rejected(tmp_path, name, tier, runs_code):
+    """Regression: `allow_args` turned the `ask` of a system tool into `allow` (REQ-SEC-08)."""
+    policy = load_policy(write(tmp_path, f"[tools.{name}]\nverdict = 'ask'\nallow_args = {{ x = ['1'] }}\n"))
+    with pytest.raises(ConfigError) as info:
+        check_rules(policy, [meta(name, tier, "system", runs_code=runs_code)])
+    assert info.value.key == f"tools.{name}.allow_args"
+
+
 def test_invariant_a_built_in_policy_object_cannot_allow_a_system_tool():
     tp = Policy(profile=load_policy(Path("/nonexistent/policy.toml"), profile="trusted").profile).tool(
         meta("power_shutdown", Tier.SYSTEM, "system")

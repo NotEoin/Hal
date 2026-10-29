@@ -262,6 +262,16 @@ def test_allow_args_turns_ask_into_allow_only_when_every_parameter_matches():
     assert run("mail_send", {**MAIL, "to": "bob@evil.example"}, policy).rule == "tool:mail_send"
 
 
+@pytest.mark.parametrize(("name", "args"), [("power_shutdown", {}), ("shell_run", {"command": "ls"})])
+def test_allow_args_never_allows_a_system_or_runs_code_tool(name, args):
+    """Regression: `allow_args` turned a system tool's `ask` into `allow` (REQ-SEC-08)."""
+    rule = replace(
+        DEFAULT.profile.tools["calendar_delete"], verdict=Verdict.ASK, allow_args={"command": ("*",)}
+    )
+    policy = replace(DEFAULT, tools={name: rule})
+    assert run(name, args, policy).verdict is not Verdict.ALLOW
+
+
 def test_no_approver_turns_ask_into_deny():
     d = run("mail_send", MAIL, context=ctx(approver_available=False))
     assert (d.verdict, d.rule) == (Verdict.DENY, "no-approver")
