@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hal-kit"
+dynamic = ["version"]
+description = "Shared stdlib-only helpers for Hal: paths, config, atomic writes, time, logging"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = []
+
+[tool.hatch.version]
+path = "src/halkit/version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/halkit"]
