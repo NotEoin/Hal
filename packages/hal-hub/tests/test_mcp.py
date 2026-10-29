@@ -161,3 +161,84 @@ def test_meta_tool_schemas_match_the_spec():
     assert by_name["hal_find_tools"]["required"] == ["query"]
     assert by_name["hal_call"]["required"] == ["tool"]
     assert all(schema["additionalProperties"] is False for schema in by_name.values())
+
+
+# ---- modes, limits, annotations and `_meta` (REQ-HUB-38, REQ-HUB-39, REQ-HUB-48) --------------
+
+
+def list_tools(hub, mode, options=None):
+    async def main():
+        async with Client(build_server(hub, options), mode=mode) as client:
+            return (await client.list_tools()).tools
+
+    return anyio.run(main)
+
+
+@pytest.mark.parametrize("mode", ERAS)
+def test_flat_mode_lists_every_usable_tool_by_name(make_hub, hal_home, mode):
+    hal_home.policy.write_text('schema_version = 1\n[tools.demo_lights]\nverdict = "deny"\n')
+    names = [t.name for t in list_tools(make_hub(), mode, ServeOptions(mode="flat"))]
+    assert names == sorted(names) and "demo_wipe" in names and "hal_find_tools" in names
+    assert "demo_lights" not in names and "hal_call" not in names
+
+
+@pytest.mark.parametrize("mode", ERAS)
+def test_flat_mode_refuses_unlisted_tool(make_hub, hal_home, mode):
+    hal_home.policy.write_text('schema_version = 1\n[tools.demo_lights]\nverdict = "deny"\n')
+    hub = make_hub()
+    flat = ServeOptions(mode="flat")
+    for name, args in (("demo_lights", {"colour": "red"}), ("hal_call", {"tool": "demo_echo"})):
+        _, result = session_call(hub, mode, name, args, flat)
+        data = json.loads(text_of(result))
+        assert data["error_type"] == "unknown_tool" and result.meta["hal"]["status"] == "unavailable"
+    assert hub.runner.calls == []
+
+
+def test_listed_tools_carry_tier_annotations_and_hal_meta(make_hub):
+    tools = {t.name: t for t in list_tools(make_hub(), "legacy", ServeOptions(mode="flat"))}
+    wipe, echo = tools["demo_wipe"], tools["demo_echo"]
+    assert wipe.meta == {"hal/tier": "act", "hal/approval": "ask"}
+    assert echo.meta == {"hal/tier": "read", "hal/approval": "none"}
+    assert wipe.annotations.destructive_hint is True and echo.annotations.read_only_hint is True
+
+
+def test_meta_tools_carry_their_fixed_annotations(make_hub):
+    tools = {t.name: t for t in list_tools(make_hub(), "2026-07-28")}
+    assert tools["hal_call"].annotations.destructive_hint is True
+    assert tools["hal_find_tools"].annotations.read_only_hint is True
+    assert tools["hal_find_tools"].meta == {"hal/tier": "read", "hal/approval": "none"}
+
+
+def test_limits_narrow_listing_and_calls_in_flat_mode(make_hub):
+    hub = make_hub("demo", "routines")
+    options = ServeOptions(
+        mode="flat", packs=frozenset({"demo"}), tools=frozenset({"demo_echo", "demo_wipe"})
+    )
+    assert [t.name for t in list_tools(hub, "legacy", options)] == ["demo_echo", "demo_wipe"]
+    _, result = session_call(hub, "legacy", "demo_fetch", {"url": "https://example.org/"}, options)
+    assert json.loads(text_of(result))["error_type"] == "unknown_tool"
+
+
+def test_limits_narrow_hal_call_and_search_in_meta_mode(make_hub):
+    hub = make_hub("demo", "routines", runner=Runner(RunnerConfig(bwrap="off")))
+    options = ServeOptions(packs=frozenset({"routines"}))
+    _, refused = session_call(
+        hub, "legacy", "hal_call", {"tool": "demo_echo", "arguments": {"text": "x"}}, options
+    )
+    assert json.loads(text_of(refused))["error_type"] == "unknown_tool"
+    _, found = session_call(hub, "legacy", "hal_find_tools", {"query": "echo text back"}, options)
+    assert all(t["pack"] == "routines" for t in json.loads(text_of(found)))
+    _, modules = session_call(hub, "legacy", "hal_modules", {}, options)
+    assert [m["pack"] for m in json.loads(text_of(modules))] == ["routines"]
+
+
+def test_bad_serve_options_raise():
+    with pytest.raises(ValueError, match="mode"):
+        ServeOptions(mode="wide")
+    with pytest.raises(ValueError, match="empty"):
+        ServeOptions(packs=frozenset())
+
+
+def test_flat_mode_instructions_drop_the_search_hint(make_hub):
+    assert "hal_find_tools" not in build_server(make_hub(), ServeOptions(mode="flat")).instructions
+    assert "hal_find_tools" in build_server(make_hub()).instructions

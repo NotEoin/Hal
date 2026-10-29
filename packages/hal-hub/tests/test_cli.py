@@ -208,6 +208,18 @@ def test_mcp_with_an_unknown_profile_exits_2_before_serving(home, capsys):
     assert code == 2 and "no-such-profile" in err and out == ""
 
 
+def test_mcp_with_an_unknown_configured_mode_exits_2(home, capsys):
+    with home.config.open("a") as fh:
+        fh.write('[hub.mcp]\nmode = "wide"\n')
+    code, _, err = run(capsys, "mcp")
+    assert code == 2 and "mode" in err
+
+
+def test_mcp_with_an_empty_limit_exits_2(home, capsys):
+    code, _, err = run(capsys, "mcp", "--packs", ",")
+    assert code == 2 and "names" in err
+
+
 def test_mcp_with_an_unknown_option_exits_2(home, capsys):
     code, _, err = run(capsys, "mcp", "--transport", "carrier-pigeon")
     assert code == 2 and "invalid choice" in err

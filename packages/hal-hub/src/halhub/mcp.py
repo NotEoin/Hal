@@ -14,11 +14,22 @@ Design decisions:
   `MCPServer` builds them from Python signatures (Decision D2). The SDK serves both the
   `initialize` era (2024-11-05 to 2025-11-25) and the 2026-07-28 per-request envelope; the
   first request of a connection decides which (REQ-HUB-36).
-- Meta mode lists `hal_find_tools`, `hal_call` and `hal_modules`, then the `always_offer`
-  tools and `[hub].pinned` the session may use, sorted by name (REQ-HUB-48). A call to any
-  name goes through the pipeline, so policy applies to unlisted names too (01 REQ-SEC-89).
-  `hal_find_tools` and `hal_modules` are the built-in `hub` module's tools, so they are
-  audited and filtered like any other call. An approval for `hal_call` binds the inner tool.
+- Meta mode (the default, `[hub.mcp].mode`) lists `hal_find_tools`, `hal_call` and
+  `hal_modules`, then the `always_offer` tools and `[hub].pinned` the session may use, sorted
+  by name (REQ-HUB-48). A call to any name goes through the pipeline, so policy applies to
+  unlisted names too (01 REQ-SEC-89). `hal_find_tools` and `hal_modules` are the built-in
+  `hub` module's tools, so they are audited and filtered like any other call. An approval for
+  `hal_call` binds the inner tool.
+- Flat mode lists every tool the session may use, sorted by name, so a harness can apply its
+  own per-tool rules; a call to a name it did not list (`hal_call` included) is
+  `unknown_tool` before the pipeline (REQ-HUB-38). Above `FLAT_WARN_TOOLS` it logs a warning.
+- `packs` and `tools` narrow what a server lists and runs: a tool passes when every given
+  limit admits it. Policy stays the boundary; the limits only shrink the surface. In meta
+  mode the three meta tools stay, and `hal_find_tools` and `hal_modules` results are cut to
+  the admitted tools.
+- Annotations come from the tier by 01's table ("MCP annotations") and are display only;
+  nothing in Hal reads them back (REQ-HUB-39). Each listed tool also carries `_meta`
+  `hal/tier` and `hal/approval` (`ask` or `none`, the listing verdict).
 - One `HubSession` per connection, opened in the server's lifespan (which the SDK enters
   once per connection in both eras): kind `hub`, origin `host_mcp`, with 01's router over
   this connection's control socket, so an `ask` waits for `hal approve ID` up to
@@ -35,13 +46,13 @@ Design decisions:
   (REQ-HUB-47); every result carries `_meta.hal` as 02-sandbox defines it (REQ-HUB-46). The
   hub has already scrubbed, cut and, for `untrusted_output` tools, wrapped the text.
 
-Not here yet (later plan steps): flat mode, `packs` and `tools` limits, annotations and
-per-tool `_meta` (step 19); elicitation, the `elicit`, `callback` and `deny` approval modes and
+Not here yet (later plan steps): elicitation, the `elicit`, `callback` and `deny` approval modes and
 progress notifications while waiting (step 20); the remote channel (step 21); HTTP (step 22).
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import sys
@@ -51,9 +62,10 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from . import _control_standin as control
+from . import _policy_standin as policy
 from ._approvals_standin import ApprovalRequest, ApprovalRouter
 from .hub import CallResult, Hub, new_call_id
 from .manifest import ToolSpec
@@ -65,14 +77,23 @@ if TYPE_CHECKING:  # the SDK is imported lazily: only `hal-hub mcp` and the brok
 
 log = logging.getLogger(__name__)
 
-__all__ = ["META_TOOLS", "ServeOptions", "build_server", "render", "serve_stdio", "serve_streams"]
+__all__ = [
+    "META_TOOLS",
+    "ServeOptions",
+    "annotations",
+    "build_server",
+    "render",
+    "serve_stdio",
+    "serve_streams",
+]
 
 ORIGIN = "host_mcp"  # 01 `Origin.HOST_MCP`: a harness on the host speaking MCP to the hub
 UNAVAILABLE_ERRORS = frozenset({"unknown_tool", "unavailable"})  # 02's `_meta.hal` status `unavailable`
+FLAT_WARN_TOOLS = 100  # some clients cap the tool count (04-hub "Modes"; the cap differs per client)
+INSTRUCTIONS_FLAT = "Hal's tools for this computer and its owner."
 INSTRUCTIONS = (
-    "Hal's tools for this computer and its owner. Search with hal_find_tools before saying "
-    "something cannot be done. When a tool needs approval, Hal asks the user directly; wait "
-    "for the result."
+    INSTRUCTIONS_FLAT + " Search with hal_find_tools before saying something cannot be done. "
+    "When a tool needs approval, Hal asks the user directly; wait for the result."
 )
 
 # The meta tool schemas of 04-hub.md, "Modes"; `hal_find_tools` and `hal_modules` are the
@@ -122,15 +143,44 @@ META_TOOLS: tuple[dict[str, Any], ...] = (
     },
 )
 META_NAMES = frozenset(t["name"] for t in META_TOOLS)
+# 04-hub "Annotations": the search and listing tools are read-only, `hal_call` may run anything
+_READ_ONLY = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
+META_ANNOTATIONS: dict[str, dict[str, bool]] = {
+    "hal_find_tools": _READ_ONLY,
+    "hal_modules": _READ_ONLY,
+    "hal_call": {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+}
 
 
 @dataclass(frozen=True)
 class ServeOptions:
-    """How one server serves: the policy profile, or the caller's own session."""
+    """How one server serves: listing mode, limits, and the policy profile or the caller's session.
 
+    Raises `ValueError` for an unknown mode or an empty limit.
+    """
+
+    mode: Literal["meta", "flat"] = "meta"
     profile: str | None = None  # None: the policy's default profile (01-security precedence)
     session: HubSession | None = None  # the broker passes its own; else one per connection
+    packs: frozenset[str] | None = None  # limit to these packs
+    tools: frozenset[str] | None = None  # limit to these tools
     server_name: str = "hal-hub"
+
+    def __post_init__(self) -> None:
+        if self.mode not in ("meta", "flat"):
+            raise ValueError(f"unknown MCP mode {self.mode!r}; expected meta or flat")
+        for name, limit in (("packs", self.packs), ("tools", self.tools)):
+            if limit is not None and not limit:
+                raise ValueError(f"an empty {name} limit would serve nothing; leave it unset instead")
+
+    def admits(self, name: str, pack: str) -> bool:
+        """True when every given limit admits the tool `name` of pack `pack`."""
+        return (self.packs is None or pack in self.packs) and (self.tools is None or name in self.tools)
 
 
 @dataclass
@@ -173,17 +223,18 @@ def build_server(hub: Hub, options: ServeOptions | None = None) -> Server:
 
     async def list_tools(ctx: Any, _params: Any) -> types.ListToolsResult:
         connection: _Connection = ctx.lifespan_context
-        return types.ListToolsResult(tools=[_tool(entry) for entry in _listing(hub, connection.session)])
+        listing = _listing(hub, connection.session, opts)
+        return types.ListToolsResult(tools=[_tool(entry) for entry in listing])
 
     async def call_tool(ctx: Any, params: types.CallToolRequestParams) -> types.CallToolResult:
         connection: _Connection = ctx.lifespan_context
-        result = await _call(hub, connection, params.name, params.arguments)
+        result = await _call(hub, connection, opts, params.name, params.arguments)
         return render(result)
 
     return Server(
         opts.server_name,
         version=__version__,
-        instructions=INSTRUCTIONS,
+        instructions=INSTRUCTIONS if opts.mode == "meta" else INSTRUCTIONS_FLAT,
         lifespan=lifespan,
         on_list_tools=list_tools,
         on_call_tool=call_tool,
@@ -212,6 +263,29 @@ def serve_stdio(hub: Hub, options: ServeOptions | None = None) -> None:
                 sys.stdout = saved
 
     anyio.run(run)
+
+
+def annotations(meta: policy.ToolMeta) -> dict[str, bool]:
+    """The MCP annotations for a tool, from its tier by 01-security's "MCP annotations" table.
+
+    Display only: no decision in Hal reads them (REQ-HUB-39, 01 REQ-SEC-87).
+    """
+    tier = policy.Tier(meta.tier)
+    read = tier is policy.Tier.READ
+    destructive = {
+        policy.Tier.READ: False,
+        policy.Tier.WRITE: False,
+        policy.Tier.ACT: not meta.reversible,
+        policy.Tier.SEND: True,
+        policy.Tier.SYSTEM: True,
+    }[tier]
+    open_world = True if tier is policy.Tier.SEND else meta.network
+    return {
+        "readOnlyHint": read,
+        "destructiveHint": destructive,
+        "idempotentHint": read,
+        "openWorldHint": open_world,
+    }
 
 
 def render(result: CallResult) -> types.CallToolResult:
@@ -270,17 +344,43 @@ def _waiting(request: ApprovalRequest, path: Path) -> None:
     log.warning("%s Waiting for approval: run `hal approve %s` (or deny it).", request.summary, request.id)
 
 
-def _listing(hub: Hub, session: HubSession) -> list[dict[str, Any]]:
-    """Meta tools first, then the `always_offer` and pinned tools the session may use, by name."""
-    usable = {t.name: t for t in hub.tools(session)}
-    offered = {name for name, t in usable.items() if t.always_offer}
-    offered |= {name for name in hub.config.pinned if name in usable}
-    extra = [_entry(usable[name]) for name in sorted(offered - META_NAMES)]
-    return [dict(t) for t in META_TOOLS] + extra
+def _listing(hub: Hub, session: HubSession, opts: ServeOptions) -> list[dict[str, Any]]:
+    """What `tools/list` shows in `opts.mode` (see the header), in the stable order of REQ-HUB-48."""
+    usable = [t for t in hub.tools(session) if opts.admits(t.name, t.pack)]
+    if opts.mode == "flat":
+        if len(usable) > FLAT_WARN_TOOLS:
+            log.warning("flat mode lists %d tools; some clients cap the tool count", len(usable))
+        return [_entry(hub, session, t) for t in usable]
+    by_name = {t.name: t for t in usable}
+    offered = {name for name, t in by_name.items() if t.always_offer}
+    offered |= {name for name in hub.config.pinned if name in by_name}
+    meta = []
+    for template in META_TOOLS:
+        entry = dict(template, annotations=META_ANNOTATIONS[template["name"]])
+        builtin = by_name.get(template["name"]) or hub.registry.tool(template["name"])
+        if builtin is not None:  # the two built-in tools carry `_meta` like any listed tool
+            entry["_meta"] = _hal_meta(hub, session, builtin)
+        meta.append(entry)
+    return meta + [_entry(hub, session, by_name[name]) for name in sorted(offered - META_NAMES)]
 
 
-def _entry(tool: ToolSpec) -> dict[str, Any]:
-    return {"name": tool.name, "description": tool.description, "inputSchema": tool.input_schema()}
+def _entry(hub: Hub, session: HubSession, tool: ToolSpec) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "name": tool.name,
+        "description": tool.description,
+        "inputSchema": tool.input_schema(),
+        "annotations": annotations(hub.tool_meta(tool)),
+        "_meta": _hal_meta(hub, session, tool),
+    }
+    if tool.title:
+        entry["title"] = tool.title
+    return entry
+
+
+def _hal_meta(hub: Hub, session: HubSession, tool: ToolSpec) -> dict[str, str]:
+    resolved = hub.listed(tool, session)
+    ask = resolved is not None and resolved.verdict is policy.Verdict.ASK
+    return {"hal/tier": tool.tier, "hal/approval": "ask" if ask else "none"}
 
 
 def _tool(entry: Mapping[str, Any]) -> types.Tool:
@@ -288,18 +388,31 @@ def _tool(entry: Mapping[str, Any]) -> types.Tool:
 
     return types.Tool(
         name=entry["name"],
+        title=entry.get("title"),
         description=entry["description"],
         input_schema=dict(entry["inputSchema"]),
+        annotations=types.ToolAnnotations(**{_SNAKE[k]: v for k, v in entry["annotations"].items()}),
+        meta=entry.get("_meta"),
     )
 
 
+_SNAKE = {
+    "readOnlyHint": "read_only_hint",
+    "destructiveHint": "destructive_hint",
+    "idempotentHint": "idempotent_hint",
+    "openWorldHint": "open_world_hint",
+}
+
+
 async def _call(
-    hub: Hub, connection: _Connection, name: str, arguments: Mapping[str, Any] | None
+    hub: Hub, connection: _Connection, opts: ServeOptions, name: str, arguments: Mapping[str, Any] | None
 ) -> CallResult:
     """Runs one `tools/call` through the pipeline in a worker thread; `hal_call` unwraps first."""
     import anyio
 
-    if name == "hal_call":
+    if opts.mode == "flat" and name not in {e["name"] for e in _listing(hub, connection.session, opts)}:
+        return _unknown(name, "this server did not list it")
+    if opts.mode == "meta" and name == "hal_call":
         args = arguments or {}
         tool, inner = args.get("tool"), args.get("arguments")
         if not isinstance(tool, str) or not tool:
@@ -307,16 +420,49 @@ async def _call(
         if inner is not None and not isinstance(inner, Mapping):
             return _invalid(f"hal_call `arguments` for {tool} must be an object")
         name, arguments = tool, inner
+    if opts.mode == "meta" and name not in META_NAMES and not _admitted(hub, opts, name):
+        return _unknown(name, "this server is limited to other packs or tools")
     cancel = threading.Event()
     connection.calls.add(cancel)
     run = partial(hub.call, name, arguments, connection.session, front_end="mcp", cancel=cancel)
     try:
-        return await anyio.to_thread.run_sync(run, abandon_on_cancel=True)
+        result = await anyio.to_thread.run_sync(run, abandon_on_cancel=True)
     except anyio.get_cancelled_exc_class():
         cancel.set()  # stops the worker; the abandoned thread returns on its own
         raise
     finally:
         connection.calls.discard(cancel)
+    if opts.mode == "meta" and name in META_NAMES and result.status == "ok":
+        return dataclasses.replace(result, result=_narrow(hub, opts, name, result.result))
+    return result
+
+
+def _admitted(hub: Hub, opts: ServeOptions, name: str) -> bool:
+    if opts.packs is None and opts.tools is None:
+        return True
+    tool = hub.registry.tool(name) or next((t for t in hub.provider_tools() if t.name == name), None)
+    return tool is not None and opts.admits(tool.name, tool.pack)
+
+
+def _narrow(hub: Hub, opts: ServeOptions, name: str, value: object) -> object:
+    """A `hal_find_tools` or `hal_modules` result cut to the tools the limits admit."""
+    if (opts.packs is None and opts.tools is None) or not isinstance(value, list):
+        return value
+    if name == "hal_find_tools":
+        return [t for t in value if isinstance(t, dict) and opts.admits(str(t["name"]), str(t["pack"]))]
+    out = []
+    for module in value:
+        if not isinstance(module, dict):
+            continue
+        tools = [t for t in module.get("tools", []) if opts.admits(str(t), str(module["pack"]))]
+        if tools:
+            out.append(dict(module, tools=tools))
+    return out
+
+
+def _unknown(name: str, why: str) -> CallResult:
+    message = f"no tool named {name} on this server ({why})"
+    return CallResult("error", new_call_id(), name, error_type="unknown_tool", message=message)
 
 
 def _invalid(message: str) -> CallResult:

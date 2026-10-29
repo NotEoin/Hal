@@ -32,11 +32,16 @@ To give Claude Code the tools, add the server to a project's `.mcp.json`:
 {"mcpServers": {"hal-hub": {"command": "/home/you/.local/bin/hal-hub", "args": ["mcp"]}}}
 ```
 
-`hal-hub mcp [--profile P]` serves on stdio. It answers clients that use the `initialize`
-handshake (protocol 2024-11-05 to 2025-11-25) and clients that use the 2026-07-28 per-request
-envelope. It lists the three meta-tools, then the `always_offer` and pinned tools your policy
-lets the session use; any tool can still be called by name or through `hal_call`, and policy
-decides every call. Each result carries `_meta.hal` (`status`, `untrusted`, `guard`). When a
+`hal-hub mcp [--mode meta|flat] [--profile P] [--packs A,B] [--tools X,Y]` serves on stdio.
+It answers clients that use the `initialize` handshake (protocol 2024-11-05 to 2025-11-25) and
+clients that use the 2026-07-28 per-request envelope. In `meta` mode (the default) it lists
+the three meta-tools, then the `always_offer` and pinned tools your policy lets the session
+use; any tool can still be called by name or through `hal_call`, and policy decides every
+call. In `flat` mode it lists every tool the session may use, so a harness can set its own
+per-tool rules (for Claude Code, `mcp__hal__calendar_add`), and refuses any name it did not
+list. `--packs` and `--tools` narrow what the server lists and runs. Each listed tool carries
+MCP annotations derived from its tier (display only) and `_meta` with `hal/tier` and
+`hal/approval`. Each result carries `_meta.hal` (`status`, `untrusted`, `guard`). When a
 call needs approval, the server writes the request id to stderr and waits for
 `hal-hub approve ID` (or `hal approve ID`) up to `[approval].timeout_s`; with no answer the
 call is denied with rule `approval-timeout`.
@@ -132,7 +137,8 @@ pinned = ["memory_remember", "calendar_add"]          # also listed directly to 
 disabled = ["phone"]                                  # modules to ignore
 ```
 
-`HAL_MODULE_PATH` (colon-separated) overrides `module_paths`.
+`HAL_MODULE_PATH` (colon-separated) overrides `module_paths`. The MCP server's default mode is
+`[hub.mcp]`: `mode = "flat"` makes `flat` the default for `hal-hub mcp`.
 
 ## Licence
 

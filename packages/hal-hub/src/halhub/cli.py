@@ -7,7 +7,8 @@
       modules [--all] [--json]                     modules with status, source and path
       call TOOL [key=value ...] [--json ARGS] [--yes] [--profile P] [--raw]
       TOOL [key=value ...] [--yes]                 shorthand for call (tool names contain "_")
-      mcp [--transport stdio] [--profile P]        serve the tools over MCP on stdio
+      mcp [--mode meta|flat] [--profile P] [--packs A,B] [--tools X,Y]
+                                                   serve the tools over MCP on stdio
       approvals [--json]                           pending approval requests of this user
       approve ID                                   allow one pending request, once
       deny ID                                      refuse one pending request
@@ -300,14 +301,20 @@ def _modules(argv: list[str]) -> int:
 def _mcp(argv: list[str]) -> int:
     parser = _parser("mcp", "serve the tools over MCP on stdio")
     parser.add_argument("--transport", choices=("stdio",), default="stdio")
+    parser.add_argument("--mode", choices=("meta", "flat"), help="default: [hub.mcp].mode")
     parser.add_argument("--profile", help="policy profile for this server's sessions")
+    parser.add_argument("--packs", type=_names, help="serve only these packs (A,B)")
+    parser.add_argument("--tools", type=_names, help="serve only these tools (X,Y)")
     opts = parser.parse_args(argv)
     from . import mcp  # deferred: only this command needs the SDK
 
     policy.load_policy(None, profile=opts.profile)  # a bad policy or profile exits 2 before serving
     hub = Hub()
+    options = mcp.ServeOptions(
+        mode=opts.mode or hub.config.mcp.mode, profile=opts.profile, packs=opts.packs, tools=opts.tools
+    )
     try:
-        mcp.serve_stdio(hub, mcp.ServeOptions(profile=opts.profile))
+        mcp.serve_stdio(hub, options)
     finally:
         hub.close()
     return EXIT_OK
@@ -601,6 +608,14 @@ def _tool_row(hub: Hub, session: HubSession, tool: ToolSpec, status: str) -> dic
                "tier": tool.tier, "approval": "-", "parameters": tool.input_schema()}  # fmt: skip
     row["status"] = status
     return row
+
+
+def _names(text: str) -> frozenset[str]:
+    """A comma-separated list of names for `--packs` and `--tools`; empty is an error."""
+    names = frozenset(n.strip() for n in text.split(",") if n.strip())
+    if not names:
+        raise argparse.ArgumentTypeError("expected one or more names, separated by commas")
+    return names
 
 
 def _pairs(pairs: list[str]) -> dict[str, object]:

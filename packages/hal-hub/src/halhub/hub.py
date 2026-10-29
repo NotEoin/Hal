@@ -310,6 +310,10 @@ class Hub:
             return provider_meta(tool)
         return tool.meta(self.registry.module_of(tool))
 
+    def tool_meta(self, tool: ToolSpec) -> policy.ToolMeta:
+        """01's `ToolMeta` for a registry or provider tool: what `decide` and the listings read."""
+        return self._meta(tool)
+
     def listed(self, tool: ToolSpec, session: HubSession) -> policy.ToolPolicy | None:
         """The tool's listing policy for `session`, or None when the session may not see it."""
         resolved = session.policy.tool(self._meta(tool))

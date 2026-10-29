@@ -92,6 +92,28 @@ RUNNER_TABLE = config.register(
 )
 
 
+MCP_MODES = ("meta", "flat")
+MCP_TABLE = config.register(
+    config.Table(
+        name="hub.mcp",
+        owner="hal-hub",
+        keys=(config.Key("mode", str, "meta", choices=MCP_MODES, doc="List the meta tools or every tool"),),
+    )
+)
+
+
+@dataclass(frozen=True)
+class McpConfig:
+    """`[hub.mcp]`: the MCP server's defaults, which `hal-hub mcp` options override."""
+
+    mode: str = "meta"
+
+
+def load_mcp_config(path: Path | None = None, *, environ: Mapping[str, str] | None = None) -> McpConfig:
+    """Reads `[hub.mcp]`; raises `halkit.config.ConfigError`."""
+    return McpConfig(**config.load(MCP_TABLE, path=path, environ=environ))
+
+
 def load_runner_config(path: Path | None = None, *, environ: Mapping[str, str] | None = None) -> RunnerConfig:
     """Reads `[hub.runner]`; raises `halkit.config.ConfigError`."""
     values = dict(config.load(RUNNER_TABLE, path=path, environ=environ))
@@ -111,6 +133,7 @@ class HubConfig:
     scan_depth: int = DEFAULT_SCAN_DEPTH
     installed: Path | None = None  # the packs.json path; None skips that source
     runner: RunnerConfig = field(default_factory=RunnerConfig)
+    mcp: McpConfig = field(default_factory=McpConfig)
     manifest_defaults: ManifestDefaults = field(default=DEFAULTS)
 
     @classmethod
@@ -128,6 +151,7 @@ class HubConfig:
             scan_depth=int(values["scan_depth"]),
             installed=paths.state_dir() / PACKS_RECORD,
             runner=runner,
+            mcp=load_mcp_config(path, environ=env),
             manifest_defaults=ManifestDefaults(
                 max_timeout=runner.max_timeout,
                 max_result_chars=runner.max_result_chars,
