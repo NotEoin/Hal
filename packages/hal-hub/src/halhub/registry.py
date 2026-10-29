@@ -22,7 +22,7 @@ from __future__ import annotations
 import dataclasses
 import importlib.metadata
 import logging
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -118,10 +118,14 @@ class Registry:
         collect_errors: bool = False,
         entry_points: Callable[[], Iterable[importlib.metadata.EntryPoint]] | None = None,
         version: str | None = None,
+        only: Collection[str] | None = None,
     ) -> Registry:
         """Discovers and checks every module; raises `DuplicateModuleError` unless `collect_errors`.
 
-        `entry_points` and `version` replace the real entry-point reader and hub version in tests.
+        `only` keeps just the modules with those names, plus the built-in module: a standalone
+        pack (`halhub.pack`) loads its own modules, so a broken or duplicate manifest of another
+        pack cannot stop it. `entry_points` and `version` replace the real entry-point reader
+        and hub version in tests.
         """
         config = config if config is not None else HubConfig.load()
         problems: list[Problem] = []
@@ -141,6 +145,8 @@ class Registry:
             defaults=config.manifest_defaults,
         )
         specs = [builtin] + [spec for c in candidates if (spec := _parse(c, config, problems)) is not None]
+        if only is not None:
+            specs = [spec for spec in specs if spec.source == "builtin" or spec.name in only]
         specs = _without_duplicates(specs, problems, collect_errors)
         states = _check(specs, config.disabled, version or hub_version(), problems)
         return cls(states, problems)

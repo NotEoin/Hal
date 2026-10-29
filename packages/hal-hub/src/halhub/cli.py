@@ -40,6 +40,10 @@ or approval missing. Design decisions:
   (REQ-HUB-22). `approve` always answers `once`; `session` scope stays with richer surfaces.
 - Results go to stdout as JSON (indent 2, or the bare string with `--raw`); messages and
   prompts go to stderr. This is the only module, with `__main__`, that prints.
+- `halhub.pack` runs these same commands for one pack (`run_scoped` with a `Scope`): only
+  `mcp`, `tools`, `call` and `doctor`, over the pack's own modules, with profile
+  `standalone` unless `--profile` says otherwise, and `mcp` in flat mode limited to the
+  pack's tools.
 """
 
 from __future__ import annotations
@@ -55,6 +59,8 @@ import sys
 import time
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
 
 from halkit import log as halkit_log
@@ -63,9 +69,10 @@ from halkit.config import ConfigError
 from . import _control_standin as control
 from . import _policy_standin as policy
 from ._approvals_standin import ApprovalRequest, ApprovalRouter, escape
+from .config import HubConfig
 from .hub import CallResult, Hub
 from .manifest import ModuleSpec, ToolSpec
-from .registry import RegistryError
+from .registry import Registry, RegistryError
 from .runner import SecretError, WorkerError, resolve_secrets
 from .session import HubSession, new_session_id
 from .surfaces import YES_ANSWERS, TtySurface, person_at_terminal, yes_allowed
@@ -94,11 +101,45 @@ SECRET_ENV_RE = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL", re.IG
 LOG_LEVELS = {-1: "ERROR", 0: "WARNING", 1: "DEBUG"}
 REMOTE_ADDR_ENV = "HAL_REMOTE_ADDR"  # set by 07-remote's forced command; read only with --channel remote
 
-__all__ = ["main"]
+PACK_COMMANDS = ("mcp", "tools", "call", "doctor")
+
+__all__ = ["PACK_COMMANDS", "Scope", "main", "run_scoped"]
 
 
 class UsageError(Exception):
     """A command line that cannot run; exit 2 with the message."""
+
+
+@dataclass(frozen=True)
+class Scope:
+    """Who the commands run for: all of `hal-hub`, or one pack's modules (`halhub.pack`)."""
+
+    prog: str = "hal-hub"
+    pack: str | None = None
+    modules: frozenset[str] | None = None  # None: every module the registry finds
+    profile: str | None = None  # the default when `--profile` is not given
+
+    def has(self, module: str) -> bool:
+        """True when `module` belongs to this scope."""
+        return self.modules is None or module in self.modules
+
+
+_HAL_HUB = Scope()
+_scope: ContextVar[Scope | None] = ContextVar("halhub_cli_scope", default=None)
+
+
+def _current() -> Scope:
+    """The scope of the running command; plain `hal-hub` outside `run_scoped`."""
+    return _scope.get() or _HAL_HUB
+
+
+def run_scoped(scope: Scope, argv: Sequence[str]) -> int:
+    """Runs one command of `scope` (`PACK_COMMANDS` only, for a pack) and returns its exit code."""
+    token = _scope.set(scope)
+    try:
+        return main(argv)
+    finally:
+        _scope.reset(token)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -124,7 +165,7 @@ def _main(args: list[str]) -> int:
     while args and args[0].startswith("-"):
         flag = args.pop(0)
         if flag in ("-h", "--help"):
-            print(__doc__.split("Exit codes")[0].rstrip())
+            print(_usage())
             return EXIT_OK
         if flag == "-v":
             verbosity = 1
@@ -138,9 +179,12 @@ def _main(args: list[str]) -> int:
             raise UsageError(f"unknown option {flag}; see hal-hub --help")
     halkit_log.setup("halhub", level=LOG_LEVELS[verbosity])
     if not args:
-        print(__doc__.split("Exit codes")[0].rstrip())
+        print(_usage())
         return EXIT_USAGE
     command, rest = args[0], args[1:]
+    scope = _current()
+    if scope.pack is not None and command not in PACK_COMMANDS:
+        raise UsageError(f"unknown command {command!r}; {scope.prog} has {', '.join(PACK_COMMANDS)}")
     if command == "version":
         from . import __version__
 
@@ -186,9 +230,9 @@ def _call(argv: list[str]) -> int:
     if opts.yes and not yes_allowed():
         raise UsageError("--yes needs a person at a terminal: stdin must be a terminal and HAL_HARNESS unset")
     arguments = _json_object(opts.json_args) if opts.json_args is not None else _pairs(opts.pairs)
-    hub = Hub()
+    hub = _new_hub()
     try:
-        with _session(hub, profile=opts.profile, approver_yes=opts.yes) as session:
+        with _session(hub, profile=opts.profile or _current().profile, approver_yes=opts.yes) as session:
             result = hub.call(opts.tool, arguments, session, front_end="cli")
         return _report(result, raw=opts.raw)
     finally:
@@ -202,15 +246,16 @@ def _tools(argv: list[str]) -> int:
     parser.add_argument("--all", action="store_true", help="also tools that are denied or unavailable")
     parser.add_argument("--json", action="store_true")
     opts = parser.parse_args(argv)
-    hub = Hub()
+    hub = _new_hub()
     try:
-        session = hub.open_session(kind="hub", origin="cli")
+        session = hub.open_session(kind="hub", origin="cli", profile=_current().profile)
         if opts.all:
             rows = [_tool_row(hub, session, tool, status) for tool, status in _every_tool(hub, session)]
         else:
             query = " ".join(opts.query)
             found = hub.find(query, opts.limit, session=session) if query else hub.tools(session)
             rows = [_tool_row(hub, session, tool, "ok") for tool in found]
+        rows = [row for row in rows if _current().has(str(row["module"]))]
         session.close()
     finally:
         hub.close()
@@ -230,7 +275,7 @@ def _show(argv: list[str]) -> int:
     parser.add_argument("tool")
     parser.add_argument("--json", action="store_true")
     opts = parser.parse_args(argv)
-    hub = Hub()
+    hub = _new_hub()
     try:
         found = hub.registry.lookup(opts.tool)
         if found is None:
@@ -282,7 +327,7 @@ def _modules(argv: list[str]) -> int:
     )
     parser.add_argument("--json", action="store_true")
     opts = parser.parse_args(argv)
-    hub = Hub()
+    hub = _new_hub()
     try:
         states = [s for s in hub.registry.modules.values() if opts.all or s.status == "ok"]
         problems = hub.registry.problems if opts.all else ()
@@ -332,10 +377,15 @@ def _mcp(argv: list[str]) -> int:
         "--port", type=int, help="HTTP port, 0 for any free one (default: [hub.mcp].http_port)"
     )
     parser.add_argument("--allow-origin", action="append", default=None, help="a browser origin to accept")
+    parser.add_argument("--module", action="append", default=None, help="a pack's command: serve this module")
     opts = parser.parse_args(argv)
+    scope = _current()
     http = opts.transport == "http"
     if not http and (opts.host or opts.port is not None or opts.allow_origin):
         raise UsageError("--host, --port and --allow-origin need --transport http")
+    if opts.module and scope.modules is None:
+        raise UsageError("--module is for a pack's own command; use --tools or --packs")
+    profile = opts.profile or scope.profile
     from . import mcp  # deferred: only this command needs the SDK
 
     remote = opts.channel == mcp.REMOTE_CHANNEL
@@ -344,20 +394,21 @@ def _mcp(argv: list[str]) -> int:
     if opts.origin is not None and not remote:
         raise UsageError("--origin is accepted only with --channel remote")
     # a bad policy, profile or channel exits 2 before serving
-    policy.load_policy(None, profile=opts.profile, channel=opts.channel)
-    hub = Hub()
+    policy.load_policy(None, profile=profile, channel=opts.channel)
+    hub = _new_hub()
     try:
+        tools = opts.tools if scope.modules is None else _pack_tools(hub, scope, opts.module, opts.tools)
         options = mcp.ServeOptions(
-            mode=opts.mode or hub.config.mcp.mode,
-            profile=opts.profile,
+            mode=opts.mode or ("flat" if scope.pack is not None else hub.config.mcp.mode),
+            profile=profile,
             channel=opts.channel,
             origin=opts.origin or mcp.ORIGIN,
             remote_addr=(os.environ.get(REMOTE_ADDR_ENV) or None) if remote else None,
             approvals="auto" if remote else opts.approvals or hub.config.mcp.approvals,
             packs=opts.packs,
-            tools=opts.tools,
+            tools=tools,
         )
-    except ValueError as exc:
+    except (ValueError, UsageError) as exc:
         hub.close()
         raise UsageError(str(exc)) from None
     try:
@@ -378,6 +429,21 @@ def _mcp(argv: list[str]) -> int:
     finally:
         hub.close()
     return EXIT_OK
+
+
+def _pack_tools(
+    hub: Hub, scope: Scope, modules: list[str] | None, tools: frozenset[str] | None
+) -> frozenset[str]:
+    """The tool names a pack's `mcp` serves: its modules' tools (or those of `--module`)."""
+    assert scope.modules is not None
+    wanted = set(modules or scope.modules)
+    if wanted - scope.modules:
+        names = ", ".join(sorted(wanted - scope.modules))
+        raise UsageError(f"{names}: not a module of pack {scope.pack} ({', '.join(sorted(scope.modules))})")
+    found = frozenset(t.name for t in hub.registry.tools() if t.module in wanted)
+    if not found:
+        raise UsageError(f"no usable tools found for pack {scope.pack}; run {scope.prog} doctor")
+    return found if tools is None else found & tools
 
 
 def _token(argv: list[str]) -> int:
@@ -458,7 +524,7 @@ def _doctor(argv: list[str]) -> int:
     parser = _parser("doctor", "check manifests, workers and signatures")
     parser.add_argument("--json", action="store_true")
     opts = parser.parse_args(argv)
-    hub = Hub()
+    hub = _new_hub()
     try:
         report = doctor_report(hub)
     finally:
@@ -491,6 +557,8 @@ def doctor_report(hub: Hub) -> dict[str, object]:
     """
     modules = []
     for state in hub.registry.modules.values():
+        if not _current().has(state.spec.name):
+            continue
         spec = state.spec
         errors: list[str] = []
         notes: list[str] = list(spec.warnings)
@@ -712,8 +780,30 @@ def _json_object(text: str) -> dict[str, object]:
     return value
 
 
+def _new_hub() -> Hub:
+    """The hub for this command: every module, or only the scope's modules for a pack."""
+    scope = _current()
+    if scope.modules is None:
+        return Hub()
+    config = HubConfig.load()
+    return Hub(Registry.load(config, only=scope.modules), config=config)
+
+
+def _usage() -> str:
+    scope = _current()
+    if scope.pack is None:
+        return __doc__.split("Exit codes")[0].rstrip()
+    return (
+        f"{scope.prog} COMMAND (pack {scope.pack}, profile {scope.profile or 'default'})\n\n"
+        "  mcp [--transport stdio|http] [--profile P] [--module NAME]... [--port N]   flat mode\n"
+        "  tools [QUERY] [--json]\n"
+        "  call TOOL [key=value ...] [--json ARGS] [--yes]\n"
+        "  doctor [--json]"
+    )
+
+
 def _parser(name: str, description: str) -> argparse.ArgumentParser:
-    return argparse.ArgumentParser(prog=f"hal-hub {name}", description=description)
+    return argparse.ArgumentParser(prog=f"{_current().prog} {name}", description=description)
 
 
 def _print_json(data: object) -> None:
@@ -721,4 +811,4 @@ def _print_json(data: object) -> None:
 
 
 def _error(message: str) -> None:
-    print(f"hal-hub: {message}", file=sys.stderr)
+    print(f"{_current().prog}: {message}", file=sys.stderr)

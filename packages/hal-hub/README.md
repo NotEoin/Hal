@@ -160,6 +160,25 @@ reports an error to the caller.
 
 `scaffold.py` in the ecosystem folder creates a module with this layout.
 
+## Run a pack on its own
+
+A pack can ship its own command, `hal-<pack>`, with no Hal core installed. Its entry point
+calls `halhub.pack.main` with the pack's name and modules:
+
+```python
+from halhub import pack
+
+def main() -> int:
+    return pack.main("organiser", ("calendar", "tasks", "clock"))
+```
+
+`hal-organiser mcp|tools|call|doctor` then behave like the `hal-hub` commands, limited to the
+pack's own modules, with the `standalone` policy profile (the default profile without
+`system` tools) unless `--profile` says otherwise. `mcp` serves flat mode with only the
+pack's tools (`--module NAME` narrows it further). `extra={"calendar-connect": fn}` adds a
+human-only subcommand that gets the remaining arguments and returns an exit code; it is never
+a tool, and a name that clashes with a built-in subcommand raises `ValueError`.
+
 ## Configuration
 
 Settings live in the `[hub]` table of `~/.config/hal/config.toml`:
