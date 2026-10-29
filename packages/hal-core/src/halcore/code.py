@@ -1,9 +1,12 @@
 """`hal code [DIR]`: the secure coding path, hal-agent in a docker box (see halsandbox.code).
 
-    hal code [DIR] [--upstream URL] [--image NAME] [--runtime runc|runsc] [-- AGENT ARGS...]
+    hal code [DIR] [--upstream URL] [--model NAME] [--image NAME] [--runtime runc|runsc]
+             [-- AGENT ARGS...]
     hal code --build
 
-Without `--build` it needs the agent image; `--build` creates it from this checkout.
+Without `--build` it needs the agent image; `--build` creates it from this checkout. The model
+server and model default to Hal's own `[hal] ollama_url` and `chat_model`, so `hal code` uses
+the same local model as `hal chat`; HAL_CODE_UPSTREAM and HAL_AGENT_MODEL override them.
 """
 
 from __future__ import annotations
@@ -15,6 +18,8 @@ import sys
 from pathlib import Path
 
 from halsandbox import code as sandbox
+
+from . import config
 
 ROOT = Path(__file__).resolve().parents[4]  # packages/hal-core/src/halcore -> checkout root
 
@@ -30,10 +35,14 @@ def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(prog="hal code", description="run hal-agent in a docker box")
     p.add_argument("dir", nargs="?", default=".")
     p.add_argument("--build", action="store_true", help="build the agent image and exit")
-    p.add_argument("--upstream", default=os.environ.get("HAL_CODE_UPSTREAM", sandbox.DEFAULT_UPSTREAM))
+    shared = config.shared()
+    p.add_argument("--upstream", default=os.environ.get("HAL_CODE_UPSTREAM", shared["ollama_url"]))
+    p.add_argument("--model", default=os.environ.get("HAL_AGENT_MODEL", shared["chat_model"]))
     p.add_argument("--image", default=sandbox.DEFAULT_IMAGE)
     p.add_argument("--runtime", choices=("runc", "runsc"))
     opts = p.parse_args(argv)
+    if "--model" not in agent_args:
+        agent_args = ["--model", opts.model, *agent_args]
     try:
         if opts.build:
             sandbox.build_image(ROOT, opts.image)
