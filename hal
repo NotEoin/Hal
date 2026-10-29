@@ -4,6 +4,8 @@
 #
 #   hal chat [message]   talk to Hal in the terminal (uses installed extensions' tools)
 #   hal                  open Claude Code on the local model, in your vault
+#   hal code [DIR]       private coding agent in a docker box (--build makes the image)
+#   hal claude [args...] Claude Code in the current directory (NOT private, not boxed)
 #   hal here [args...]   open Claude Code in the current directory (for coding projects)
 #   hal on | off         start Hal's services, or stop the ones using the GPU and free it
 #   hal toggle           on if off, off if on (the desktop launcher runs this)
@@ -25,12 +27,12 @@ set -uo pipefail
 
 # Resolve real location even when called through the ~/.local/bin/hal symlink
 HAL_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-HALCORE_SRC="$HAL_ROOT/packages/hal-core/src:$HAL_ROOT/packages/hal-hub/src"
+HALCORE_SRC="$HAL_ROOT/packages/hal-core/src:$HAL_ROOT/packages/hal-hub/src:$HAL_ROOT/packages/hal-kit/src:$HAL_ROOT/packages/hal-sandbox/src"
 halcore() { PYTHONPATH="$HALCORE_SRC${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m halcore "$@"; }
 
 # ---- Commands that need neither hal.conf nor Claude Code --------------------
 case "${1:-}" in
-  chat|console|eval|ext|units|configure) halcore "$@" ;;
+  chat|console|eval|ext|units|configure|code) halcore "$@" ;;
   on|off|toggle) halcore power "$@" ;;
   install) shift; halcore units install --start "$@" ;;
   ask|index|brief|summarize|import|obsidian-key|register-repos)
@@ -116,6 +118,9 @@ case "${1:-}" in
     [ "$BACKEND" = "llamacpp" ] && exec "$HAL_ROOT/hal-serve" status
     exit 0 ;;
   here)
+    shift; TARGET="$PWD" ;;
+  claude)
+    echo "hal claude: Claude Code is not private or sandboxed; use hal code for that." >&2
     shift; TARGET="$PWD" ;;
   *)
     TARGET="$VAULT" ;;

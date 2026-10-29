@@ -18,6 +18,8 @@ def main() -> int:
         from .configure import main as run
     elif cmd == "power":
         from .power import main as run
+    elif cmd == "code":
+        from .code import main as run
     elif cmd == "gpulight":
         from .gpulight import main as run
     else:
