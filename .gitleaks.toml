@@ -1,0 +1,11 @@
+# gitleaks configuration for CI (the "secrets" job in .github/workflows/ci.yml).
+title = "Hal gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Example session token in the 05-gateway design spec: a made-up value with an elided tail"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = ['''hal-sess-3f9a1c2e\.Zt0\.\.\.''']

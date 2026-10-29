@@ -29,7 +29,7 @@ def test_workflow_runs_the_ascii_gate_and_the_tests():
 
 
 def test_workflow_installs_from_the_lock_file_without_changing_it():
-    assert WORKFLOW.count("uv sync --all-packages --frozen") == 2
+    assert WORKFLOW.count("uv sync --all-packages --frozen") == 2  # the lint and test jobs
 
 
 def test_workflow_token_is_read_only():
@@ -43,3 +43,16 @@ def test_every_job_has_a_timeout():
 
 def test_workflow_does_not_run_marked_tests():
     assert "-m " not in WORKFLOW  # the deselection lives in pyproject.toml, once
+
+
+def test_workflow_scans_the_history_for_secrets_with_a_checksummed_gitleaks():
+    assert "fetch-depth: 0" in WORKFLOW
+    assert "sha256sum -c" in WORKFLOW
+    assert re.search(r"GITLEAKS_SHA256: [0-9a-f]{64}", WORKFLOW)
+    assert "gitleaks git" in WORKFLOW and "--exit-code 1" in WORKFLOW
+
+
+def test_gitleaks_config_extends_the_default_rules_and_allowlists_narrowly():
+    config = (REPO / ".gitleaks.toml").read_text(encoding="utf-8")
+    assert "useDefault = true" in config
+    assert config.count("[[allowlists]]") == 1 and "targetRules" in config
