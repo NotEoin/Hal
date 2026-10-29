@@ -45,7 +45,7 @@ markers = [
     "systemd: needs a systemd user session",
     "live: needs a real model server",
 ]
-addopts = '--import-mode=importlib -m "not gpu and not docker and not network and not slow and not bwrap and not systemd and not live"'
+addopts = '--import-mode=importlib --strict-markers -m "not gpu and not docker and not network and not slow and not bwrap and not systemd and not live"'
 
 [tool.ruff.lint.isort]
 known-first-party = ["halkit", "halhub", "halagent", "halsandbox", "halgateway", "halremote", "halcore"]

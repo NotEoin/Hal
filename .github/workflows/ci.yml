@@ -1,0 +1,53 @@
+# CI for the Hal monorepo (REQ-SYS-21): lint, the ASCII gate and the hermetic tests on Python
+# 3.11 to 3.13. Tests marked gpu, docker, network, slow, bwrap, systemd or live are deselected
+# by the pytest configuration in pyproject.toml, so no job here needs a GPU or a model.
+name: CI
+
+on:
+  push:
+    branches: [main, next]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint and ASCII gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - name: Install the workspace
+        run: uv sync --all-packages --frozen
+      - name: Ruff lint
+        run: uv run ruff check .
+      - name: Ruff format
+        run: uv run ruff format --check packages tests
+      - name: ASCII gate
+        run: scripts/check-ascii.sh
+
+  test:
+    name: Tests on Python ${{ matrix.python }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install the workspace
+        run: uv sync --all-packages --frozen
+      - name: Run the hermetic tests
+        run: uv run pytest -q
