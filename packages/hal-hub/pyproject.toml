@@ -15,7 +15,7 @@ dependencies = ["hal-kit"]
 hal-kit = { workspace = true }
 
 [project.scripts]
-hal-hub = "halhub.__main__:main"
+hal-hub = "halhub.cli:main"
 
 [tool.hatch.version]
 path = "src/halhub/__init__.py"

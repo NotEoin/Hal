@@ -30,7 +30,6 @@ select = ["E", "F", "W", "I", "B", "UP", "T20", "RUF001", "RUF002", "RUF003", "P
 "packages/hal-hub/src/halhub/v1_registry.py" = ["T201", "E501", "UP037"]
 "packages/hal-hub/src/halhub/v1_runner.py" = ["E501", "I001"]
 "packages/hal-hub/src/halhub/mcp.py" = ["I001"]
-"packages/hal-hub/src/halhub/__main__.py" = ["E501", "I001"]
 
 [tool.ruff.format]
 # Same reason: formatting the moved halcore and the v1 hub modules would bury the move in a
@@ -38,7 +37,6 @@ select = ["E", "F", "W", "I", "B", "UP", "T20", "RUF001", "RUF002", "RUF003", "P
 exclude = [
     "packages/hal-core/**",
     "packages/hal-hub/README.md",
-    "packages/hal-hub/src/halhub/__main__.py",
     "packages/hal-hub/src/halhub/mcp.py",
     "packages/hal-hub/src/halhub/v1_registry.py",
     "packages/hal-hub/src/halhub/v1_runner.py",

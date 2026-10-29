@@ -38,9 +38,19 @@ The command line covers every module:
 ```bash
 hal-hub modules                                  # what is installed
 hal-hub tools "remind me about the dentist"      # the best tools for a request
+hal-hub show calendar_add                        # schema, tier and verdict per profile
 hal-hub calendar_add title=Dentist when="thursday 10am"
-hal-hub doctor                                   # check every manifest and entry point
+hal-hub call calendar_add --json '{"title": "Dentist", "when": "thursday 10am"}'
+hal-hub doctor                                   # start every worker and check signatures
 ```
+
+When a tool needs approval and you are at a terminal, `hal-hub` shows the exact call and asks
+`Allow once? [y/N]`; `--yes` answers yes for that one call. `--yes` is refused when stdin is
+not a terminal or `HAL_HARNESS` is set, so an AI harness that runs `hal-hub` cannot approve its
+own calls. Without a terminal a call that needs approval is denied.
+
+Exit codes: 0 success, 1 tool error, 2 usage or configuration error (including a malformed
+`config.toml` or `policy.toml`), 3 denied or approval missing.
 
 From Python, `import halhub` is cheap: the API loads on first use and runs every call through
 one process-wide hub. A pack calls another pack's tool with `halhub.client.call`, which returns
