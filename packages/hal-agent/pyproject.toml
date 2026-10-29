@@ -14,6 +14,9 @@ dependencies = ["hal-kit"]
 [tool.uv.sources]
 hal-kit = { workspace = true }
 
+[project.scripts]
+hal-agent = "halagent.cli:main"
+
 [tool.hatch.version]
 path = "src/halagent/__init__.py"
 
