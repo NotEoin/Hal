@@ -30,7 +30,7 @@ from typing import TextIO
 from ._approvals_standin import ApprovalRequest, Decision
 from ._policy_standin import Scope
 
-__all__ = ["HARNESS_ENV", "TtySurface", "in_harness", "yes_allowed"]
+__all__ = ["HARNESS_ENV", "TtySurface", "in_harness", "person_at_terminal", "yes_allowed"]
 
 HARNESS_ENV = "HAL_HARNESS"  # set by `hal connect` and harness launchers (00-overview `halkit.harness`)
 POLL_S = 0.2  # how often a waiting prompt checks for a withdrawal
@@ -47,6 +47,17 @@ def yes_allowed(stdin: TextIO | None = None, environ: Mapping[str, str] | None =
     """True when `--yes` may answer: stdin is a terminal and no harness started the process."""
     stream = sys.stdin if stdin is None else stdin
     return _isatty(stream) and not in_harness(environ)
+
+
+def person_at_terminal(
+    stdin: TextIO | None = None, stdout: TextIO | None = None, environ: Mapping[str, str] | None = None
+) -> bool:
+    """True when stdin and stdout are terminals and no harness started the process (REQ-HUB-22)."""
+    return (
+        _isatty(sys.stdin if stdin is None else stdin)
+        and _isatty(sys.stdout if stdout is None else stdout)
+        and not in_harness(environ)
+    )
 
 
 class TtySurface:

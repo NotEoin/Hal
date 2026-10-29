@@ -21,9 +21,8 @@ Design decisions:
   mtime changed. A file with open permissions or another owner raises `UnsafeGrantFile`, so
   the call that needed it is denied (01 REQ-SEC-15); a line that does not parse is skipped
   with a warning, which can only remove a grant.
-- Missing until 01 lands: the control socket (`hal approve`), the `notify` surface,
-  revocation, compaction and `hal approvals grants`. With no
-  control socket a host process's only surfaces are the ones its front end adds.
+- Missing until 01 lands: the `notify` surface, revocation, compaction and
+  `hal approvals grants`. The control socket (`hal approve`) is `_control_standin`.
 """
 
 from __future__ import annotations

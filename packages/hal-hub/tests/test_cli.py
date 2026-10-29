@@ -6,13 +6,17 @@ with real workers; the Hal home is the temporary one from `conftest.py`.
 
 from __future__ import annotations
 
+import io
 import json
 import textwrap
+import threading
+import time
 
 import pytest
 from hubkit import DEMO_TOKEN
 
 from halhub import __version__, cli
+from halhub import _control_standin as control
 from halhub.surfaces import HARNESS_ENV
 
 
@@ -144,9 +148,30 @@ def test_tool_error_exits_1(home, capsys):
     assert code == 1 and "disk on fire" in err and out == ""
 
 
-def test_ask_without_a_terminal_is_denied_with_exit_3(home, capsys):
+def test_ask_without_a_terminal_waits_for_approve_then_exits_3(home, capsys):
+    home.policy.write_text("schema_version = 1\n[approval]\ntimeout_s = 1\n")
     code, out, err = run(capsys, "demo_wipe", "path=/tmp/x")
-    assert code == 3 and "no-approver" in err and out == ""
+    assert code == 3 and "approval-timeout" in err and out == ""
+    assert "hal-hub approve apr_" in err
+
+
+def test_ask_without_a_terminal_runs_after_approval_on_the_control_socket(home, capsys, monkeypatch):
+    monkeypatch.setattr(control, "peer_in_harness", lambda pid: False)
+
+    def approve_when_listed() -> None:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            pending = control.list_pending()
+            if pending:
+                control.answer(pending[0], "allow", scope="once")
+                return
+            time.sleep(0.05)
+
+    approver = threading.Thread(target=approve_when_listed, daemon=True)
+    approver.start()
+    code, out, _ = run(capsys, "demo_wipe", "path=/tmp/x")
+    approver.join(5)
+    assert code == 0 and json.loads(out) == "wiped /tmp/x"
 
 
 def test_yes_is_refused_without_terminal(home, capsys):
@@ -241,3 +266,103 @@ def test_doctor_starts_workers_and_reports_signature_mismatches(home, capsys):
     errors = " | ".join(modules["scratch"]["errors"])
     assert "does not accept manifest parameter 'size'" in errors
     assert "requires 'colour'" in errors
+
+
+# ---- approvals, approve, deny (REQ-HUB-22) -----------------------------------------------------
+
+
+@pytest.fixture
+def waiting(home, monkeypatch):
+    """A pending request on a control socket of this process, and the decision it gets."""
+    from datetime import timedelta
+
+    from halhub._approvals_standin import ApprovalRequest
+    from halhub._policy_standin import Origin, Scope, Taint, Tier
+    from halkit.timeutil import iso_z, utc_now
+
+    monkeypatch.setattr(control, "peer_in_harness", lambda pid: False)
+    now = utc_now()
+    req = ApprovalRequest(
+        id="apr_00000000000000aa",
+        session="00000000aaaa",
+        origin=Origin.CLI,
+        channel=None,
+        pack="demo",
+        pack_version="0",
+        tool="demo_wipe",
+        tier=Tier.ACT,
+        key="sha256:" + "c" * 64,
+        reason="tier:act - act tools ask",
+        args={"path": "/tmp/x"},
+        display="demo_wipe  [act]  demo\n  path: /tmp/x",
+        summary="Allow demo_wipe (act, pack demo)?",
+        content=False,
+        challenge=None,
+        scopes=(Scope.ONCE, Scope.SESSION),
+        taint=Taint.UNTRUSTED,
+        guard=None,
+        created_at=iso_z(now, ms=True),
+        expires_at=iso_z(now + timedelta(seconds=60), ms=True),
+    )
+    server = control.ControlServer("00000000aaaa")
+    box: dict = {}
+    thread = threading.Thread(target=lambda: box.setdefault("decision", server.decide(req, 10)), daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 5
+    while not control.list_pending() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    box["join"] = lambda: thread.join(5)
+    yield box
+    server.close()
+
+
+def at_terminal(monkeypatch, answer: str = "") -> None:
+    monkeypatch.setattr(cli, "person_at_terminal", lambda: True)
+    monkeypatch.setattr("sys.stdin", io.StringIO(answer))
+
+
+def test_approve_shows_the_call_and_allows_once(waiting, capsys, monkeypatch):
+    at_terminal(monkeypatch, "y\n")
+    code, out, _ = run(capsys, "approve", "apr_00000000000000aa")
+    waiting["join"]()
+    decision = waiting["decision"]
+    assert code == 0 and "path: /tmp/x" in out and "Allow this exact call once?" in out
+    assert (decision.verdict, decision.scope.value, decision.source) == ("allow", "once", "control")
+
+
+def test_deny_refuses_the_request(waiting, capsys, monkeypatch):
+    at_terminal(monkeypatch, "yes\n")
+    assert run(capsys, "deny", "apr_00000000000000aa")[0] == 0
+    waiting["join"]()
+    assert waiting["decision"].verdict == "deny"
+
+
+def test_approve_without_a_yes_sends_nothing(waiting, capsys, monkeypatch):
+    at_terminal(monkeypatch, "n\n")
+    code, out, _ = run(capsys, "approve", "apr_00000000000000aa")
+    assert code == 0 and "Nothing sent" in out and "decision" not in waiting
+
+
+def test_approvals_lists_pending_requests(waiting, capsys, monkeypatch):
+    at_terminal(monkeypatch)
+    code, out, _ = run(capsys, "approvals", "--json")
+    assert code == 0 and [r["id"] for r in json.loads(out)] == ["apr_00000000000000aa"]
+
+
+def test_approve_unknown_id_exits_2(waiting, capsys, monkeypatch):
+    at_terminal(monkeypatch, "y\n")
+    code, _, err = run(capsys, "approve", "apr_ffffffffffffffff")
+    assert code == 2 and "no pending request" in err
+
+
+@pytest.mark.parametrize("command", ["approvals", "approve", "deny"])
+def test_approve_without_a_terminal_is_refused(waiting, capsys, command):
+    code, _, err = run(capsys, command, *([] if command == "approvals" else ["apr_00000000000000aa"]))
+    assert code == 2 and "person at a terminal" in err and "decision" not in waiting
+
+
+def test_approve_under_a_harness_is_refused(waiting, capsys, monkeypatch):
+    monkeypatch.setenv(HARNESS_ENV, "1")
+    monkeypatch.setattr("sys.stdin", FakeTerminal())
+    monkeypatch.setattr("sys.stdout", FakeTerminal())
+    assert cli.main(["approve", "apr_00000000000000aa"]) == 2

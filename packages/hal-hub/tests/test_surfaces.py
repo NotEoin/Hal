@@ -10,7 +10,7 @@ import pytest
 
 from halhub._approvals_standin import ApprovalRequest, ApprovalRouter
 from halhub._policy_standin import Origin, Scope, Taint, Tier
-from halhub.surfaces import HARNESS_ENV, TtySurface, in_harness, yes_allowed
+from halhub.surfaces import HARNESS_ENV, TtySurface, in_harness, person_at_terminal, yes_allowed
 
 
 def request(*, scopes=(Scope.ONCE, Scope.SESSION), content: bool = False) -> ApprovalRequest:
@@ -109,6 +109,17 @@ def test_yes_needs_a_terminal_and_no_harness():
     assert not yes_allowed(io.StringIO(), {})
     assert not yes_allowed(Terminal(), {HARNESS_ENV: "1"})
     assert in_harness({HARNESS_ENV: "opencode"}) and not in_harness({HARNESS_ENV: " "})
+
+
+def test_person_at_terminal_needs_both_terminals_and_no_harness():
+    class Terminal(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    assert person_at_terminal(Terminal(), Terminal(), {})
+    assert not person_at_terminal(Terminal(), io.StringIO(), {})
+    assert not person_at_terminal(io.StringIO(), Terminal(), {})
+    assert not person_at_terminal(Terminal(), Terminal(), {HARNESS_ENV: "1"})
 
 
 def test_content_call_never_reaches_a_surface_without_all_args():

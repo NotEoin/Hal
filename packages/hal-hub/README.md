@@ -47,7 +47,16 @@ hal-hub doctor                                   # start every worker and check 
 When a tool needs approval and you are at a terminal, `hal-hub` shows the exact call and asks
 `Allow once? [y/N]`; `--yes` answers yes for that one call. `--yes` is refused when stdin is
 not a terminal or `HAL_HARNESS` is set, so an AI harness that runs `hal-hub` cannot approve its
-own calls. Without a terminal a call that needs approval is denied.
+own calls. Without a terminal the call waits (up to `[approval].timeout_s` in `policy.toml`)
+for you to answer it from any terminal:
+
+```bash
+hal-hub approvals                                # pending requests
+hal-hub approve apr_5f2c9a0d1e7b4c33             # shows the exact call, asks y/N, allows it once
+hal-hub deny apr_5f2c9a0d1e7b4c33
+```
+
+These three refuse to run unless stdin and stdout are terminals and `HAL_HARNESS` is unset.
 
 Exit codes: 0 success, 1 tool error, 2 usage or configuration error (including a malformed
 `config.toml` or `policy.toml`), 3 denied or approval missing.

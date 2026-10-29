@@ -8,6 +8,9 @@
       call TOOL [key=value ...] [--json ARGS] [--yes] [--profile P] [--raw]
       TOOL [key=value ...] [--yes]                 shorthand for call (tool names contain "_")
       mcp                                          serve the tools over MCP on stdio
+      approvals [--json]                           pending approval requests of this user
+      approve ID                                   allow one pending request, once
+      deny ID                                      refuse one pending request
       doctor [--json]                              check manifests, workers and signatures
       version
 
@@ -18,15 +21,19 @@ or approval missing. Design decisions:
   origin `cli`; near-miss argument names are mapped on this front end only.
 - An `ask` is answered by the `tty` surface when stdin and stdout are terminals (REQ-HUB-58).
   `--yes` answers `once` for the one call and is refused with exit 2 unless stdin is a
-  terminal and `HAL_HARNESS` is unset (REQ-HUB-53). Without a terminal there is no surface
-  until 01's control socket lands (phase 2), so an `ask` is denied at once with exit 3
-  instead of waiting for `hal approve`.
+  terminal and `HAL_HARNESS` is unset (REQ-HUB-53). Without a terminal the request waits on
+  this process's control socket for `hal-hub approve ID` up to `[approval].timeout_s`, then
+  exits 3. The `notify` surface joins it with 01's phase 2.
 - A word without `_` that is not a subcommand is a usage error, never a tool lookup, so a
   subcommand can never shadow a tool (REQ-HUB-54).
 - A malformed `config.toml` or `policy.toml`, or two modules with one name, exits 2 with the
   message (file and line when known) and no traceback (REQ-HUB-55).
 - `--config` and `--policy` set `HAL_CONFIG` and `HAL_POLICY` for this process, so the
   registry, the policy and secret lookups all read the same files.
+- `approvals`, `approve` and `deny` are thin wrappers over the control-socket client that
+  06's `hal approvals`, `hal approve` and `hal deny` use, with the same checks: stdin and
+  stdout are terminals and `HAL_HARNESS` is unset, and no flag skips the question
+  (REQ-HUB-22). `approve` always answers `once`; `session` scope stays with richer surfaces.
 - Results go to stdout as JSON (indent 2, or the bare string with `--raw`); messages and
   prompts go to stderr. This is the only module, with `__main__`, that prints.
 """
@@ -42,19 +49,22 @@ import re
 import shutil
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from pathlib import Path
 
 from halkit import log as halkit_log
 from halkit.config import ConfigError
 
+from . import _control_standin as control
 from . import _policy_standin as policy
-from ._approvals_standin import ApprovalRouter
+from ._approvals_standin import ApprovalRequest, ApprovalRouter, escape
 from .hub import CallResult, Hub
 from .manifest import ModuleSpec, ToolSpec
 from .registry import RegistryError
 from .runner import SecretError, WorkerError, resolve_secrets
-from .session import HubSession
-from .surfaces import TtySurface, yes_allowed
+from .session import HubSession, new_session_id
+from .surfaces import YES_ANSWERS, TtySurface, person_at_terminal, yes_allowed
 
 EXIT_OK = 0
 EXIT_TOOL_ERROR = 1
@@ -63,7 +73,7 @@ EXIT_DENIED = 3
 USAGE_ERRORS = frozenset({"unknown_tool", "invalid_arguments"})
 CLI_FIND_LIMIT = 15  # a terminal shows more than the 8 a chat model gets (v1's CLI value)
 DESCRIPTION_COLUMNS = 80
-SUBCOMMANDS = ("tools", "show", "modules", "call", "mcp", "doctor", "version")
+SUBCOMMANDS = ("tools", "show", "modules", "call", "mcp", "approvals", "approve", "deny", "doctor", "version")
 SECRET_ENV_RE = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL", re.IGNORECASE)
 LOG_LEVELS = {-1: "ERROR", 0: "WARNING", 1: "DEBUG"}
 
@@ -125,7 +135,16 @@ def _main(args: list[str]) -> int:
         if "_" not in command:
             raise UsageError(f"unknown command {command!r}; tool names contain '_'. See hal-hub --help")
         return _call([command, *rest])
-    handler = {"tools": _tools, "show": _show, "modules": _modules, "mcp": _mcp, "doctor": _doctor}[command]
+    handler = {
+        "tools": _tools,
+        "show": _show,
+        "modules": _modules,
+        "mcp": _mcp,
+        "approvals": _approvals,
+        "approve": _approve,
+        "deny": _deny,
+        "doctor": _doctor,
+    }[command]
     return handler(rest)
 
 
@@ -151,8 +170,8 @@ def _call(argv: list[str]) -> int:
     arguments = _json_object(opts.json_args) if opts.json_args is not None else _pairs(opts.pairs)
     hub = Hub()
     try:
-        session = _session(hub, profile=opts.profile, approver_yes=opts.yes)
-        result = hub.call(opts.tool, arguments, session, front_end="cli")
+        with _session(hub, profile=opts.profile, approver_yes=opts.yes) as session:
+            result = hub.call(opts.tool, arguments, session, front_end="cli")
         return _report(result, raw=opts.raw)
     finally:
         hub.close()
@@ -167,13 +186,14 @@ def _tools(argv: list[str]) -> int:
     opts = parser.parse_args(argv)
     hub = Hub()
     try:
-        session = _session(hub)
+        session = hub.open_session(kind="hub", origin="cli")
         if opts.all:
             rows = [_tool_row(hub, session, tool, status) for tool, status in _every_tool(hub, session)]
         else:
             query = " ".join(opts.query)
             found = hub.find(query, opts.limit, session=session) if query else hub.tools(session)
             rows = [_tool_row(hub, session, tool, "ok") for tool in found]
+        session.close()
     finally:
         hub.close()
     if opts.json:
@@ -284,6 +304,66 @@ def _mcp(argv: list[str]) -> int:
 
     mcp.serve()
     return EXIT_OK
+
+
+def _approvals(argv: list[str]) -> int:
+    parser = _parser("approvals", "pending approval requests of this user")
+    parser.add_argument("--json", action="store_true")
+    opts = parser.parse_args(argv)
+    _require_person("approvals")
+    pending = control.list_pending()
+    if opts.json:
+        _print_json(pending)
+        return EXIT_OK
+    if not pending:
+        print("No pending approval requests.")
+    for request in pending:
+        print(f"  {request['id']}  {request['tool']} [{request['tier']}]  expires {request['expires_at']}")
+        print(f"      {escape(str(request['summary']), multiline=False)}")
+    return EXIT_OK
+
+
+def _approve(argv: list[str]) -> int:
+    return _answer("approve", argv)
+
+
+def _deny(argv: list[str]) -> int:
+    return _answer("deny", argv)
+
+
+def _answer(command: str, argv: list[str]) -> int:
+    """`approve ID` or `deny ID`: show the full call, ask, and send the answer (REQ-HUB-22)."""
+    parser = _parser(command, f"{command} one pending approval request")
+    parser.add_argument("id")
+    opts = parser.parse_args(argv)
+    _require_person(command)
+    request = next((r for r in control.list_pending() if r.get("id") == opts.id), None)
+    if request is None:
+        raise UsageError(f"no pending request {opts.id}; see hal-hub approvals")
+    print(escape(str(request["summary"]), multiline=False))
+    print(escape(str(request["display"])))
+    print(f"  ({escape(str(request['reason']), multiline=False)})")
+    question = "Allow this exact call once? [y/N] " if command == "approve" else "Deny this call? [y/N] "
+    print(question, end="", flush=True)
+    if sys.stdin.readline().strip().lower() not in YES_ANSWERS:
+        print("Nothing sent.")
+        return EXIT_OK
+    verdict = "allow" if command == "approve" else "deny"
+    try:
+        control.answer(request, verdict, scope="once" if verdict == "allow" else None)
+    except control.ControlError as exc:
+        _error(f"{opts.id}: {exc.code}: {exc}" if str(exc) != exc.code else f"{opts.id}: {exc.code}")
+        return EXIT_DENIED if exc.code == "harness" else EXIT_TOOL_ERROR
+    print("Allowed once." if verdict == "allow" else "Denied.")
+    return EXIT_OK
+
+
+def _require_person(command: str) -> None:
+    if not person_at_terminal():
+        raise UsageError(
+            f"hal-hub {command} needs a person at a terminal: stdin and stdout must be terminals "
+            "and HAL_HARNESS unset"
+        )
 
 
 def _doctor(argv: list[str]) -> int:
@@ -448,18 +528,34 @@ def _check_secrets(spec: ModuleSpec) -> list[str]:
 # -- helpers --
 
 
-def _session(hub: Hub, *, profile: str | None = None, approver_yes: bool = False) -> HubSession:
-    """The CLI session: kind `hub`, origin `cli`, with the `tty` surface behind 01's router."""
+@contextmanager
+def _session(hub: Hub, *, profile: str | None = None, approver_yes: bool = False) -> Iterator[HubSession]:
+    """The CLI session: kind `hub`, origin `cli`, with 01's router over the `tty` surface on a
+    terminal, else over this process's control socket (REQ-HUB-58)."""
+    session_id = new_session_id()
     holder: list[HubSession] = []
 
     def audit(event: str, **fields: object) -> None:
         if holder:
             holder[0].emit(event, **fields)
 
-    router = ApprovalRouter([TtySurface(yes=approver_yes)], audit=audit)
-    session = hub.open_session(kind="hub", origin="cli", profile=profile, approver=router)
+    tty = TtySurface(yes=approver_yes)
+    server = control.ControlServer(session_id, audit=audit, on_pending=_waiting)
+    router = ApprovalRouter([tty] if tty.available() else [server], audit=audit)
+    session = hub.open_session(
+        kind="hub", origin="cli", profile=profile, approver=router, session_id=session_id
+    )
     holder.append(session)
-    return session
+    try:
+        yield session
+    finally:
+        server.close()
+        session.close()
+
+
+def _waiting(request: ApprovalRequest, path: Path) -> None:
+    """Tells the person how to answer a request that waits on the control socket."""
+    _error(f"{request.summary} Waiting for approval: run `hal-hub approve {request.id}` (or deny it).")
 
 
 def _report(result: CallResult, *, raw: bool) -> int:
