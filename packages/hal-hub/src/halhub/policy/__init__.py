@@ -35,9 +35,15 @@ from .model import (
     ToolPolicy,
     Verdict,
 )
+from .paths import check_host_path, prepare, walk_policy
 from .profiles import CHANNEL_PROFILES, PROFILES
+from .workspaces import active_workspaces
 
 __all__ = [
+    "active_workspaces",
+    "check_host_path",
+    "prepare",
+    "walk_policy",
     "decide",
     "explain",
     "check_rules",

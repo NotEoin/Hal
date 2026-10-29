@@ -47,7 +47,7 @@ from .model import (
     ToolMeta,
     Verdict,
 )
-from .profiles import CHANNEL_PROFILES, PROFILES, PROMPT_SCOPES
+from .profiles import CHANNEL_PROFILES, HARD_DENY_PATHS, PROFILES, PROMPT_SCOPES, expand
 
 POLICY_SCHEMA_VERSION = 1
 UNSAFE_MODE_BITS = 0o022  # group or other write (REQ-SEC-15)
@@ -350,13 +350,51 @@ def check_file_safety(path: Path) -> None:
         )
 
 
+def _hal_dirs() -> tuple[Path, ...]:
+    """Hal's own directories and `$XDG_RUNTIME_DIR`, as written and resolved (REQ-SEC-09)."""
+    found: list[Path] = []
+    getters = (halpaths.config_dir, halpaths.state_dir, halpaths.data_dir, halpaths.runtime_dir)
+    for getter in getters:
+        try:
+            found.append(getter())
+        except halpaths.RuntimeDirMissing:
+            continue  # without a runtime dir there is nothing under it to protect
+    xdg = os.environ.get("XDG_RUNTIME_DIR", "")
+    if xdg:
+        found.append(Path(xdg))
+    found.extend([Path(os.path.realpath(p)) for p in found])
+    return tuple(dict.fromkeys(found))
+
+
+def _real_paths(policy: Policy, home: Path) -> dict[Path, Path]:
+    """The resolved form of every configured path that is a symlink (roots, deny, hard-deny)."""
+    entries = [*HARD_DENY_PATHS, *policy.paths.read_roots, *policy.paths.write_roots, *policy.paths.deny]
+    for rule in (*policy.tools.values(), *policy.profile_tools.values()):
+        entries.extend(rule.read_roots or ())
+        entries.extend(rule.write_roots or ())
+    out: dict[Path, Path] = {}
+    for entry in entries:
+        lexical = expand(entry, home=home, environ={})
+        if lexical is None or any(c in entry for c in "*?["):
+            continue
+        real = Path(os.path.realpath(lexical))
+        if real != lexical:
+            out[lexical] = real
+    return out
+
+
 def load_policy(
-    path: Path | None = None, *, profile: str | None = None, channel: str | None = None
+    path: Path | None = None,
+    *,
+    profile: str | None = None,
+    channel: str | None = None,
+    home: Path | None = None,
 ) -> Policy:
     """Reads `policy.toml` and resolves the active profile and channel.
 
     `profile` overrides the file's `profile` key; `channel` is `voice`, `telegram`, `remote` or
-    None. Raises `ConfigError` (REQ-SEC-14, REQ-SEC-15) as the module header describes.
+    None; `home` (default `Path.home()`) is where `~/` entries point when their symlinks are
+    resolved. Raises `ConfigError` (REQ-SEC-14, REQ-SEC-15) as the module header describes.
     """
     path = path if path is not None else halpaths.policy_file()
     data: Mapping[str, object] = {}
@@ -392,7 +430,7 @@ def load_policy(
         egress = replace(egress, unlisted="deny")
     if active.guard_on_flag == "deny":
         guard = replace(guard, on_flag="deny")
-    return Policy(
+    policy = Policy(
         profile=active,
         channel_profile=channel_profile,
         tools=loader.rules(data.get("tools", {}), "tools", _TOOL_KEYS),
@@ -408,6 +446,7 @@ def load_policy(
         rate=settings["rate"],
         path=path if data else None,
     )
+    return replace(policy, hal_dirs=_hal_dirs(), real_paths=_real_paths(policy, home or Path.home()))
 
 
 def check_rules(policy: Policy, metas: Iterable[ToolMeta]) -> None:

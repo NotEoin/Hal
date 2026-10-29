@@ -390,6 +390,9 @@ class Policy:
     egress: EgressSettings = EgressSettings()
     rate: RateSettings = RateSettings()
     path: Path | None = None  # the file read; None for built-ins only
+    # facts `check_path` needs from the file system, recorded by `load_policy` (see policy.paths)
+    hal_dirs: tuple[Path, ...] = ()  # state, config, data and runtime dirs, $XDG_RUNTIME_DIR
+    real_paths: Mapping[Path, Path] = field(default_factory=dict)  # configured path -> realpath
     # init=False: `dataclasses.replace` must start a new memo, never share the old policy's
     _memo: dict[tuple[object, ...], ToolPolicy] = field(
         default_factory=dict, init=False, compare=False, repr=False, hash=False

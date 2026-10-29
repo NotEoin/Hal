@@ -8,13 +8,13 @@ reason and the trace of rules evaluated (REQ-SEC-16), which `explain` renders fo
 `hal policy explain`.
 
 Order: unknown tool, disabled tool, `_` key stripping and self-approval detection (REQ-SEC-06),
-argument validation (REQ-SEC-05, REQ-SEC-56), resolved paths (REQ-SEC-09), the approval key,
-the resolved verdict's deny, `runs_code` in a box session (REQ-SEC-59), `allow_args`, the
+argument validation (REQ-SEC-05, REQ-SEC-56), resolved paths, the approval key, the resolved
+verdict's deny, `runs_code` in a box session (REQ-SEC-59), path rules, `allow_args`, the
 flagged-turn rule (REQ-SEC-33), allow, grants (REQ-SEC-21), `no-approver` (REQ-SEC-13) and
-the reviewable flag (REQ-SEC-37).
+the reviewable flag (REQ-SEC-37). Path rules (REQ-SEC-09) live in `halhub.policy.paths`.
 
-Not here yet, each added by its own step of 01's implementation plan: path roots and
-hard-deny paths, URL and domain rules, `url:from-search`, and rate limits.
+Not here yet, each added by its own step of 01's implementation plan: URL and domain rules,
+`url:from-search`, and rate limits.
 """
 
 from __future__ import annotations
@@ -41,11 +41,19 @@ from .model import (
     ToolPolicy,
     Verdict,
 )
+from .paths import check_path
 
 SELF_APPROVAL_RE = re.compile(r"(?i)^_*(confirm|approv|consent|authori[sz]|yes$|force$)")  # REQ-SEC-06
 NO_LEADING_DASH_FORMATS = frozenset({"url", "host", "email", "phone"})  # REQ-SEC-56
 BOX_SESSION_KINDS = frozenset({"code", "box"})  # REQ-SEC-59: sessions whose caller is in a box
 ESCALATING_TIERS = frozenset({Tier.ACT, Tier.SEND, Tier.SYSTEM})  # REQ-SEC-33
+_PATH_REASONS = {
+    "path:workspace": "the path is inside an active session workspace, which host tools never touch.",
+    "path:hard-deny": "the path is a credential or system location that is always denied.",
+    "path:denied": "the path is denied by [paths].deny in policy.toml.",
+    "path:hal-dir": "the path is inside Hal's own state, config or runtime directories.",
+    "path:outside-roots": "the path is outside the roots this tool may use.",
+}
 
 
 @dataclass(frozen=True)
@@ -211,6 +219,12 @@ def decide(call: ToolCall, meta: ToolMeta | None, policy: Policy, ctx: Context) 
         return b.done(
             Verdict.DENY, "runs-code@box", f"{meta.name} runs code on the host and is never offered to a box."
         )
+    for p in meta.params:
+        if p.format == "path" and p.name in args:
+            rule = check_path(ctx.paths[p.name], p.access, tp, policy, ctx)
+            b.step(f"path:{p.name}")
+            if rule:
+                return b.done(Verdict.DENY, rule, f"{p.name}: {_PATH_REASONS[rule]}")
     return _verdict(call, meta, policy, ctx, tp, key, args, b)
 
 
