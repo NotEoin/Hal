@@ -13,8 +13,13 @@ verdict's deny, `runs_code` in a box session (REQ-SEC-59), path rules, `allow_ar
 flagged-turn rule (REQ-SEC-33), allow, grants (REQ-SEC-21), `no-approver` (REQ-SEC-13) and
 the reviewable flag (REQ-SEC-37). Path rules (REQ-SEC-09) live in `halhub.policy.paths`.
 
-Not here yet, each added by its own step of 01's implementation plan: URL and domain rules,
-`url:from-search`, and rate limits.
+URL and host arguments (REQ-SEC-10) are checked with `halkit.netguard.check_url`, which never
+resolves a name; a listed host turns `ask` into `allow` (`domain-allowlist`, never for
+`system` tools), and an unlisted host turns `allow` into `ask`, or denies when
+`[egress].unlisted = "deny"`.
+
+Not here yet, each added by its own step of 01's implementation plan: `url:from-search` and
+rate limits.
 """
 
 from __future__ import annotations
@@ -24,6 +29,8 @@ import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+
+from halkit import netguard
 
 from ..approvals.keys import approval_key, security_digest
 from .model import (
@@ -47,6 +54,15 @@ SELF_APPROVAL_RE = re.compile(r"(?i)^_*(confirm|approv|consent|authori[sz]|yes$|
 NO_LEADING_DASH_FORMATS = frozenset({"url", "host", "email", "phone"})  # REQ-SEC-56
 BOX_SESSION_KINDS = frozenset({"code", "box"})  # REQ-SEC-59: sessions whose caller is in a box
 ESCALATING_TIERS = frozenset({Tier.ACT, Tier.SEND, Tier.SYSTEM})  # REQ-SEC-33
+URL_FORMATS = frozenset({"url", "host"})
+_HOST_FORBIDDEN = frozenset("/@?#\\ ")  # a bare host argument holds a name and an optional port only
+_URL_REASONS = {
+    "url:scheme": "the URL scheme is not allowed (https only unless [egress].allow_http).",
+    "url:userinfo": "URLs with a user name or password are not allowed.",
+    "url:host": "the URL has no usable host.",
+    "url:ip-literal": "IP address hosts are not allowed unless [egress].allow_ip_literals.",
+    "url:private": "the host is a local or private name.",
+}
 _PATH_REASONS = {
     "path:workspace": "the path is inside an active session workspace, which host tools never touch.",
     "path:hard-deny": "the path is a credential or system location that is always denied.",
@@ -125,6 +141,22 @@ def _string_problem(p: ParamSpec, value: str) -> tuple[str, str] | None:
     if p.format in NO_LEADING_DASH_FORMATS and value.startswith("-"):
         return "leading-dash", "may not start with '-'"
     return None
+
+
+def check_url_arg(value: str, fmt: str, tp: ToolPolicy, policy: Policy) -> tuple[str | None, bool]:
+    """`(deny rule, host listed)` for one `url` or `host` argument under REQ-SEC-10 (no DNS)."""
+    if fmt == "host":
+        if not value or any(c in value for c in _HOST_FORBIDDEN):
+            return "url:host", False
+        value = f"https://{value}/"
+    egress = policy.egress
+    return netguard.check_url(
+        value,
+        domains=(*tp.domains, *egress.domains),
+        allow_http=egress.allow_http,
+        allow_ip_literals=egress.allow_ip_literals,
+        allow_private=egress.allow_private,
+    )
 
 
 def args_match(args: Mapping[str, object], allow_args: Mapping[str, tuple[str, ...]]) -> bool:
@@ -238,9 +270,25 @@ def _verdict(
     args: Mapping[str, object],
     b: _Builder,
 ) -> Decision:
+    host_listed: bool | None = None
+    for p in meta.params:
+        if p.format in URL_FORMATS and isinstance(args.get(p.name), str):
+            problem, listed = check_url_arg(args[p.name], p.format, tp, policy)
+            b.step(f"url:{p.name}")
+            if problem:
+                return b.done(Verdict.DENY, problem, f"{p.name}: {_URL_REASONS[problem]}")
+            host_listed = listed if host_listed is None else (host_listed and listed)
     verdict, rule = tp.verdict, tp.rule
     if verdict is Verdict.ASK and tp.allow_args and args_match(args, tp.allow_args):
         verdict, rule = Verdict.ALLOW, "allow-args"
+        b.step(rule)
+    if host_listed is True and verdict is Verdict.ASK and meta.tier is not Tier.SYSTEM:
+        verdict, rule = Verdict.ALLOW, "domain-allowlist"
+        b.step(rule)
+    if host_listed is False and policy.egress.unlisted == "deny":
+        return b.done(Verdict.DENY, "url:unlisted", "The host is not on an allowed domain list.")
+    if host_listed is False and verdict is Verdict.ALLOW:
+        verdict, rule = Verdict.ASK, "url:unlisted"
         b.step(rule)
     fresh_only = False
     if ctx.taint is Taint.FLAGGED and meta.tier in ESCALATING_TIERS:
