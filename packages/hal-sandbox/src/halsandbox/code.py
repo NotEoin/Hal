@@ -27,6 +27,7 @@ log = logging.getLogger(__name__)
 DEFAULT_IMAGE = "hal-agent:local"
 DEFAULT_UPSTREAM = "http://127.0.0.1:8080"  # llama-server; Ollama is http://127.0.0.1:11434
 DOCKER_QUICK_S = 30.0
+SESSION_MAX_S = 12 * 3600.0  # upper bound for one interactive session
 BUILD_TIMEOUT_S = 1800.0  # a cold pip install on a slow link
 TMP_SIZE = "256m"
 PACKAGES = ("hal-kit", "hal-agent")
@@ -160,8 +161,7 @@ def run_code(
             tty=os.isatty(0) and os.isatty(1),
             agent_args=agent_args,
         )
-        # no timeout: an interactive session lasts as long as the person works
-        return subprocess.run(argv).returncode
+        return subprocess.run(argv, timeout=SESSION_MAX_S).returncode
     finally:
         for server in (forwarder, broker):
             if server is not None:
