@@ -1,4 +1,4 @@
-"""Project instructions: `AGENTS.md` (or `CLAUDE.md`) from the workspace root down to the cwd.
+"""Project instructions: `AGENTS.md` (or `CLAUDE.md`, or `QWEN.md`) from the workspace root down to the cwd.
 
 Instruction files are repository content and may be hostile. That is acceptable because no
 policy depends on prompt text; the box and the broker are the boundaries (design 03-agent, 3.12.1).
@@ -13,7 +13,7 @@ from pathlib import Path
 
 DEFAULT_MAX_CHARS = 16_000
 IMPORT_DEPTH = 2
-NAMES = ("AGENTS.md", "CLAUDE.md")
+NAMES = ("AGENTS.md", "CLAUDE.md", "QWEN.md")  # first found per folder wins (RESOLUTIONS I8)
 IMPORT_RE = re.compile(r"^@(\S+)\s*$")
 INTRO = "When these files disagree, the later one wins."
 
@@ -68,8 +68,8 @@ def load_instructions(
     if user_file and user_file.is_file():
         found.append((str(user_file), _expand(user_file, user_file.parent, IMPORT_DEPTH)))
     for d in dirs:
-        agents, claude = d / NAMES[0], d / NAMES[1]
-        path = agents if agents.is_file() else claude if claude.is_file() else None
+        agents, claude, qwen = (d / name for name in NAMES)
+        path = next((p for p in (agents, claude, qwen) if p.is_file()), None)
         if path is None or (path == claude and agents.is_file()):
             continue
         if path == claude and _only_imports(claude, agents):

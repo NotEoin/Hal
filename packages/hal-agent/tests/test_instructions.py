@@ -107,3 +107,14 @@ def test_cli_sends_agents_md_and_skills_to_the_model(server, tmp_path, monkeypat
     assert cli.main(["-p", "x", "-C", str(tmp_path), "--endpoint", server.url, "--no-session"]) == 0
     system = server.requests[0]["body"]["messages"][0]["content"]
     assert "use tabs" in system and "- pdf-tools: Does a thing." in system
+
+
+def test_qwen_md_is_read_when_it_is_the_only_instruction_file(tmp_path):
+    (tmp_path / "QWEN.md").write_text("qwen only")
+    assert load_instructions(tmp_path, tmp_path).files == ("QWEN.md",)
+
+
+def test_agents_md_wins_over_qwen_md_in_the_same_folder(tmp_path):
+    (tmp_path / "AGENTS.md").write_text("agents")
+    (tmp_path / "QWEN.md").write_text("qwen")
+    assert load_instructions(tmp_path, tmp_path).files == ("AGENTS.md",)
