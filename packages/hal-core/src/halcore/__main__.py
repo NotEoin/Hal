@@ -28,6 +28,8 @@ def main() -> int:
         from .policycli import main as run
 
         return run([cmd, *rest])
+    elif cmd == "guard":
+        from .guardcli import main as run
     elif cmd in ("approvals", "approve", "deny"):
         from halhub.cli import main as hub_main
 
