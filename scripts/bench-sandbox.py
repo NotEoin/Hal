@@ -47,7 +47,7 @@ def main(argv: list[str]) -> int:
         (project / "a.txt").write_text("a\n")
         for runtime in RUNTIMES:
             if runtime not in docker_runtimes():
-                print(f"{runtime}: not installed")
+                sys.stdout.write(f"{runtime}: not installed" + "\n")
                 continue
             times = []
             for _ in range(runs):
@@ -56,10 +56,12 @@ def main(argv: list[str]) -> int:
                              start_model=lambda _s, _i: _NoModel())  # fmt: skip
                 times.append(time.perf_counter() - t0)
                 if status != 0:
-                    print(f"{runtime}: {cli} exited {status}", file=sys.stderr)
+                    sys.stderr.write(f"{runtime}: {cli} exited {status}\n")
                     return 1
             measured += 1
-            print(f"{runtime}: median {statistics.median(times):.2f} s, max {max(times):.2f} s, n={runs}")
+            sys.stdout.write(
+                f"{runtime}: median {statistics.median(times):.2f} s, max {max(times):.2f} s, n={runs}" + "\n"
+            )
     return 0 if measured else 1
 
 
