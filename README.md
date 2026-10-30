@@ -94,8 +94,9 @@ Built by [@NotEoin](https://github.com/NotEoin).
 ## 🚀 Usage
 
 ```bash
-hal chat                 # talk to Hal; /reset starts over, /tools shows what it just ran
+hal chat                 # talk to Hal in a box; /reset starts over
 hal chat "what's on tomorrow?"   # one message
+hal acp                  # the boxed agent over ACP for an editor (see docs/howto/use-hal-in-zed.md)
 hal here                 # Claude Code on the local model, in the current directory
 hal ext list             # installed extensions, and the ones you can add
 hal ext add calendar     # add one (or --pack assistant for the everyday set)

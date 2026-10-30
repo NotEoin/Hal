@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import logging.handlers
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
@@ -125,7 +126,13 @@ class SubprocessTransport(StreamTransport):
 
     @classmethod
     async def spawn(
-        cls, argv: Sequence[str], *, env: Mapping[str, str] | None, stderr_log: Path, cwd: str | None = None
+        cls,
+        argv: Sequence[str],
+        *,
+        env: Mapping[str, str] | None,
+        stderr_log: Path,
+        cwd: str | None = None,
+        new_session: bool = False,
     ) -> SubprocessTransport:
         """Starts `argv` with the stdout reader capped at `ACP_MAX_MESSAGE_BYTES`."""
         proc = await asyncio.create_subprocess_exec(
@@ -135,6 +142,7 @@ class SubprocessTransport(StreamTransport):
             stderr=asyncio.subprocess.PIPE,
             env=None if env is None else dict(env),
             cwd=cwd,
+            start_new_session=new_session,
             limit=ACP_MAX_MESSAGE_BYTES,
         )
         return cls(proc, stderr_log)
@@ -166,3 +174,12 @@ async def _drain_stderr(proc: asyncio.subprocess.Process, path: Path) -> None:
         log.warning("agent stderr line over the cap; log stopped")
     finally:
         handler.close()
+
+
+async def stdio_transport() -> StreamTransport:
+    """The process's own stdin and stdout as a transport (the editor side of `hal acp`)."""
+    loop = asyncio.get_running_loop()
+    reader = asyncio.StreamReader(limit=ACP_MAX_MESSAGE_BYTES)
+    await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
+    wtransport, wprotocol = await loop.connect_write_pipe(asyncio.streams.FlowControlMixin, sys.stdout)
+    return StreamTransport(reader, asyncio.StreamWriter(wtransport, wprotocol, reader, loop))

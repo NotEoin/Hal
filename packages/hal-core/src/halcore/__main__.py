@@ -6,6 +6,8 @@ def main() -> int:
     cmd, rest = (sys.argv[1], sys.argv[2:]) if len(sys.argv) > 1 else ("chat", [])
     if cmd == "chat":
         from .chat import main as run
+    elif cmd == "acp":
+        from .acpcmd import main as run
     elif cmd == "ext":
         from .ext import main as run
     elif cmd == "eval":

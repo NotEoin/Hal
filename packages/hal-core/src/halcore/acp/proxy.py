@@ -9,7 +9,8 @@ pipes; `Proxy` pumps two transports through it. The agent is untrusted (REQ-CLI-
 - Every `hal/` key under `_meta` is deleted from agent messages and tool titles get `[box] `, so
   an agent cannot pose as a broker approval (REQ-SEC-29). Request ids starting `hal-` are the
   proxy's own and an agent request that uses one is refused.
-- A `cwd` outside the project is refused; an assistant channel's `cwd` is replaced by scratch.
+- A `cwd` outside the project is refused and the rest is mapped to the box path; an assistant
+  channel's `cwd` is replaced by scratch.
 - The client's `mcpServers` are dropped: the box reaches host tools only through the broker, and
   an editor-supplied server would be a second, unreviewed way out (deviation from REQ-CLI-98).
 - `_hal/record` notifications are stored on the host and not forwarded.
@@ -21,7 +22,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from typing import TYPE_CHECKING
 
@@ -86,6 +87,7 @@ class ProxyFilter:
         *,
         project: Path | None = None,
         scratch: Path | None = None,
+        box_root: str | None = None,
         on_human_message: Callable[[str], None] | None = None,
         records: RecordStore | None = None,
         on_own_response: Callable[[Message], bool] | None = None,
@@ -94,9 +96,10 @@ class ProxyFilter:
             raise ValueError("give exactly one of project (code) or scratch (assistant channel)")
         self.project = project.resolve() if project else None
         self.scratch = scratch
+        self.box_root = box_root
         self._human = on_human_message
         self._records = records
-        self._own = on_own_response
+        self.own_response = on_own_response
         self.sessions: set[str] = set()
         self.active: str | None = None
 
@@ -104,7 +107,7 @@ class ProxyFilter:
         """Applies the rules to a message from the editor."""
         method = msg.get("method")
         if method is None:
-            if self._own is not None and self._own(msg):
+            if self.own_response is not None and self.own_response(msg):
                 return Routed()  # an answer to a broker request: the agent never sees it (REQ-SEC-29)
             return Routed(forward=msg)
         params = msg.get("params")
@@ -140,6 +143,8 @@ class ProxyFilter:
         assert self.project is not None
         if cwd != self.project and self.project not in cwd.parents:
             return _error(rid, ERR_INVALID_PARAMS, f"cwd {cwd} is outside the project {self.project}")
+        if self.box_root is not None:  # the agent only knows the box path (03-agent 3.14.5 is not built yet)
+            params["cwd"] = str(PurePosixPath(self.box_root, *cwd.relative_to(self.project).parts))
         return None
 
     def to_client(self, msg: Message) -> Routed:

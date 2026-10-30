@@ -127,3 +127,27 @@ def test_pump_forwards_filtered_messages_both_ways(tmp_path):
     assert [m.get("method") for m in to_editor] == ["session/update"]
     assert any(m.get("error", {}).get("code") == -32601 for m in to_agent)
     assert any(m.get("method") == "session/prompt" for m in to_agent)
+
+
+def test_project_cwd_is_mapped_to_the_box_path(tmp_path):
+    (tmp_path / "pkg").mkdir()
+    f = rules(tmp_path, box_root="/work")
+    out = f.to_agent({"id": 1, "method": "session/new", "params": {"cwd": str(tmp_path / "pkg")}}).forward
+    assert out["params"]["cwd"] == "/work/pkg"
+    assert f.to_agent({"id": 2, "method": "session/new", "params": {"cwd": str(tmp_path)}}).forward["params"]["cwd"] == "/work"
+
+
+def test_human_message_hook_runs_before_the_prompt_is_forwarded(tmp_path):
+    seen = []
+    f = rules(tmp_path, on_human_message=seen.append)
+    prompt = {"id": 5, "method": "session/prompt", "params": {"sessionId": "0123456789ab", "prompt": [{"type": "text", "text": "hi"}, {"type": "text", "text": "there"}]}}
+    assert f.to_agent(prompt).forward is not None
+    assert seen == ["hi\nthere"]
+
+
+def test_prompt_is_not_forwarded_when_the_human_message_hook_fails(tmp_path):
+    def broken(text):
+        raise OSError("pipe closed")
+
+    routed = rules(tmp_path, on_human_message=broken).to_agent({"id": 5, "method": "session/prompt", "params": {"prompt": []}})
+    assert routed.forward is None and routed.reply["error"]["code"] == -32603
