@@ -4,7 +4,7 @@ manifest and gpu-light claims.
 
 It never imports `halhub` or `gpu_light`; `halgateway.gpu` will speak gpu-light's socket with a
 stdlib client (resolution A6). Design: docs/design/05-gateway.md.
-This package is a skeleton: the first behaviour lands in phase 3 of the implementation plan.
+Built up in the order of the implementation plan; see docs/dev/gateway.md for what exists.
 """
 
 __version__ = "0.1.0.dev0"
