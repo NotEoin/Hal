@@ -29,6 +29,7 @@ MASK = "***"
 REASONING_CAP = 20_000
 EXPORT_RESULT_CAP = 2_000
 LIST_LIMIT = 50
+SUMMARY_TEXT_CHARS = 300
 RECORD_TYPES = ("session", "message", "compaction", "notice", "turn_end", "checkpoint")
 
 
@@ -212,6 +213,24 @@ class SessionStore:
         """The newest session started in `cwd`."""
         listed = self.list(cwd=cwd, limit=1)
         return listed[0] if listed else None
+
+    def summary(self, session_id: str) -> str:
+        """A short text overview: header fields, message count and how each turn ended."""
+        records = self.load(session_id)
+        head = records[0] if records and records[0]["type"] == "session" else {}
+        ends = [r for r in records if r["type"] == "turn_end"]
+        lines = [
+            f"session {session_id}",
+            *(f"{k}: {head[k]}" for k in ("created", "cwd", "model", "mode") if k in head),
+        ]
+        lines.append(f"messages: {sum(r['type'] == 'message' for r in records)}")
+        lines.append(f"turns: {len(ends)}")
+        lines += [f"  turn {r.get('turn')}: {r.get('stop_reason', '')}" for r in ends]
+        if ends and ends[-1].get("final_text"):
+            lines.append(
+                "last answer: " + str(ends[-1]["final_text"])[:SUMMARY_TEXT_CHARS].replace("\n", " ")
+            )
+        return "\n".join(lines)
 
     def export(self, session_id: str, fmt: Literal["md", "jsonl"], *, reasoning: bool = False) -> str:
         """The session as Markdown or JSONL, secrets masked; reasoning only when asked."""

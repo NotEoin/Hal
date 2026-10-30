@@ -129,6 +129,6 @@ def test_cli_continue_reuses_the_latest_session_and_export_prints_it(server, tmp
     assert cli.main(["-C", str(tmp_path), "sessions"]) == 0
     listed = capsys.readouterr().out.split()
     assert len(listed) // 4 == 1
-    assert cli.main(["export", listed[0]]) == 0
+    assert cli.main(["sessions", "export", listed[0]]) == 0
     out = capsys.readouterr().out
     assert "first" in out and "second" in out

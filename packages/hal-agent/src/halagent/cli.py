@@ -13,13 +13,13 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
-from halagent import acp, boot, headless
+from halagent import acp, boot, doctor, headless
 from halagent.agentfile import AgentFileError, load_agent_file
 from halagent.loop import Agent
 from halagent.mcp.lite import McpError
 from halagent.profiles import SHIPPED, Profile, ProfileError, load_catalogue, resolve_profile
 from halagent.provider import ProviderError
-from halagent.sessions import SessionError, SessionStore, check_session_id, new_session_id
+from halagent.sessions import LIST_LIMIT, SessionError, SessionStore, check_session_id, new_session_id
 from halagent.settings import AgentSettings, load_settings
 from halagent.tools import Toolset, Workspace
 from halkit import config, log, paths
@@ -54,12 +54,17 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--no-session", action="store_true", help="do not write a transcript")
     p.add_argument("--sessions-dir", help="session store (default: state_dir()/sessions)")
     sub = p.add_subparsers(dest="command")
-    ls = sub.add_parser("sessions", help="list stored sessions")
-    ls.add_argument("--all", action="store_true", help="every directory, not only this one")
-    ex = sub.add_parser("export", help="print a session as Markdown or JSONL")
-    ex.add_argument("id")
-    ex.add_argument("--format", choices=("md", "jsonl"), default="md")
-    ex.add_argument("--reasoning", action="store_true", help="include the model's reasoning")
+    ss = sub.add_parser("sessions", help="list, show or export stored sessions")
+    ss.add_argument("action", nargs="?", choices=("list", "show", "export"), default="list")
+    ss.add_argument("id", nargs="?", help="session id for `show` and `export`")
+    ss.add_argument("--cwd", help="only sessions started in this directory (default: the workspace)")
+    ss.add_argument("--all", action="store_true", help="every directory, not only this one")
+    ss.add_argument("--limit", type=int, default=LIST_LIMIT, help="most sessions to list")
+    ss.add_argument("--format", choices=("md", "jsonl"), default="md")
+    ss.add_argument("--reasoning", action="store_true", help="include the model's reasoning")
+    ss.add_argument("--out", metavar="FILE", help="write the export here instead of stdout")
+    dr = sub.add_parser("doctor", help="check the setup")
+    dr.add_argument("--json", dest="doctor_json", action="store_true", help="print the checks as JSON")
     pr = sub.add_parser("profiles", help="show model profiles")
     pr.add_argument("action", choices=("list", "show"))
     pr.add_argument("model", nargs="?", help="model id for `show`")
@@ -73,6 +78,8 @@ def main(argv: list[str] | None = None) -> int:
     store = SessionStore(Path(args.sessions_dir) if args.sessions_dir else paths.state_dir() / "sessions")
     if args.command == "profiles":
         return _profiles_command(args)
+    if args.command == "doctor":
+        return _doctor_command(args)
     if args.command:
         return _session_command(args, store)
     cli = {
@@ -161,16 +168,40 @@ def _pick_session(args: argparse.Namespace, store: SessionStore, root: Path) -> 
 
 def _session_command(args: argparse.Namespace, store: SessionStore) -> int:
     try:
-        if args.command == "sessions":
-            cwd = None if args.all else str(Path(args.workspace).resolve())
-            for info in store.list(cwd=cwd):
+        if args.action == "list":
+            cwd = None if args.all else str(Path(args.cwd or args.workspace).resolve())
+            for info in store.list(cwd=cwd, limit=args.limit):
                 print(f"{info.id}  {info.created}  {info.model}  {info.cwd}")
             return EXIT_OK
-        print(store.export(args.id, args.format, reasoning=args.reasoning), end="")
+        if not args.id:
+            print(f"hal-agent: sessions {args.action} needs a session id", file=sys.stderr)
+            return EXIT_CONFIG
+        if args.action == "show":
+            print(store.summary(check_session_id(args.id)))
+            return EXIT_OK
+        text = store.export(check_session_id(args.id), args.format, reasoning=args.reasoning)
+        if args.out:
+            Path(args.out).write_text(text, encoding="ascii", errors="replace")
+        else:
+            print(text, end="")
         return EXIT_OK
-    except SessionError as exc:
+    except (SessionError, OSError) as exc:
         print(f"hal-agent: {exc}", file=sys.stderr)
         return EXIT_CONFIG
+
+
+def _doctor_command(args: argparse.Namespace) -> int:
+    """Prints one line per check; exit 1 when a check failed."""
+    cli = {
+        k: v for k, v in {"endpoint": args.endpoint, "model": args.model, "broker": args.broker}.items() if v
+    }
+    checks = doctor.run_checks(Path(args.config) if args.config else None, cli)
+    if args.doctor_json:
+        print(json.dumps([vars(c) for c in checks]))
+    else:
+        for c in checks:
+            print(f"{c.status:<4}  {c.name:<8} {c.detail}")
+    return doctor.exit_code(checks, EXIT_OK, EXIT_LIMIT)
 
 
 def _profiles_command(args: argparse.Namespace) -> int:

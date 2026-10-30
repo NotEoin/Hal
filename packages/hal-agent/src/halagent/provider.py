@@ -14,6 +14,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 from halkit import paths
@@ -117,23 +118,36 @@ class ChatProvider:
             return http.client.HTTPSConnection(self._host, self._port, timeout=READ_TIMEOUT_S)
         return http.client.HTTPConnection(self._host, self._port, timeout=READ_TIMEOUT_S)
 
-    def model_info(self) -> ModelInfo:
-        """Reads `context_length` and `meta.hal_profile` of the model; empty if the server has none."""
+    def get_json(self, path: str) -> tuple[int, Any]:
+        """GETs `path` below the endpoint's base; returns `(status, parsed body or None)`.
+
+        Raises `ProviderError` (status 0) when the endpoint cannot be reached.
+        """
         headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
-        path = self._prefix + ("/models" if self._prefix.endswith("/v1") else "/v1/models")
         conn = self._connect()
         try:
-            conn.request("GET", path, headers=headers)
+            conn.request("GET", self._prefix + path, headers=headers)
             resp = conn.getresponse()
-            if resp.status != 200:
-                return ModelInfo()
-            rows = json.loads(resp.read()).get("data") or []
-        except (OSError, http.client.HTTPException, ValueError, AttributeError) as exc:
-            log.info("model list unavailable (%s); using configured limits", exc)
-            return ModelInfo()
+            raw = resp.read()
+            try:
+                return resp.status, json.loads(raw)
+            except ValueError:
+                return resp.status, None
+        except (OSError, http.client.HTTPException) as exc:
+            raise ProviderError(f"model endpoint unreachable: {exc}") from exc
         finally:
             conn.close()
-        row = next((r for r in rows if isinstance(r, dict) and r.get("id") == self.model), None)
+
+    def model_info(self) -> ModelInfo:
+        """Reads `context_length` and `meta.hal_profile` of the model; empty if the server has none."""
+        path = "/models" if self._prefix.endswith("/v1") else "/v1/models"
+        try:
+            status, data = self.get_json(path)
+        except ProviderError as exc:
+            log.info("model list unavailable (%s); using configured limits", exc)
+            return ModelInfo()
+        rows = data.get("data") if status == 200 and isinstance(data, dict) else None
+        row = next((r for r in rows or [] if isinstance(r, dict) and r.get("id") == self.model), None)
         if row is None:
             return ModelInfo()
         meta = row.get("meta") if isinstance(row.get("meta"), dict) else {}
