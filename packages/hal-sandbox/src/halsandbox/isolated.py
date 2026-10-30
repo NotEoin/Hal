@@ -36,6 +36,7 @@ from halkit import fsafe, paths, proc, timeutil
 from . import scratch
 from .diffreport import HIGH, MODE_SYMLINK, Flag, flags_for
 from .errors import SandboxError
+from .gitops import HARDEN_ARGS, GitRunner
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +57,6 @@ MASK_PATTERNS = (
 MASK_DIRS = (".ssh", ".aws", ".gnupg")
 SKIP_DIRS = (".git", "node_modules", ".venv", "__pycache__")  # rebuilt inside the box, never worth copying
 PRIVATE_KEY_RE = re.compile(rb"^\+.*-----BEGIN [A-Z ]*PRIVATE KEY-----", re.M)
-_GIT_BASE = ("-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.quotepath=off")
 _IDENT = ("-c", "user.name=hal", "-c", "user.email=hal@localhost")
 
 
@@ -112,37 +112,17 @@ def isolated_root() -> Path:
     return paths.state_dir() / "isolated"
 
 
-def _base_env() -> dict[str, str]:
-    """A minimal environment for git: no system or global config, no prompts."""
-    return {
-        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_CONFIG_GLOBAL": "/dev/null",
-        "GIT_TERMINAL_PROMPT": "0",
-        "LC_ALL": "C",
-    }
-
-
 def _git(
     gitdir: Path,
     work: Path | None,
     *args: str,
     input: bytes | None = None,
-    cwd: Path | None = None,
+    cwd: Path | None = None,  # kept for call sites; GitRunner always runs outside the work tree
     index: Path | None = None,
 ) -> bytes:
-    env = {**_base_env(), "GIT_DIR": str(gitdir)}
-    if work is not None:
-        env["GIT_WORK_TREE"] = str(work)
-    if index is not None:
-        env["GIT_INDEX_FILE"] = str(index)
-    try:
-        done = proc.run(
-            ["git", *_GIT_BASE, *args], timeout=GIT_TIMEOUT_S, env=env, input=input, cwd=cwd or work
-        )
-    except Exception as exc:  # noqa: BLE001 - re-raised as SandboxError with the git command named
-        raise SandboxError(f"git {args[0]} failed: {exc}") from exc
-    return done.stdout
+    """Runs hardened host git (`GitRunner`); a bare-repo call passes no work tree."""
+    runner = GitRunner(work or gitdir, git_dir=gitdir, timeout_s=GIT_TIMEOUT_S)
+    return runner.run(*args, input=input, index=index).stdout
 
 
 def _masked(rel: str) -> bool:
@@ -155,12 +135,11 @@ def _masked(rel: str) -> bool:
 def _project_files(project: Path) -> Iterator[str]:
     """Relative file paths to copy: git's non-ignored files, or a plain walk outside a repository."""
     if (project / ".git").exists():
-        out = proc.run(
-            ["git", *_GIT_BASE, "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-            timeout=GIT_TIMEOUT_S,
-            cwd=project,
-            env=_base_env(),
-        ).stdout
+        out = (
+            GitRunner(project, timeout_s=GIT_TIMEOUT_S)
+            .run("ls-files", "-z", "--cached", "--others", "--exclude-standard")
+            .stdout
+        )
         yield from (p for p in out.decode().split("\0") if p)
         return
     for dirpath, dirnames, filenames in os.walk(project, followlinks=False):
@@ -208,7 +187,7 @@ def create(project: Path, max_copy_bytes: int) -> Isolated:
     try:
         iso.work.mkdir()
         _copy_snapshot(project, iso.work, max_copy_bytes)
-        _git(iso.gitdir, None, "init", "-q", "--bare", cwd=root)
+        _git(iso.gitdir, None, "init", "-q", "--bare", str(iso.gitdir), cwd=root)
         _commit_all(iso, "base", ref="refs/heads/base")
         (root / "session.json").write_text(
             json.dumps({"sid": sid, "project": str(project), "created": timeutil.iso_z()})
@@ -337,7 +316,7 @@ def _checkpoint(iso: Isolated) -> str:
     """Snapshots the real project into `$STATE/checkpoints/<project-key>`, which outlives the session."""
     gitdir = paths.ensure_private_dir(paths.state_dir() / "checkpoints") / scratch.project_key(iso.project)
     if not gitdir.is_dir():
-        _git(gitdir, None, "init", "-q", "--bare", cwd=gitdir.parent)
+        _git(gitdir, None, "init", "-q", "--bare", str(gitdir), cwd=gitdir.parent)
     index = gitdir / "index"
     _git(
         gitdir, iso.project, "add", "-A", cwd=iso.project, index=index
@@ -369,7 +348,7 @@ def accept(iso: Isolated, *, allow_flags: bool = False) -> list[Change]:
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_CONFIG_GLOBAL": "/dev/null",
     }
-    apply = ["git", *_GIT_BASE, "apply", "--binary", "--whitespace=nowarn"]
+    apply = ["git", *HARDEN_ARGS, "apply", "--binary", "--whitespace=nowarn"]
     try:
         proc.run([*apply, "--check", "-"], timeout=GIT_TIMEOUT_S, cwd=iso.project, env=env, input=patch)
         proc.run([*apply, "-"], timeout=GIT_TIMEOUT_S, cwd=iso.project, env=env, input=patch)

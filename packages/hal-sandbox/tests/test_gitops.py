@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from halsandbox import isolated
+from halsandbox.gitops import GitRunner
 
 CAP = 10**7
 
@@ -81,9 +82,10 @@ def test_inherited_git_environment_is_not_passed_to_git(repo, monkeypatch, tmp_p
 
 def test_git_runs_with_no_hooks_fsmonitor_or_global_config(repo):
     iso = isolated.create(repo, CAP)
-    env = isolated._base_env()
+    runner = GitRunner(iso.work, git_dir=iso.gitdir)
+    env = runner._env(None)
     assert env["GIT_CONFIG_GLOBAL"] == os.devnull and env["GIT_CONFIG_NOSYSTEM"] == "1"
     assert env["GIT_TERMINAL_PROMPT"] == "0"
-    args = " ".join(isolated._GIT_BASE)
+    args = " ".join(runner.argv("status"))
     assert "core.hooksPath=/dev/null" in args and "core.fsmonitor=false" in args
     assert iso.gitdir.is_dir()
