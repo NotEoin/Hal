@@ -58,14 +58,14 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: v
 <body>
 <header><div class="bar">
   <div class="eye"></div><h1>Hal test console</h1>
-  <span class="meta" id="meta">loading…</span>
+  <span class="meta" id="meta">loading...</span>
   <div class="score"><span>graded <b id="n-graded">0</b>/<b id="n-total">0</b></span>
     <span style="color:var(--pass)">pass <b id="n-pass">0</b></span>
     <span style="color:var(--fail)">fail <b id="n-fail">0</b></span></div>
 </div></header>
 <main>
   <div class="free">
-    <input type="text" id="free" placeholder="Ask Hal anything…" autocomplete="off">
+    <input type="text" id="free" placeholder="Ask Hal anything..." autocomplete="off">
     <button class="primary" id="free-go">Ask</button>
     <button id="reset" title="Start a new conversation">New conversation</button>
   </div>
@@ -87,12 +87,12 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "
 
 function renderTurn(el, data) {
   const t = data.turn, c = data.check || {};
-  const tools = (t.tools || []).map(x => `${x.confirm ? "⚠ asked first: " : ""}${x.name}(${JSON.stringify(x.args)}) → ${x.ok ? "ok" : "error"}  ${x.result.slice(0, 220)}`).join("\n");
+  const tools = (t.tools || []).map(x => `${x.confirm ? "! asked first: " : ""}${x.name}(${JSON.stringify(x.args)}) -> ${x.ok ? "ok" : "error"}  ${x.result.slice(0, 220)}`).join("\n");
   let verdict = "";
   if (c.ran) verdict = c.problems.length ? `<div class="verdict bad">Automatic check: ${c.problems.map(esc).join("; ")}</div>` : `<div class="verdict ok">Automatic check passed${c.note ? " (" + esc(c.note) + ")" : ""}</div>`;
   else if (c.note) verdict = `<div class="verdict">${esc(c.note)}</div>`;
-  el.innerHTML = `<div class="reply">“${esc(t.reply) || "<i>(no reply)</i>"}”</div>
-    <div class="meta">${t.model} · first words ${t.first_words}s · whole turn ${t.seconds}s${t.retried ? " · retried once" : ""}</div>
+  el.innerHTML = `<div class="reply">"${esc(t.reply) || "<i>(no reply)</i>"}"</div>
+    <div class="meta">${t.model} - first words ${t.first_words}s - whole turn ${t.seconds}s${t.retried ? " - retried once" : ""}</div>
     ${tools ? `<div class="tools">${esc(tools)}</div>` : `<div class="tools">no tools used</div>`}
     ${data.sync ? `<div class="meta">${esc(data.sync)}</div>` : ""}${verdict}`;
   el.classList.add("show");
@@ -102,7 +102,7 @@ function card(c) {
   const g = state.grades[c.id];
   const el = document.createElement("div");
   el.className = "card" + (g ? " graded-" + g.verdict : "");
-  el.innerHTML = `<div class="ask">${esc(c.ask || (c.turns || []).join("  →  "))}<span class="id">${c.id}</span></div>
+  el.innerHTML = `<div class="ask">${esc(c.ask || (c.turns || []).join("  ->  "))}<span class="id">${c.id}</span></div>
     <div><span class="chip">${esc(c.category)}</span>${c.live ? '<span class="chip">live</span>' : ""}${(c.needs || []).map(n => `<span class="chip">${esc(n)}</span>`).join("")}</div>
     <div class="look">${esc(c.look_for || "")}</div>
     <div class="row">
@@ -176,7 +176,7 @@ $("#reset").onclick = () => api("/api/reset", {}).then(() => { $("#free-out").cl
 api("/api/cases").then(d => {
   state = { ...state, ...d };
   const i = d.info;
-  $("#meta").textContent = `${i.model} · ${i.tools} tools from ${i.modules.length} extensions · iCloud ${i.caldav ? "connected" : "not connected"}`;
+  $("#meta").textContent = `${i.model} - ${i.tools} tools from ${i.modules.length} extensions - iCloud ${i.caldav ? "connected" : "not connected"}`;
   render();
 }).catch(e => { $("#meta").textContent = "cannot load cases: " + e.message; });
 </script>

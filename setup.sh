@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Hal — local AI setup (Ubuntu / Linux)
+# Hal, local AI setup (Ubuntu / Linux)
 # Installs Ollama and the local models for your GPU, Claude Code, and the `hal` launcher,
 # and writes ~/.config/hal/config.toml. Safe to re-run (idempotent). Extensions (memory,
 # calendar, voice, ...) are added afterwards with `hal ext add` or ../../install.sh.
@@ -17,7 +17,7 @@
 #   max    Three models through llama.cpp, five modes (see docs/user/modes.md). 24GB VRAM + 64GB RAM.
 #   24gb   Qwen3.8-27B locally. Best local quality; needs ~20GB of VRAM.
 #   12gb   Gemma 4 12B locally. Fits a 4070/3060-class card, still fully private.
-#   cloud  No local coding model — plain Claude Code with your own login. Any machine.
+#   cloud  No local coding model, plain Claude Code with your own login. Any machine.
 #          Hal's chat brain still runs locally, on a small model.
 #
 set -uo pipefail
@@ -61,16 +61,16 @@ LLAMA_CPP_DIR="$HOME/.local/share/hal/llama.cpp/llama-$LLAMA_CPP_BUILD"
 # --- Pretty output -----------------------------------------------------------
 c_blue=$'\033[1;36m'; c_yellow=$'\033[1;33m'; c_green=$'\033[1;32m'; c_red=$'\033[1;31m'; c_off=$'\033[0m'
 log()  { printf '\n%s==> %s%s\n' "$c_blue" "$*" "$c_off"; }
-ok()   { printf '%s  ✓ %s%s\n' "$c_green" "$*" "$c_off"; }
+ok()   { printf '%s  [ok] %s%s\n' "$c_green" "$*" "$c_off"; }
 warn() { printf '%s  ! %s%s\n' "$c_yellow" "$*" "$c_off"; }
-err()  { printf '%s  ✗ %s%s\n' "$c_red" "$*" "$c_off"; }
+err()  { printf '%s  [fail] %s%s\n' "$c_red" "$*" "$c_off"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
 SUDO=""
 if [ "$(id -u)" -ne 0 ]; then have sudo && SUDO="sudo"; fi
 
 printf '%s\n' "============================================================"
-printf '   Hal — local assistant setup\n'
+printf '   Hal, local assistant setup\n'
 printf '   Root:  %s\n' "$HAL_ROOT"
 printf '%s\n' "============================================================"
 
@@ -124,10 +124,10 @@ if [ -n "$PROFILE" ]; then
 else
   if [ -n "$VRAM_MIB" ]; then
     PROFILE="$(profile_for_hardware "$VRAM_MIB" "$RAM_GIB")"
-    log "Detected $(( VRAM_MIB / 1024 ))GB of VRAM and ${RAM_GIB}GB of RAM → suggesting the '$PROFILE' profile"
+    log "Detected $(( VRAM_MIB / 1024 ))GB of VRAM and ${RAM_GIB}GB of RAM -> suggesting the '$PROFILE' profile"
   else
     PROFILE="cloud"
-    log "No NVIDIA GPU detected → suggesting the 'cloud' profile"
+    log "No NVIDIA GPU detected -> suggesting the 'cloud' profile"
   fi
   if [ "$ASSUME_YES" -ne 1 ]; then
     printf '\n  max    three models, five modes   (needs 24GB VRAM + 64GB RAM, ~160GB disk)\n'
@@ -183,7 +183,7 @@ if ! curl -fsS http://localhost:11434/api/version >/dev/null 2>&1; then
     sleep 3
   fi
 fi
-if curl -fsS http://localhost:11434/api/version >/dev/null 2>&1; then ok "Ollama server is up"; else warn "Ollama server not responding yet — it may need a moment, or start it with 'ollama serve'"; fi
+if curl -fsS http://localhost:11434/api/version >/dev/null 2>&1; then ok "Ollama server is up"; else warn "Ollama server not responding yet, it may need a moment, or start it with 'ollama serve'"; fi
 
 # --- 2. Tune Ollama for your GPU (optional, needs sudo + systemd) ------------
 # Flash attention + a q8_0 KV cache are what make a 32K window affordable. KEEP_ALIVE is
@@ -201,10 +201,10 @@ EOF
     $SUDO systemctl daemon-reload && $SUDO systemctl restart ollama && ok "Ollama tuned & restarted" || warn "Could not restart ollama service (tuning skipped)"
     sleep 2
   else
-    warn "No sudo — skipping Ollama tuning (not required, just a small VRAM optimisation)"
+    warn "No sudo, skipping Ollama tuning (not required, just a small VRAM optimisation)"
   fi
 elif [ "$NEEDS_LOCAL_LLM" -eq 1 ]; then
-  warn "Ollama not running under systemd — skipping service tuning (not required)"
+  warn "Ollama not running under systemd, skipping service tuning (not required)"
 fi
 
 # --- 3. Pull models ----------------------------------------------------------
@@ -217,11 +217,11 @@ if [ "$NEEDS_LOCAL_LLM" -eq 1 ]; then
 elif [ "$PROFILE" = "max" ]; then
   ok "Profile max: the models come from Hugging Face in the next step, not from Ollama"
 else
-  ok "Cloud profile — skipping the local LLM (Claude Code will use your own login)"
+  ok "Cloud profile, skipping the local LLM (Claude Code will use your own login)"
 fi
 
 log "Pulling Hal's chat brain: $BRAIN_MODEL  (answers, and calls the extensions' tools)"
-ollama pull "$BRAIN_MODEL" && ok "Pulled $BRAIN_MODEL" || warn "Failed to pull $BRAIN_MODEL — 'hal chat' won't work until you run: ollama pull $BRAIN_MODEL"
+ollama pull "$BRAIN_MODEL" && ok "Pulled $BRAIN_MODEL" || warn "Failed to pull $BRAIN_MODEL, 'hal chat' won't work until you run: ollama pull $BRAIN_MODEL"
 
 # --- 3b. llama.cpp and the max profile's models -----------------------------
 # One release build of llama-server (CUDA 12.8, which any 12.8+ driver runs) plus the
@@ -299,7 +299,7 @@ cat > "$MODELFILE" <<EOF
 FROM $MAIN_BASE
 PARAMETER num_ctx $NUM_CTX
 EOF
-ollama create "$MAIN_MODEL" -f "$MODELFILE" && ok "Created $MAIN_MODEL" || warn "Could not create $MAIN_MODEL — Hal will fall back to $MAIN_BASE"
+ollama create "$MAIN_MODEL" -f "$MODELFILE" && ok "Created $MAIN_MODEL" || warn "Could not create $MAIN_MODEL, Hal will fall back to $MAIN_BASE"
 rm -f "$MODELFILE"
 fi
 
@@ -328,7 +328,7 @@ if have claude; then
   ok "Claude Code already installed ($(claude --version 2>/dev/null | head -n1))"
 else
   log "Installing Claude Code"
-  npm install -g @anthropic-ai/claude-code && ok "Claude Code installed" || warn "Claude Code install failed — try: npm install -g @anthropic-ai/claude-code"
+  npm install -g @anthropic-ai/claude-code && ok "Claude Code installed" || warn "Claude Code install failed, try: npm install -g @anthropic-ai/claude-code"
 fi
 
 # --- 9. Write hal.conf (the profile the launcher reads) ----------------------
@@ -336,7 +336,7 @@ fi
 # ./hal sources it, and hal-voice can import it too so the two never drift apart.
 log "Writing $CONF_FILE"
 cat > "$CONF_FILE" <<EOF
-# Hal — resolved setup profile. Generated by setup.sh on $(date -u +%Y-%m-%dT%H:%MZ).
+# Hal, resolved setup profile. Generated by setup.sh on $(date -u +%Y-%m-%dT%H:%MZ).
 # Safe to edit by hand; re-running setup.sh overwrites it. Git-ignored on purpose:
 # it records choices about YOUR machine, not about the project.
 
@@ -344,7 +344,7 @@ cat > "$CONF_FILE" <<EOF
 HAL_PROFILE="$PROFILE"
 
 # The local model Claude Code talks to. Empty in the cloud profile, which means
-# "don't redirect Claude Code at all — use its own login".
+# "don't redirect Claude Code at all, use its own login".
 HAL_MODEL="$MAIN_MODEL"
 HAL_FAST_MODEL="$FAST_MODEL"
 
@@ -375,7 +375,7 @@ chmod +x "$HAL_ROOT/hal" "$HAL_ROOT"/*.sh 2>/dev/null || true
 mkdir -p "$HOME/.local/bin"
 ln -sf "$HAL_ROOT/hal" "$HOME/.local/bin/hal"
 
-# NB: not $PROFILE — that holds the setup profile (max/24gb/12gb/cloud).
+# NB: not $PROFILE, that holds the setup profile (max/24gb/12gb/cloud).
 SHELL_PROFILE="$HOME/.bashrc"
 MARK_BEGIN="# >>> hal setup >>>"
 MARK_END="# <<< hal setup <<<"
@@ -394,7 +394,7 @@ ok "Updated $SHELL_PROFILE (PATH)"
 cat <<EOF
 
 ${c_green}============================================================${c_off}
-${c_green}  Hal install complete — profile: $PROFILE${c_off}
+${c_green}  Hal install complete, profile: $PROFILE${c_off}
 ${c_green}============================================================${c_off}
 
 Next steps:
@@ -412,7 +412,7 @@ Next steps:
   4) Code with the local model:
        hal here        # Claude Code in the current directory
 
-Profile '$PROFILE' is recorded in hal.conf — edit it, or re-run ./setup.sh --profile <name>
+Profile '$PROFILE' is recorded in hal.conf, edit it, or re-run ./setup.sh --profile <name>
 to switch between max, 24gb, 12gb and cloud.
 $( [ "$PROFILE" = "max" ] && printf '\nOn max, pick a mode per launch: hal mode gpu | cpu | hybrid | hybrid-256k | combined.\n' )
 

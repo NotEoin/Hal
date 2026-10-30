@@ -1,4 +1,4 @@
-# 🧠 Hal
+# Hal
 
 ![licence](https://img.shields.io/badge/licence-MIT-blue?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-Linux-lightgrey?style=flat-square)
@@ -63,7 +63,7 @@ client, imports a telemetry or analytics SDK, or names an unlisted host. Run it 
 `uv run pytest -q tests/test_no_telemetry.py`.
 
 
-## 🌟 Highlights
+## Highlights
 
 - **One brain for every way in.** Terminal, voice and Telegram all share the same agent loop: a local
   model that streams its reply and calls the tools of whatever extensions are installed.
@@ -81,7 +81,7 @@ client, imports a telemetry or analytics SDK, or names an unlisted host. Run it 
 - **Coding on your own hardware.** Claude Code runs against a local model, chosen for your GPU, from a
   24GB card down to none at all.
 
-## ℹ️ Overview
+## Overview
 
 | Piece | What it does |
 |---|---|
@@ -97,11 +97,11 @@ Hal finds extensions through [hal-hub](https://github.com/NotEoin/hal-hub), whic
 the ecosystem's `core/` folder. The whole ecosystem, with an installer that sets up both and the
 extensions you choose, is [hal-ecosystem](https://github.com/NotEoin/hal-ecosystem).
 
-### ✍️ Author
+### Author
 
 Built by [@NotEoin](https://github.com/NotEoin).
 
-## 🚀 Usage
+## Usage
 
 ```bash
 hal chat                 # talk to Hal in a box; /reset starts over
@@ -120,7 +120,7 @@ With the memory extension installed, `hal ask`, `hal index`, `hal brief`, `hal s
 `hal import` work on your Obsidian vault; see
 [hal-memory](https://github.com/NotEoin/hal-memory).
 
-## ⬇️ Installation
+## Installation
 
 The easy way is the ecosystem installer, which sets up Hal, hal-hub and the extensions you pick:
 
@@ -147,7 +147,7 @@ to re-run.
 ./setup.sh --profile 12gb -y  # ...and skip the prompt
 ```
 
-**→ Full setup walkthrough: [SETUP.md](SETUP.md)**
+**-> Full setup walkthrough: [SETUP.md](SETUP.md)**
 
 ### Requirements
 
@@ -155,7 +155,7 @@ to re-run.
 |---|---|
 | **OS** | Linux with systemd (for the background services) |
 | **Python** | 3.11 or later; Hal itself needs nothing from PyPI |
-| **GPU** | Whatever you have — see the profiles below. None is fine |
+| **GPU** | Whatever you have, see the profiles below. None is fine |
 | **Disk** | ~160GB for the models on `max`, ~25GB on `24gb`, ~12GB on `12gb`, ~3GB on `cloud` |
 
 #### Setup profiles
@@ -166,9 +166,9 @@ engine and answer within about a second.
 
 | Profile | Picked when | Coding model | Chat brain |
 |---|---|---|---|
-| `max` | ≥22GB VRAM and ≥60GB RAM | three models in five modes, up to a 177B (~160GB) | Gemma 4 12B, QAT (~7GB) |
-| `24gb` | ≥22GB VRAM | Qwen3.8-27B (~18GB) | Gemma 4 12B, QAT (~7GB) |
-| `12gb` | ≥11GB VRAM | Gemma 4 12B, QAT (~7GB) | Qwen3.5 4B (~3GB) |
+| `max` | >=22GB VRAM and >=60GB RAM | three models in five modes, up to a 177B (~160GB) | Gemma 4 12B, QAT (~7GB) |
+| `24gb` | >=22GB VRAM | Qwen3.8-27B (~18GB) | Gemma 4 12B, QAT (~7GB) |
+| `12gb` | >=11GB VRAM | Gemma 4 12B, QAT (~7GB) | Qwen3.5 4B (~3GB) |
 | `cloud` | no usable GPU | none: Claude Code with your own login | Qwen3.5 2B, on the CPU |
 
 The `max` profile serves three models through llama.cpp and lets you pick where they run per launch:
@@ -183,7 +183,7 @@ candidates, and set the winner as `chat_model` in `~/.config/hal/config.toml`.
 
 Originally built on an RTX 3090; developed since on an RTX 4070.
 
-## 🧩 Extensions
+## Extensions
 
 `hal ext list` shows what is installed and what else there is. Packs add a set at once:
 
@@ -198,7 +198,7 @@ the format, and the ecosystem's `scaffold.py` creates one. Its services go in `s
 rendered with its own path, so it works wherever it is cloned; a unit marked `X-HalGPU=yes` is one
 `hal off` stops and, with gpu-light installed, one that starts only after Hal has claimed the GPU.
 
-## 🔒 Privacy
+## Privacy
 
 - **On the `max`, `24gb` and `12gb` profiles nothing leaves the machine**: the models answering you
   are on your own GPU.
@@ -214,7 +214,7 @@ rendered with its own path, so it works wherever it is cloned; a unit marked `X-
   start on their own.
 - Extensions that reach the internet (web search, weather, iCloud sync, ntfy) say so in their READMEs.
 
-## 🧭 Limitations
+## Limitations
 
 - **A local model is not a frontier model.** It is quick and good at everyday requests and tool calls,
   and it will lose to a cloud model on hard, many-step reasoning; that is what `deep_work` is for.
@@ -222,12 +222,12 @@ rendered with its own path, so it works wherever it is cloned; a unit marked `X-
   something you say is misunderstood.
 - Linux only.
 
-## 💭 Feedback and contributing
+## Feedback and contributing
 
-Questions, bugs and ideas welcome — open an [issue](https://github.com/NotEoin/Hal/issues) or start
+Questions, bugs and ideas welcome, open an [issue](https://github.com/NotEoin/Hal/issues) or start
 a [discussion](https://github.com/NotEoin/Hal/discussions). Run `uv sync --all-packages && uv run pytest`
 and `hal eval` before sending a change to the brain.
 
-## 📄 Licence
+## Licence
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).

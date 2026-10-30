@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# hal — your local AI: talk to it, code with it, and add extensions.
+# hal, your local AI: talk to it, code with it, and add extensions.
 #
 #   hal -p PROMPT        one boxed turn, --output-format text|json|stream-json
 #   hal chat [message]   talk to Hal in the terminal (uses installed extensions' tools)
@@ -83,7 +83,7 @@ if [ -f "$CONF_FILE" ]; then
   . "$CONF_FILE"
 fi
 if [ -z "${HAL_PROFILE:-}" ]; then
-  echo "No hal.conf found at $CONF_FILE — run ./setup.sh first (it picks a profile)."
+  echo "No hal.conf found at $CONF_FILE, run ./setup.sh first (it picks a profile)."
   exit 1
 fi
 
@@ -100,7 +100,7 @@ LLAMA_URL="${HAL_LLAMA_URL:-http://127.0.0.1:8080}"
 # Names the root note of the study hierarchy (see hal.conf).
 UNIVERSITY="${HAL_UNIVERSITY:-University}"
 # Max tokens Claude Code may generate per reply. The model's whole context window is 32K
-# (NUM_CTX in setup.sh), and input + output share it — so this MUST stay well below 32K to
+# (NUM_CTX in setup.sh), and input + output share it, so this MUST stay well below 32K to
 # leave room for your prompt, files and tool output. 8K is plenty per turn and also stops the
 # local model from running away into a loop. To truly allow longer single replies you must
 # raise NUM_CTX in setup.sh and rebuild the model (costs VRAM). Override: HAL_MAX_OUTPUT_TOKENS.
@@ -211,7 +211,7 @@ elif [ -n "$MODEL" ]; then
   export HAL_MODEL="$MODEL"
   export ANTHROPIC_SMALL_FAST_MODEL="$FAST_MODEL"
   export CLAUDE_CODE_MAX_OUTPUT_TOKENS="$MAX_OUTPUT_TOKENS"
-  # Fully local — no telemetry / auto-update / error reporting
+  # Fully local, no telemetry / auto-update / error reporting
   export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1"
   export DISABLE_TELEMETRY="1"
   export DISABLE_ERROR_REPORTING="1"
@@ -264,9 +264,9 @@ fi
 if [ "$BACKEND" = "llamacpp" ]; then
   echo "Hal [$HAL_PROFILE, mode $SERVE_MODE] -> model: $MODEL, agents: $AGENT_MODEL   |   dir: $TARGET"
 elif [ -n "$MODEL" ]; then
-  echo "Hal [$HAL_PROFILE] → model: $MODEL   |   dir: $TARGET"
+  echo "Hal [$HAL_PROFILE] -> model: $MODEL   |   dir: $TARGET"
 else
-  echo "Hal [$HAL_PROFILE] → Claude Code (your own login)   |   dir: $TARGET"
+  echo "Hal [$HAL_PROFILE] -> Claude Code (your own login)   |   dir: $TARGET"
 fi
 cd "$TARGET" || { echo "Cannot cd to $TARGET"; exit 1; }
 
