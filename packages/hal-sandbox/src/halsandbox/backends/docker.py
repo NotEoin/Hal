@@ -14,9 +14,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .. import __version__
 from ..errors import SandboxError
 from ..gitlayout import GitMount
+from ..labels import labels as make_labels
 from ..limits import Limits
 
 DEFAULT_ENTRYPOINT = "/opt/hal/bin/hal-box-entry"
@@ -91,17 +91,14 @@ def docker_argv(spec: LaunchSpec) -> list[str]:
     """The `docker run` argv for `spec`, in the order the design lists it."""
     _check(spec)
     root, lim = spec.session_root, spec.limits
-    labels = {
-        "hal.sandbox": "1",
-        "hal.kind": spec.kind,
-        "hal.session": spec.sid,
-        "hal.uid": str(spec.uid),
-        "hal.pid": str(spec.pid),
-        "hal.pidstart": str(spec.pidstart),
-        "hal.version": __version__,
-        "hal.started": spec.started,
-        **spec.extra_labels,
-    }
+    labels = make_labels(
+        spec.kind,
+        spec.sid,
+        uid=spec.uid,
+        pid=spec.pid,
+        start=spec.pidstart,
+        extra={"hal.started": spec.started, **spec.extra_labels},
+    )
     argv = [spec.docker, "run", "--rm", "-i"]
     if spec.tty:
         argv.append("-t")

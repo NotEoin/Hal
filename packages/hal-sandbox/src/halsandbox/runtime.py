@@ -153,6 +153,18 @@ class RuntimeDir:
         shutil.rmtree(self.root, ignore_errors=True)
 
 
+def read_owner(root: Path) -> dict[str, object]:
+    """The parsed `owner.json` of a session directory; raises `SandboxError` when unusable."""
+    try:
+        data = json.loads((root / "owner.json").read_text())
+    except (OSError, ValueError) as exc:
+        raise SandboxError(f"no usable owner.json in {root}: {exc}") from exc
+    missing = [k for k in OWNER_KEYS if k not in data]
+    if missing:
+        raise SandboxError(f"owner.json in {root} lacks {missing}")
+    return data
+
+
 def _write(path: Path, text: str, mode: int) -> None:
     """Creates `path` with `mode` set before any content is written, then replaces it atomically."""
     tmp = path.with_name(path.name + ".tmp")
