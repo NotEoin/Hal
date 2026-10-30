@@ -200,3 +200,20 @@ def test_threat_model_carries_every_threat_and_residual_risk_of_the_security_spe
     assert _threat_ids(model) == _threat_ids(spec_part) and len(_threat_ids(model)) >= 31
     assert _residual_risks(model) == _residual_risks(spec_part)
     assert "| Id | Threat | Adversary | Entry point | Mitigations | Residual risk |" in model
+
+
+def _table_rows(path: Path, header_prefix: str) -> list[str]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith(header_prefix))
+    rows = []
+    for line in lines[start:]:
+        if not line.startswith("|"):
+            break
+        rows.append(line)
+    return rows
+
+
+@pytest.mark.parametrize("header", ["| Risk |", "| Level |", "| Paranoia |"])
+def test_readme_security_tables_match_the_security_guide(header):
+    """RESOLUTIONS I7: the README repeats the guide's tables, so they must not drift apart."""
+    assert _table_rows(REPO / "README.md", header) == _table_rows(DOCS / "user" / "security.md", header)

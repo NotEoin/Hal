@@ -13,6 +13,46 @@ Hal is the core of a desktop assistant. It runs the local models, gives you a co
 Everything else (a memory in Obsidian, your calendar on your phone, a voice, timers, lights,
 the computer itself) is an extension you add when you want it. Raw Hal works on its own.
 
+## What Hal protects you from
+
+Hal treats its own model as hostile: a model changed to cause damage is contained by the default
+settings. Every Hal agent turn runs in a box with no network and no access to your files except a
+copy of the project and a scratchpad. The full guide, with the paths that are *not* private, is
+[docs/user/security.md](docs/user/security.md).
+
+| Risk | What stops it |
+| --- | --- |
+| A tool call that deletes, sends or runs something you did not ask for | Tool tiers and the policy: `act`, `send` and `system` tools ask first, and an approval is bound to the exact arguments you saw |
+| The model approving itself | An approval is a structured answer from a surface (terminal, phone, editor), never text the model wrote; a tool call cannot carry one |
+| Instructions hidden in a web page, file or tool result | Results of untrusted tools come back in a marked envelope, and the session's taint raises what needs approval |
+| The agent reading your home directory or secrets | The agent runs in a box with a copy of the project at `/work` and a scratchpad at `/scratch`; nothing else of the host is mounted |
+| The agent reaching the network | The box has no network; its only channels out are the tool broker and the model socket |
+| The agent changing your real repository | Changes leave the box only through `hal code accept` (diff report, flags, checkpoint) or `hal code export` |
+| A risky call that policy allows | The risk classifier rates every boxed call and can only make the decision stricter (see below) |
+| Changing its own limits | Lockdown and paranoia are read from host files and the host environment; no tool argument or box setting can change them |
+
+Two settings are yours alone; no tool call can change either. `hal status` and `hal doctor` show them.
+
+**Lockdown** (`[sandbox].lockdown`):
+
+| Level | Meaning |
+| --- | --- |
+| `strict` | runsc (gVisor) required, Hal refuses to start without it; isolated copy only; resource limits; no host tool upstreams except `hal-hub`; paranoia floor `high` |
+| `standard` (default) | runsc when installed, else runc with a doctor warning; isolated copy by default; limits on; host upstreams allowed by policy |
+| `relaxed` | also allows `--direct` (the real project mounted read-write) and the dependency-install box with network |
+| `off` | allows running without a box after a per-project consent; `hal doctor` reports a problem on every run; never a default |
+
+**Paranoia** (`[policy].paranoia`): how strictly a local classifier rates each call.
+
+| Paranoia | low risk | medium | high | critical |
+| --- | --- | --- | --- | --- |
+| `off` | policy | policy | policy | policy |
+| `low` | policy (+review) | policy | ask | ask |
+| `balanced` (default) | policy (+review) | ask | ask | deny |
+| `high` | policy | ask | deny | deny |
+| `max` | ask | ask | deny | deny |
+
+
 ## 🌟 Highlights
 
 - **One brain for every way in.** Terminal, voice and Telegram all share the same agent loop: a local
