@@ -75,3 +75,17 @@ Regenerate a golden file only after reading the diff: it is the reviewed list of
 by tag because buildkit cannot `FROM` a bare image ID; the tag hash covers the base image ID.
 Measured 2026-10-30 [verified: `docker images`]: crush 1.25 GB, goose 1.45 GB (budget 1.5 GB). The
 other CLIs were not built here. Tested by `test_boximages.py` and the live tests in `test_images_live.py`.
+
+## What remains (2026-10-30)
+
+Plan steps 29 to 33 are done; `hal box` and `hal-sandbox` exist with `run`, `harnesses`, `image`
+and `deps`. Not built yet:
+
+- `hal-sandbox doctor`, `ls`, `shell`, `undo`, `diff`, `forget` and `gc` (step 32), so the undo
+  how-to uses `hal code` and git refs.
+- The startup benchmark `scripts/bench-sandbox.py` (step 34), and steps 35 to 38: sanitized git
+  config, the terminal filter, upstream elicitations, stripped command output.
+- Box image sizes: the base images are above their budgets (see `images.SIZE_BUDGET_MB`); only
+  crush and goose were built and run. The claude, qwen, opencode and codex images are unbuilt, and no
+  CLI has done a model round trip (REQ-BOX-61).
+- The open RESOLUTIONS I6 containment cases listed above.
