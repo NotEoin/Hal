@@ -123,7 +123,6 @@ LEGACY: dict[tuple[str, str], int] = {
     ("packages/hal-core/src/halcore/console.py", NAIVE_NOW): 1,
     ("packages/hal-core/src/halcore/evaluate.py", NAIVE_NOW): 1,
     ("packages/hal-core/src/halcore/evaluate.py", STRFTIME): 1,
-    ("packages/hal-core/src/halcore/ext.py", NO_TIMEOUT): 3,
     ("packages/hal-core/src/halcore/ext.py", STRFTIME): 1,
     ("packages/hal-core/src/halcore/power.py", NO_TIMEOUT): 1,
     ("packages/hal-core/src/halcore/units.py", NO_TIMEOUT): 3,

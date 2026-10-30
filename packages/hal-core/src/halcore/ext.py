@@ -5,12 +5,12 @@ folder (ecosystem/extensions, or [hal].extensions_dir). hal-hub finds it there, 
 `hal units install` starts its services. extensions.toml lists the ones `add` knows.
 
     hal ext list                      installed and available extensions
-    hal ext add calendar tasks        clone, run each one's install step, start its services
+    hal ext add calendar tasks        fetch the pinned commit, show what it can do, install after a typed y
     hal ext add --pack assistant      a set: the everyday desktop assistant
     hal ext disable phone             keep it installed but unused; `enable` undoes it
     hal ext remove phone              stop its services and move it to ~/.local/share/hal/removed
-    hal ext setup [name ...]          run install steps again (all extensions when none named)
-    hal ext update                    git pull every extension
+    hal ext setup [name ...]          run install steps again, one typed y each
+    hal ext update                    move installed extensions to the catalogue's pin, reviewed
 """
 from __future__ import annotations
 
@@ -23,7 +23,9 @@ import time
 import tomllib
 from pathlib import Path
 
-from . import config, units
+from halkit import proc
+
+from . import config, packreview, units
 
 PACKS = {
     "assistant": ["memory", "calendar", "tasks", "notify", "clock", "web", "briefing", "voice"],
@@ -72,39 +74,26 @@ def set_disabled(names: list[str]) -> None:
     path.write_text(text)
 
 
-def _install_step(root: Path) -> None:
-    """Runs the [module].install command an extension declares, if any."""
-    info = tomllib.loads((root / "hal-module.toml").read_text()).get("module", {})
-    cmd = info.get("install")
-    if cmd:
-        print(f"  running {root.name}'s install step", flush=True)
-        subprocess.run([a.replace("{root}", str(root)) for a in cmd], cwd=root)
-
-
 def add(names: list[str]) -> int:
-    known, have = catalog(), installed()
+    """Installs catalogue entries after a pinned fetch and a reviewed, typed confirmation."""
+    known = catalog()
     base = config.extensions_dir()
-    base.mkdir(parents=True, exist_ok=True)
     failed = 0
     for name in names:
         name = name.removeprefix("hal-")
-        if name in have:
-            print(f"  {name}: already installed", flush=True)
-            _install_step(have[name])          # safe to repeat; picks up anything new
-            continue
         if name not in known:
-            print(f"  {name}: not in the catalogue; clone it into {base} by hand")
+            print(f"  {name}: not in the catalogue; see extensions.toml")
             failed += 1
             continue
-        repo = known[name]["repo"]
-        if os.environ.get("HAL_GITHUB"):          # a fork or a local mirror
-            repo = os.environ["HAL_GITHUB"].rstrip("/") + "/" + repo.rsplit("/", 1)[-1]
-        dest = base / Path(repo).stem
-        print(f"  {name}: cloning {repo}", flush=True)
-        if subprocess.run(["git", "clone", "--quiet", repo, str(dest)]).returncode != 0:
+        entry = dict(known[name])
+        if os.environ.get("HAL_GITHUB"):          # a fork or a local mirror; the pin still has to match
+            entry["repo"] = os.environ["HAL_GITHUB"].rstrip("/") + "/" + str(entry["repo"]).rsplit("/", 1)[-1]
+        try:
+            if not packreview.install(name, entry, base):
+                failed += 1
+        except (packreview.PackRefused, proc.ProcTimeout, subprocess.CalledProcessError, OSError) as exc:
+            print(f"  {name}: {exc}")
             failed += 1
-            continue
-        _install_step(dest)
     if shutil.which("systemctl"):
         units.install(start=not _hal_off())
     return 1 if failed else 0
@@ -170,16 +159,12 @@ def main(argv: list[str]) -> int:
         print(f"{name} {args.cmd}d")
         return 0
     if args.cmd == "setup":
-        have = installed()
-        for name in args.names or list(have):
-            if name.removeprefix("hal-") in have:
-                _install_step(have[name.removeprefix("hal-")])
-        return 0
+        from halhub.cli import main as hub_main  # noqa: PLC0415 - loaded only for this command
+
+        return hub_main(["setup", *[n.removeprefix("hal-") for n in args.names]]) or 0
     if args.cmd == "update":
-        for name, root in installed().items():
-            r = subprocess.run(["git", "-C", str(root), "pull", "--ff-only", "--quiet"], capture_output=True, text=True)
-            print(f"  {name:12} {'ok' if r.returncode == 0 else r.stderr.strip()[:100]}")
-        return 0
+        # an update is an install of the catalogue's pin: new facts are shown and confirmed (REQ-SEC-85)
+        return add([n for n in installed() if n in catalog()])
     if args.cmd == "doctor":
         from halhub.__main__ import main as hub_main  # noqa: PLC0415
         return hub_main(["doctor"]) or 0

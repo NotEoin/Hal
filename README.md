@@ -17,7 +17,7 @@ the computer itself) is an extension you add when you want it. Raw Hal works on 
 
 - **One brain for every way in.** Terminal, voice and Telegram all share the same agent loop: a local
   model that streams its reply and calls the tools of whatever extensions are installed.
-- **Extensions are just repositories.** `hal ext add calendar` clones one, runs its setup and starts
+- **Extensions are just repositories.** `hal ext add calendar` fetches the commit pinned in `extensions.toml`, shows what the extension can do, and installs it after you type `y`. It starts
   its services; `hal ext remove` undoes it. With none installed, Hal says so instead of pretending.
 - **It asks before it destroys.** Deleting, killing and shutting down need a yes from you in an
   earlier turn; a model cannot confirm on its own behalf.
@@ -41,7 +41,7 @@ the computer itself) is an extension you add when you want it. Raw Hal works on 
 | `setup.sh` | Installs Ollama, the models for your GPU, Claude Code, and writes the config |
 | `hal-serve`, `hal-route.py`, `modes/` | The max profile's llama.cpp server and its five modes |
 | `models/` | The model catalogue and the role models (`hal-coder`, `hal-writer`, `hal-fast`) |
-| `extensions.toml` | The extensions `hal ext add` knows how to fetch |
+| `extensions.toml` | The extensions `hal ext add` knows how to fetch, each pinned to a 40-hex commit |
 
 Hal finds extensions through [hal-hub](https://github.com/NotEoin/hal-hub), which sits beside it in
 the ecosystem's `core/` folder. The whole ecosystem, with an installer that sets up both and the
