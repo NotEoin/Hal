@@ -5,7 +5,7 @@ import json
 import pytest
 
 from halkit import config
-from halremote import cli, servercheck
+from halremote import cli, serve, servercheck
 
 
 @pytest.mark.parametrize("command", sorted(set(cli.COMMANDS) - cli.IMPLEMENTED))
@@ -57,3 +57,10 @@ def test_server_check_exits_0_and_prints_a_line_per_check(monkeypatch, capsys):
     monkeypatch.setattr(servercheck, "run_checks", lambda **kw: [ok])
     assert cli.main(["server-check"]) == cli.EXIT_OK
     assert capsys.readouterr().out.startswith("SC15 ")
+
+
+def test_serve_receives_its_options_unparsed(monkeypatch):
+    seen = []
+    monkeypatch.setattr(serve, "main", lambda argv: seen.append(list(argv)) or 64)
+    assert cli.main(["serve", "--client", "laptop", "--hub", "/x"]) == 64
+    assert seen == [["--client", "laptop", "--hub", "/x"]]

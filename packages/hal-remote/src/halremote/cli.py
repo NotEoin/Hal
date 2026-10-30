@@ -73,9 +73,11 @@ def _server_check(args: argparse.Namespace) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Runs `hal-remote`; returns the process exit code."""
-    args = build_parser().parse_args(argv)
-    if args.command == "serve":
-        return serve.main(args.args)
+    words = list(sys.argv[1:] if argv is None else argv)
+    if words[:1] == ["serve"]:
+        # Bypasses argparse: REMAINDER rejects a first token that is an option (`--client`).
+        return serve.main(words[1:])
+    args = build_parser().parse_args(words)
     if args.command == "server-check":
         return _server_check(args)
     sys.stderr.write(f"hal-remote {args.command}: not implemented\n")

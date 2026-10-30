@@ -242,7 +242,13 @@ def _command_value(line: authkeys.HalKeyLine) -> str | None:
 
 
 def _forced_command_problem(
-    runner: Runner, shell: str, command: str, client: str, home: Path, user: str
+    runner: Runner,
+    shell: str,
+    command: str,
+    client: str,
+    home: Path,
+    user: str,
+    extra_env: dict[str, str] | None = None,
 ) -> str | None:
     """Runs `command` with verb `check` like sshd; returns a problem text, `None` when it passed."""
     env = {
@@ -254,6 +260,7 @@ def _forced_command_problem(
         "SSH_ORIGINAL_COMMAND": "check",
         "SSH_CLIENT": f"{FAKE_PEER} 22",
         "SSH_CONNECTION": f"{FAKE_PEER} 127.0.0.1 22",
+        **(extra_env or {}),  # tests point the Hal directories at a temp dir
     }
     argv = [sys.executable, "-c", _SOCKET_LAUNCHER, shell, command]
     res = _run(runner, argv, SC14_TIMEOUT_S, env)
@@ -265,7 +272,7 @@ def _forced_command_problem(
     except ValueError:
         return f"{client}: first output line is not JSON: {first[:SC14_DETAIL_CHARS]!r}"
     if not isinstance(msg, dict) or msg.get("ok") is not True:
-        return f"{client}: check reported {str(msg)[:SC14_DETAIL_CHARS]}"
+        return f"{client}: check reported {str(msg.get('problems', msg))[:SC14_DETAIL_CHARS]}"
     return None
 
 
