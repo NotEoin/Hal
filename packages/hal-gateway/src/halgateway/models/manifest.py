@@ -50,6 +50,7 @@ class ModelEntry:
     size: int | None
     profile: str | None = None
     template_sha256: str | None = None
+    hf_file: str | None = None
 
     @property
     def ollama_digest(self) -> str | None:
@@ -89,7 +90,15 @@ def _entry(raw: dict, models_dir: Path) -> ModelEntry:
     if not path.is_absolute():
         path = models_dir / path
     return ModelEntry(
-        name, source, path, fmt, digest, size, raw.get("profile"), raw.get("template_sha256") or None
+        name,
+        source,
+        path,
+        fmt,
+        digest,
+        size,
+        raw.get("profile"),
+        raw.get("template_sha256") or None,
+        raw.get("hf_file"),
     )
 
 

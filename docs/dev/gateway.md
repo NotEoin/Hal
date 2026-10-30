@@ -98,3 +98,16 @@ Each `GatewayError` subclass owns one HTTP status. `error_body(err, fmt)` render
 - The manifest `profile` of a model appears as `meta.hal_profile` in `/v1/models` (OpenAI shape).
 - Weight-file verification (`Verifier.verify_path`) is for the llama.cpp router; it is wired in
   with the mode renderer (plan step 10).
+
+## Model helpers (`models`, `models/download`)
+
+- `models.Store(manifest, models_dir, verified)` names the files; the functions `list_entries`,
+  `plan`, `pull`, `verify`, `add_local` and `record_ollama` take it first. They are the only
+  writers of `models.toml` (temp file, then replace, mode 0600).
+- `pull` fetches `hf:<repo>@<40-hex commit>` entries over https (redirects stay https; 10 s
+  connect, 60 s per read) into a `.part` file beside the target, hashes while writing and links
+  it into place only when size and sha256 match. An existing file with another hash is never
+  replaced. Unpinned sources (`@main`, `local`) are refused.
+- `verify(full=False)` re-hashes only files whose size, mtime or inode changed since the last
+  verified state; `full=True` re-hashes all. `ollama:` entries are checked on each request.
+- `add_local` and `record_ollama` pin trust; the CLI must show and ask before calling them.
