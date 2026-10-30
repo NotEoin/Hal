@@ -1,0 +1,16 @@
+[Unit]
+Description=Hal model gateway
+PartOf=hal.target
+After=default.target
+
+[Service]
+ExecStart=@BIN@/hal-gateway serve
+Restart=on-failure
+RestartSec=2
+KillMode=control-group
+TimeoutStopSec=90
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=hal.target

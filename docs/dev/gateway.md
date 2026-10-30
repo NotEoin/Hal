@@ -307,5 +307,27 @@ model routes like the owner, never remote backends without `allow_remote`, never
 routes, narrows the unix owner too (REQ-GW-62), and is logged as `client:<name>`. A damaged
 file fails closed. `token show` and `token rotate` handle the owner token file; the gateway
 re-reads it on a changed mtime or inode. `[gateway].url` must be `http://127.0.0.1:PORT` or
-`http://[::1]:PORT`, and `Gateway.start` refuses while it is set (client mode); the
-`hal-gateway serve` command itself arrives with the CLI step.
+`http://[::1]:PORT`, and `Gateway.start` refuses while it is set (client mode).
+
+## Admin client, remote marking, CLI and unit (`client`, `cli`, `units`)
+
+- `GatewayClient(socket_path, token)` or `GatewayClient.from_config(path)` (reads the owner
+  token file). Methods follow the design: `health`, `status`, `aliases`, `models`, `set_mode`,
+  `stop_router`, `load`, `unload`, `release_gpu` (a `ReleaseResult`), `leases`,
+  `create_session` (a `SessionGrant`), `revoke_session`. A refusal raises `ClientError` with
+  `status` and `error_type`. `wait_s` is sent to the gateway and widens the client timeout; the
+  router uses its own `drain_s` and start-up timeouts. On the unix socket the owner is
+  identified by peer credentials, so a wrong token is not refused there (verified:
+  `tests/test_client.py`).
+- A remote backend (REQ-GW-22): a start-up warning in the log, `remote` and `host` in its
+  `status` entry, a top-level `warnings` list in `GET /hal/v1/status`, `X-Hal-Remote` on each
+  response, and `owned_by: "remote:<host>"` in `/v1/models`.
+- CLI: `serve` (runs until SIGTERM or SIGINT), `status [--json]`, `mode [NAME] [--force]
+  [--no-wait]`, `models [--json]`, `load`, `unload`, `router stop`, `release-gpu`. Exit codes:
+  0 ok, 3 bad config, 4 refused, 5 gateway down or failed, 6 conflict (HTTP 409 or a busy
+  reclaim). The design lists 3 for conflicts and 2 for config errors; the shipped codes differ.
+- `data/hal-gateway.service` is a template with `@BIN@`; `units.render_unit(bin_dir)` fills it.
+  Nothing here installs, enables or starts the unit; the launcher (design 06) does that.
+- Not built: `hal.conf` import (plan step 26), the user docs and how-tos (27), the launcher
+  switch and removal of `hal-serve` (28, 29), and the docker launcher (30). sha256 values and
+  commit pins are left for the maintainer.
