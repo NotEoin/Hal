@@ -1,16 +1,21 @@
 """The `hal-gateway` command line; the only module of the package that prints.
 
-Commands so far: `check-config`, `modes`, `render`, `release-gpu`, `token`. Exit codes: 0 ok,
-2 bad usage, 3 invalid configuration (or a token name that exists), 4 a mode, model or token that
-was refused, 5 the gateway is unreachable or refused the call, 6 `release-gpu --reclaim` found
-the gateway busy.
+Commands: `serve`, `status`, `mode`, `modes`, `models`, `load`, `unload`, `router stop`,
+`release-gpu`, `token`, `render`, `check-config`. Every command that talks to a running gateway
+does so through `GatewayClient`. Exit codes: 0 ok, 2 bad usage, 3 invalid configuration (or a
+token name that exists), 4 a mode, model or token that was refused, 5 the gateway is unreachable
+or failed the call, 6 a conflict (`release-gpu --reclaim` found the gateway busy, or the router
+is busy with a request).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import logging
+import signal
 import sys
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -27,6 +32,8 @@ EXIT_CONFIG = 3  # also: a token that exists, or a bad token name
 EXIT_REFUSED = 4
 EXIT_GATEWAY = 5
 EXIT_BUSY = 6
+HTTP_CONFLICT = 409  # the router is busy, or a peer holds the GPU
+SERVE_POLL_S = 1.0  # how often `serve` re-checks its stop flag
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -46,6 +53,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     release.add_argument(
         "--reclaim", action="store_true", help="as the gpu-light reclaimer: refuse when busy"
     )
+    sub.add_parser("serve", help="run the gateway in the foreground").add_argument(
+        "--config", type=Path, default=None
+    )
+    status = sub.add_parser("status", help="backends, mode, GPU claims, leases, remote warnings")
+    status.add_argument("--config", type=Path, default=None)
+    status.add_argument("--json", action="store_true")
+    mode = sub.add_parser("mode", help="show or switch the managed router's mode")
+    mode.add_argument("name", nargs="?")
+    mode.add_argument("--config", type=Path, default=None)
+    mode.add_argument("--force", action="store_true", help="switch even with requests in flight")
+    mode.add_argument("--no-wait", action="store_true", help="do not wait for the model to load")
+    models = sub.add_parser("models", help="what /v1/models returns to the owner")
+    models.add_argument("--config", type=Path, default=None)
+    models.add_argument("--json", action="store_true")
+    for verb in ("load", "unload"):
+        one = sub.add_parser(verb, help=f"{verb} a router preset")
+        one.add_argument("model")
+        one.add_argument("--config", type=Path, default=None)
+    router = sub.add_parser("router", help="the managed router process")
+    router.add_argument("action", choices=("stop",))
+    router.add_argument("--config", type=Path, default=None)
     token = sub.add_parser("token", help="owner and client tokens")
     token.add_argument("--config", type=Path, default=None)
     actions = token.add_subparsers(dest="action", required=True)
@@ -64,6 +92,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "token":
         return _token_command(args)
+    if args.command == "serve":
+        return _serve(args)
+    if args.command in ("status", "mode", "models", "load", "unload", "router"):
+        return _client_command(args)
     if args.command == "release-gpu":
         return _release_gpu(args)
     if args.command in ("modes", "render"):
@@ -106,19 +138,80 @@ def _modes_command(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def _release_gpu(args: argparse.Namespace) -> int:
-    """Posts `/hal/v1/gpu/release` and prints the result as JSON."""
+def _serve(args: argparse.Namespace) -> int:
+    """Runs the gateway until SIGTERM or SIGINT, then stops it cleanly."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     try:
         gateway = Gateway(load_config(args.config))
-        token = Path(str(gateway.config["token_file"])).expanduser().read_text(encoding="ascii").strip()
-        client = GatewayClient(gateway.socket_path(), token)
-        body = {"force": args.force, "stop_router": args.stop_router, "reclaim": args.reclaim}
-        result = client.admin("POST", "/hal/v1/gpu/release", body)
-    except (config.ConfigError, StartError, OSError, ClientError) as exc:
+        gateway.start()
+    except (config.ConfigError, StartError) as exc:
+        print(f"hal-gateway: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    stop = threading.Event()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, lambda *_: stop.set())
+    while not stop.wait(SERVE_POLL_S):
+        pass
+    gateway.stop()
+    return EXIT_OK
+
+
+def _client_command(args: argparse.Namespace) -> int:
+    """Runs `status`, `mode`, `models`, `load`, `unload` and `router stop` through the client."""
+    try:
+        client = GatewayClient.from_config(args.config)
+        return _run_client_command(client, args)
+    except (config.ConfigError, StartError) as exc:
+        print(f"hal-gateway: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    except ClientError as exc:
+        print(f"hal-gateway: {exc}", file=sys.stderr)
+        return EXIT_BUSY if exc.status == HTTP_CONFLICT else EXIT_GATEWAY
+
+
+def _run_client_command(client: GatewayClient, args: argparse.Namespace) -> int:
+    """Dispatches one client command; `ClientError` is handled by the caller."""
+    if args.command == "status":
+        doc = client.status()
+        if args.json:
+            print(json.dumps(doc))
+            return EXIT_OK
+        for name, backend in doc.get("backends", {}).items():
+            where = f" REMOTE {backend['host']}" if backend.get("remote") else ""
+            print(f"{name:16s} {backend.get('type', '?'):14s} {backend.get('state', '-')}{where}")
+        for warning in doc.get("warnings", []):
+            print(f"warning: {warning}")
+    elif args.command == "mode":
+        if args.name is None:
+            print(json.dumps(client.aliases().get("mode", {})))
+        else:
+            wait_s = 0.0 if args.no_wait else 900.0
+            print(json.dumps(client.set_mode(args.name, wait_s=wait_s, force=args.force)))
+    elif args.command == "models":
+        rows = client.models()
+        if args.json:
+            print(json.dumps(rows))
+        for row in [] if args.json else rows:
+            print(f"{row.get('id', '?'):32s} {row.get('owned_by', '')}")
+    elif args.command == "load":
+        client.load(args.model)
+    elif args.command == "unload":
+        client.unload(args.model)
+    else:
+        client.stop_router()
+    return EXIT_OK
+
+
+def _release_gpu(args: argparse.Namespace) -> int:
+    """Releases the GPU through the client and prints the result as JSON."""
+    try:
+        client = GatewayClient.from_config(args.config)
+        result = client.release_gpu(args.force, stop_router=args.stop_router, reclaim=args.reclaim)
+    except (config.ConfigError, StartError, ClientError) as exc:
         print(f"hal-gateway: {exc}", file=sys.stderr)
         return EXIT_GATEWAY
-    print(json.dumps(result))
-    return EXIT_BUSY if args.reclaim and result.get("busy") else EXIT_OK
+    print(json.dumps(result.as_json()))
+    return EXIT_BUSY if args.reclaim and result.busy else EXIT_OK
 
 
 def _token_command(args: argparse.Namespace) -> int:
