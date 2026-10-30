@@ -37,6 +37,7 @@ from halagent.context import (
     compaction_prompt,
     render_for_summary,
 )
+from halagent.hooks import Hooks
 from halagent.mcp.client import UserMcp
 from halagent.mcp.lite import McpError
 from halagent.profiles import Profile, resolve_profile
@@ -138,7 +139,11 @@ class Agent:
         permission: PermissionFn | None = None,
         assistant: AssistantOptions | None = None,
         user_mcp: UserMcp | None = None,
+        hooks: Hooks | None = None,
     ) -> None:
+        self.hooks = hooks or None
+        if self.hooks:
+            self.hooks.lifecycle("session_start")
         self.assistant = assistant
         self.user_mcp = (
             None if assistant else user_mcp
@@ -420,6 +425,9 @@ class Agent:
             self.backend.close()
         if self.user_mcp:
             self.user_mcp.close()
+        if self.hooks:
+            self.hooks.lifecycle("session_stop")
+            self.hooks = None  # close may run twice; stop hooks run once
 
     def _execute(self, name: str, raw_args: object) -> str:
         fixed = repair_call(name, raw_args, self._offered())
@@ -430,6 +438,8 @@ class Agent:
             self.counters["repaired"] += 1
             log.info("repaired %s: %s", name, "; ".join(fixed.repairs))
         name, args = fixed.name, fixed.args
+        if self.hooks and (reason := self.hooks.pre_tool(name, args)):
+            return render_error(ToolError("hook_blocked", reason))
         try:
             if name in self.toolset.tools:
                 out = self.toolset.tools[name].fn(args)
@@ -451,6 +461,8 @@ class Agent:
         if len(out) > cap:
             head = cap // HEAD_SHARE
             out = out[:head] + f"\n[... {len(out) - cap} characters cut ...]\n" + out[-(cap - head) :]
+        if self.hooks and (note := self.hooks.post_tool(name, args, out)):
+            out += f"\n{note}"
         return out + "".join(f"\n{n}" for n in fixed.notes)
 
     def run(self, prompt: str, images: list[dict] | None = None) -> RunResult:

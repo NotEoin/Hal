@@ -12,6 +12,7 @@ from typing import IO, Any
 from halagent import boot
 from halagent.acp.server import AcpServer
 from halagent.assistant import AssistantOptions, build_assistant
+from halagent.hooks import Hooks
 from halagent.loop import Agent
 from halagent.profiles import Profile
 from halagent.sessions import SessionError, SessionStore
@@ -58,6 +59,7 @@ def serve(
                 syntax_guard=settings.tuning.syntax_guard,
             ),
             user_mcp=user_mcp,
+            hooks=Hooks.load(cwd, paths.config_dir()),
             session=writer,
             system_extra=boot.join(boot.prompt_extras(cwd, **(extras or {})), extra),
             on_update=on_update,

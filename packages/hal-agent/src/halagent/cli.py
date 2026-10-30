@@ -16,6 +16,7 @@ from pathlib import Path
 from halagent import acp, boot, doctor, headless
 from halagent.agentfile import AgentFile, AgentFileError, load_agent_file
 from halagent.assistant import AssistantOptions, build_assistant
+from halagent.hooks import Hooks
 from halagent.loop import Agent
 from halagent.mcp.lite import McpError
 from halagent.profiles import SHIPPED, Profile, ProfileError, load_catalogue, resolve_profile
@@ -148,6 +149,7 @@ def main(argv: list[str] | None = None) -> int:
                     syntax_guard=settings.tuning.syntax_guard,
                 ),
                 user_mcp=boot.start_user_mcp(root, notice=_notice, **mcp),
+                hooks=Hooks.load(root, paths.config_dir()),
                 session=writer,
                 system_extra=boot.join(boot.prompt_extras(root, **extras), extra),
                 profile=profile,
