@@ -113,3 +113,12 @@ def test_a_runner_that_raises_fails_the_attempt_not_the_run(tmp_path):
         report.attempts[0].stop_reason.startswith("error: box did not start")
         and not report.attempts[0].resolved
     )
+
+
+def test_agent_run_reads_counters_from_the_headless_result():
+    result = {
+        "stop_reason": "done", "num_model_requests": 4, "num_tool_calls": 3,
+        "stats": {"first_edit_call": 2, "peak_prompt_tokens": 900, "counters": {"repaired": 2}},
+    }  # fmt: skip
+    run = AgentRun.from_result(result, 3.0)
+    assert (run.model_requests, run.first_edit_call, run.counters) == (4, 2, {"repaired": 2})

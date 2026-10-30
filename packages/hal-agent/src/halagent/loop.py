@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
@@ -172,6 +173,7 @@ class Agent:
             if assistant and any(t.name == "memory_profile" for t in listed):
                 self._profile_text = self._fetch_profile()
         self.session = session
+        self.counters: Counter[str] = Counter()  # per-run quality counters for the eval (REQ-AGT-95)
         self.turn = 0
         self._next_i = 0
         self.note = StateNote()
@@ -207,6 +209,8 @@ class Agent:
         fitted = self.context.fit(self.messages, self._ids, self.note, tools_chars)
         self.messages, self._ids = fitted.messages, fitted.ids
         for rec in fitted.records:
+            if rec["kind"] in ("summary", "note"):
+                self.counters["compactions"] += 1
             if rec["kind"] in ("summary", "note"):
                 rec = {**rec, "summary_i": self._next_i}
             if self.session:
@@ -374,8 +378,10 @@ class Agent:
     def _execute(self, name: str, raw_args: object) -> str:
         fixed = repair_call(name, raw_args, self._offered())
         if fixed.error:
+            self.counters["unknown" if fixed.error[0] == "unknown_tool" else "malformed"] += 1
             return render_error(ToolError(*fixed.error)) + "".join(f"\n{n}" for n in fixed.notes)
         if fixed.repairs:
+            self.counters["repaired"] += 1
             log.info("repaired %s: %s", name, "; ".join(fixed.repairs))
         name, args = fixed.name, fixed.args
         try:
@@ -405,7 +411,7 @@ class Agent:
         """Runs one user prompt to completion or until a limit is hit."""
         result = self._run(prompt)
         if self.session:
-            stats = {"model_requests": result.turns, "tool_calls": result.tool_calls}
+            stats = {"model_requests": result.turns, "tool_calls": result.tool_calls, **self.counters}
             self.session.write({"type": "turn_end", "turn": self.turn, "stop_reason": result.stopped,
                                 "final_text": result.text, "stats": stats})  # fmt: skip
         return result
@@ -444,6 +450,7 @@ class Agent:
                 if exc.status != 400 or "context_length_exceeded" not in str(exc):
                     raise
                 # the gateway's overflow rewrite (05-gateway): our estimate was too low, plan for less
+                self.counters["overflows"] += 1
                 self.context.input_budget = int(self.context.input_budget * OVERFLOW_SHRINK)
                 log.warning(
                     "context overflow reported by the server; input budget now %d", self.context.input_budget
@@ -475,6 +482,9 @@ class Agent:
                     self._add({"role": "assistant", "content": text})
                     return RunResult(text, "done", turns, clock.calls_used)
                 nudges += 1
+                self.counters["nudges"] += 1
+                if case == "truncated":
+                    self.counters["truncated"] += 1
                 if nudges >= budget.max_consecutive_nudges:
                     return RunResult(text, "nudge_limit", turns, clock.calls_used)
                 log.warning("nudging after a %s reply (%d)", case, nudges)
@@ -553,6 +563,7 @@ class Agent:
         if verdict == "stop":
             return "loop", _error("loop", "the turn was stopped: the same call keeps repeating")
         if verdict == "refuse":
+            self.counters["loop_refusals"] += 1
             return loop_message(name, parse_args(raw) or raw, dog.repeats)
         return None
 

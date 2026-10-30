@@ -129,3 +129,17 @@ def test_profile_sampling_reaches_the_request(server, tmp_path):
     make(server, tmp_path, model="gemma4:12b").run("hi")
     body = server.requests[0]["body"]
     assert body["temperature"] == 1.0 and body["top_k"] == 64
+
+
+def test_counters_record_repairs_unknown_calls_and_nudges(server, tmp_path):
+    (tmp_path / "a.txt").write_text("hello")
+    cut = '<tool_call>{"name": "write", "arguments": {"path": "t'
+    server.script(
+        Reply(tool_calls=[("read_file", {"file_path": "a.txt"})]),
+        Reply(tool_calls=[("teleport", {})]),
+        Reply(text=cut, finish_reason="length"),
+        "ok",
+    )
+    agent = make(server, tmp_path)
+    agent.run("go")
+    assert dict(agent.counters) == {"repaired": 1, "unknown": 1, "nudges": 1, "truncated": 1}

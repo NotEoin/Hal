@@ -62,6 +62,18 @@ class AgentRun:
     tool_calls: int = 0
     first_edit_call: int | None = None
     peak_prompt_tokens: int = 0
+    counters: dict[str, int] = field(default_factory=dict)
+
+    @classmethod
+    def from_result(cls, result: dict, wall_s: float) -> AgentRun:
+        """Builds a run from the `result` object of `hal-agent -p --output-format json`."""
+        stats = result.get("stats", {})
+        return cls(
+            str(result.get("stop_reason", "error")), wall_s, int(result.get("num_model_requests", 0)),
+            int(result.get("num_tool_calls", 0)), stats.get("first_edit_call"),
+            int(stats.get("peak_prompt_tokens", 0)),
+            {k: int(v) for k, v in stats.get("counters", {}).items()},
+        )  # fmt: skip
 
 
 @dataclass(frozen=True)
@@ -104,6 +116,7 @@ class Attempt:
     check_exit: int
     patch_lines: int
     protected_edit_attempts: int = 0
+    counters: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -245,6 +258,7 @@ def run_coding(
                 task.id, task.split, n, seed + n, model, check.exit_code == 0 and bool(patch.strip()),
                 not patch.strip(), run.stop_reason, run.wall_s, run.model_requests, run.tool_calls,
                 run.first_edit_call, run.peak_prompt_tokens, check.exit_code, lines,
+                counters=run.counters,
             ))  # fmt: skip
     report.write(out_dir)
     return report

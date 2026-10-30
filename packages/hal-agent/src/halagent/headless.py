@@ -222,6 +222,7 @@ def run_headless(
             "stats": {
                 "peak_prompt_tokens": stats.peak_prompt_tokens,
                 "first_edit_call": stats.first_edit_call,
+                "counters": dict(agent.counters),
             },
             "hal_version": __version__,
         }
