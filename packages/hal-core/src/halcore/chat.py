@@ -1,6 +1,6 @@
 """`hal chat`: talk to Hal in the terminal. Every turn runs in the assistant box (RESOLUTIONS I1).
 
-    hal chat                       a conversation; /reset starts a new one, /quit leaves
+    hal chat                       a conversation in the TUI; /clear starts a new one, /quit leaves
     hal chat "what's on today?"    one message
     hal chat --json "..."          one message; the reply and stop reason as JSON
 
@@ -21,9 +21,9 @@ from halsandbox.errors import SandboxError
 from . import sessions
 from .acp.records import RecordRefused, RecordStore
 from .acp.transport import AgentCrashed
+from .tui.app import run_tui
 
 EXIT_REFUSED = 3  # 06-core-cli exit code table
-PROMPT = "\nyou> "
 
 
 class ChatHandler:
@@ -61,44 +61,25 @@ class ChatHandler:
 
 
 async def run(args: argparse.Namespace) -> int:
-    """Opens the assistant box and runs one message or a conversation."""
-    handler = ChatHandler(quiet=args.json)
+    """Runs one message in an assistant box, or the TUI for a conversation."""
     box_args = {"model": args.model} if args.model else {}
+    if not args.message:
+        box = await sessions.BoxedAgent.start(kind="chat", project=None, channel=args.channel, **box_args)
+        try:
+            return await run_tui(box, cwd=sessions.BOX_SCRATCH, model=args.model or "")
+        finally:
+            await box.close()
+    handler = ChatHandler(quiet=args.json)
     chat = await sessions.open_assistant(args.channel, handler, **box_args)
     try:
-        if args.message:
-            reason = await chat.prompt(" ".join(args.message))
-            if args.json:
-                print(json.dumps({"reply": "".join(handler.text), "stop_reason": reason}))
-            else:
-                print()
-            return 0
-        return await _repl(chat, handler)
+        reason = await chat.prompt(" ".join(args.message))
+        if args.json:
+            print(json.dumps({"reply": "".join(handler.text), "stop_reason": reason}))
+        else:
+            print()
+        return 0
     finally:
         await chat.close()
-
-
-async def _repl(chat: sessions.AssistantSession, handler: ChatHandler) -> int:
-    print("Hal (boxed). /reset starts over, /quit or Ctrl-D leaves. Approvals: `hal approve` in another terminal.")
-    loop = asyncio.get_running_loop()
-    while True:
-        try:
-            text = (await loop.run_in_executor(None, input, PROMPT)).strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return 0
-        if not text:
-            continue
-        if text == "/quit":
-            return 0
-        if text == "/reset":
-            await chat.new_conversation()
-            print("(new conversation)")
-            continue
-        handler.text.clear()
-        print("hal> ", end="", flush=True)
-        await chat.prompt(text)
-        print()
 
 
 def main(argv: list[str]) -> int:

@@ -10,6 +10,7 @@ written.
 | [design/README.md](design/README.md) | Index of the design specs |
 | [user/agent.md](user/agent.md) | The `hal-agent` commands, limits from the model, host tools and exit codes |
 | [user/security.md](user/security.md) | What Hal protects you from, the lockdown and paranoia tables, and which paths are not private |
+| [user/tui.md](user/tui.md) | The terminal UI of `hal code` and `hal chat`: what it shows, approvals, slash commands |
 | [user/sandbox.md](user/sandbox.md) | The box: lockdown levels, what it sees, getting changes out, checkpoints |
 | [howto/approve-tool-calls.md](howto/approve-tool-calls.md) | How to see why a call asks, answer it, and make a policy rule last |
 | [howto/check-the-agent-setup.md](howto/check-the-agent-setup.md) | How to run `hal-agent doctor`, read its checks and fix each symptom |

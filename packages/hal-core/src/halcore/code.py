@@ -5,7 +5,8 @@
     hal code --build
     hal code ls | accept SID [--allow-flags] | export SID FILE [--bundle] | reject SID
 
-By default the box works on an isolated copy of DIR; `accept` or `export` is how changes leave it.
+On a terminal it runs the TUI over ACP (streaming, slash commands, /rewind, /diff, /apply); with `-- AGENT ARGS`
+or without a terminal it runs the agent's own prompt in the box. By default the box works on an isolated copy of DIR; `accept` or `export` is how changes leave it.
 `--direct` mounts DIR itself and needs `[sandbox].lockdown` of relaxed or lower.
 
 Without `--build` it needs the agent image; `--build` creates it from this checkout. The model
@@ -16,6 +17,7 @@ the same local model as `hal chat`; HAL_CODE_UPSTREAM and HAL_AGENT_MODEL overri
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import os
 import sys
@@ -24,9 +26,11 @@ from pathlib import Path
 from halsandbox import code as sandbox
 from halsandbox import isolated
 
-from . import config
+from . import config, sessions
+from .tui.app import run_tui
 
 REVIEW_COMMANDS = ("ls", "diff", "accept", "export", "reject")
+log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[4]  # packages/hal-core/src/halcore -> checkout root
 
 
@@ -71,6 +75,22 @@ def review(argv: list[str]) -> int:
     return 0
 
 
+async def _tui(opts: argparse.Namespace) -> int:
+    """Runs the TUI over ACP in a coding box; the real project stays unmounted unless `--direct`."""
+    project = Path(opts.dir).resolve()
+    box = await sessions.BoxedAgent.start(
+        kind="code", project=project, channel="cli", upstream=opts.upstream, model=opts.model,
+        image=opts.image, runtime=opts.runtime, direct=opts.direct,
+    )  # fmt: skip
+    try:
+        return await run_tui(box, cwd=sessions.BOX_WORK, project=project, model=opts.model)
+    finally:
+        await box.close()
+        if box.session.iso is not None:
+            sid = box.session.iso.sid
+            log.warning("changes are in isolated session %s; `hal code accept %s` applies them", sid, sid)
+
+
 def main(argv: list[str]) -> int:
     """Runs `hal code`; returns the exit status."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -93,7 +113,10 @@ def main(argv: list[str]) -> int:
     opts = p.parse_args(argv)
     if "--model" not in agent_args:
         agent_args = ["--model", opts.model, *agent_args]
+    interactive = os.isatty(0) and os.isatty(1)
     try:
+        if not opts.build and interactive and "--" not in sys.argv:
+            return asyncio.run(_tui(opts))
         if opts.build:
             sandbox.build_image(ROOT, opts.image)
             return 0

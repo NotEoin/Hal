@@ -145,6 +145,11 @@ class PermissionBridge:
         self._pending: dict[str, _Pending] = {}
         self._shown: set[str] = set()
 
+    def request_for(self, rid: str) -> Mapping[str, object] | None:
+        """The wire request behind our id `rid`, while it is unanswered."""
+        pending = self._pending.get(rid)
+        return pending.request if pending else None
+
     def consume(self, response: Message) -> bool:
         """True when `response` answers one of our requests; the decision is sent in the background."""
         rid = response.get("id")
