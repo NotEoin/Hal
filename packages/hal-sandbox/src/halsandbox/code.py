@@ -20,13 +20,14 @@ from pathlib import Path
 from halkit import paths
 
 from . import config as sbconfig
-from . import isolated
+from . import isolated, projects
 from . import scratch as scratch_dir
 from .broker import Broker
 from .errors import SandboxError
 from .forwarder import ModelForwarder
 from .limits import Limits
 from .lockdown import Policy
+from .mask import find_masked, resolve_patterns
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +65,8 @@ def docker_args(
     tty: bool = False,
     scratch: Path | None = None,
     limits: Limits | None = None,
+    masked: Sequence[str] = (),
+    empty_file: Path | None = None,
     agent_args: Sequence[str] = (),
 ) -> list[str]:
     """The `docker run` argv for one boxed hal-agent session."""
@@ -97,6 +100,11 @@ def docker_args(
     ]
     if (workdir / ".git").exists():
         args += ["-v", f"{workdir / '.git'}:/work/.git:ro"]
+    if masked:
+        if empty_file is None:
+            raise SandboxError("masked paths need an empty file to bind over them")
+        for rel in masked:  # REQ-BOX-69: reads give nothing, writes fail with EROFS
+            args += ["-v", f"{empty_file}:/work/{rel}:ro"]
     if scratch is not None:
         args += ["-v", f"{scratch}:/scratch:rw"]
     args += ["-v", f"{sockdir}:/run/hal:ro", "-w", "/work", image]
@@ -175,6 +183,16 @@ def run_code(
         broker = Broker(paths.check_socket_path(sockdir / "hub.sock"), paranoia_floor=policy.paranoia_floor)
         forwarder.start()
         broker.start()
+        masked: tuple[str, ...] = ()
+        if not projects.is_set(workdir, "unmask"):
+            masked = find_masked(mount, resolve_patterns(cfg["mask"]))
+        empty = sockdir / "empty"
+        empty.write_bytes(b"")
+        empty.chmod(0o444)
+        if masked:
+            log.warning(
+                "hal code: %d files masked: %s (unmask with hal-sandbox)", len(masked), ", ".join(masked)
+            )
         log.info("hal code: %s in %s, model at %s", runtime, workdir, upstream)
         argv = docker_args(
             mount,
@@ -184,6 +202,8 @@ def run_code(
             tty=os.isatty(0) and os.isatty(1),
             scratch=scratch,
             limits=Limits.from_config(allcfg["limits"]),
+            masked=masked,
+            empty_file=empty,
             agent_args=agent_args,
         )
         status = subprocess.run(argv, timeout=SESSION_MAX_S).returncode

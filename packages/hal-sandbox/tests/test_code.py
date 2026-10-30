@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from halsandbox.code import docker_args
+from halsandbox.errors import SandboxError
 
 
 def test_argv_carries_every_hardening_flag(tmp_path):
@@ -136,3 +137,13 @@ def test_direct_mode_is_refused_under_the_default_lockdown(tmp_path, monkeypatch
     monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "none.toml"))
     with pytest.raises(LockdownError, match="relaxed"):
         run_code(tmp_path, direct=True)
+
+
+def test_masked_files_are_bound_read_only_from_an_empty_file(tmp_path):
+    a = docker_args(tmp_path, Path("/run/x"), masked=[".env", "d/k.pem"], empty_file=Path("/run/x/empty"))
+    assert "/run/x/empty:/work/.env:ro" in a and "/run/x/empty:/work/d/k.pem:ro" in a
+
+
+def test_masked_paths_without_an_empty_file_are_refused(tmp_path):
+    with pytest.raises(SandboxError):
+        docker_args(tmp_path, Path("/run/x"), masked=[".env"])
