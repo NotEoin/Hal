@@ -1,12 +1,14 @@
 """Tests for the `hal-remote` CLI skeleton."""
 
+import json
+
 import pytest
 
 from halkit import config
-from halremote import cli
+from halremote import cli, servercheck
 
 
-@pytest.mark.parametrize("command", cli.COMMANDS)
+@pytest.mark.parametrize("command", sorted(set(cli.COMMANDS) - cli.IMPLEMENTED))
 def test_unimplemented_command_exits_2_and_says_so(command, capsys):
     assert cli.main([command]) == cli.EXIT_USAGE
     assert "not implemented" in capsys.readouterr().err
@@ -39,3 +41,19 @@ def test_package_carries_the_workspace_version():
     import halremote
 
     assert halremote.__version__ == "0.1.0.dev0"
+
+
+def test_server_check_prints_json_and_exits_1_on_a_critical_failure(monkeypatch, capsys):
+    bad = servercheck.CheckResult("SC03", "t", "critical", "fail", "d", "f")
+    monkeypatch.setattr(servercheck, "run_checks", lambda **kw: [bad])
+    assert cli.main(["server-check", "--json"]) == cli.EXIT_FAILED
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"] is False
+    assert out["checks"][0]["id"] == "SC03"
+
+
+def test_server_check_exits_0_and_prints_a_line_per_check(monkeypatch, capsys):
+    ok = servercheck.CheckResult("SC15", "sshrc absent", "warn", "pass", "d", "")
+    monkeypatch.setattr(servercheck, "run_checks", lambda **kw: [ok])
+    assert cli.main(["server-check"]) == cli.EXIT_OK
+    assert capsys.readouterr().out.startswith("SC15 ")
