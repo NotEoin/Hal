@@ -72,3 +72,17 @@ Each `GatewayError` subclass owns one HTTP status. `error_body(err, fmt)` render
   plus alias entries (the upstream entry with `name` and `model` set to the alias).
 - `POST /v1/messages/count_tokens` to Ollama returns `ceil(len(canonical JSON of system,
   messages, tools) / 4)` with `X-Hal-Estimate: chars/4`.
+
+## Request log (`reqlog`)
+
+- Every request, including errors, writes one JSON line to `<state>/gateway/requests.jsonl`
+  (mode 0600) after the reply is sent. Fields are in the design, "Request log"; the policy and
+  gpu fields come with their steps. No message content, headers or tokens are written.
+- `usage` is read from the last 8 KiB of the reply (OpenAI, Anthropic and Ollama counts).
+- `X-Request-Id` is echoed when it matches `^[A-Za-z0-9._-]{1,64}$`, else `r-<8 hex>` is made
+  and returned as that header.
+- `[gateway.log].content = true` also writes `content/<id>.json` (mode 0600) with the bodies.
+- The file rotates at `max_bytes` and keeps `keep` old files (`requests.jsonl.1` ...). A failed
+  write logs one ERROR a minute and never fails the request.
+- Overhead check: `python3 scripts/bench_relay.py [N]` (fake upstream, no models); 0.67 ms median on
+  2026-10-30, including the log write.

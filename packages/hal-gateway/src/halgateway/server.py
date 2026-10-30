@@ -31,6 +31,7 @@ from .backends import make_backend
 from .config import GatewayConfig
 from .errors import Unavailable, error_body
 from .handler import Handler
+from .reqlog import RequestLog
 
 log = logging.getLogger(__name__)
 
@@ -122,6 +123,7 @@ class Gateway:
         *,
         peer_uid=auth.peer_uid,
         own_uid: int | None = None,  # type: ignore[no-untyped-def]  # injectable for tests
+        state_dir: Path | None = None,
     ) -> None:
         self.cfg = cfg
         self.config: Mapping[str, object] = cfg.gateway
@@ -129,6 +131,8 @@ class Gateway:
         self.own_uid = os.getuid() if own_uid is None else own_uid
         self.slots = threading.BoundedSemaphore(int(self.config["max_connections"]))  # type: ignore[call-overload]
         self.owner_token = ""
+        self.state_dir = Path(state_dir) if state_dir is not None else paths.state_dir() / "gateway"
+        self.reqlog = RequestLog(self.state_dir, cfg.log)
         self.backends = {n: make_backend(n, e, cfg.ollama_url) for n, e in cfg.backends.items()}
         self.resolver = Resolver(cfg, self.backends, relay.fetch_model_ids)
         self.unix: UnixHTTPServer | None = None

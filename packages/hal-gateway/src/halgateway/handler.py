@@ -16,8 +16,9 @@ from __future__ import annotations
 import http.server
 import json
 import logging
+import time
 
-from . import auth, relay, routes
+from . import auth, relay, reqlog, routes
 from .errors import (
     BadRequest,
     Forbidden,
@@ -98,6 +99,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         gateway = self.server.gateway  # type: ignore[attr-defined]
         route = routes.match(self.command, self.path)
         fmt = route.fmt if route else "openai"
+        self._begin(gateway)
         try:
             if self.foreign_peer:
                 self.close_connection = True
@@ -114,13 +116,55 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(200, HEALTH_BODY)
                 return
             principal = auth.principal_for(kind, self.peer, self.headers, gateway.owner_token)
+            self.rec["principal"] = (
+                f"{principal.kind}:{kind}" if principal.kind == "owner" else principal.kind
+            )
             if principal.kind == "anonymous":
                 raise Unauthorized("missing API key")
             if route is None:
                 raise NotFound(f"no route for {self.command} {self.path.split('?', 1)[0]}")
             self._dispatch(gateway, route)
         except GatewayError as exc:
+            self.rec["error"] = exc.code
             self._send(exc.status, error_body(exc, fmt))
+        finally:
+            self._finish(gateway)
+
+    def _begin(self, gateway) -> None:  # type: ignore[no-untyped-def]
+        """Starts the record of one request (REQ-GW-70)."""
+        self.started = time.monotonic()
+        self.request_id = reqlog.request_id(self.headers.get("X-Request-Id"))
+        self.tail = b""
+        self.reply = bytearray()
+        self.raw_in = b""
+        self.rec: dict = {
+            "ts": reqlog.utc_now(),
+            "id": self.request_id,
+            "listener": gateway.listener_kind(self.server),
+            "principal": "anonymous",
+            "method": self.command,
+            "path": self.path.split("?", 1)[0],
+            "alias": None,
+            "backend": None,
+            "upstream_model": None,
+            "remote": False,
+            "stream": False,
+            "status": 0,
+            "bytes_in": 0,
+            "bytes_out": 0,
+            "ttfb_ms": None,
+            "duration_ms": 0.0,
+            "usage": None,
+            "error": None,
+        }
+
+    def _finish(self, gateway) -> None:  # type: ignore[no-untyped-def]
+        """Completes and writes the record; never raises."""
+        rec = self.rec
+        rec["duration_ms"] = round((time.monotonic() - self.started) * 1000, 1)
+        rec["usage"] = reqlog.scan_usage(self.tail)
+        gateway.reqlog.write(rec)
+        gateway.reqlog.write_content(self.request_id, self.raw_in, bytes(self.reply))
 
     def _dispatch(self, gateway, route: Route) -> None:  # type: ignore[no-untyped-def]
         if route.api is Api.MODELS:
@@ -137,6 +181,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise BadRequest("model must be a string")
         target = gateway.resolver.resolve(model)
         backend, upstream_model = target.backend, target.model
+        self._note_target(model, target, body)
         if not backend.supports(route.api):
             raise NotFound(
                 f"backend {backend.name} does not serve {route.api.value}; it serves: "
@@ -171,8 +216,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 f"backend {target.backend.name} does not serve ollama_native; it serves: "
                 + ", ".join(target.backend.api_names())
             )
+        self._note_target(requested, target, body)
         body["model"] = target.model
         self._relay(gateway, target.backend, json.dumps(body).encode("utf-8"))
+
+    def _note_target(self, alias, target, body: dict) -> None:  # type: ignore[no-untyped-def,type-arg]
+        self.rec.update(
+            alias=alias,
+            backend=target.backend.name,
+            upstream_model=target.model,
+            remote=bool(target.backend.remote),
+            stream=body.get("stream") is True,
+        )
 
     @staticmethod
     def _tags(gateway, ollama) -> list[dict]:  # type: ignore[no-untyped-def,type-arg]
@@ -220,6 +275,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.close_connection = True  # the body is never read, so the stream is out of sync
             raise PayloadTooLarge(f"request body is larger than {limit} bytes")
         raw = self.rfile.read(int(length))
+        self.raw_in = raw
+        self.rec["bytes_in"] = len(raw)
         try:
             doc = json.loads(raw)
         except ValueError as exc:
@@ -239,6 +296,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             resp = relay.open_response(conn, self.command, self.path, body, headers)
             self.send_response_only(resp.status)
+            self.rec["status"] = resp.status
+            self.send_header("X-Request-Id", self.request_id)
             if backend.remote:
                 self.send_header("X-Hal-Remote", backend.address().host)
             length_known = False
@@ -257,11 +316,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
             conn.close()
 
     def _write(self, chunk: bytes) -> None:
+        if self.rec["ttfb_ms"] is None:
+            self.rec["ttfb_ms"] = round((time.monotonic() - self.started) * 1000, 1)
+        self.rec["bytes_out"] += len(chunk)
+        self.tail = (self.tail + chunk)[-reqlog.USAGE_TAIL_BYTES :]
+        if self.server.gateway.reqlog.content and len(self.reply) < reqlog.MAX_CONTENT_BYTES:  # type: ignore[attr-defined]
+            self.reply += chunk
         self.wfile.write(chunk)
         self.wfile.flush()
 
     def _send(self, status: int, body: bytes, extra: list[tuple[str, str]] | None = None) -> None:
+        self.rec["status"] = status
         self.send_response(status)
+        self.send_header("X-Request-Id", self.request_id)
         for name, value in extra or []:
             self.send_header(name, value)
         self.send_header("Content-Type", "application/json")
@@ -269,4 +336,4 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.close_connection:
             self.send_header("Connection", "close")
         self.end_headers()
-        self.wfile.write(body)
+        self._write(body)
