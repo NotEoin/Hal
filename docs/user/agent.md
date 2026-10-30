@@ -25,7 +25,9 @@ does not create a box itself: it is boxed only when `hal` (06-core-cli) starts i
 | `hal-agent sessions export ID` | Prints Markdown (`--format jsonl` for records, `--reasoning`, `--out FILE`) |
 | `hal-agent doctor` | Checks config, gateway, profile, broker, `rg` and `bash`; exit 1 if a check fails |
 
-Resume a session with `--resume ID` or `--continue`. `--no-session` writes no transcript.
+Resume a session with `--resume ID` or `--continue`. `--no-session` writes no transcript. See
+[resume and export a session](../howto/resume-and-export-a-session.md) and
+[use the agent from an editor over ACP](../howto/use-the-agent-from-an-editor-over-acp.md).
 
 ## Limits come from the model
 
