@@ -9,9 +9,10 @@ description = "The hal command: agent loop host, extensions, services, eval and 
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-dependencies = ["hal-hub", "hal-sandbox"]
+dependencies = ["hal-kit", "hal-hub", "hal-sandbox"]
 
 [tool.uv.sources]
+hal-kit = { workspace = true }
 hal-hub = { workspace = true }
 hal-sandbox = { workspace = true }
 

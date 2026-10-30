@@ -264,12 +264,14 @@ name = "hal-core"
 source = { editable = "packages/hal-core" }
 dependencies = [
     { name = "hal-hub" },
+    { name = "hal-kit" },
     { name = "hal-sandbox" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "hal-hub", editable = "packages/hal-hub" },
+    { name = "hal-kit", editable = "packages/hal-kit" },
     { name = "hal-sandbox", editable = "packages/hal-sandbox" },
 ]
 
