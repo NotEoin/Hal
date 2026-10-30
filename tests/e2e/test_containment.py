@@ -144,3 +144,13 @@ def test_memory_and_tmp_exhaustion_are_capped(box):
 def test_socket_directory_is_read_only(box):
     out = box("touch /run/hal/evil 2>&1 && echo ESCAPED")
     assert "ESCAPED" not in out
+
+
+def test_box_has_no_way_to_raise_its_own_lockdown_or_paranoia(box):
+    # levels are set on the host (RESOLUTIONS I2); the box sees neither the config nor a writable override
+    out = box(
+        "env | grep -iE 'HAL_(LOCKDOWN|PARANOIA|POLICY|CONFIG)' && echo ESCAPED_ENV; "
+        "ls -d /home/hal/.config/hal /etc/hal /run/hal/hal.toml 2>/dev/null && echo ESCAPED_FILE; "
+        "echo 'lockdown = \"off\"' > /run/hal/hal.toml 2>/dev/null && echo ESCAPED_WRITE; echo done"
+    )
+    assert "ESCAPED" not in out and "done" in out
