@@ -1,0 +1,97 @@
+"""Tests for `halkit.llm`."""
+
+import pytest
+
+from halkit import llm
+from halkit.testing import FakeModelServer, Reply, TempHalHome
+from halkit.testing.model_server import fake_embedding
+
+MESSAGES = [{"role": "user", "content": "hi"}]
+
+
+@pytest.fixture
+def home():
+    with TempHalHome() as h:
+        yield h
+
+
+def test_chat_uses_the_gateway_unix_socket_when_it_exists(home):
+    with FakeModelServer(home.runtime / "gateway.sock") as server:
+        server.script("hello")
+        assert llm.chat(MESSAGES, model="hal-fast", timeout=5, max_tokens=7, temperature=0) == "hello"
+    body = server.requests[0]["body"]
+    assert body["model"] == "hal-fast" and body["max_tokens"] == 7 and body["temperature"] == 0
+
+
+def test_client_mode_sends_the_bearer_token_from_the_token_file(home):
+    with FakeModelServer() as server:
+        token = home.root / "tok"
+        token.write_text("s3cret\n")
+        token.chmod(0o600)
+        home.config.write_text(f'[gateway]\nurl = "{server.url}"\ntoken_file = "{token}"\n')
+        server.script("ok")
+        assert llm.chat(MESSAGES, timeout=5) == "ok"
+    assert server.requests[0]["headers"]["Authorization"] == "Bearer s3cret"
+
+
+def test_a_stopped_gateway_on_a_hal_install_never_falls_back_to_ollama(home, monkeypatch):
+    monkeypatch.setattr(llm, "_gateway_installed", lambda: True)
+    with pytest.raises(llm.ModelUnavailable, match="hal-gateway.service"):
+        llm.chat(MESSAGES, timeout=1)
+
+
+def test_standalone_pack_falls_back_to_the_configured_ollama_url(home, monkeypatch):
+    monkeypatch.setattr(llm, "_gateway_installed", lambda: False)
+    with FakeModelServer() as server:
+        home.config.write_text(f'[hal]\nollama_url = "{server.url}"\n')
+        server.script("direct")
+        assert llm.chat(MESSAGES, timeout=5) == "direct"
+    assert server.requests[0]["path"] == "/v1/chat/completions"
+
+
+@pytest.mark.parametrize("status", [502, 503])
+def test_backend_down_statuses_raise_model_unavailable(home, status):
+    with FakeModelServer(home.runtime / "gateway.sock") as server:
+        server.script(Reply(status=status))
+        with pytest.raises(llm.ModelUnavailable) as err:
+            llm.chat(MESSAGES, timeout=5)
+    assert err.value.status == status
+
+
+def test_other_error_statuses_raise_gateway_error_with_status_and_body(home):
+    with FakeModelServer(home.runtime / "gateway.sock") as server:
+        server.script(Reply(status=400))
+        with pytest.raises(llm.GatewayError) as err:
+            llm.chat(MESSAGES, timeout=5)
+    assert err.value.status == 400 and not isinstance(err.value, llm.ModelUnavailable)
+    assert "scripted error" in err.value.body
+
+
+def test_a_slow_gateway_hits_the_timeout_as_model_unavailable(home):
+    with FakeModelServer(home.runtime / "gateway.sock") as server:
+        server.script(Reply(text="late", delay=1.0))
+        with pytest.raises(llm.ModelUnavailable):
+            llm.chat(MESSAGES, timeout=0.2)
+
+
+def test_a_dead_socket_file_raises_model_unavailable(home):
+    sock = home.runtime / "gateway.sock"
+    import socket
+
+    s = socket.socket(socket.AF_UNIX)
+    s.bind(str(sock))
+    s.close()  # a socket file with nobody listening
+    with pytest.raises(llm.ModelUnavailable):
+        llm.chat(MESSAGES, timeout=1)
+
+
+def test_stream_chat_yields_the_text_chunks_in_order(home):
+    with FakeModelServer(home.runtime / "gateway.sock") as server:
+        server.script("one two three")
+        assert "".join(llm.stream_chat(MESSAGES, timeout=5)).strip() == "one two three"
+
+
+def test_embed_returns_one_vector_per_text_in_order(home):
+    with FakeModelServer(home.runtime / "gateway.sock"):
+        vectors = llm.embed(["a", "b"], timeout=5)
+    assert vectors == [fake_embedding("a"), fake_embedding("b")]
