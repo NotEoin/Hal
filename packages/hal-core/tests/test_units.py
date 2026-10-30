@@ -82,3 +82,14 @@ class LightUnitTest(LightCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JobsUnitTest(unittest.TestCase):
+    def test_jobs_timer_starts_a_service_that_waits_for_the_workers(self):
+        service = units.render((ROOT / "systemd" / "hal-jobs.service").read_text(), ROOT)
+        timer = (ROOT / "systemd" / "hal-jobs.timer").read_text()
+        self.assertIn("-m halcore jobs run --wait", service)
+        self.assertNotIn("@", service)
+        self.assertNotIn("X-HalGPU", service)  # jobs ride gpu-light as class batch, so hal off must not stop them
+        self.assertIn("Unit=hal-jobs.service", timer)
+        self.assertIn("WantedBy=timers.target", timer)

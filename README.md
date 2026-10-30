@@ -200,6 +200,8 @@ rendered with its own path, so it works wherever it is cloned; a unit marked `X-
   `hal jobs run` starts the oldest queued job in a box on an isolated copy (as gpu-light class `batch`
   when gpu-light is installed); `hal jobs follow ID` shows it live, a restart requeues a job whose
   worker is gone, and `hal jobs accept ID` or `hal jobs export ID FILE` is how its changes leave.
+  `hal install` also renders `hal-jobs.timer`, which runs `hal jobs run --wait` every 5 minutes so queued jobs
+  start on their own.
 - Extensions that reach the internet (web search, weather, iCloud sync, ntfy) say so in their READMEs.
 
 ## 🧭 Limitations
