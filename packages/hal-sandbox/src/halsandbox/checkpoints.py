@@ -31,6 +31,7 @@ from typing import Literal
 from halkit import timeutil
 
 from .config import DEFAULT_CHECKPOINT_FILE_BYTES
+from .diffreport import DEFAULT_MAX_PATCH_BYTES, DiffReport, build_report
 from .errors import SandboxError
 from .gitops import GIT_TIMEOUT_S, GitRunner
 from .mask import MASK_DEFAULT
@@ -178,7 +179,7 @@ class Checkpoints:
             if any(test(st.st_mode) for test in _NOT_REGULAR) or (
                 stat.S_ISREG(st.st_mode) and st.st_size > self.cfg.max_file_bytes
             ):
-                skipped.append({"path": rel, "bytes": st.st_size})
+                skipped.append({"path": rel, "bytes": st.st_size, "special": not stat.S_ISREG(st.st_mode)})
             else:
                 include.append(rel)
         return include, skipped, masked
@@ -262,6 +263,27 @@ class Checkpoints:
             self.sid, n, ref, commit, tree, created, label,
             tuple(str(s["path"]) for s in skipped), tuple(masked), tuple(ignored),
         )  # fmt: skip
+
+    def diff(
+        self, since: Checkpoint | None = None, *, max_patch_bytes: int = DEFAULT_MAX_PATCH_BYTES
+    ) -> DiffReport:
+        """The change from `since` (default: the session's first checkpoint) to the work tree now.
+
+        Raises `CheckpointError` when the session has no checkpoint to compare with.
+        """
+        base = since or next(iter(self.list()), None)
+        if base is None:
+            raise CheckpointError("no checkpoint to diff against")
+        idx = self._temp_index()
+        try:
+            tree, skipped, _masked = self.tree_of_work(idx)
+            return build_report(
+                self.git, base.commit, base.tree, tree, skipped, max_patch_bytes=max_patch_bytes
+            )
+        except SandboxError as exc:
+            raise CheckpointError(f"diff failed: {exc}") from exc
+        finally:
+            idx.unlink(missing_ok=True)
 
     def restore(self, target: Checkpoint) -> RestoreResult:
         """Makes every non-ignored path equal to `target` after taking a safety checkpoint.

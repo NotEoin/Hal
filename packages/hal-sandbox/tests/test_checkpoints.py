@@ -204,3 +204,40 @@ def test_prune_retention(repo):
         line.split("/")[3] for line in me.git.out("for-each-ref", "--format=%(refname)", "refs/hal/").split()
     }
     assert len(left) == 1 and left < set(sids)
+
+
+def test_diff_reports_changes_and_flags_since_first_checkpoint(repo):
+    ck = Checkpoints.for_work(repo, SID)
+    ck.take("start")
+    (repo / "app.py").write_text("x = 2\n")
+    (repo / ".envrc").write_text("export A=1\n")
+    (repo / "link").symlink_to("/etc/passwd")
+    (repo / "run.sh").write_text("echo hi\n")
+    (repo / "run.sh").chmod(0o755)
+    rep = ck.diff()
+    by_path = {f.path: f for f in rep.files}
+    assert by_path["app.py"].status == "M" and by_path["link"].new_mode == "120000"
+    kinds = {(f.path, f.kind) for f in rep.flags}
+    assert (".envrc", "automation") in kinds and ("link", "symlink_outside") in kinds
+    assert ("run.sh", "executable_added") in kinds
+    assert [f.path for f in rep.high] and "x = 2" in rep.patch and not rep.truncated
+
+
+def test_diff_cuts_the_patch_at_the_limit_and_says_so(repo):
+    ck = Checkpoints.for_work(repo, SID)
+    ck.take("start")
+    (repo / "app.py").write_text("y = 1\n" * 200)
+    rep = ck.diff(max_patch_bytes=100)
+    assert rep.truncated and len(rep.patch) <= 100 and "app.py" in rep.stat
+
+
+def test_diff_flags_a_file_left_out_for_size(repo):
+    ck = Checkpoints.for_work(repo, SID, CheckpointConfig(max_file_bytes=10))
+    ck.take("start")
+    (repo / "big.bin").write_bytes(b"x" * 100)
+    assert ("big.bin", "skipped_large") in {(f.path, f.kind) for f in ck.diff().flags}
+
+
+def test_diff_without_a_checkpoint_fails_loudly(repo):
+    with pytest.raises(CheckpointError):
+        Checkpoints.for_work(repo, SID).diff()

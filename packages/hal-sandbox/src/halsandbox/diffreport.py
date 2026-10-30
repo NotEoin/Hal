@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import fnmatch
 import posixpath
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+
+from .gitops import GitRunner
 
 HIGH = "high"
 MEDIUM = "medium"
@@ -55,6 +57,7 @@ class Flag:
     kind: str  # nested_repo, symlink_outside, git_metadata, executable_added, automation, secret
     severity: str  # HIGH or MEDIUM
     reason: str
+    path: str = ""
 
 
 def _matches(path: str, patterns: Iterable[str]) -> bool:
@@ -105,3 +108,101 @@ def flags_for(path: str, old_mode: str, new_mode: str, *, target: str | None = N
 def sensitive_summary(flagged: int) -> str:
     """The one-line count shown in the turn and end-of-session summaries."""
     return "no sensitive files changed" if flagged == 0 else f"{flagged} sensitive files changed"
+
+
+DEFAULT_MAX_PATCH_BYTES = 2 * 2**20  # a patch past 2 MiB is cut; the stat and flags still cover everything
+ZERO_MODE = "000000"
+_STATUS_KEEP = ("A", "M", "D", "T")
+
+
+@dataclass(frozen=True)
+class FileChange:
+    """One changed path; `T` is a type change such as file to symlink."""
+
+    path: str
+    status: str
+    old_mode: str | None
+    new_mode: str | None
+
+
+@dataclass(frozen=True)
+class DiffReport:
+    """What `/diff` and `accept` show: patch, stat, changed files and risk flags (REQ-BOX-50)."""
+
+    base: str
+    head_tree: str
+    files: tuple[FileChange, ...]
+    flags: tuple[Flag, ...]
+    stat: str
+    patch: str
+    truncated: bool
+
+    @property
+    def high(self) -> tuple[Flag, ...]:
+        """The flags `accept` refuses unless told otherwise."""
+        return tuple(f for f in self.flags if f.severity == HIGH)
+
+
+def _parse_raw(raw: bytes) -> list[tuple[FileChange, str]]:
+    """Parses `diff-tree --raw -z` output into changes with the new blob id."""
+    parts = raw.decode(errors="surrogateescape").split("\0")
+    out: list[tuple[FileChange, str]] = []
+    i = 0
+    while i + 1 < len(parts) and parts[i].startswith(":"):
+        old_mode, new_mode, _old_sha, new_sha, status = parts[i][1:].split(" ")
+        path = parts[i + 1]
+        i += 2
+        if status[0] in _STATUS_KEEP:
+            out.append(
+                (
+                    FileChange(
+                        path,
+                        status[0],
+                        None if old_mode == ZERO_MODE else old_mode,
+                        None if new_mode == ZERO_MODE else new_mode,
+                    ),
+                    new_sha,
+                )
+            )
+    return out
+
+
+def build_report(
+    git: GitRunner,
+    base_commit: str,
+    base_tree: str,
+    head_tree: str,
+    skipped: Sequence[dict[str, object]] = (),
+    *,
+    max_patch_bytes: int = DEFAULT_MAX_PATCH_BYTES,
+) -> DiffReport:
+    """Diffs `base_tree` against `head_tree` and rates every changed path.
+
+    `skipped` is the checkpoint skip list (large files and special files left out of the tree).
+    The symlink target is read from the committed blob, so a flag describes what would be applied.
+    """
+    raw = git.run("diff-tree", "-r", "-z", "--raw", "--no-renames", base_tree, head_tree).stdout
+    files: list[FileChange] = []
+    flags: list[Flag] = []
+    for change, sha in _parse_raw(raw):
+        files.append(change)
+        target = None
+        if change.new_mode == MODE_SYMLINK:
+            target = git.run("cat-file", "blob", sha).stdout.decode(errors="replace")
+        for f in flags_for(
+            change.path, change.old_mode or ZERO_MODE, change.new_mode or ZERO_MODE, target=target
+        ):
+            flags.append(Flag(f.kind, f.severity, f.reason, change.path))
+    for s in skipped:
+        kind = "special_file" if s.get("special") else "skipped_large"
+        why = (
+            "not a regular file, left out of the checkpoint"
+            if s.get("special")
+            else f"{s['bytes']} bytes, over the size limit"
+        )
+        flags.append(Flag(kind, MEDIUM, why, str(s["path"])))
+    stat = git.out("diff", "--stat", base_tree, head_tree)
+    patch = git.run("diff", "--binary", base_tree, head_tree).stdout
+    truncated = len(patch) > max_patch_bytes
+    text = patch[:max_patch_bytes].decode(errors="replace")
+    return DiffReport(base_commit, head_tree, tuple(files), tuple(flags), stat, text, truncated)
