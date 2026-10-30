@@ -107,6 +107,10 @@ class LiteMcpClient:
                 return tools
         raise McpError("tools/list did not end")
 
+    def call_tool_result(self, name: str, arguments: dict) -> dict:
+        """Calls a tool and returns the whole MCP result, `_meta` included."""
+        return self._request("tools/call", {"name": name, "arguments": arguments})
+
     def call_tool(self, name: str, arguments: dict) -> tuple[str, bool]:
         """Calls a tool; returns `(text, is_error)`."""
         result = self._request("tools/call", {"name": name, "arguments": arguments})

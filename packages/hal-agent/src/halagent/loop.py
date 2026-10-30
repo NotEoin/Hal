@@ -14,6 +14,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
+from halagent.backends import BrokerBackend, ToolBackend, ToolSpec
 from halagent.budget import (
     FREE_TOOLS,
     Budget,
@@ -30,7 +31,7 @@ from halagent.context import (
     compaction_prompt,
     render_for_summary,
 )
-from halagent.mcp.lite import LiteMcpClient, McpError
+from halagent.mcp.lite import McpError
 from halagent.profiles import Profile, resolve_profile
 from halagent.prompts import render_code_prompt
 from halagent.provider import ChatProvider, Completion, ModelInfo, ProviderError
@@ -47,6 +48,22 @@ GATED_KINDS = frozenset({"edit", "delete", "move", "execute"})  # review mode as
 ALLOW, REJECT, CANCELLED = ("allow_once", "allow_always"), ("reject_once", "reject_always"), "cancelled"
 PermissionFn = Callable[[str, str, str, dict], str]  # (call id, tool name, kind, arguments) -> choice
 
+FIND_NAME = "hal_find_tools"
+FIND_DEFAULT, FIND_MAX = 8, 20  # the broker's own defaults (04-hub)
+MAX_OFFERED_FOUND = 16  # REQ-AGT-52: at most 16 host tools offered at once
+META_NAMES = frozenset({"hal_find_tools", "hal_call"})
+FIND_PROPS = {
+    "query": {"type": "string", "description": "what you want to do, in plain words"},
+    "limit": {"type": "integer", "description": "most tools to return (default 8)"},
+}
+FIND_SPEC = {
+    "type": "function",
+    "function": {
+        "name": FIND_NAME,
+        "description": "Search host tools for what the user asked; found tools become callable.",
+        "parameters": {"type": "object", "properties": FIND_PROPS, "required": ["query"]},
+    },
+}
 MAX_OUTPUT_SHARE = 4  # a reply may take at most a quarter of the window
 OVERFLOW_SHRINK = 0.75  # after a context_length_exceeded answer, plan for 25% less input
 MAX_RESULT_CHARS = 12_000
@@ -74,6 +91,10 @@ class RunResult:
     stopped: str  # end reason: done, finished, max_tool_calls, max_model_requests, max_time, loop, ...
     turns: int
     tool_calls: int
+
+
+def _as_mcp(spec: ToolSpec) -> dict:
+    return {"name": spec.name, "description": spec.description, "inputSchema": spec.parameters}
 
 
 def effective_settings(settings: AgentSettings, profile: Profile, info: ModelInfo) -> AgentSettings:
@@ -129,12 +150,12 @@ class Agent:
         self.cancel = threading.Event()
         self.toolset = toolset
         self.on_event = on_event or (lambda kind, text: None)
-        self.mcp: LiteMcpClient | None = None
-        self._mcp_tools: dict[str, dict] = {}
+        self.backend: ToolBackend | None = None
+        self._mcp_tools: dict[str, dict] = {}  # offered host tools: name -> MCP-style tool
+        self._hidden: dict[str, ToolSpec] = {}  # listed but kept behind `hal_find_tools`
         if settings.broker:
-            self.mcp = LiteMcpClient(settings.broker)
-            self.mcp.initialize()
-            self._mcp_tools = {t["name"]: t for t in self.mcp.list_tools() if t["name"] not in toolset.tools}
+            self.backend = BrokerBackend(settings.broker)
+            self._offer_listed(self.backend.list_tools())
         self.session = session
         self.turn = 0
         self._next_i = 0
@@ -205,11 +226,52 @@ class Agent:
         self._next_i = 1 + max((r["i"] for r in records if r["type"] == "message"), default=-1)
         self.turn = max((r.get("turn", 0) for r in records if r["type"] == "message"), default=0)
 
+    def _offer_listed(self, listed: list[ToolSpec]) -> None:
+        """Offers the broker's listed tools up to the profile's `max_tools_hint`; the rest wait."""
+        room = max(0, int(self.profile.values.get("max_tools_hint", 12)) - len(self.toolset.tools) - 1)
+        for spec in listed:
+            if spec.name in self.toolset.tools:
+                continue
+            if len(self._mcp_tools) < room:
+                self._mcp_tools[spec.name] = _as_mcp(spec)
+            else:
+                self._hidden[spec.name] = spec
+
+    def _find_tools(self, args: dict) -> str:
+        """The agent's `hal_find_tools`: asks the broker, ranks hidden tools, offers what it found."""
+        assert self.backend is not None  # only offered with a backend
+        query = str(args.get("query", "")).strip()
+        limit = min(max(int(args.get("limit") or FIND_DEFAULT), 1), FIND_MAX)
+        found = {t.name: t for t in self._rank_hidden(query, limit)}
+        for spec in self.backend.find_tools(query, limit):
+            found.setdefault(spec.name, spec)
+        rows = []
+        for name, spec in found.items():
+            if name in self.toolset.tools or name in META_NAMES:
+                continue
+            if name in self._mcp_tools or len(self._mcp_tools) < MAX_OFFERED_FOUND:
+                self._mcp_tools[name] = _as_mcp(spec)
+                self._hidden.pop(name, None)
+                rows.append({"name": name, "description": spec.description[:300]})
+        if not rows:
+            return json.dumps({"tools": [], "note": "no matching tool; say so plainly"})
+        return json.dumps({"tools": rows, "note": "these tools can now be called by name"})
+
+    def _rank_hidden(self, query: str, limit: int) -> list[ToolSpec]:
+        words = {w for w in query.lower().split() if len(w) > 2}
+        scored = [
+            (len(words & set(f"{t.name} {t.description}".lower().replace("_", " ").split())), t)
+            for t in self._hidden.values()
+        ]
+        return [t for score, t in sorted(scored, key=lambda x: -x[0])[:limit] if score]
+
     def _specs(self) -> list[dict]:
         specs = [t.spec() for t in self.toolset.tools.values()]
         for t in self._mcp_tools.values():
             fn = {"name": t["name"], "description": t.get("description", ""), "parameters": t["inputSchema"]}
             specs.append({"type": "function", "function": fn})
+        if self.backend:
+            specs.append(FIND_SPEC)
         return specs
 
     def _offered(self) -> dict[str, dict]:
@@ -219,6 +281,8 @@ class Agent:
         for n, t in self._mcp_tools.items():
             schema = t.get("inputSchema") or {}
             offered[n] = {"properties": schema.get("properties", {}), "required": schema.get("required", [])}
+        if self.backend:
+            offered[FIND_NAME] = {"properties": FIND_PROPS, "required": ["query"]}
         return offered
 
     def _system_prompt(self) -> str:
@@ -236,8 +300,8 @@ class Agent:
 
     def close(self) -> None:
         """Closes the hub connection, if any."""
-        if self.mcp:
-            self.mcp.close()
+        if self.backend:
+            self.backend.close()
 
     def _execute(self, name: str, raw_args: object) -> str:
         fixed = repair_call(name, raw_args, self._offered())
@@ -249,9 +313,10 @@ class Agent:
         try:
             if name in self.toolset.tools:
                 out = self.toolset.tools[name].fn(args)
-            elif name in self._mcp_tools and self.mcp:
-                text, is_error = self.mcp.call_tool(name, args)
-                out = ("error: " if is_error else "") + text
+            elif name == FIND_NAME and self.backend:
+                out = self._find_tools(args)
+            elif name in self._mcp_tools and self.backend:
+                out = self.backend.call(name, args).for_model()
             else:
                 return render_error(ToolError("unknown_tool", f"no tool named {name!r}"))
         except ToolError as exc:
