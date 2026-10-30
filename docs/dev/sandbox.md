@@ -76,6 +76,12 @@ by tag because buildkit cannot `FROM` a bare image ID; the tag hash covers the b
 Measured 2026-10-30 [verified: `docker images`]: crush 1.25 GB, goose 1.45 GB (budget 1.5 GB). The
 other CLIs were not built here. Tested by `test_boximages.py` and the live tests in `test_images_live.py`.
 
+## Startup benchmark (2026-10-30)
+
+`python3 scripts/bench-sandbox.py 5 crush` runs `crush --version` through `box.run` (isolated copy,
+checkpoints on, no model): runc median 0.69 s (max 0.75), runsc median 0.83 s (max 1.24), n=5 each,
+docker 29 on this host, warm image cache. Re-run it after changing the session setup.
+
 ## What remains (2026-10-30)
 
 Plan steps 29 to 33 are done; `hal box` and `hal-sandbox` exist with `run`, `harnesses`, `image`
@@ -83,7 +89,7 @@ and `deps`. Not built yet:
 
 - `hal-sandbox shell`, `undo` and `diff` (step 32; `doctor`, `ls`, `gc` and `forget` exist), so the undo
   how-to uses `hal code` and git refs.
-- The startup benchmark `scripts/bench-sandbox.py` (step 34), and steps 35 to 38: sanitized git
+- Steps 35 to 38: sanitized git
   config, the terminal filter, upstream elicitations, stripped command output.
 - Box image sizes (`docker images`, measured 2026-10-30): crush 1.25 GB, qwen 1.3 GB, goose 1.45 GB,
   codex 1.68 GB, claude 1.8 GB, opencode 2.08 GB. The last three are over the 1.5 GB budget of
