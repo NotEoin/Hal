@@ -32,7 +32,7 @@ uv run pytest packages/hal-sandbox
 
 ## Limits and scratchpad
 
-- Limits (`[sandbox]` memory, cpus, pids, tmp_size): memory equals swap, default `min(8 GiB, RAM/4)`,
+- Limits (`[sandbox.limits]` memory, cpus, pids, tmp_size): memory equals swap, default `min(8 GiB, RAM/4)`,
   cpus `min(4, nproc/2)`, pids 1024. `tmp_size` must stay below `memory`.
 - Every box gets `/scratch` (rw), backed by `$STATE/scratch/<project>-<hash>/`, kept between sessions.
   A session refuses to start when it is over `scratch_max_bytes` (2 GiB); the cap is checked at start

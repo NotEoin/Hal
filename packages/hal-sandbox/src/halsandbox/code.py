@@ -142,7 +142,8 @@ def run_code(
     workdir = workdir.resolve()
     if not workdir.is_dir():
         raise SandboxError(f"not a directory: {workdir}")
-    cfg = sbconfig.load()
+    allcfg = sbconfig.load_all()
+    cfg = allcfg["sandbox"]
     policy = Policy.for_level(str(cfg["lockdown"]))
     if direct:
         policy.check_direct()
@@ -163,7 +164,7 @@ def run_code(
     for warning in warnings:
         log.warning("hal code: %s", warning)
     scratch = scratch_dir.prepare(workdir, int(cfg["scratch_max_bytes"]))
-    iso = None if direct else isolated.create(workdir, int(cfg["max_copy_bytes"]))
+    iso = None if direct else isolated.create(workdir, int(allcfg["isolated"]["max_copy_bytes"]))
     mount = workdir if iso is None else iso.work
     base = paths.ensure_private_dir(paths.runtime_dir())
     sockdir = paths.ensure_private_dir(Path(tempfile.mkdtemp(prefix="code-", dir=base)))
@@ -182,7 +183,7 @@ def run_code(
             runtime=runtime,
             tty=os.isatty(0) and os.isatty(1),
             scratch=scratch,
-            limits=Limits.from_config(cfg),
+            limits=Limits.from_config(allcfg["limits"]),
             agent_args=agent_args,
         )
         status = subprocess.run(argv, timeout=SESSION_MAX_S).returncode

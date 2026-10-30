@@ -33,10 +33,14 @@ class Limits:
     cpus: float
     pids: int = DEFAULT_PIDS
     tmp_bytes: int = GIB
+    nofile: int = 8192
+    home_bytes: int = 512 * 1024**2
+    stop_timeout_s: int = 10
+    oom_score_adj: int = OOM_SCORE_ADJ
 
     @classmethod
     def from_config(cls, cfg: Mapping[str, object] | None = None) -> Limits:
-        """Resolves `[sandbox]` settings; `auto` memory is `min(8 GiB, RAM/4)`, cpus `min(4, nproc/2)`.
+        """Resolves `[sandbox.limits]` settings; `auto` memory is `min(8 GiB, RAM/4)`, cpus `min(4, nproc/2)`.
 
         Raises `ValueError` when the `/tmp` tmpfs would not fit below the memory limit, because
         tmpfs pages count against the memory cgroup.
@@ -51,8 +55,17 @@ class Limits:
         cpus = float(cfg.get("cpus", 0) or 0) or float(min(MAX_CPUS, max(1, (os.cpu_count() or 2) // 2)))
         tmp = parse_size(str(cfg.get("tmp_size", "1g")))
         if tmp >= memory:
-            raise ValueError("[sandbox].tmp_size must be below [sandbox].memory: tmpfs counts against memory")
-        return cls(memory, cpus, int(cfg.get("pids", DEFAULT_PIDS)), tmp)
+            raise ValueError("[sandbox.limits] tmp_size must be below memory: tmpfs counts against memory")
+        return cls(
+            memory,
+            cpus,
+            int(cfg.get("pids", DEFAULT_PIDS)),  # type: ignore[call-overload]  # validated int
+            tmp,
+            int(cfg.get("nofile", 8192)),  # type: ignore[call-overload]  # validated int
+            parse_size(str(cfg.get("home_size", "512m"))),
+            int(cfg.get("stop_timeout_s", 10)),  # type: ignore[call-overload]  # validated int
+            int(cfg.get("oom_score_adj", OOM_SCORE_ADJ)),  # type: ignore[call-overload]  # validated int
+        )
 
     def docker_flags(self) -> list[str]:
         """The `docker run` flags; equal memory and swap forbid swap."""
@@ -65,6 +78,10 @@ class Limits:
             f"{self.cpus:g}",
             "--pids-limit",
             str(self.pids),
+            "--ulimit",
+            f"nofile={self.nofile}:{self.nofile}",
+            "--stop-timeout",
+            str(self.stop_timeout_s),
             "--oom-score-adj",
-            str(OOM_SCORE_ADJ),
+            str(self.oom_score_adj),
         ]
