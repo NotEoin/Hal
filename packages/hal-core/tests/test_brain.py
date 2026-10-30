@@ -4,6 +4,7 @@ No model or network: the model's replies are scripted and hal-hub is a fake.
 Run with: uv run pytest packages/hal-core
 """
 import unittest
+from unittest import mock
 
 import halcore_env  # noqa: F401  (sets up the import path and a throwaway Hal state)
 from halcore import brain as brainmod
@@ -108,7 +109,16 @@ class BrainTest(unittest.TestCase):
     def test_no_extensions_prompt_is_honest(self):
         b = brainmod.Brain(tools=False, log_turns=False)
         self.assertIn("extension", b.system_prompt())
+        self.assertEqual([t["function"]["name"] for t in b.tools_for("hi")], [])
+        b.deep_mode = "hal"
         self.assertEqual([t["function"]["name"] for t in b.tools_for("hi")], ["deep_work"])
+
+    def test_long_jobs_are_off_by_default_and_never_start_claude_code(self):
+        b = brainmod.Brain(tools=False, log_turns=False)
+        self.assertEqual(b.deep_mode, "off")
+        with mock.patch.object(brainmod.subprocess, "run") as run:
+            self.assertIn("error", b._deep_work("refactor everything"))
+        run.assert_not_called()
 
 
 if __name__ == "__main__":

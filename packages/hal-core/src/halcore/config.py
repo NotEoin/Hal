@@ -37,7 +37,7 @@ BRAIN = {
     "temperature": 0.4,
     "user_name": "",            # how Hal addresses you; empty = no name
     "persona": "",              # empty = the built-in persona
-    "deep_work": "claude",      # who does long jobs: claude (your Claude Code login) | hal (the local launcher) | off
+    "deep_work": "off",         # long jobs: off | hal (the local launcher) | claude (explicit opt-in: not private, not sandboxed)
     "deep_work_dir": "",        # where long jobs run; empty = the vault
 }
 

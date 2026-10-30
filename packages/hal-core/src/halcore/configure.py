@@ -29,7 +29,7 @@ vision_model = "qwen3-vl:8b"           # hal-screen
 [brain]
 # user_name = "Sam"                    # how Hal addresses you
 # persona = \"\"\"...\"\"\"               # who Hal is; the default is a calm, precise assistant
-# deep_work = "claude"                 # long jobs go to Claude Code: claude | hal | off
+# deep_work = "off"                    # long jobs: off | hal | claude (Claude Code: not private, not sandboxed)
 
 [hub]
 module_paths = [{paths}]

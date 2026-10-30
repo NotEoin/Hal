@@ -198,6 +198,8 @@ class Brain:
     def _deep_work(self, task: str) -> dict:
         if self.deep_worker and self.deep_worker.is_alive():
             return {"error": "a background task is already running"}
+        if self.deep_mode == "off":  # I4: Claude Code only runs on an explicit opt-in
+            return {"error": "long jobs are turned off; set [brain].deep_work to hal or claude"}
         if self.deep_mode == "hal":
             cmd = [str(config.ROOT / "hal"), "here", "-p", task]
         elif shutil.which("claude"):
