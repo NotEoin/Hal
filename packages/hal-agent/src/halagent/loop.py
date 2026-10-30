@@ -32,6 +32,7 @@ from halagent.context import (
 )
 from halagent.mcp.lite import LiteMcpClient, McpError
 from halagent.profiles import Profile, resolve_profile
+from halagent.prompts import render_code_prompt
 from halagent.provider import ChatProvider, Completion
 from halagent.repair import has_open_marker, repair_call, repair_text
 from halagent.repair.aliases import parse_args
@@ -45,15 +46,13 @@ log = logging.getLogger("halagent.loop")
 MAX_RESULT_CHARS = 12_000
 HEAD_KEEP = 4_000
 TAIL_KEEP = 8_000
-SYSTEM = (
-    "You are a coding agent. Work inside the workspace using the tools. Read before you edit, "
-    "check your work by running tests, and answer briefly when the task is done."
-)
-PROMPT_FORMAT = (
-    "\nTo call a tool, reply with one or more blocks of exactly this form and nothing else:\n"
-    '<tool_call>{"name": "TOOL", "arguments": {"ARG": "VALUE"}}</tool_call>\n'
-    "Tool results come back in the next message. Tools:\n"
-)
+
+
+def _describe(fn: dict) -> str:
+    """`name(arg: type, ...): description` for the prompt-format tool block."""
+    props = fn["parameters"].get("properties", {})
+    args = ", ".join(f"{k}: {v.get('type', 'any')}" for k, v in props.items())
+    return f"{fn['name']}({args}): {fn['description']}"
 
 
 def _error(error_type: str, message: str) -> str:
@@ -179,15 +178,17 @@ class Agent:
         return offered
 
     def _system_prompt(self) -> str:
-        base = SYSTEM + (f"\n\n{self.system_extra}" if self.system_extra else "")
-        if self.settings.tool_format != "prompt":
-            return base
-        lines = [
-            f"- {s['function']['name']}: {s['function']['description']} "
-            f"arguments: {json.dumps(s['function']['parameters'].get('properties', {}))}"
-            for s in self._specs()
-        ]
-        return base + PROMPT_FORMAT + "\n".join(lines)
+        task = "finish" in self.toolset.tools
+        lines = ""
+        if self.settings.tool_format == "prompt":
+            lines = "\n".join(f"- {_describe(s['function'])}" for s in self._specs())
+        return render_code_prompt(
+            Budget(self.settings.max_tool_calls, self.settings.max_turns, float(self.settings.max_wall_s)),
+            task=task,
+            workdir=str(self.toolset.workspace.root),
+            extras=self.system_extra,
+            tool_lines=lines,
+        )
 
     def close(self) -> None:
         """Closes the hub connection, if any."""
@@ -404,4 +405,4 @@ class Agent:
     def _result_message(cid: str, name: str, result: str, native: bool) -> dict:
         if native:
             return {"role": "tool", "tool_call_id": cid, "content": result}
-        return {"role": "user", "content": f"<tool_result name={name!r}>\n{result}\n</tool_result>"}
+        return {"role": "user", "content": f"[tool result for {name}]\n{result}"}
