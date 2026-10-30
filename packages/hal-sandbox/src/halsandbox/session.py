@@ -10,6 +10,7 @@ the broker spawns, so it is not consulted here yet.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
@@ -25,7 +26,7 @@ from .backends import Launch
 from .backends.bwrap import bwrap_launch, user_manager_running
 from .backends.docker import LaunchSpec, docker_argv
 from .backends.none import none_launch
-from .broker import DEFAULT_COMMAND, Broker
+from .broker import DEFAULT_COMMAND, Broker, upstream_command
 from .checkpoints import Checkpoint, CheckpointConfig, Checkpoints, RestoreResult
 from .diffreport import DiffReport
 from .env import box_env
@@ -36,6 +37,7 @@ from .lockdown import Policy
 from .mask import find_masked, resolve_patterns
 from .runtime import RuntimeDir, pidstart, utc_now
 from .shadow import open_checkpoints
+from .upstreams import parse_upstreams
 
 log = logging.getLogger(__name__)
 
@@ -126,6 +128,8 @@ class Session:
         tty: bool = False,
         extra_env: Mapping[str, str] | None = None,
         forbidden_secrets: Sequence[str] = (),
+        mcp_servers: Mapping[str, Mapping[str, object]] | None = None,
+        mcp_restart_limit: int = 1,
     ) -> Session:
         """Prepares a session and returns it; raises `SandboxError` (with the fix) when it cannot.
 
@@ -185,6 +189,18 @@ class Session:
                 ckpt = open_checkpoints(work, rd.sid, CheckpointConfig(mask=resolve_patterns(cfg["mask"])))
                 ckpt.take("session start")
             command = list(DEFAULT_COMMAND) + (["--profile", policy_profile] if policy_profile else [])
+            hosts = parse_upstreams(mcp_servers or {}, restart_limit=mcp_restart_limit)
+            if hosts and policy.hub_only_upstreams:
+                log.warning(
+                    "lockdown strict: host mcp servers not offered: %s", ", ".join(h.name for h in hosts)
+                )
+            elif hosts:
+                ups = rd.root / "upstreams.json"  # outside run/, which is what the box sees
+                ups.write_text(
+                    json.dumps({"servers": dict(mcp_servers or {}), "restart_limit": mcp_restart_limit})
+                )
+                os.chmod(ups, 0o600)
+                command = upstream_command(ups, command)
             broker = Broker(
                 rd.socket("broker.sock"),
                 command,

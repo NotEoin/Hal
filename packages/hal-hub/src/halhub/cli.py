@@ -62,7 +62,7 @@ import re
 import shutil
 import sys
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -865,14 +865,24 @@ def _json_object(text: str) -> dict[str, object]:
     return value
 
 
+HUB_HOOKS: list[Callable[[Hub], None]] = []
+"""Called with each new hub before it serves; hal-sandbox's broker child adds its host MCP providers."""
+
+
 def _new_hub() -> Hub:
     """The hub for this command: every module, or only the scope's modules for a pack."""
     scope = _current()
     floor = floor_from_env()  # set by the broker for a boxed session, never by the box
     if scope.modules is None:
-        return Hub(paranoia_floor=floor, **hub_kwargs())
-    config = HubConfig.load()
-    return Hub(Registry.load(config, only=scope.modules), config=config, paranoia_floor=floor, **hub_kwargs())
+        hub = Hub(paranoia_floor=floor, **hub_kwargs())
+    else:
+        config = HubConfig.load()
+        hub = Hub(
+            Registry.load(config, only=scope.modules), config=config, paranoia_floor=floor, **hub_kwargs()
+        )
+    for hook in HUB_HOOKS:
+        hook(hub)
+    return hub
 
 
 def _usage() -> str:

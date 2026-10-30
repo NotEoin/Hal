@@ -50,6 +50,14 @@ SURFACES = frozenset({"tui", "acp", "telegram", "voice", "console", "headless", 
 DEFAULT_COMMAND = (sys.executable, "-m", "halhub", "mcp", "--approvals", "out-of-band")
 
 
+def upstream_command(upstreams_file: Path, base: Sequence[str] = DEFAULT_COMMAND) -> list[str]:
+    """`base` (a `python -m halhub mcp ...` command) rewritten to run under `halsandbox.hubchild`."""
+    cmd = list(base)
+    if cmd[1:3] != ["-m", "halhub"]:
+        raise ValueError(f"cannot add upstreams to {cmd!r}: expected `<python> -m halhub ...`")
+    return [cmd[0], "-m", "halsandbox.hubchild", str(upstreams_file), "--", *cmd[3:]]
+
+
 class Broker:
     """A unix-socket server that splices each connection to a fresh MCP server process."""
 
