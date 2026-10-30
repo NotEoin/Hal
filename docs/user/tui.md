@@ -30,6 +30,14 @@ with a scripted agent; not yet run against a live model.
 | `/model [NAME]` | Show the model, or switch to NAME from the next turn (the model server must serve it) |
 | `/NAME ARGS` | Run `.hal/commands/NAME.md` from the project, with `$ARGUMENTS` replaced |
 
+In `plan` mode, when a turn ends with a todo list, the TUI shows the plan and asks `Run this plan?`.
+Typing `d` or `a` leaves plan mode for `default` or `auto-edit` and starts a turn that carries the plan out;
+anything else keeps plan mode. Only your typed answer leaves plan mode.
+
+The line printed after each turn shows the stop reason and the mode. It ends with `UNSANDBOXED` when the
+session runs with backend `none` (no box).
+
+
 Ctrl-C during a turn cancels the turn. A checkpoint is taken before every prompt, so `/rewind`
 always has a point to return to.
 

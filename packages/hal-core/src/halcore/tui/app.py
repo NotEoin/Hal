@@ -23,11 +23,14 @@ from ..acp.records import RecordRefused, RecordStore
 from ..acp.transport import AgentCrashed
 from .approval import make_asker
 from .render import Renderer
-from .slash import TuiState, dispatch, load_commands
+from .slash import MODES, TuiState, dispatch, load_commands
 
 log = logging.getLogger(__name__)
 
 PROMPT = "\nyou> "
+PLAN_PROMPT = "Run this plan? [d]efault mode, [a]uto-edit mode, anything else keeps plan mode: "
+PLAN_ANSWERS = {"d": "default", "a": "auto-edit"}  # typed by the human; agent text never reaches this table
+PLAN_APPROVED_PROMPT = "The plan is approved. Carry it out."
 
 
 class TuiHandler:
@@ -125,7 +128,12 @@ async def run_tui(
                 if result.prompt is None:
                     continue
                 prompt = result.prompt
-            await _turn(state, box, prompt, out)
+            reason = await _turn(state, box, prompt, out)
+            while reason == "end_turn" and state.mode == "plan" and state.renderer.todo:
+                follow_up = await approve_plan(state, read, out)
+                if follow_up is None:
+                    break
+                reason = await _turn(state, box, follow_up, out)
     except AgentCrashed as exc:
         print(f"the agent failed: {exc}; the transcript is kept, `hal sessions` can resume it", file=sys.stderr)
         return 1
@@ -134,7 +142,25 @@ async def run_tui(
         await client.close()
 
 
-async def _turn(state: TuiState, box: sessions.BoxedAgent, text: str, out: TextIO) -> None:
+async def approve_plan(state: TuiState, read, out: TextIO) -> str | None:  # noqa: ANN001 - async line reader
+    """Asks whether to run the plan the agent just made; returns the follow-up prompt, or None to stay in plan mode.
+
+    Only the human's own typed answer leaves plan mode, never agent text (the answer is read from the terminal).
+    """
+    print(f"Plan:\n{state.renderer.todo_text()}", file=out)
+    answer = (await read(PLAN_PROMPT)).strip().lower()
+    chosen = PLAN_ANSWERS.get(answer)
+    if chosen is None:
+        print("staying in plan mode", file=out, flush=True)
+        return None
+    await state.client.set_mode(state.sid, MODES[chosen])
+    state.mode = chosen
+    print(f"plan approved; mode: {chosen}", file=out, flush=True)
+    return PLAN_APPROVED_PROMPT
+
+
+async def _turn(state: TuiState, box: sessions.BoxedAgent, text: str, out: TextIO) -> str:
+    """Runs one prompt; returns the stop reason, or an empty string when the turn did not run."""
     session = box.session
     if session.checkpoints is not None:
         session.checkpoint(f"before: {text[:40]}")
@@ -144,7 +170,7 @@ async def _turn(state: TuiState, box: sessions.BoxedAgent, text: str, out: TextI
         session.broker.on_human_message(text, sessions.SURFACE_TUI)
     except ValueError as exc:
         print(f"cannot start the turn: {exc}", file=out)
-        return
+        return ""
     if state.records is not None:
         sessionscmd.write_meta(state.records, state.sid, title=sessionscmd.title_of(text))
     task = asyncio.ensure_future(state.client.prompt(state.sid, blocks))
@@ -156,10 +182,12 @@ async def _turn(state: TuiState, box: sessions.BoxedAgent, text: str, out: TextI
     except AcpError as exc:
         state.renderer.end_turn()
         print(f"agent error: {exc}", file=out)
-        return
+        return ""
     finally:
         with contextlib.suppress(NotImplementedError, RuntimeError):
             loop.remove_signal_handler(signal.SIGINT)
     state.renderer.end_turn()
-    print(f"[{reason}] mode {state.mode}", file=out, flush=True)
+    marker = " UNSANDBOXED" if session.backend == "none" else ""
+    print(f"[{reason}] mode {state.mode}{marker}", file=out, flush=True)
+    return str(reason)
 

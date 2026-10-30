@@ -10,7 +10,7 @@ import pytest
 from halcore import sessions
 from halcore.acp.client import AcpClient
 from halcore.acp.transport import SubprocessTransport
-from halcore.tui import approval, slash
+from halcore.tui import app, approval, slash
 from halcore.tui.app import run_tui
 from halcore.tui.render import Renderer
 from test_acp_client import FAKE_AGENT
@@ -174,6 +174,32 @@ def test_image_block_accepts_known_types_and_rejects_others(tmp_path):
         slash.image_block(big)
 
 
+@pytest.mark.parametrize(("backend", "marked"), [("docker", False), ("none", True)])
+def test_status_line_marks_an_unsandboxed_turn(tmp_path, monkeypatch, backend, marked):
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "state"))
+    script = tmp_path / "agent.py"
+    script.write_text(FAKE_AGENT)
+    session = FakeSession()
+    session.backend = backend
+
+    async def go():
+        transport = await SubprocessTransport.spawn(
+            [sys.executable, str(script), "ok"], env=None, stderr_log=tmp_path / "e.log"
+        )
+        box = types.SimpleNamespace(session=session, transport=transport, close=transport.close)
+        lines = iter(["hello", "/quit"])
+
+        async def read(prompt=""):
+            return next(lines)
+
+        out = io.StringIO()
+        await run_tui(box, cwd="/work", out=out, stdin_line=read)
+        return out.getvalue()
+
+    status_line = [ln for ln in asyncio.run(go()).splitlines() if ln.startswith("[end_turn]")][0]
+    assert ("UNSANDBOXED" in status_line) is marked
+
+
 def test_turn_loop_tells_the_broker_checkpoints_streams_and_quits(tmp_path, monkeypatch):
     monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "state"))
     script = tmp_path / "agent.py"
@@ -212,3 +238,21 @@ def test_model_with_a_name_switches_through_acp_and_without_shows_the_current_on
 def test_compact_reports_the_token_estimates_from_the_agent():
     state = make_state()
     assert "900 -> 120" in run(slash.dispatch("/compact", state, {})).message
+
+
+def test_plan_is_run_only_after_the_human_picks_a_mode():
+    state = make_state()
+    state.mode = "plan"
+    state.renderer.todo = [{"content": "write tests", "status": "pending"}]
+    out = io.StringIO()
+
+    async def keep(prompt=""):
+        return "n"
+
+    async def run_it(prompt=""):
+        return "a"
+
+    assert run(app.approve_plan(state, keep, out)) is None and state.mode == "plan"
+    assert run(app.approve_plan(state, run_it, out)) == app.PLAN_APPROVED_PROMPT
+    assert state.mode == "auto-edit" and state.client.modes == ["auto"]
+    assert "write tests" in out.getvalue()
