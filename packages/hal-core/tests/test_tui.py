@@ -11,6 +11,7 @@ from halcore import sessions
 from halcore.acp.client import AcpClient
 from halcore.acp.transport import SubprocessTransport
 from halcore.tui import app, approval, slash
+from halcore import pids
 from halcore.tui.app import run_tui
 from halcore.tui.render import Renderer
 from test_acp_client import FAKE_AGENT
@@ -256,3 +257,32 @@ def test_plan_is_run_only_after_the_human_picks_a_mode():
     assert run(app.approve_plan(state, run_it, out)) == app.PLAN_APPROVED_PROMPT
     assert state.mode == "auto-edit" and state.client.modes == ["auto"]
     assert "write tests" in out.getvalue()
+
+
+@pytest.fixture(autouse=True)
+def runtime_dir(tmp_path, monkeypatch):
+    rt = tmp_path / "rt"
+    rt.mkdir(mode=0o700)
+    monkeypatch.setenv("HAL_RUNTIME_DIR", str(rt))
+
+
+def test_tui_registers_a_pid_file_while_it_runs_and_removes_it_after(tmp_path, monkeypatch):
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "state"))
+    script = tmp_path / "agent.py"
+    script.write_text(FAKE_AGENT)
+    seen: list[list[str]] = []
+
+    async def go():
+        transport = await SubprocessTransport.spawn(
+            [sys.executable, str(script), "ok"], env=None, stderr_log=tmp_path / "e.log"
+        )
+        box = types.SimpleNamespace(session=FakeSession(), transport=transport, close=transport.close)
+
+        async def read(prompt=""):
+            seen.append([r.name for r in pids.live()])
+            return "/quit"
+
+        await run_tui(box, cwd="/work", out=io.StringIO(), stdin_line=read)
+
+    asyncio.run(go())
+    assert seen == [["tui"]] and pids.live() == []

@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import TextIO
 
-from .. import sessions, sessionscmd, unboxed
+from .. import pids, sessions, sessionscmd, unboxed
 from ..acp.client import AcpClient, AcpError
 from ..acp.permissions import PermissionBridge, socket_owned_by_us
 from ..acp.records import RecordRefused, RecordStore
@@ -58,7 +58,13 @@ class TuiHandler:
         return {"outcome": "cancelled"}
 
 
-async def run_tui(
+async def run_tui(box: sessions.BoxedAgent, **kwargs) -> int:  # noqa: ANN003 - same keywords as `_run_tui`
+    """Runs the interactive loop with a pid file registered, so `hal kill` can find this process."""
+    with pids.registered("tui"):
+        return await _run_tui(box, **kwargs)
+
+
+async def _run_tui(
     box: sessions.BoxedAgent,
     *,
     cwd: str,
