@@ -14,17 +14,80 @@ Unlike `hal eval`, this talks to your REAL calendar, tasks and vault; each card 
 from __future__ import annotations
 
 import argparse
+import hmac
 import json
 import re
+import secrets
 import threading
+import time
 from datetime import datetime
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+from halkit import files, paths
 
 from . import config, evaluate
 from .brain import Brain
 
 PAGE = Path(__file__).with_name("console.html")
+TOKEN_BYTES = 32  # REQ-SEC-71
+OPEN_CODE_TTL_S = 60  # the one-time link is for the browser launched right now
+COOKIE_NAME = "hal_console"
+LOOPBACK_NAMES = ("127.0.0.1", "localhost")
+# no remote image, script or frame: model text shown here cannot trigger a fetch (REQ-SEC-73)
+CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:"
+
+
+def token_file() -> Path:
+    """`config_dir()/console-token`."""
+    return paths.config_dir() / "console-token"
+
+
+def load_token() -> str:
+    """The console token, created with mode 0600 on first use."""
+    path = token_file()
+    if path.exists():
+        return path.read_text(encoding="ascii").strip()
+    token = secrets.token_urlsafe(TOKEN_BYTES)
+    files.write_atomic(path, token + "\n")
+    return token
+
+
+class Auth:
+    """The console's access check: token, Host, Origin and the one-time open code (REQ-SEC-71)."""
+
+    def __init__(self, token: str, port: int, clock=time.monotonic) -> None:
+        self.token, self.port, self._clock = token, port, clock
+        self._codes: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def new_open_code(self) -> str:
+        """A single-use code for `/open?t=`; it is not the token and expires after `OPEN_CODE_TTL_S`."""
+        code = secrets.token_urlsafe(TOKEN_BYTES)
+        with self._lock:
+            self._codes[code] = self._clock() + OPEN_CODE_TTL_S
+        return code
+
+    def redeem(self, code: str) -> bool:
+        """True once for a live code, then never again."""
+        with self._lock:
+            expires = self._codes.pop(code, 0.0)
+        return expires > self._clock()
+
+    def host_ok(self, host: str | None) -> bool:
+        """True when `Host` names this server on loopback (blocks DNS rebinding)."""
+        return host in {f"{name}:{self.port}" for name in LOOPBACK_NAMES}
+
+    def origin_ok(self, origin: str | None) -> bool:
+        """True when there is no `Origin` or it is this server (blocks cross-site requests)."""
+        return origin is None or origin in {f"http://{name}:{self.port}" for name in LOOPBACK_NAMES}
+
+    def token_ok(self, bearer: str | None, cookie: str | None) -> bool:
+        """True for the token as a bearer header or as the cookie, compared in constant time."""
+        given = bearer[len("Bearer ") :] if bearer and bearer.startswith("Bearer ") else cookie
+        return bool(given) and hmac.compare_digest(given.encode(), self.token.encode())
+
 _lock = threading.Lock()
 _brain: Brain | None = None
 _created: dict[str, list[tuple[str, dict]]] = {}     # case id -> undo calls
@@ -150,18 +213,52 @@ def info() -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _send(self, code: int, body, kind: str = "application/json") -> None:
+    def _send(self, code: int, body, kind: str = "application/json", headers: dict[str, str] | None = None) -> None:
         data = body if isinstance(body, bytes) else json.dumps(body, default=str).encode()
         self.send_response(code)
         self.send_header("Content-Type", kind)
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Security-Policy", CSP)
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(data)
+
+    def _guard(self) -> bool:
+        """Sends the refusal and returns False unless Host, Origin and the token are acceptable."""
+        auth: Auth = self.server.auth  # type: ignore[attr-defined]
+        if not auth.host_ok(self.headers.get("Host")) or not auth.origin_ok(self.headers.get("Origin")):
+            self._send(403, {"error": "forbidden"})
+            return False
+        cookie = SimpleCookie(self.headers.get("Cookie", "")).get(COOKIE_NAME)
+        if not auth.token_ok(self.headers.get("Authorization"), cookie.value if cookie else None):
+            self._send(401, {"error": "token required"})
+            return False
+        return True
+
+    def _open(self) -> None:
+        """`/open?t=CODE`: trades a one-time code for the cookie, then shows the page."""
+        auth: Auth = self.server.auth  # type: ignore[attr-defined]
+        code = self.path.partition("?t=")[2]
+        if not auth.redeem(code):
+            self._send(401, {"error": "this link was used or has expired; run hal console again"})
+            return
+        cookie = f"{COOKIE_NAME}={auth.token}; HttpOnly; SameSite=Strict; Path=/"
+        self._send(303, b"", "text/plain", {"Set-Cookie": cookie, "Location": "/"})
 
     def log_message(self, *args) -> None:  # quiet
         pass
 
     def do_GET(self) -> None:
+        auth: Auth = self.server.auth  # type: ignore[attr-defined]
+        if self.path.startswith("/open?t="):
+            if auth.host_ok(self.headers.get("Host")) and auth.origin_ok(self.headers.get("Origin")):
+                self._open()
+            else:
+                self._send(403, {"error": "forbidden"})
+            return
+        if not self._guard():
+            return
         if self.path in ("/", "/index.html"):
             self._send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
         elif self.path == "/api/cases":
@@ -172,6 +269,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def do_POST(self) -> None:
+        if not self._guard():
+            return
+        if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+            self._send(415, {"error": "application/json required"})
+            return
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
             routes = {
@@ -190,12 +292,20 @@ class Handler(BaseHTTPRequestHandler):
             self._send(500, {"error": f"{type(e).__name__}: {e}"})
 
 
+def make_server(port: int, token: str | None = None) -> ThreadingHTTPServer:
+    """A console server on loopback `port` (0 picks one) that checks every request with `Auth`."""
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    server.auth = Auth(token or load_token(), server.server_address[1])  # type: ignore[attr-defined]
+    return server
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="hal console")
     ap.add_argument("--port", type=int, default=int(config.load().get("console", {}).get("port", 8740)))
     args = ap.parse_args(argv)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    print(f"Hal console on http://127.0.0.1:{args.port}", flush=True)
+    server = make_server(args.port)
+    link = f"http://127.0.0.1:{server.server_address[1]}/open?t={server.auth.new_open_code()}"
+    print(f"Hal console: open {link} (single use, {OPEN_CODE_TTL_S} s)", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

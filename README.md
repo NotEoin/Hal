@@ -62,7 +62,7 @@ hal ext add calendar     # add one (or --pack assistant for the everyday set)
 hal off / hal on         # free the GPU, and take it back
 hal status               # what is running
 hal eval                 # check Hal's answers, in a sandbox
-hal console              # try Hal and grade answers at http://127.0.0.1:8740
+hal console              # try Hal and grade answers; prints a single-use link, the page needs the console token
 ```
 
 With the memory extension installed, `hal ask`, `hal index`, `hal brief`, `hal summarize` and
