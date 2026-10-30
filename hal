@@ -33,20 +33,21 @@
 #   hal serve [MODE]     max profile: start the model server without Claude Code
 #   hal stop             max profile: stop the model server
 #   hal ask|index|brief|summarize|import|obsidian-key   vault commands, from the memory extension
+#   hal gateway ARGS     model gateway admin (check-config, modes, token, ...)
 #   hal help             show this help
 #
 set -uo pipefail
 
 # Resolve real location even when called through the ~/.local/bin/hal symlink
 HAL_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-HALCORE_SRC="$HAL_ROOT/packages/hal-core/src:$HAL_ROOT/packages/hal-hub/src:$HAL_ROOT/packages/hal-kit/src:$HAL_ROOT/packages/hal-sandbox/src"
+HALCORE_SRC="$HAL_ROOT/packages/hal-core/src:$HAL_ROOT/packages/hal-hub/src:$HAL_ROOT/packages/hal-kit/src:$HAL_ROOT/packages/hal-sandbox/src:$HAL_ROOT/packages/hal-gateway/src"
 # The workspace venv (uv sync) has the MCP SDK that the hub broker needs; fall back to python3
 HAL_PYTHON="$HAL_ROOT/.venv/bin/python"; [ -x "$HAL_PYTHON" ] || HAL_PYTHON=python3
 halcore() { PYTHONPATH="$HALCORE_SRC${PYTHONPATH:+:$PYTHONPATH}" exec "$HAL_PYTHON" -m halcore "$@"; }
 
 # ---- Commands that need neither hal.conf nor Claude Code --------------------
 case "${1:-}" in
-  -p|--print|chat|acp|jobs|lockdown|paranoia|sessions|console|eval|ext|units|configure|code|scratch|guard|policy|audit|approvals|approve|deny) halcore "$@" ;;
+  -p|--print|chat|acp|jobs|lockdown|paranoia|sessions|console|eval|ext|units|configure|code|scratch|guard|policy|audit|approvals|approve|deny|gateway) halcore "$@" ;;
   on|off|toggle) halcore power "$@" ;;
   kill) shift; HAL_ROOT="$HAL_ROOT" halcore kill "$@" ;;
   install) shift; halcore units install --start "$@" ;;

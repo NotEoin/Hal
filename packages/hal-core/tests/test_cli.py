@@ -61,3 +61,14 @@ def test_every_command_module_exposes_main():
         assert callable(cli.load(command))
     assert callable(cli.load(cli.HEADLESS))
 
+
+
+def test_gateway_passes_its_arguments_to_the_gateway_cli():
+    command, args = cli.resolve(["gateway", "modes", "--config", "x.toml"])
+    assert command.module == "halgateway.cli" and args == ["modes", "--config", "x.toml"]
+    assert callable(cli.load(command))
+
+
+def test_every_command_module_has_a_main():
+    for command in cli.COMMANDS.values():
+        assert callable(cli.load(command)), command.module
