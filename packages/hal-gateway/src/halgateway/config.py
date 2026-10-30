@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import ipaddress
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -29,6 +29,16 @@ ON_BUSY = ("proceed", "fail")
 GPU_CLASSES = ("interactive", "service", "batch")
 LAUNCHERS = ("process", "docker")
 MAX_PORT = 65535
+# role alias -> the `[hal]` key that names its model (REQ-GW-26)
+ROLE_ALIASES = {
+    "hal-chat": "chat_model",
+    "hal-fast": "fast_model",
+    "hal-code": "code_model",
+    "hal-writer": "writer_model",
+    "hal-embed": "embed_model",
+    "hal-vision": "vision_model",
+}
+EMPTY_MEANS_CHAT = ("hal-code", "hal-writer")
 
 
 def _positive(value: object) -> str | None:
@@ -229,6 +239,7 @@ class GatewayConfig:
     backends: Mapping[str, Mapping[str, object]]
     aliases: Mapping[str, Mapping[str, object]]
     ollama_url: str = ""  # `[hal].ollama_url`, the default of an Ollama backend
+    hal: Mapping[str, object] = field(default_factory=dict)  # the `[hal]` table: role alias sources
 
 
 def _entry(
@@ -298,7 +309,23 @@ def load_config(path: Path | None = None) -> GatewayConfig:
     aliases = {
         name: _entry("aliases", name, raw, _ALIAS_KEYS, path) for name, raw in dict(aliases_raw).items()
     }
+    hal = config.load(config.HAL_TABLE, path=path)
+    for hal_key in ROLE_ALIASES.values():
+        if hal[hal_key] in ROLE_ALIASES:
+            raise config.ConfigError(
+                f"[hal] {hal_key} names the role alias {hal[hal_key]!r}; use a model name",
+                path=path,
+                table="hal",
+                key=hal_key,
+            )
     for name, alias in aliases.items():
+        if name in ROLE_ALIASES:
+            raise config.ConfigError(
+                f"[gateway.aliases.{name}] is a role alias; change [hal].{ROLE_ALIASES[name]} instead",
+                path=path,
+                table="gateway.aliases",
+                key=name,
+            )
         if alias["backend"] not in backends:
             raise config.ConfigError(
                 f"[gateway.aliases.{name}] backend {alias['backend']!r} is not a configured backend",
@@ -313,5 +340,6 @@ def load_config(path: Path | None = None) -> GatewayConfig:
         gpu=config.load(GPU_TABLE, path=path),
         backends=backends,
         aliases=aliases,
-        ollama_url=str(config.load(config.HAL_TABLE, path=path)["ollama_url"]),
+        ollama_url=str(hal["ollama_url"]),
+        hal=hal,
     )

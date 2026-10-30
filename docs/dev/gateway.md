@@ -48,3 +48,17 @@ Each `GatewayError` subclass owns one HTTP status. `error_body(err, fmt)` render
   give 504, other failures before the reply 502; after the reply starts the connection is closed.
 - Not built yet: model listing, aliases (step 4), Ollama native routes and `count_tokens`
   estimates (step 5), the request log (step 6). Those routes answer 404 "not available yet".
+
+## Aliases and model listing (`aliases`)
+
+- `Resolver.resolve(name)` follows the design order: user alias, role alias (`hal-chat` ...
+  from `[hal]`, empty `code_model` and `writer_model` mean `chat_model`), mode alias, `backend/model`,
+  a bare name found in exactly one backend's cached list (two backends give 409), a `patterns`
+  match, `default_model`, else 404. Backend lists are cached for 30 s.
+- Config refuses a user alias named like a role alias and a `[hal]` model value that is one.
+- A role alias whose model is in no list falls back to the only Ollama backend (it loads on demand).
+- `GET /v1/models` lists aliases, role aliases and `backend/model` names without duplicates, in the
+  OpenAI shape, or the Anthropic shape with an `anthropic-version` header. `context_length` is
+  the alias `context_window` for now; router and Ollama sources come with steps 5 and 11.
+- Remote backends are marked `owned_by: "remote:<host>"` and replies carry `X-Hal-Remote`.
+- Mode aliases (`hal/main`) are a mapping on the resolver that the managed router fills (step 11).

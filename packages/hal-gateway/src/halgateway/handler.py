@@ -36,6 +36,7 @@ RELAYED = frozenset(
     {Api.CHAT, Api.RESPONSES, Api.RESPONSES_COUNT, Api.MESSAGES, Api.COUNT_TOKENS, Api.EMBEDDINGS}
 )
 STATUS_LENGTH_REQUIRED = 411
+EPOCH_UTC = "1970-01-01T00:00:00Z"  # the backends report no creation time
 
 
 class LengthRequired(GatewayError):
@@ -43,6 +44,17 @@ class LengthRequired(GatewayError):
 
     status = STATUS_LENGTH_REQUIRED
     code = "length_required"
+
+
+def _openai_entry(entry) -> dict:  # type: ignore[no-untyped-def,type-arg]
+    doc: dict = {"id": entry.id, "object": "model", "created": 0, "owned_by": entry.owned_by}
+    if entry.context_length:
+        doc["context_length"] = entry.context_length
+    return doc
+
+
+def _anthropic_entry(entry) -> dict:  # type: ignore[no-untyped-def,type-arg]
+    return {"type": "model", "id": entry.id, "display_name": entry.id, "created_at": EPOCH_UTC}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -110,13 +122,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send(exc.status, error_body(exc, fmt))
 
     def _dispatch(self, gateway, route: Route) -> None:  # type: ignore[no-untyped-def]
+        if route.api is Api.MODELS:
+            self._models(gateway, route)
+            return
         if route.api not in RELAYED:
             raise NotFound(f"{route.api.value} routes are not available yet")
         body = self._read_json(int(gateway.config["max_request_bytes"]))
-        model = body.get("model") or gateway.config["default_model"]
-        if not isinstance(model, str) or not model:
-            raise BadRequest("the request has no model and [gateway].default_model is empty")
-        backend, upstream_model = gateway.resolve(model)
+        model = body.get("model")
+        if model is not None and not isinstance(model, str):
+            raise BadRequest("model must be a string")
+        target = gateway.resolver.resolve(model)
+        backend, upstream_model = target.backend, target.model
         if not backend.supports(route.api):
             raise NotFound(
                 f"backend {backend.name} does not serve {route.api.value}; it serves: "
@@ -124,6 +140,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
             )
         body["model"] = upstream_model
         self._relay(gateway, backend, json.dumps(body).encode("utf-8"))
+
+    def _models(self, gateway, route: Route) -> None:  # type: ignore[no-untyped-def]
+        """Answers `GET /v1/models` and `/v1/models/{id}` in the OpenAI or Anthropic shape."""
+        anthropic = "anthropic-version" in self.headers
+        entries = gateway.resolver.listing()
+        if route.path.endswith("{id}"):
+            wanted = self.path.split("?", 1)[0][len("/v1/models/") :]
+            entries = [e for e in entries if e.id == wanted]
+            if not entries:
+                raise NotFound(f"model {wanted!r} not found")
+        data = [_anthropic_entry(e) if anthropic else _openai_entry(e) for e in entries]
+        if route.path.endswith("{id}"):
+            doc: dict = data[0]
+        elif anthropic:
+            doc = {
+                "data": data,
+                "has_more": False,
+                "first_id": data[0]["id"] if data else None,
+                "last_id": data[-1]["id"] if data else None,
+            }
+        else:
+            doc = {"object": "list", "data": data}
+        self._send(200, json.dumps(doc).encode("ascii"))
 
     def _read_json(self, limit: int) -> dict:  # type: ignore[type-arg]
         if "Transfer-Encoding" in self.headers:
@@ -155,6 +194,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             resp = relay.open_response(conn, self.command, self.path, body, headers)
             self.send_response_only(resp.status)
+            if backend.remote:
+                self.send_header("X-Hal-Remote", backend.address().host)
             length_known = False
             for name, value in relay.response_headers(resp.getheaders()):
                 if name.lower() in ("date", "server"):

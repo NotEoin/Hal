@@ -2,7 +2,8 @@
 
 The table is the one in docs/design/05-gateway.md "Route table". The gateway serves exactly
 these routes (REQ-GW-10): llama-server's internal routes (`/props`, `/slots`, `/metrics`, ...)
-are not here, so they are 404. Matching ignores the query string.
+are not here, so they are 404. Matching ignores the query string. A model id may contain `/`
+(`backend/model`), so `/v1/models/{id}` takes the rest of the path.
 """
 
 from __future__ import annotations
@@ -85,6 +86,6 @@ def match(method: str, target: str) -> Route | None:
         if route.path.endswith("/{id}"):
             prefix = route.path[: -len("{id}")]
             tail = path[len(prefix) :]
-            if path.startswith(prefix) and tail and "/" not in tail:
+            if path.startswith(prefix) and tail and (route.api is Api.MODELS or "/" not in tail):
                 return route
     return None

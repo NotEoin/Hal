@@ -14,16 +14,18 @@ Decisions:
 from __future__ import annotations
 
 import http.client
+import json
 import logging
 import socket
 from collections.abc import Mapping
 
 from .backends.openai import UpstreamAddress
-from .errors import BadGatewayError, UpstreamTimeout
+from .errors import BadGatewayError, GatewayError, UpstreamTimeout
 
 log = logging.getLogger(__name__)
 
 CHUNK_BYTES = 65536
+MAX_LIST_BYTES = 8 * 1024 * 1024  # a model list larger than this is not a model list
 HOP_BY_HOP = frozenset(
     {"connection", "keep-alive", "te", "trailer", "transfer-encoding", "upgrade", "proxy-authenticate"}
 )
@@ -112,3 +114,21 @@ def copy_body(resp: http.client.HTTPResponse, write) -> bool:  # type: ignore[no
             write(chunk)
         except OSError:
             return False  # the client went away; the caller closes the upstream
+
+
+LIST_TIMEOUT_S = 5.0  # a model list is a small local call; a backend slower than this counts as down
+
+
+def fetch_model_ids(backend) -> list[str]:  # type: ignore[no-untyped-def]  # an OpenAIBackend
+    """Returns the model ids of `backend` from `GET /v1/models`; empty when it cannot answer."""
+    try:
+        conn = connect(backend.address(), LIST_TIMEOUT_S, LIST_TIMEOUT_S)
+        try:
+            resp = open_response(conn, "GET", "/v1/models", None, backend.auth_headers())
+            doc = json.loads(resp.read(MAX_LIST_BYTES))
+        finally:
+            conn.close()
+        return [str(m["id"]) for m in doc["data"] if isinstance(m, dict) and "id" in m]
+    except (GatewayError, OSError, ValueError, KeyError, TypeError) as exc:
+        log.warning("cannot list models of backend %s: %s", backend.name, exc)
+        return []

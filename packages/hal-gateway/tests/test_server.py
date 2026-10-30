@@ -149,7 +149,7 @@ def test_tcp_request_without_token_is_401(make):
 def test_x_api_key_header_is_accepted(make):
     port = free_port()
     make(f"tcp = true\ntcp_port = {port}").start()
-    assert tcp_get(port, "/v1/models", {"X-Api-Key": TOKEN})[0] == 404  # authenticated, route not built yet
+    assert tcp_get(port, "/v1/models", {"X-Api-Key": TOKEN})[0] == 200
 
 
 def test_tcp_health_needs_no_token(make):

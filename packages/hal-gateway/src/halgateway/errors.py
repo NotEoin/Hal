@@ -16,6 +16,7 @@ ANTHROPIC_TYPES = {
     401: "authentication_error",
     403: "permission_error",
     404: "not_found_error",
+    409: "invalid_request_error",
     413: "request_too_large",
     429: "rate_limit_error",
     503: "overloaded_error",
@@ -108,3 +109,10 @@ class UpstreamTimeout(GatewayError):
 
     status = 504
     code = "upstream_timeout"
+
+
+class Conflict(GatewayError):
+    """A request that names more than one possible target."""
+
+    status = 409
+    code = "ambiguous_model"

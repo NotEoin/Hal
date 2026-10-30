@@ -110,12 +110,13 @@ def test_llama_internal_routes_are_not_exposed(gateway, path):
 def test_query_string_is_ignored_for_matching():
     assert routes.match("GET", "/v1/models?limit=3").api is Api.MODELS
     assert routes.match("GET", "/v1/models/abc").path == "/v1/models/{id}"
-    assert routes.match("GET", "/v1/models/a/b") is None
+    assert routes.match("GET", "/v1/models/a/b").path == "/v1/models/{id}"
+    assert routes.match("DELETE", "/hal/v1/sessions/a/b") is None
     assert routes.match("GET", "/v1/chat/completions") is None
 
 
 def test_request_is_relayed_with_other_fields_and_query_kept(gateway, upstream):
-    resp, _ = call(gateway(), "POST", "/v1/chat/completions?x=1", {"model": "m", "temperature": 0.2})
+    resp, _ = call(gateway(), "POST", "/v1/chat/completions?x=1", {"model": "up/m", "temperature": 0.2})
     assert resp.status == 200 and json.loads(resp.read()) == {"ok": True}
     seen = Upstream.seen[0]
     assert seen["path"] == "/v1/chat/completions?x=1" and seen["body"] == {"model": "m", "temperature": 0.2}
@@ -129,7 +130,7 @@ def test_client_credentials_never_reach_backend(gateway):
         "X-Hal-Session": "s",
         "Accept": "application/json",
     }
-    call(gateway(), "POST", "/v1/chat/completions", {"model": "m"}, headers)
+    call(gateway(), "POST", "/v1/chat/completions", {"model": "up/m"}, headers)
     sent = {k.lower() for k in Upstream.seen[0]["headers"]}
     assert not sent & {"authorization", "x-api-key", "cookie", "x-hal-session"}
     assert "accept" in sent
@@ -139,12 +140,12 @@ def test_backend_key_file_is_sent_to_the_backend(gateway, tmp_path):
     (tmp_path / "key").write_text("backend-key\n")
     gw = gateway()
     gw.backends["up"].entry = {**gw.backends["up"].entry, "api_key_file": str(tmp_path / "key")}
-    call(gw, "POST", "/v1/chat/completions", {"model": "m"})
+    call(gw, "POST", "/v1/chat/completions", {"model": "up/m"})
     assert Upstream.seen[0]["headers"]["Authorization"] == "Bearer backend-key"
 
 
 def test_sse_events_arrive_before_stream_ends(gateway):
-    resp, conn = call(gateway(), "POST", "/v1/chat/completions", {"model": "m", "stream": True})
+    resp, conn = call(gateway(), "POST", "/v1/chat/completions", {"model": "up/m", "stream": True})
     assert resp.status == 200
     assert resp.fp.readline() == b"data: first\n"  # the upstream is still holding the stream open
     SSE_RELEASE.set()
@@ -153,14 +154,14 @@ def test_sse_events_arrive_before_stream_ends(gateway):
 
 
 def test_unsupported_api_names_backend_apis(gateway):
-    resp, _ = call(gateway(), "POST", "/v1/messages", {"model": "m"})
+    resp, _ = call(gateway(), "POST", "/v1/messages", {"model": "up/m"})
     body = json.loads(resp.read())
     assert resp.status == 404
     assert "backend up" in body["error"]["message"] and "chat" in body["error"]["message"]
 
 
 def test_anthropic_route_errors_use_the_anthropic_shape(gateway):
-    resp, _ = call(gateway(), "POST", "/v1/messages", {"model": "m"})
+    resp, _ = call(gateway(), "POST", "/v1/messages", {"model": "up/m"})
     assert json.loads(resp.read())["type"] == "error"
 
 
@@ -189,13 +190,13 @@ def test_oversized_body_is_413_without_reading(gateway):
     assert sock.recv(100).startswith(b"HTTP/1.1 413")  # no body was sent, so none was read
 
 
-def test_request_without_model_and_no_default_is_400(gateway):
+def test_request_without_model_and_no_default_is_404(gateway):
     resp, _ = call(gateway(), "POST", "/v1/chat/completions", {"messages": []})
-    assert resp.status == 400
+    assert resp.status == 404
 
 
 def test_default_model_is_used_when_the_request_names_none(gateway):
-    call(gateway('default_model = "dflt"'), "POST", "/v1/chat/completions", {"messages": []})
+    call(gateway('default_model = "up/dflt"'), "POST", "/v1/chat/completions", {"messages": []})
     assert Upstream.seen[0]["body"]["model"] == "dflt"
 
 
@@ -203,7 +204,7 @@ def test_dead_backend_is_502(gateway):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
-    resp, _ = call(gateway(port=port), "POST", "/v1/chat/completions", {"model": "m"})
+    resp, _ = call(gateway(port=port), "POST", "/v1/chat/completions", {"model": "up/m"})
     assert resp.status == 502
 
 

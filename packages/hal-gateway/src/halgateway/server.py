@@ -25,7 +25,8 @@ from pathlib import Path
 
 from halkit import paths
 
-from . import auth
+from . import auth, relay
+from .aliases import Resolver
 from .backends import make_backend
 from .config import GatewayConfig
 from .errors import Unavailable, error_body
@@ -129,13 +130,10 @@ class Gateway:
         self.slots = threading.BoundedSemaphore(int(self.config["max_connections"]))  # type: ignore[call-overload]
         self.owner_token = ""
         self.backends = {n: make_backend(n, e, cfg.ollama_url) for n, e in cfg.backends.items()}
+        self.resolver = Resolver(cfg, self.backends, relay.fetch_model_ids)
         self.unix: UnixHTTPServer | None = None
         self.tcp: LoopbackHTTPServer | None = None
         self._threads: list[threading.Thread] = []
-
-    def resolve(self, model: str):  # type: ignore[no-untyped-def]  # returns (backend, upstream model)
-        """Maps a requested model name to a backend and upstream name (aliases arrive in step 4)."""
-        return next(iter(self.backends.values())), model
 
     def listener_kind(self, server: object) -> str:
         """Returns `unix` or `tcp` for one of this gateway's servers."""
