@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 PROFILE_CHARS = 2_500  # the memory profile that is added to the prompt, at most
@@ -99,10 +99,12 @@ def system_prompt(
         STYLE.get(channel, STYLE["chat"]),
     ]
     try:
-        zone = ZoneInfo(timezone) if timezone else None
+        zone = ZoneInfo(timezone) if timezone else UTC
     except ZoneInfoNotFoundError:
-        zone = None  # an unknown zone falls back to the box clock rather than failing a turn
-    stamp = (now or datetime.now(zone)).astimezone(zone) if zone else (now or datetime.now())
+        zone = (
+            UTC  # the box has no host timezone; an unknown zone falls back to UTC rather than failing a turn
+        )
+    stamp = (now or datetime.now(UTC)).astimezone(zone)
     parts.append(f"It is {stamp.strftime('%A %d %B %Y, %H:%M')}.")
     if profile:
         parts.append(f"What you know about {name}:\n{profile[:PROFILE_CHARS]}")
