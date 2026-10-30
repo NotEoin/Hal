@@ -20,7 +20,7 @@ from pathlib import Path
 from halkit import paths
 
 from . import config as sbconfig
-from . import isolated, projects
+from . import detect, isolated, projects
 from . import scratch as scratch_dir
 from .broker import Broker
 from .errors import SandboxError
@@ -155,8 +155,11 @@ def run_code(
     policy = Policy.for_level(str(cfg["lockdown"]))
     if direct:
         policy.check_direct()
-    if shutil.which("docker") is None:
-        raise SandboxError("docker is not installed; hal code needs it")
+    probe = detect.detect({**cfg, "runtime": runtime or cfg["runtime"]}, policy)
+    if probe.backend != "docker":
+        raise SandboxError(f"hal code supports the docker backend only for now (detected {probe.backend})")
+    for note in (probe.detail,) if probe.runtime == "runc" else ():
+        log.warning("hal code: %s", note)
     try:
         have = (
             subprocess.run(
@@ -168,9 +171,7 @@ def run_code(
         raise SandboxError(f"cannot query docker: {exc}") from exc
     if not have:
         raise SandboxError(f"image {image} not found; run `hal code --build`")
-    runtime, warnings = policy.choose_runtime(docker_runtimes(), runtime)
-    for warning in warnings:
-        log.warning("hal code: %s", warning)
+    runtime = probe.runtime or "runc"
     scratch = scratch_dir.prepare(workdir, int(cfg["scratch_max_bytes"]))
     iso = None if direct else isolated.create(workdir, int(allcfg["isolated"]["max_copy_bytes"]))
     mount = workdir if iso is None else iso.work
