@@ -39,6 +39,11 @@ Regenerate a golden file only after reading the diff: it is the reviewed list of
 ## What is not built
 
 - `Session` accepts an `approver` and does not use it; approvals still come from the `halhub mcp` child.
-- Sanitised git config (REQ-BOX-15), the terminal filter, host MCP upstreams, labels and orphan sweep,
-  images and `hal box` are later steps of the plan.
+- Sanitised git config (REQ-BOX-15), the terminal filter, the image template and build command,
+  the dependency-prep box (`egress.py` exists, `deps.py` does not), box images for agent CLIs and
+  `hal box` are later steps of the plan.
+- Upstream elicitations are not mapped to host approvals (REQ-BOX-77); an upstream that asks fails.
+- Each broker connection starts its own upstream processes, and a failed start drops that upstream
+  for the connection. `sweep_if_due` is not called at `hal` start yet.
+- Upstream names must match `^[a-z][a-z0-9]{0,31}$` (the hub's rule), so `hal-desktop` is refused.
 - The runsc probe still connects with `python3` in the image, not `hal-box-entry --probe`.
