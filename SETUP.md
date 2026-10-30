@@ -87,7 +87,7 @@ voice, speech, the memory sorter, the chat bridges — and unloads Ollama's mode
 keep running. `hal on` starts everything again; `hal status` shows the state. The max profile's
 llama.cpp server is separate: `hal stop` and `hal serve` control it.
 
-`hal-kill` (or the **Hal kill** desktop launcher) stops all of it at once: every service and timer,
+`hal kill` (or the **Hal kill** desktop launcher) stops all of it at once: every service and timer,
 the reminder daemons, the llama.cpp server and any Hal command left running in a terminal.
 
 ---

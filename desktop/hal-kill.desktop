@@ -2,7 +2,7 @@
 Type=Application
 Name=Hal kill
 Comment=Stop every Hal service and process, and free the GPU
-Exec=@CORE@/hal-kill
+Exec=@CORE@/hal kill --quiet
 Icon=process-stop
 Terminal=false
 Categories=Utility;

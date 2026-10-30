@@ -17,6 +17,7 @@
 #   hal guard status|install|bench    the local prompt-injection guard (off by default)
 #   hal claude [args...] Claude Code in the current directory (NOT private, not boxed)
 #   hal here [args...]   open Claude Code in the current directory (for coding projects)
+#   hal kill [--quiet]   stop every Hal service, timer, model server and process, and free the GPU
 #   hal on | off         start Hal's services, or stop the ones using the GPU and free it
 #   hal toggle           on if off, off if on (the desktop launcher runs this)
 #   hal doctor           lockdown, runtime and classifier checks (exit 1 on a problem)
@@ -47,6 +48,7 @@ halcore() { PYTHONPATH="$HALCORE_SRC${PYTHONPATH:+:$PYTHONPATH}" exec "$HAL_PYTH
 case "${1:-}" in
   -p|--print|chat|acp|jobs|lockdown|paranoia|sessions|console|eval|ext|units|configure|code|scratch|guard|policy|audit|approvals|approve|deny) halcore "$@" ;;
   on|off|toggle) halcore power "$@" ;;
+  kill) shift; HAL_ROOT="$HAL_ROOT" halcore kill "$@" ;;
   install) shift; halcore units install --start "$@" ;;
   ask|index|brief|summarize|import|obsidian-key|register-repos)
     # The vault lives in the memory extension.

@@ -46,6 +46,8 @@ def main() -> int:
         from halhub.cli import main as hub_main
 
         return hub_main([cmd, *rest]) or 0
+    elif cmd == "kill":
+        from .killcmd import main as run
     elif cmd == "gpulight":
         from .gpulight import main as run
     else:

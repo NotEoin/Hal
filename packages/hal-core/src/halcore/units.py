@@ -29,6 +29,7 @@ from pathlib import Path
 from . import config, gpulight
 
 UNIT_DIR = Path(os.environ.get("HAL_UNIT_DIR", "~/.config/systemd/user")).expanduser()
+SYSTEMCTL_TIMEOUT_S = 60.0  # a stuck unit stop must not hang `hal kill`
 UNIT_SUFFIXES = (".service", ".timer", ".target", ".path")
 LIGHT_UNIT = "hal-gpu-light.service"
 
@@ -104,8 +105,10 @@ def gpu_units() -> list[str]:
     return sorted(name for name in installed() if is_gpu(UNIT_DIR / name))
 
 
-def systemctl(*args: str, check: bool = False) -> subprocess.CompletedProcess:
-    return subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True, check=check)
+def systemctl(*args: str, check: bool = False, timeout: float = SYSTEMCTL_TIMEOUT_S) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["systemctl", "--user", *args], capture_output=True, text=True, check=check, timeout=timeout
+    )
 
 
 def install_module(root: Path, units: dict[str, str], skipped: list[str] | None = None) -> list[str]:

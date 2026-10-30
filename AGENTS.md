@@ -9,7 +9,7 @@ Hal is a private, secure framework for getting the most out of local models: an 
 sandbox and broker, a tool hub and a model gateway behind one `hal` command. The local model is
 untrusted; its only contact with the outside is locked-down tool calls. The release is being
 assembled on branch `next` as a uv workspace; the old bash launchers at the root (`hal`,
-`hal-serve`, `hal-kill`, `setup.sh`) keep working until the `hal` command replaces them.
+`hal-serve`, `setup.sh`) keep working until the `hal` command replaces them.
 
 Read first: [docs/README.md](docs/README.md), then [docs/design/00-overview.md](docs/design/00-overview.md)
 (packages, allowed imports, `halkit`, flows, release plan). Every behaviour has a numbered
