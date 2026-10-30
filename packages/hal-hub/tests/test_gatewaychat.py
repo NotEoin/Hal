@@ -10,6 +10,11 @@ from halkit import llm
 from halkit.testing import FakeModelServer, TempHalHome
 
 
+@pytest.fixture(autouse=True)
+def _fresh_gpu_choice(monkeypatch):
+    monkeypatch.setattr(gatewaychat, "_choice", (0.0, {}))
+
+
 @pytest.fixture
 def home():
     with TempHalHome() as h:
@@ -43,3 +48,33 @@ def test_hub_kwargs_builds_the_reviewer_only_when_enabled(home):
     home.policy.write_text("schema_version = 1\n[reviewer]\nenabled = true\n")
     home.policy.chmod(0o600)
     assert isinstance(gatewaychat.hub_kwargs()["reviewer"], Reviewer)
+
+
+def _fake_gpu_light(monkeypatch, tmp_path, state):
+    exe = tmp_path / "gpu-light"
+    exe.write_text(f'#!/bin/sh\necho \'{{"state": "{state}"}}\'\n')
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+
+def test_gpu_options_are_empty_without_gpu_light(monkeypatch, tmp_path):
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert gatewaychat.gpu_options() == {}
+
+
+def test_gpu_options_use_the_gpu_while_the_light_is_green(monkeypatch, tmp_path):
+    _fake_gpu_light(monkeypatch, tmp_path, "green")
+    assert gatewaychat.gpu_options() == {}
+
+
+def test_gpu_options_fall_back_to_cpu_while_the_light_is_red(monkeypatch, tmp_path):
+    _fake_gpu_light(monkeypatch, tmp_path, "red")
+    assert gatewaychat.gpu_options() == {"num_gpu": 0}
+
+
+def test_gateway_chat_asks_for_cpu_when_the_gpu_is_busy(home, monkeypatch, tmp_path):
+    _fake_gpu_light(monkeypatch, tmp_path, "red")
+    with FakeModelServer(home.runtime / "gateway.sock") as server:
+        server.script("ok")
+        gatewaychat.gateway_chat("hal-fast", [], temperature=0, max_tokens=5, timeout_s=5)
+    assert server.requests[0]["body"]["options"] == {"num_gpu": 0}

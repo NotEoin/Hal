@@ -100,3 +100,13 @@ def test_embed_returns_one_vector_per_text_in_order(home):
 def test_ping_lists_the_gateway_models(home):
     with FakeModelServer(home.runtime / "gateway.sock"):
         assert llm.ping(timeout=5) == ["fake-model"]
+
+
+def test_chat_sends_ollama_options_only_when_given(home):
+    with FakeModelServer(home.runtime / "gateway.sock") as server:
+        server.script("a")
+        server.script("b")
+        llm.chat(MESSAGES, timeout=5, options={"num_gpu": 0})
+        llm.chat(MESSAGES, timeout=5)
+    assert server.requests[0]["body"]["options"] == {"num_gpu": 0}
+    assert "options" not in server.requests[1]["body"]

@@ -8,6 +8,11 @@ calls simply classify as `high` (I5).
 
 from __future__ import annotations
 
+import json
+import logging
+import shutil
+import subprocess
+import time
 from collections.abc import Mapping, Sequence
 
 from halkit import llm
@@ -15,6 +20,49 @@ from halkit import llm
 from . import policy
 from .classifier import ChatFn
 from .reviewer import Reviewer
+
+log = logging.getLogger(__name__)
+
+GPU_LIGHT_TIMEOUT_S = 5  # `gpu-light status` reads a file or one socket call; longer means stuck
+GPU_CHOICE_TTL_S = 10.0  # one classifier verdict per tool call must not fork gpu-light each time
+CPU_OPTIONS: dict[str, object] = {"num_gpu": 0}  # Ollama option: offload no layers to the GPU
+
+_choice: tuple[float, dict[str, object]] = (0.0, {})
+
+
+def gpu_options() -> dict[str, object]:
+    """Ollama options for a background chat: `{}` (GPU) or `num_gpu` 0 (CPU), by gpu-light status.
+
+    Without gpu-light the model runs as configured. With it, the GPU is used only while the light
+    is green, so the classifier never preempts a foreground job (I5). The answer is cached.
+    """
+    global _choice
+    now = time.monotonic()
+    if _choice[0] and now - _choice[0] < GPU_CHOICE_TTL_S:
+        return _choice[1]
+    options = _read_gpu_options()
+    _choice = (now, options)
+    return options
+
+
+def _read_gpu_options() -> dict[str, object]:
+    exe = shutil.which("gpu-light")
+    if exe is None:
+        return {}
+    try:
+        proc = subprocess.run(
+            [exe, "status", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=GPU_LIGHT_TIMEOUT_S,
+            check=False,
+        )
+        doc = json.loads(proc.stdout) if proc.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+        log.warning("gpu-light status failed, classifying on the CPU: %s", exc)
+        return dict(CPU_OPTIONS)
+    state = (doc or {}).get("effective") or (doc or {}).get("state")
+    return {} if state == "green" else dict(CPU_OPTIONS)
 
 
 def gateway_chat(
@@ -25,8 +73,18 @@ def gateway_chat(
     max_tokens: int,
     timeout_s: float,
 ) -> str:
-    """Sends one chat request to the gateway alias `model`; raises `halkit.llm.GatewayError`."""
-    return llm.chat(messages, model=model, timeout=timeout_s, max_tokens=max_tokens, temperature=temperature)
+    """Sends one chat request to the gateway alias `model` (GPU or CPU per `gpu_options`).
+
+    Raises `halkit.llm.GatewayError`.
+    """
+    return llm.chat(
+        messages,
+        model=model,
+        timeout=timeout_s,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        options=gpu_options(),
+    )
 
 
 def hub_kwargs() -> dict[str, object]:

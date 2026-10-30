@@ -165,13 +165,20 @@ def chat(
     timeout: float,
     max_tokens: int | None = None,
     temperature: float | None = None,
+    options: Mapping[str, object] | None = None,
 ) -> str:
-    """Returns the assistant text for `messages`; raises `GatewayError` or `ModelUnavailable`."""
+    """Returns the assistant text for `messages`; raises `GatewayError` or `ModelUnavailable`.
+
+    `options` is sent as the Ollama `options` object (for example `{"num_gpu": 0}`); the gateway
+    drops it for backends that do not take it.
+    """
     body: dict[str, object] = {"model": model, "messages": list(messages)}
     if max_tokens is not None:
         body["max_tokens"] = max_tokens
     if temperature is not None:
         body["temperature"] = temperature
+    if options:
+        body["options"] = dict(options)
     data = _json(_post("/v1/chat/completions", body, timeout))
     try:
         content = data["choices"][0]["message"]["content"]  # type: ignore[index]  # shape checked by the except
