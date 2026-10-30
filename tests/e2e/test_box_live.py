@@ -33,7 +33,7 @@ class Forwarder:
         self.closed = True
 
 
-@pytest.mark.parametrize("cli", ["crush", "goose"])
+@pytest.mark.parametrize("cli", ["claude", "qwen", "opencode", "codex", "crush", "goose"])
 @pytest.mark.parametrize("runtime", ["runc", "runsc"])
 def test_box_starts_the_cli_offline_in_an_isolated_copy(cli, runtime, tmp_path, monkeypatch, capfd):
     if runtime not in usable(cli):

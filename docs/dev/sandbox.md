@@ -85,7 +85,9 @@ and `deps`. Not built yet:
   how-to uses `hal code` and git refs.
 - The startup benchmark `scripts/bench-sandbox.py` (step 34), and steps 35 to 38: sanitized git
   config, the terminal filter, upstream elicitations, stripped command output.
-- Box image sizes: the base images are above their budgets (see `images.SIZE_BUDGET_MB`); only
-  crush and goose were built and run. The claude, qwen, opencode and codex images are unbuilt, and no
-  CLI has done a model round trip (REQ-BOX-61).
+- Box image sizes (`docker images`, measured 2026-10-30): crush 1.25 GB, qwen 1.3 GB, goose 1.45 GB,
+  codex 1.68 GB, claude 1.8 GB, opencode 2.08 GB. The last three are over the 1.5 GB budget of
+  REQ-BOX-26 because the npm packages and the Node runtime dominate; trimming the base images is still
+  open. All six start offline (`--version`) under runc and runsc (`tests/e2e/test_box_live.py`). No CLI
+  has done a model round trip yet (REQ-BOX-61).
 - The open RESOLUTIONS I6 containment cases listed above.
