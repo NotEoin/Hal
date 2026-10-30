@@ -1,0 +1,305 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hal.invalid/acp/v1/subset",
+  "title": "ACP v1 subset used by hal-agent (hand-written, not the upstream file)",
+  "$defs": {
+    "id": {"type": ["string", "integer"]},
+    "meta": {"type": "object"},
+    "textContent": {
+      "type": "object",
+      "required": ["type", "text"],
+      "properties": {"type": {"const": "text"}, "text": {"type": "string"}}
+    },
+    "toolKind": {
+      "enum": ["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "other"]
+    },
+    "toolStatus": {"enum": ["pending", "in_progress", "completed", "failed"]},
+    "toolContent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "content"],
+          "properties": {"type": {"const": "content"}, "content": {"$ref": "#/$defs/textContent"}}
+        },
+        {
+          "type": "object",
+          "required": ["type", "path", "newText"],
+          "properties": {
+            "type": {"const": "diff"},
+            "path": {"type": "string"},
+            "oldText": {"type": ["string", "null"]},
+            "newText": {"type": "string"}
+          }
+        }
+      ]
+    },
+    "update": {
+      "type": "object",
+      "required": ["sessionUpdate"],
+      "oneOf": [
+        {
+          "properties": {
+            "sessionUpdate": {
+              "enum": ["agent_message_chunk", "agent_thought_chunk", "user_message_chunk"]
+            },
+            "content": {"$ref": "#/$defs/textContent"}
+          },
+          "required": ["content"]
+        },
+        {
+          "properties": {
+            "sessionUpdate": {"const": "tool_call"},
+            "toolCallId": {"type": "string"},
+            "title": {"type": "string"},
+            "kind": {"$ref": "#/$defs/toolKind"},
+            "status": {"$ref": "#/$defs/toolStatus"}
+          },
+          "required": ["toolCallId", "title"]
+        },
+        {
+          "properties": {
+            "sessionUpdate": {"const": "tool_call_update"},
+            "toolCallId": {"type": "string"},
+            "status": {"$ref": "#/$defs/toolStatus"},
+            "content": {"type": "array", "items": {"$ref": "#/$defs/toolContent"}}
+          },
+          "required": ["toolCallId"]
+        },
+        {
+          "properties": {
+            "sessionUpdate": {"const": "plan"},
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["content", "status", "priority"],
+                "properties": {
+                  "content": {"type": "string"},
+                  "status": {"enum": ["pending", "in_progress", "completed"]},
+                  "priority": {"enum": ["high", "medium", "low"]}
+                }
+              }
+            }
+          },
+          "required": ["entries"]
+        },
+        {
+          "properties": {
+            "sessionUpdate": {"const": "current_mode_update"},
+            "currentModeId": {"type": "string"}
+          },
+          "required": ["currentModeId"]
+        },
+        {
+          "properties": {
+            "sessionUpdate": {"const": "usage_update"},
+            "used": {"type": "integer", "minimum": 0},
+            "size": {"type": "integer", "minimum": 0}
+          },
+          "required": ["used", "size"]
+        }
+      ]
+    },
+    "stopReason": {
+      "enum": ["end_turn", "max_tokens", "max_turn_requests", "refusal", "cancelled"]
+    },
+    "permissionOption": {
+      "type": "object",
+      "required": ["optionId", "name", "kind"],
+      "properties": {
+        "optionId": {"type": "string"},
+        "name": {"type": "string"},
+        "kind": {"enum": ["allow_once", "allow_always", "reject_once", "reject_always"]}
+      }
+    },
+    "modeState": {
+      "type": "object",
+      "required": ["currentModeId", "availableModes"],
+      "properties": {
+        "currentModeId": {"type": "string"},
+        "availableModes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name"],
+            "properties": {"id": {"type": "string"}, "name": {"type": "string"}}
+          }
+        }
+      }
+    },
+    "promptBlock": {
+      "type": "object",
+      "required": ["type"],
+      "oneOf": [
+        {"properties": {"type": {"const": "text"}, "text": {"type": "string"}}, "required": ["text"]},
+        {
+          "properties": {
+            "type": {"const": "resource"},
+            "resource": {
+              "type": "object",
+              "required": ["uri"],
+              "properties": {"uri": {"type": "string"}, "text": {"type": "string"}}
+            }
+          },
+          "required": ["resource"]
+        },
+        {
+          "properties": {
+            "type": {"const": "resource_link"},
+            "uri": {"type": "string"},
+            "name": {"type": "string"}
+          },
+          "required": ["uri", "name"]
+        }
+      ]
+    },
+    "rpcError": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {"code": {"type": "integer"}, "message": {"type": "string"}}
+    },
+    "errorResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "error"],
+      "properties": {
+        "jsonrpc": {"const": "2.0"},
+        "id": {"type": ["string", "integer", "null"]},
+        "error": {"$ref": "#/$defs/rpcError"}
+      }
+    },
+    "initializeResult": {
+      "type": "object",
+      "required": ["protocolVersion", "agentCapabilities"],
+      "properties": {
+        "protocolVersion": {"type": "integer"},
+        "agentCapabilities": {
+          "type": "object",
+          "properties": {
+            "loadSession": {"type": "boolean"},
+            "promptCapabilities": {
+              "type": "object",
+              "properties": {
+                "image": {"type": "boolean"},
+                "audio": {"type": "boolean"},
+                "embeddedContext": {"type": "boolean"}
+              }
+            },
+            "mcpCapabilities": {
+              "type": "object",
+              "properties": {"http": {"type": "boolean"}, "sse": {"type": "boolean"}}
+            }
+          }
+        },
+        "authMethods": {"type": "array"}
+      }
+    },
+    "agentMessage": {
+      "description": "Anything the agent writes to stdout; results are checked per method by the test.",
+      "type": "object",
+      "required": ["jsonrpc"],
+      "properties": {"jsonrpc": {"const": "2.0"}},
+      "oneOf": [
+        {
+          "required": ["method", "params"],
+          "properties": {"method": {"const": "session/update"}, "params": {
+            "type": "object",
+            "required": ["sessionId", "update"],
+            "properties": {"sessionId": {"type": "string"}, "update": {"$ref": "#/$defs/update"}}
+          }},
+          "not": {"required": ["id"]}
+        },
+        {
+          "required": ["method", "params", "id"],
+          "properties": {"method": {"const": "session/request_permission"}, "params": {
+            "type": "object",
+            "required": ["sessionId", "toolCall", "options"],
+            "properties": {
+              "sessionId": {"type": "string"},
+              "toolCall": {"type": "object", "required": ["toolCallId"]},
+              "options": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/permissionOption"}}
+            }
+          }}
+        },
+        {
+          "required": ["method"],
+          "properties": {"method": {"const": "_hal/record"}},
+          "not": {"required": ["id"]}
+        },
+        {"required": ["id", "result"]},
+        {"$ref": "#/$defs/errorResponse"}
+      ]
+    },
+    "clientMessage": {
+      "description": "Anything the client writes to the agent's stdin.",
+      "type": "object",
+      "required": ["jsonrpc"],
+      "properties": {"jsonrpc": {"const": "2.0"}},
+      "oneOf": [
+        {
+          "required": ["method", "id"],
+          "properties": {"method": {"const": "initialize"}, "params": {
+            "type": "object", "required": ["protocolVersion"],
+            "properties": {"protocolVersion": {"type": "integer"}}
+          }}
+        },
+        {
+          "required": ["method", "id", "params"],
+          "properties": {"method": {"const": "session/new"}, "params": {
+            "type": "object", "required": ["cwd"],
+            "properties": {"cwd": {"type": "string"}, "mcpServers": {"type": "array"}}
+          }}
+        },
+        {
+          "required": ["method", "id", "params"],
+          "properties": {"method": {"const": "session/load"}, "params": {
+            "type": "object", "required": ["sessionId", "cwd"],
+            "properties": {"sessionId": {"type": "string"}, "cwd": {"type": "string"}}
+          }}
+        },
+        {
+          "required": ["method", "id", "params"],
+          "properties": {"method": {"const": "session/prompt"}, "params": {
+            "type": "object", "required": ["sessionId", "prompt"],
+            "properties": {
+              "sessionId": {"type": "string"},
+              "prompt": {"type": "array", "items": {"$ref": "#/$defs/promptBlock"}}
+            }
+          }}
+        },
+        {
+          "required": ["method", "params"],
+          "properties": {"method": {"const": "session/cancel"}, "params": {
+            "type": "object", "required": ["sessionId"]
+          }},
+          "not": {"required": ["id"]}
+        },
+        {
+          "required": ["method", "id", "params"],
+          "properties": {"method": {"const": "session/set_mode"}, "params": {
+            "type": "object", "required": ["sessionId", "modeId"]
+          }}
+        },
+        {
+          "required": ["id", "result"],
+          "properties": {"result": {
+            "type": "object", "required": ["outcome"],
+            "properties": {"outcome": {
+              "type": "object", "required": ["outcome"],
+              "properties": {"outcome": {"enum": ["selected", "cancelled"]}}
+            }}
+          }}
+        }
+      ]
+    },
+    "newSessionResult": {
+      "type": "object",
+      "required": ["sessionId"],
+      "properties": {"sessionId": {"type": "string"}, "modes": {"$ref": "#/$defs/modeState"}}
+    },
+    "promptResult": {
+      "type": "object",
+      "required": ["stopReason"],
+      "properties": {"stopReason": {"$ref": "#/$defs/stopReason"}}
+    }
+  }
+}

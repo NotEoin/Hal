@@ -7,6 +7,8 @@ How `packages/hal-agent` is put together and how to change it. The requirements 
 
 | Module | Role |
 | --- | --- |
+| `messages.py`, `events.py` | Wire-independent `Message`, `ToolCall`, `ModelReply` (design name `Completion`; `provider.Completion` is the older shape), stream items, and the 12 validated turn `Event` types. Not yet used by `loop.py` or `provider.py` |
+| `reasoning.py`, `streaming.py` | Inline reasoning splitter (think, Gemma 4, harmony; holds back at most 32 characters) and the SSE and Chat Completions stream readers. Not yet used by `provider.py`, which has its own reader |
 | `provider.py` | Chat Completions client over TCP or a unix socket, retry with backoff, `model_info()` from `GET /v1/models` |
 | `loop.py` | The agent loop; `effective_settings()` merges settings, gateway and profile; overflow retry; `hal_find_tools` |
 | `backends.py` | `ToolBackend` protocol and `BrokerBackend`; maps `_meta.hal.status` to `ok`, `error`, `denied`, `unavailable` |
@@ -49,9 +51,12 @@ it in `server.model_list_requests`. Keep both autouse fixtures in `tests/conftes
 
 Unverified items and gaps against the design, so a reader does not assume them:
 
-- Anthropic and Responses providers, token counting endpoint, `messages.py` and `events.py`.
-- Vendored ACP schema and conformance tests, path
-  mapping between host and box, the `notice` sent when a boxed agent has no transcript path.
+- Anthropic and Responses stream readers on the new `streaming.py`; moving `loop.py` and the
+  providers onto `messages.py` and `events.py`.
+- The upstream ACP schema `schema-v1.26.0` is not vendored: it needs the network and a
+  maintainer's sha256. `tests/fixtures/acp/schema.subset.json` is a hand-written subset used by
+  `tests/test_acp_conformance.py`; see `tests/fixtures/acp/README.md` to vendor the real file.
+  Path mapping between host and box, the `notice` sent when a boxed agent has no transcript path.
 - Assistant: the claims check runs on whole completions, not on a token stream, so a voice client
   hears the reply only after the round ends; `history_turns` is not applied (the context manager
   trims instead). The scenario library has no runner here: halcore implements `AssistantRunner` (and `probe`, which the design leaves implicit). `hal eval` in halcore still uses `Brain`.
