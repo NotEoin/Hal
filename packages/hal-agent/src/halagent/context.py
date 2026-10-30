@@ -165,6 +165,10 @@ class ContextManager:
         self.chars_per_token: float = CHARS_PER_TOKEN  # recalibrated from the server's prompt counts
         self.keep_recent = keep_recent
 
+    def estimate(self, messages: list[dict]) -> int:
+        """The token estimate for `messages` with the calibrated ratio."""
+        return self._est(messages)
+
     def _est(self, messages: list[dict], extra_chars: int = 0) -> int:
         return estimate_tokens(messages, extra_chars, self.chars_per_token)
 
@@ -214,8 +218,17 @@ class ContextManager:
                 }
             )
 
-    def _summarise(self, out: Fitted, note: StateNote) -> None:
-        start, end = summary_range(out.messages, protected_from(out.messages, self.keep_recent))
+    def compact_all(self, messages: list[dict], ids: list[int], note: StateNote) -> Fitted:
+        """Summarises everything after the system message (the `/compact` command)."""
+        out = Fitted(list(messages), list(ids))
+        self._summarise(out, note, whole=True)
+        return out
+
+    def _summarise(self, out: Fitted, note: StateNote, whole: bool = False) -> None:
+        if whole:
+            start, end = 1, len(out.messages)
+        else:
+            start, end = summary_range(out.messages, protected_from(out.messages, self.keep_recent))
         old = out.messages[start:end]
         if len(old) < 2:
             return

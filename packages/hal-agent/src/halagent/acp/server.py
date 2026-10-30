@@ -214,6 +214,18 @@ class AcpServer:
             except ValueError as exc:
                 raise RpcError(ERR_PARAMS, str(exc)) from exc
             return {}
+        if method == "session/compact":
+            agent = self.sessions.get(str(params.get("sessionId")))
+            if agent is None:
+                raise RpcError(ERR_PARAMS, "unknown session")
+            busy = self._running.get(str(params.get("sessionId")))
+            if busy is not None and busy.is_alive():
+                raise RpcError(ERR_BUSY, "a turn is running: compact after it ends")
+            try:
+                before, after = agent.compact()
+            except ValueError as exc:
+                raise RpcError(ERR_PARAMS, str(exc)) from exc
+            return {"_meta": {"hal": {"beforeTokens": before, "afterTokens": after}}}
         raise RpcError(ERR_NOT_FOUND, f"method not found: {method}")
 
     @staticmethod

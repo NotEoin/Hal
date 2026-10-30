@@ -32,6 +32,7 @@ from halagent.context import (
     CHARS_PER_TOKEN,
     ContextManager,
     ContextOverflow,
+    Fitted,
     StateNote,
     compaction_prompt,
     render_for_summary,
@@ -212,7 +213,19 @@ class Agent:
     def _fit(self) -> list[dict]:
         """The history to send; compacts it (and records that) when it is over budget."""
         tools_chars = len(json.dumps(self._specs())) if self.settings.tool_format == "native" else 0
-        fitted = self.context.fit(self.messages, self._ids, self.note, tools_chars)
+        return self._apply_fitted(self.context.fit(self.messages, self._ids, self.note, tools_chars))
+
+    def compact(self) -> tuple[int, int]:
+        """Summarises the whole history now; returns the estimated tokens before and after."""
+        before = self.context.estimate(self.messages)
+        fitted = self.context.compact_all(self.messages, self._ids, self.note)
+        if not fitted.records:
+            raise ValueError("there is nothing to compact yet")
+        self._apply_fitted(fitted)
+        return before, self.context.estimate(self.messages)
+
+    def _apply_fitted(self, fitted: Fitted) -> list[dict]:
+        """Adopts a fitted history and writes its compaction records to the transcript."""
         self.messages, self._ids = fitted.messages, fitted.ids
         for rec in fitted.records:
             if rec["kind"] in ("summary", "note"):

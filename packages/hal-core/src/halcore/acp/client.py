@@ -18,6 +18,7 @@ log = logging.getLogger(__name__)
 
 PROTOCOL_VERSION = 1
 REQUEST_TIMEOUT_S = 30.0  # covers a session/load replay of a long transcript [unverified: measure 2,000 messages]
+COMPACT_TIMEOUT_S = 300.0  # one summary model call, which can be slow on a local model
 ERR_METHOD_NOT_FOUND = -32601
 Message = dict[str, object]
 
@@ -138,6 +139,12 @@ class AcpClient:
         await self._call(
             "session/set_model", {"sessionId": session_id, "modelId": model_id}, timeout=self._timeout
         )
+
+    async def compact(self, session_id: str) -> tuple[int, int]:
+        """Summarises the session history; returns the estimated tokens before and after."""
+        result = await self._call("session/compact", {"sessionId": session_id}, timeout=COMPACT_TIMEOUT_S)
+        hal = ((result.get("_meta") or {}).get("hal")) or {}
+        return int(hal.get("beforeTokens", 0)), int(hal.get("afterTokens", 0))
 
     async def close(self) -> None:
         """Stops the reader and the transport."""

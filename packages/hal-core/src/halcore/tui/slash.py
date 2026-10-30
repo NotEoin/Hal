@@ -139,6 +139,14 @@ async def _model(state: TuiState, args: str) -> Result:
     return Result(message=f"model: {safe(state.model) or '(default)'}")
 
 
+async def _compact(state: TuiState, args: str) -> Result:
+    try:
+        before, after = await state.client.compact(state.sid)
+    except AcpError as exc:
+        return Result(message=f"/compact: {safe(str(exc))}")
+    return Result(message=f"compacted: about {before} -> {after} tokens")
+
+
 async def _image(state: TuiState, args: str) -> Result:
     try:
         state.attachments.append(image_block(Path(args).expanduser()))
@@ -190,9 +198,9 @@ async def _apply(state: TuiState, args: str) -> Result:
     return Result(message=print_report + f"\napplied {len(applied)} changed paths")
 
 
-HELP = """/help  /quit  /clear  /mode [default|auto-edit|plan]  /todo  /model  /image PATH
+HELP = """/help  /quit  /clear  /mode [default|auto-edit|plan]  /todo  /model  /compact  /image PATH
 /diff [N]  /rewind [N]  /apply [--allow-flags]  and your commands in .hal/commands/NAME.md"""
 BUILTINS = {
-    "help": _help, "clear": _clear, "mode": _mode, "todo": _todo, "model": _model,
+    "help": _help, "clear": _clear, "mode": _mode, "todo": _todo, "model": _model, "compact": _compact,
     "image": _image, "diff": _diff, "rewind": _rewind, "apply": _apply,
 }  # fmt: skip

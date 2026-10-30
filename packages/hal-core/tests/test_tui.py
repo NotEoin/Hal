@@ -103,6 +103,9 @@ class NullClient:
     async def set_model(self, sid, model):
         self.models.append(model)
 
+    async def compact(self, sid):
+        return 900, 120
+
 
 def make_state(session=None, project=None):
     return slash.TuiState(NullClient(), "0123456789ab", "/work", Renderer(io.StringIO()), session=session, project=project)
@@ -204,3 +207,8 @@ def test_model_with_a_name_switches_through_acp_and_without_shows_the_current_on
     assert "small" in run(slash.dispatch("/model", state, {})).message
     run(slash.dispatch("/model big", state, {}))
     assert state.client.models == ["big"] and state.model == "big"
+
+
+def test_compact_reports_the_token_estimates_from_the_agent():
+    state = make_state()
+    assert "900 -> 120" in run(slash.dispatch("/compact", state, {})).message

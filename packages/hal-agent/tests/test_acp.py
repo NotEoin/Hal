@@ -328,3 +328,22 @@ def test_estimate_counts_an_image_as_a_flat_cost_not_its_base64_length():
         [{"role": "user", "content": "x", "images": [{"mimeType": "image/png", "data": "A" * 10**6}]}]
     )
     assert with_image - plain < IMAGE_TOKENS + 10
+
+
+def test_compact_summarises_the_history_and_a_later_turn_still_runs(server, tmp_path):
+    server.script("first answer", "SUMMARY OF WORK", "second answer")
+    c = Client(server.url, tmp_path)
+    c.call("session/new", {"cwd": str(tmp_path)})
+    sid = c.sid()
+    first = c.call("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": "do a thing"}]})
+    deadline = time.monotonic() + 5
+    while f'"id": {first},' not in c.out.getvalue() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    compact = c.call("session/compact", {"sessionId": sid})
+    nothing = c.call("session/compact", {"sessionId": "nope"})
+    again = c.call("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": "go on"}]})
+    msgs = c.finish()
+    assert set(reply_to(msgs, compact)["result"]["_meta"]["hal"]) == {"beforeTokens", "afterTokens"}
+    assert reply_to(msgs, nothing)["error"]["code"] == -32602
+    assert reply_to(msgs, again)["result"] == {"stopReason": "end_turn"}
+    assert "SUMMARY OF WORK" in str(server.requests[-1]["body"]["messages"])
