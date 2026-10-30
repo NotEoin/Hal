@@ -54,3 +54,12 @@ def test_main_exit_status_is_one_when_a_process_survives(world, monkeypatch, cap
     monkeypatch.setattr(killcmd, "kill_all", lambda **k: (1, ["acp (pid 7)"]))
     assert killcmd.main(["--quiet"]) == 1
     assert "acp (pid 7)" in capsys.readouterr().err
+
+
+def test_help_and_unknown_flags_do_not_kill_anything(monkeypatch, capsys):
+    called = []
+    monkeypatch.setattr(killcmd, "kill_all", lambda quiet=False: called.append(quiet) or (0, []))
+    for argv in (["--help"], ["--bogus"]):
+        with pytest.raises(SystemExit):
+            killcmd.main(argv)
+    assert called == []

@@ -7,6 +7,7 @@ unrelated process whose arguments looked alike. Exit status is 1 when something 
 """
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 import subprocess
@@ -70,7 +71,9 @@ def _sweep() -> object:
 def main(argv: list[str]) -> int:
     """Runs `hal kill [--quiet]`; returns the exit status."""
     logging.basicConfig(level=logging.WARNING, format="%(message)s", stream=sys.stderr)
-    quiet = "--quiet" in argv
+    ap = argparse.ArgumentParser(prog="hal kill", description="Stop every Hal process, unit and box.")
+    ap.add_argument("--quiet", action="store_true", help="no desktop notification")
+    quiet = ap.parse_args(argv).quiet  # an unknown flag or --help must never reach the kill below
     stopped, left = kill_all(quiet=quiet)
     if left:
         print("Hal is still running: " + ", ".join(left), file=sys.stderr)
