@@ -14,6 +14,9 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
+from halagent.assistant import AssistantOptions
+from halagent.assistant.claims import ClaimsCheck
+from halagent.assistant.prompts import PROFILE_CHARS, system_prompt
 from halagent.backends import BrokerBackend, ToolBackend, ToolSpec
 from halagent.budget import (
     FREE_TOOLS,
@@ -129,7 +132,12 @@ class Agent:
         on_update: Callable[[dict], None] | None = None,
         profile: Profile | None = None,
         permission: PermissionFn | None = None,
+        assistant: AssistantOptions | None = None,
     ) -> None:
+        self.assistant = assistant
+        self.claims = (
+            ClaimsCheck(has_tools=bool(settings.broker)) if assistant and assistant.claims_check else None
+        )
         self.mode = "auto"  # or "review": gated tools call `permission` first
         self.permission = permission
         self._remembered: dict[str, str] = {}  # tool name -> allow_always or reject_always
@@ -153,9 +161,13 @@ class Agent:
         self.backend: ToolBackend | None = None
         self._mcp_tools: dict[str, dict] = {}  # offered host tools: name -> MCP-style tool
         self._hidden: dict[str, ToolSpec] = {}  # listed but kept behind `hal_find_tools`
+        self._profile_text = ""
         if settings.broker:
             self.backend = BrokerBackend(settings.broker)
-            self._offer_listed(self.backend.list_tools())
+            listed = self.backend.list_tools()
+            self._offer_listed(listed)  # the assistant offers none up front: tools are chosen per turn
+            if assistant and any(t.name == "memory_profile" for t in listed):
+                self._profile_text = self._fetch_profile()
         self.session = session
         self.turn = 0
         self._next_i = 0
@@ -229,6 +241,8 @@ class Agent:
     def _offer_listed(self, listed: list[ToolSpec]) -> None:
         """Offers the broker's listed tools up to the profile's `max_tools_hint`; the rest wait."""
         room = max(0, int(self.profile.values.get("max_tools_hint", 12)) - len(self.toolset.tools) - 1)
+        if self.assistant:
+            room = 0
         for spec in listed:
             if spec.name in self.toolset.tools:
                 continue
@@ -236,6 +250,27 @@ class Agent:
                 self._mcp_tools[spec.name] = _as_mcp(spec)
             else:
                 self._hidden[spec.name] = spec
+
+    def _fetch_profile(self) -> str:
+        """The user's memory profile through the broker, cut to `PROFILE_CHARS`; empty when unavailable."""
+        assert self.backend is not None
+        out = self.backend.call("memory_profile", {})
+        return out.text[:PROFILE_CHARS] if out.status == "ok" else ""
+
+    def _select_for_turn(self, user_text: str) -> None:
+        """Offers the broker's best `tools_per_turn` tools for this user message (REQ-AGT-52)."""
+        assert self.assistant and self.backend
+        for name in list(self._mcp_tools):
+            self._hidden[name] = ToolSpec(
+                name, self._mcp_tools[name]["description"], self._mcp_tools[name]["inputSchema"]
+            )
+        self._mcp_tools.clear()
+        for spec in self.backend.find_tools(user_text, self.assistant.tools_per_turn)[
+            : self.assistant.tools_per_turn
+        ]:
+            if spec.name not in META_NAMES:
+                self._mcp_tools[spec.name] = _as_mcp(spec)
+                self._hidden.pop(spec.name, None)
 
     def _find_tools(self, args: dict) -> str:
         """The agent's `hal_find_tools`: asks the broker, ranks hidden tools, offers what it found."""
@@ -286,6 +321,12 @@ class Agent:
         return offered
 
     def _system_prompt(self) -> str:
+        if self.assistant:
+            return system_prompt(
+                user=self.assistant.user_name, persona=self.assistant.persona,
+                channel=self.assistant.channel, timezone=self.assistant.timezone,
+                has_tools=self.backend is not None, profile=self._profile_text,
+            )  # fmt: skip
         task = "finish" in self.toolset.tools
         lines = ""
         if self.settings.tool_format == "prompt":
@@ -348,12 +389,15 @@ class Agent:
         self.cancel.clear()
         self.turn += 1
         self.note.task = prompt
+        if self.assistant and self.backend:
+            self._select_for_turn(prompt)
         self._add({"role": "user", "content": prompt})
         budget = Budget(s.max_tool_calls, s.max_turns, float(s.max_wall_s))
         clock, dog = BudgetClock(budget), Watchdog(budget)
         turns = nudges = 0
         text = ""
         task_mode = "finish" in self.toolset.tools
+        retried = False
         while True:
             if self.cancel.is_set():
                 return RunResult(text, "cancelled", turns, clock.calls_used)
@@ -388,7 +432,14 @@ class Agent:
             calls = list(reply.tool_calls)
             if not calls:
                 calls, text = self._leaked_calls(text, turns)
-            if text and native:
+            if self.claims and not calls:
+                verdict = self.claims.decide(text, tools_run=clock.calls_used, retried=retried)
+                if verdict.action == "retry":
+                    retried = True  # the held reply is dropped from history and never shown
+                    self._add({"role": "system", "content": verdict.system_message})
+                    continue
+                text = verdict.text
+            if text and native and (not self.claims or calls == [] or self.claims.releasable(text)):
                 self.on_event("text", text)
                 self.on_update({"kind": "text", "text": text})
             if not calls:

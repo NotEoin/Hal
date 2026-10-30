@@ -15,6 +15,7 @@ from pathlib import Path
 
 from halagent import acp, boot, doctor, headless
 from halagent.agentfile import AgentFileError, load_agent_file
+from halagent.assistant import AssistantOptions, build_assistant
 from halagent.loop import Agent
 from halagent.mcp.lite import McpError
 from halagent.profiles import SHIPPED, Profile, ProfileError, load_catalogue, resolve_profile
@@ -25,6 +26,12 @@ from halagent.tools import Toolset, Workspace
 from halkit import config, log, paths
 
 EXIT_OK, EXIT_LIMIT, EXIT_CONFIG = 0, 1, 2
+
+
+def _echo_tool(kind: str, text: str) -> None:
+    """Prints tool calls to stderr as they happen."""
+    if kind == "tool":
+        print(f"[{kind}] {text[:200]}", file=sys.stderr)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -48,6 +55,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--config", metavar="FILE", help="agent.json run file written by the host (03-agent 3.16.3)"
     )
+    p.add_argument("--toolset", choices=("coding", "assistant"), help="tools to offer (default: coding)")
     p.add_argument("--acp", action="store_true", help="serve the Agent Client Protocol on stdio")
     p.add_argument("--resume", metavar="ID", help="continue a stored session")
     p.add_argument("--continue", dest="cont", action="store_true", help="continue the latest session here")
@@ -100,24 +108,39 @@ def main(argv: list[str] | None = None) -> int:
         settings = load_settings(cli=cli)
         if run_file:  # the host's resolved values win over config files; explicit flags win over both
             settings = replace(run_file.to_settings(task=bool(args.prompt)), **{k: v for k, v in cli.items()})
+        if run_file and args.toolset and args.toolset != run_file.toolset:
+            raise ValueError(f"--toolset {args.toolset} conflicts with the toolset in {args.config}")
+        toolset = run_file.toolset if run_file else (args.toolset or "coding")
+        assistant = run_file.assistant_options() if run_file else AssistantOptions()
         profile = run_file.profile() if run_file else None
         first_sid = run_file.session_id if run_file else ""
         root = Path(args.workspace).resolve()
         resumed = _pick_session(args, store, root)
         user_skills = tuple(d for d in (paths.config_dir() / "skills",) if d.is_dir())
         if args.acp:
-            return _serve_acp(args, settings, store, root, profile, run_file.extra_prompt if run_file else "")
+            return _serve_acp(args, settings, store, root, profile, run_file.extra_prompt if run_file else "",
+                              toolset, assistant)  # fmt: skip
         writer = None if args.no_session else boot.open_writer(store, resumed, root, settings, first_sid)
-        agent = Agent(
-            settings,
-            Toolset(Workspace(root, readonly=user_skills), task_mode=bool(args.prompt)),
-            session=writer,
-            system_extra=boot.join(boot.prompt_extras(root), run_file.extra_prompt if run_file else ""),
-            profile=profile,
-            on_event=lambda kind, text: (
-                print(f"[{kind}] {text[:200]}", file=sys.stderr) if kind == "tool" else None
-            ),
-        )
+        extra = run_file.extra_prompt if run_file else ""
+        if toolset == "assistant":
+            agent = build_assistant(
+                settings,
+                assistant,
+                root,
+                session=writer,
+                system_extra=extra,
+                profile=profile,
+                on_event=_echo_tool,
+            )
+        else:
+            agent = Agent(
+                settings,
+                Toolset(Workspace(root, readonly=user_skills), task_mode=bool(args.prompt)),
+                session=writer,
+                system_extra=boot.join(boot.prompt_extras(root), extra),
+                profile=profile,
+                on_event=_echo_tool,
+            )
     except (config.ConfigError, ValueError, McpError, SessionError, AgentFileError) as exc:
         print(f"hal-agent: {exc}", file=sys.stderr)
         return EXIT_CONFIG
@@ -145,11 +168,14 @@ def _serve_acp(
     root: Path,
     profile: Profile | None,
     extra: str,
+    toolset: str = "coding",
+    assistant: AssistantOptions | None = None,
 ) -> int:
     """Serves ACP on stdin and stdout (stdout carries only protocol messages)."""
     acp.serve(
         settings, root, sys.stdin, sys.stdout,
         store=store, no_session=args.no_session, profile=profile, extra=extra,
+        toolset=toolset, assistant=assistant,
     )  # fmt: skip
     return EXIT_OK
 

@@ -17,6 +17,7 @@ does not create a box itself: it is boxed only when `hal` (06-core-cli) starts i
 | `hal-agent -p TASK` | Runs one task and exits; `-p -` reads the task from stdin |
 | `hal-agent -p TASK --json` | Prints one result object; `--stream-json` prints one object per line |
 | `hal-agent --acp` | Serves the Agent Client Protocol on stdin and stdout |
+| `hal-agent --toolset assistant` | Offers host tools from the broker only, no file or shell tools (with `--config`, the file's toolset wins and a different flag is an error) |
 | `hal-agent --config FILE` | Takes endpoint, model, broker, budgets and profile from a host-written `agent.json` |
 | `hal-agent profiles list` / `profiles show MODEL` | Lists model families, or prints the resolved profile with the source of each value |
 | `hal-agent sessions [list]` | Lists stored sessions (`--cwd DIR`, `--all`, `--limit N`) |

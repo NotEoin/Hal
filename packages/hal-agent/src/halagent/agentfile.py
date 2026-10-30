@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from halagent.assistant import AssistantOptions
 from halagent.profiles import KEYS as PROFILE_KEYS
 from halagent.profiles import Profile
 from halagent.settings import AgentSettings
@@ -136,6 +137,26 @@ class AgentFile:
     def permissions(self) -> str:
         """`auto` or `review`."""
         return str(self.data["permissions"])
+
+    @property
+    def toolset(self) -> str:
+        """`coding` or `assistant`."""
+        return str(self.data["toolset"])
+
+    def assistant_options(self) -> AssistantOptions:
+        """The `assistant` table and the channel as options for `build_assistant`."""
+        a = self.data["assistant"]
+        return AssistantOptions(
+            channel=str(self.data["channel"]) or "chat",
+            user_name=str(a["user_name"]),
+            persona=str(a["persona"]),
+            timezone=str(a["timezone"]),
+            tools_per_turn=int(a["tools_per_turn"]),
+            max_tool_rounds=int(a["max_tool_rounds"]),
+            history_turns=int(a["history_turns"]),
+            claims_check=bool(a["claims_check"]),
+            log_conversation=bool(a["log_conversation"]),
+        )
 
     def profile(self) -> Profile:
         """The profile the host resolved, so the box never reads a profile file."""

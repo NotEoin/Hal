@@ -12,6 +12,7 @@ How `packages/hal-agent` is put together and how to change it. The requirements 
 | `backends.py` | `ToolBackend` protocol and `BrokerBackend`; maps `_meta.hal.status` to `ok`, `error`, `denied`, `unavailable` |
 | `mcp/lite.py` | Stdlib MCP client for the broker (4 MiB line cap) |
 | `profiles/` | Shipped `model-profiles.toml` and the strict resolver |
+| `assistant/` | Assistant toolset: `build_assistant()`, ported prompts, `ClaimsCheck` (REQ-AGT-51), per-turn broker tool choice (REQ-AGT-52) |
 | `agentfile.py` | Strict `agent.json` (schema 1) loader and its mapping to `AgentSettings` |
 | `settings.py` | `[agent]` table, `AgentSettings`, `map_brain()` |
 | `context.py`, `budget.py`, `repair/` | Masking and compaction, budgets and watchdog, leaked-call parsers and argument repair |
@@ -47,9 +48,11 @@ it in `server.model_list_requests`. Keep both autouse fixtures in `tests/conftes
 Unverified items and gaps against the design, so a reader does not assume them:
 
 - Anthropic and Responses providers, token counting endpoint, `messages.py` and `events.py`.
-- User MCP servers on the SDK, `--toolset`, vendored ACP schema and conformance tests, path
+- User MCP servers on the SDK, vendored ACP schema and conformance tests, path
   mapping between host and box, the `notice` sent when a boxed agent has no transcript path.
-- The assistant toolset, evaluation (steps 36 to 40).
+- Assistant: the claims check runs on whole completions, not on a token stream, so a voice client
+  hears the reply only after the round ends; `history_turns` is not applied (the context manager
+  trims instead). Evaluation (steps 37 to 40) is not built.
 - Directive I1 (always boxed): the box and its `/scratch` come from 02-sandbox and halcore; this
   package only runs inside one when `hal` starts it so.
 - Nothing has run against a real llama-server, Ollama, gateway or docker.

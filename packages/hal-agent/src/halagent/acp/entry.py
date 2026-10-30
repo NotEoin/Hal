@@ -11,6 +11,7 @@ from typing import IO
 
 from halagent import boot
 from halagent.acp.server import AcpServer
+from halagent.assistant import AssistantOptions, build_assistant
 from halagent.loop import Agent
 from halagent.profiles import Profile
 from halagent.sessions import SessionError, SessionStore
@@ -29,6 +30,8 @@ def serve(
     no_session: bool = False,
     profile: Profile | None = None,
     extra: str = "",
+    toolset: str = "coding",
+    assistant: AssistantOptions | None = None,
 ) -> None:
     """Serves ACP on the two text streams until `rfile` closes; stdout of a process carries only protocol."""
     store = store or SessionStore(paths.state_dir() / "sessions")
@@ -36,6 +39,11 @@ def serve(
 
     def factory(cwd: Path, sid: str, on_update: Callable[[dict], None], session=None) -> Agent:  # noqa: ANN001 - a record sink or None
         writer = session or (None if no_session else boot.open_writer(store, "", cwd, settings, sid))
+        if toolset == "assistant":  # no project instructions, skills or coding tools (REQ-AGT-102)
+            return build_assistant(
+                settings, assistant or AssistantOptions(), cwd,
+                session=writer, on_update=on_update, profile=profile, system_extra=extra,
+            )  # fmt: skip
         return Agent(
             settings,
             Toolset(Workspace(cwd, readonly=user_skills)),

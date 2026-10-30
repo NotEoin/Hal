@@ -50,7 +50,7 @@ class Toolset:
 
     def __init__(
         self, workspace: Workspace | Path | str, *, task_mode: bool = False, with_run: bool = True,
-        syntax_guard: bool = True,
+        syntax_guard: bool = True, coding: bool = True,
     ) -> None:  # fmt: skip
         self.workspace = workspace if isinstance(workspace, Workspace) else Workspace(Path(workspace))
         ws = self.workspace
@@ -80,4 +80,5 @@ class Toolset:
             for r in rows
             if r["name"] not in skip
         ]
-        self.tools: dict[str, Tool] = {t.name: t for t in tools}
+        # the assistant toolset offers no coding tool (REQ-AGT-102)
+        self.tools: dict[str, Tool] = {t.name: t for t in tools} if coding else {}
