@@ -164,7 +164,7 @@ if [ "$BACKEND" = "llamacpp" ]; then
        exit 1 ;;
   esac
   export ANTHROPIC_BASE_URL="$LLAMA_URL"
-  # hal-route.py rewrites the requests of these modes; see MODES.md
+  # hal-route.py rewrites the requests of these modes; see docs/user/modes.md
   case "$SERVE_MODE" in
     combined|hybrid-auto*|orchestrate*)
       export ANTHROPIC_BASE_URL="${HAL_ROUTE_URL:-http://127.0.0.1:8079}" ;;

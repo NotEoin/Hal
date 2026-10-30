@@ -222,7 +222,7 @@ mode, `hal-serve` unloads any Ollama model still holding VRAM.
 
 With gpu-light installed, `hal-serve` also claims the GPU light before it loads a mode, and
 waits up to 2 minutes for background GPU jobs to leave; `hal stop` releases the claim. See
-[SETUP.md](SETUP.md#sharing-the-gpu-with-background-jobs).
+[SETUP.md](../../SETUP.md#sharing-the-gpu-with-background-jobs).
 
 ## Measurements
 

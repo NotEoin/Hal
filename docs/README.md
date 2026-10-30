@@ -9,6 +9,8 @@ written.
 | --- | --- |
 | [design/README.md](design/README.md) | Index of the design specs |
 | [user/agent.md](user/agent.md) | The `hal-agent` commands, limits from the model, host tools and exit codes |
+| [user/gateway.md](user/gateway.md) | The model gateway: listeners, commands, configuration, pinning, remote backends |
+| [user/modes.md](user/modes.md) | The llama.cpp modes: what each runs, how to switch, measurements |
 | [user/security.md](user/security.md) | What Hal protects you from, the lockdown and paranoia tables, and which paths are not private |
 | [user/tui.md](user/tui.md) | The terminal UI of `hal code` and `hal chat`: what it shows, approvals, slash commands |
 | [user/sandbox.md](user/sandbox.md) | The box: lockdown levels, what it sees, getting changes out, checkpoints |
@@ -20,6 +22,10 @@ written.
 | [howto/use-the-agent-from-an-editor-over-acp.md](howto/use-the-agent-from-an-editor-over-acp.md) | How to run `hal-agent --acp` for an editor and use review mode |
 | [howto/run-an-agent-cli-in-the-box.md](howto/run-an-agent-cli-in-the-box.md) | How to run claude, qwen, opencode, codex, crush or goose in the box with `hal box` |
 | [howto/undo-agent-changes.md](howto/undo-agent-changes.md) | How to review, reject or roll back what an agent changed |
+| [howto/connect-a-harness-to-the-gateway.md](howto/connect-a-harness-to-the-gateway.md) | How to point a harness at the local gateway with a client token |
+| [howto/run-a-second-hal-install.md](howto/run-a-second-hal-install.md) | How to run two gateways side by side with separate state, ports and claim names |
+| [howto/add-a-cloud-backend.md](howto/add-a-cloud-backend.md) | How to opt in to an https cloud backend and who may reach it |
+| [howto/pin-a-model.md](howto/pin-a-model.md) | How to pin an Ollama model or a weight file in `models.toml` |
 | [howto/install-gvisor.md](howto/install-gvisor.md) | How to register runsc with `--host-uds=open` so the box can use gVisor |
 | [howto/prepare-project-dependencies.md](howto/prepare-project-dependencies.md) | How to install project dependencies with `hal-sandbox deps` |
 | [howto/use-hal-in-zed.md](howto/use-hal-in-zed.md) | How to run the boxed agent from Zed or another ACP editor with `hal acp` |

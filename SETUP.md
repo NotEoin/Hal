@@ -16,7 +16,7 @@ hal-ecosystem/
 
 - **A coding model** for Claude Code: on `24gb` and `12gb` a model served by Ollama with a 32K
   context (Qwen3.8-27B or Gemma 4 12B); on `max` three models through llama.cpp (see
-  [MODES.md](MODES.md)); on `cloud`, Claude Code with your own login.
+  [Modes](docs/user/modes.md)); on `cloud`, Claude Code with your own login.
 - **A chat brain**: a smaller model that answers in `hal chat`, the voice and Telegram, and calls the
   tools of your extensions.
 - **`~/.config/hal/config.toml`**: the settings every part of Hal shares.
@@ -107,7 +107,7 @@ directory. Put that directory on a large drive:
 Downloads resume where they stopped if you re-run setup. `hal.conf` records the directory
 as `HAL_MODELS_DIR`, and the default mode as `HAL_MODE`.
 
-**-> Modes, switching, and the measurements behind each model: [MODES.md](MODES.md)**
+**-> Modes, switching, and the measurements behind each model: [Modes](docs/user/modes.md)**
 
 ## Sharing the GPU with background jobs
 

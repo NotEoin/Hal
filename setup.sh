@@ -14,7 +14,7 @@
 #   ./setup.sh --profile cloud -y  fully non-interactive
 #   ./setup.sh --models-dir /mnt/big/hal-models   where the max profile keeps its GGUFs
 #
-#   max    Three models through llama.cpp, five modes (see MODES.md). 24GB VRAM + 64GB RAM.
+#   max    Three models through llama.cpp, five modes (see docs/user/modes.md). 24GB VRAM + 64GB RAM.
 #   24gb   Qwen3.8-27B locally. Best local quality; needs ~20GB of VRAM.
 #   12gb   Gemma 4 12B locally. Fits a 4070/3060-class card, still fully private.
 #   cloud  No local coding model — plain Claude Code with your own login. Any machine.
@@ -354,7 +354,7 @@ HAL_NUM_CTX="$NUM_CTX"
 HAL_OLLAMA_URL="http://localhost:11434"
 $(if [ "$PROFILE" = "max" ]; then cat <<MAX
 
-# max profile: models served by a llama.cpp router, in one of five modes (see MODES.md).
+# max profile: models served by a llama.cpp router, in one of five modes (see docs/user/modes.md).
 # HAL_MODE is the default; 'hal mode <name>' picks another for one launch.
 HAL_BACKEND="llamacpp"
 HAL_MODE="gpu"

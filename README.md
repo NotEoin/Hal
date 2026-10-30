@@ -166,7 +166,7 @@ Qwen3.8-27B on the GPU (`gpu`, 80 tokens/s), the 177B Qwen3.8-Flash-Next-Coder i
 the 177B Qwen3.8-Flash-Next split across both (`hybrid`, 25 tokens/s, or `hybrid-256k` for its full
 context), or `combined`, where a small classifier sends each request to the RAM model or the GPU model
 and the RAM model delegates its edits to GPU subagents.
-**→ Modes, measurements and quantisation choices: [MODES.md](MODES.md)**
+**-> Modes, measurements and quantisation choices: [Modes](docs/user/modes.md)**
 
 The chat brain was picked with `hal eval`; run it with `--model` a few times to compare your own
 candidates, and set the winner as `chat_model` in `~/.config/hal/config.toml`.

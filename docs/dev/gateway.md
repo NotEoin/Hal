@@ -332,6 +332,9 @@ re-reads it on a changed mtime or inode. `[gateway].url` must be `http://127.0.0
   returns a `config.toml`-shaped dict (`[gateway.backends.local]` `server`, `models_dir`, `mode`,
   `port` from `HAL_LLAMA_URL`, and `[hal].ollama_url`). A non-loopback `HAL_LLAMA_URL` raises
   `LegacyImportError`. Nothing calls it yet: `hal configure` (design 06) will show and write it.
-- Not built: the user docs and how-tos (plan step 27), the launcher
+- User docs: `docs/user/gateway.md`, `docs/user/modes.md` (the former root `MODES.md`, moved
+  unchanged except one link; its `hal-serve` sections describe the old router until plan step 29)
+  and four how-tos. They mark the live behaviour unverified.
+- Not built: the launcher
   switch and removal of `hal-serve` (28, 29), and the docker launcher (30). sha256 values and
   commit pins are left for the maintainer.
