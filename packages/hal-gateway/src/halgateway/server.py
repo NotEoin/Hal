@@ -146,12 +146,20 @@ class Gateway:
         self.tcp: LoopbackHTTPServer | None = None
         self._threads: list[threading.Thread] = []
 
+    def router_entry(self) -> Mapping[str, object]:
+        """The first `llama-router` backend entry, or an empty mapping."""
+        return next((e for e in self.cfg.backends.values() if e.get("type") == "llama-router"), {})
+
+    def models_dir(self) -> Path:
+        """The router's model directory (`@MODELS@`); the current directory when unset."""
+        configured = str(self.router_entry().get("models_dir") or "")
+        return Path(configured).expanduser() if configured else Path()
+
     def load_models(self) -> None:
         """Reads `models.toml`; a missing file is an empty manifest, an invalid one raises `StartError`."""
         configured = str(self.config["models_file"])
         path = Path(configured).expanduser() if configured else paths.config_dir() / "models.toml"
-        routers = [str(e["models_dir"]) for e in self.cfg.backends.values() if e.get("models_dir")]
-        models_dir = Path(routers[0]).expanduser() if routers else Path()
+        models_dir = self.models_dir()
         if not path.exists():
             log.warning("no model manifest at %s; Ollama requests answer 503 model_unverified", path)
             return

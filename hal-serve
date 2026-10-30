@@ -139,7 +139,8 @@ start_router() {
     mkdir -p "$STATE_DIR"
     mkdir -p "$STATE_DIR/slots"
     rendered="$STATE_DIR/$mode.ini"
-    sed -e "s|@MODELS@|$MODELS_DIR|g" -e "s|@HAL@|$GATEWAY_PKG|g" -e "s|@STATE@|$STATE_DIR|g" \
+    # the [hal] block (up to [*]) configures the gateway, not llama-server, so it is dropped here
+    sed -e '/^\[hal\]$/,/^\[\*\]$/{/^\[\*\]$/!d}' -e "s|@MODELS@|$MODELS_DIR|g" -e "s|@HAL@|$GATEWAY_PKG|g" -e "s|@STATE@|$STATE_DIR|g" \
       "$template" > "$rendered"
     # The swap modes hold one model at a time, and only hal-route.py may load the other
     router_args=(--models-max 3)

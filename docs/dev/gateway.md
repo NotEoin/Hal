@@ -111,3 +111,20 @@ Each `GatewayError` subclass owns one HTTP status. `error_body(err, fmt)` render
 - `verify(full=False)` re-hashes only files whose size, mtime or inode changed since the last
   verified state; `full=True` re-hashes all. `ollama:` entries are checked on each request.
 - `add_local` and `record_ollama` pin trust; the CLI must show and ask before calling them.
+
+## Mode presets (`modes`, `modes/`)
+
+- `halgateway/modes/` holds the ten INI modes, the prompt and template files, `effort-xhigh.txt`
+  and `SHA256SUMS` (the bundled files a preset may reference as a chat template). A file of the
+  same name in `[router].modes_dirs` wins.
+- Each mode has a `[hal]` block before `[*]` (keys in the design). `hal-serve` drops that block
+  with `sed` until the gateway renders modes itself; `hal-gateway render MODE` does it and
+  checks the mode first.
+- `render_mode` refuses a mode that sets a denied key (`host`, `api-key`, `tools`, `hf-repo`,
+  any `*-default`, ...), names a weight file the manifest does not pin or whose sha256 differs,
+  names a pickle format, or uses a `chat-template-file` that is neither bundled (name and hash in
+  `SHA256SUMS`) nor pinned by `template_sha256` on one of the preset's models. Nothing is written
+  when a check fails. Only the first shard of a split GGUF is hashed.
+- `hal-gateway modes` lists modes; `hal-gateway render MODE` prints the path, the sha256 and the
+  context window (exit 4 when refused).
+- Tokens: `@MODELS@`, `@HAL@` (the `halgateway` directory), `@MODES@`, `@STATE@`.
