@@ -1,60 +1,8 @@
-"""python3 -m halcore <command>: the Python half of the `hal` launcher."""
+"""python3 -m halcore <command>: the Python half of the `hal` launcher; see `halcore.cli`."""
+
 import sys
 
-
-def main() -> int:
-    cmd, rest = (sys.argv[1], sys.argv[2:]) if len(sys.argv) > 1 else ("chat", [])
-    if cmd == "chat":
-        from .chat import main as run
-    elif cmd in ("-p", "--print"):
-        from .headless import main as run
-    elif cmd == "acp":
-        from .acpcmd import main as run
-    elif cmd in ("lockdown", "paranoia"):
-        from .levels import main as run
-
-        return run([cmd, *rest])
-    elif cmd == "jobs":
-        from .deepwork import main as run
-    elif cmd == "sessions":
-        from .sessionscmd import main as run
-    elif cmd == "ext":
-        from .ext import main as run
-    elif cmd == "eval":
-        from .evaluate import main as run
-    elif cmd == "console":
-        from .console import main as run
-    elif cmd == "units":
-        from .units import main as run
-    elif cmd == "configure":
-        from .configure import main as run
-    elif cmd == "power":
-        from .power import main as run
-    elif cmd == "code":
-        from .code import main as run
-    elif cmd == "scratch":
-        from .scratch import main as run
-    elif cmd == "security":
-        from .security import main as run
-    elif cmd in ("policy", "audit"):
-        from .policycli import main as run
-
-        return run([cmd, *rest])
-    elif cmd == "guard":
-        from .guardcli import main as run
-    elif cmd in ("approvals", "approve", "deny"):
-        from halhub.cli import main as hub_main
-
-        return hub_main([cmd, *rest]) or 0
-    elif cmd == "kill":
-        from .killcmd import main as run
-    elif cmd == "gpulight":
-        from .gpulight import main as run
-    else:
-        print(f"halcore: unknown command {cmd}", file=sys.stderr)
-        return 2
-    return run(rest) or 0
-
+from .cli import main
 
 if __name__ == "__main__":
     sys.exit(main())
