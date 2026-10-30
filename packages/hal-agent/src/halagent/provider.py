@@ -11,12 +11,13 @@ import json
 import logging
 import socket
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from halagent.messages import Done, StreamItem
 from halkit import paths
 
 log = logging.getLogger("halagent.provider")
@@ -221,6 +222,22 @@ class ChatProvider:
 
     def _decode(self, resp: http.client.HTTPResponse) -> Completion:
         return self._read_stream(resp) if self.stream else self._parse(json.loads(resp.read()))
+
+    @staticmethod
+    def _collect(items: Iterable[StreamItem]) -> Completion:
+        """Folds a stream reader's items into the loop's `Completion`; reasoning is not kept."""
+        for item in items:
+            if isinstance(item, Done):
+                reply = item.completion
+                msg = reply.message
+                return Completion(
+                    text=msg.content or "",
+                    tool_calls=[(c.id, c.name, json.dumps(c.arguments)) for c in msg.tool_calls],
+                    finish=reply.finish,
+                    prompt_tokens=reply.usage.prompt_tokens,
+                    completion_tokens=reply.usage.completion_tokens,
+                )
+        raise ProviderError("stream ended without a finished reply")
 
     def _once(self, path: str, payload: str, headers: dict[str, str]) -> Completion:
         """One request. Only a failure before any reply text is a `ProviderError` worth retrying."""

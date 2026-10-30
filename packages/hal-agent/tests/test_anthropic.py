@@ -6,7 +6,7 @@ import pytest
 
 from halagent.anthropic import AnthropicProvider, convert_messages
 from halagent.loop import Agent
-from halagent.provider import make_provider
+from halagent.provider import ProviderError, make_provider
 from halagent.settings import AgentSettings
 from halagent.tools import Toolset
 from halkit.testing.model_server import Reply
@@ -49,9 +49,47 @@ def test_unknown_role_is_rejected():
         convert_messages([{"role": "narrator", "content": "x"}])
 
 
-def test_stream_is_refused_for_anthropic():
-    with pytest.raises(ValueError, match="stream"):
-        AnthropicProvider("http://127.0.0.1:1", "m", stream=True)
+def _lines(events):
+    out = []
+    for name, data in events:
+        out += [f"event: {name}\n".encode(), f"data: {json.dumps(data)}\n".encode(), b"\n"]
+    return out
+
+
+def test_streamed_reply_is_collected_into_a_completion_for_anthropic():
+    p = AnthropicProvider("http://127.0.0.1:1", "m", stream=True)
+    done = p._decode(
+        _lines(
+            [
+                ("message_start", {"type": "message_start", "message": {"usage": {"input_tokens": 3}}}),
+                (
+                    "content_block_delta",
+                    {
+                        "type": "content_block_delta",
+                        "index": 0,
+                        "delta": {"type": "text_delta", "text": "hi"},
+                    },
+                ),
+                (
+                    "message_delta",
+                    {
+                        "type": "message_delta",
+                        "delta": {"stop_reason": "end_turn"},
+                        "usage": {"output_tokens": 2},
+                    },
+                ),
+                ("message_stop", {"type": "message_stop"}),
+            ]
+        )
+    )
+    assert (done.text, done.finish, done.prompt_tokens, done.completion_tokens) == ("hi", "stop", 3, 2)
+    assert p._body([{"role": "user", "content": "x"}], None)["stream"] is True
+
+
+def test_truncated_stream_fails_loudly_for_anthropic():
+    p = AnthropicProvider("http://127.0.0.1:1", "m", stream=True)
+    with pytest.raises(ProviderError, match="stream"):
+        p._decode(_lines([]))
 
 
 def test_unsupported_api_name_is_refused():

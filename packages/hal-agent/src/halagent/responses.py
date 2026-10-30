@@ -2,7 +2,7 @@
 
 The loop keeps its history in Chat Completions shape; this provider converts it to Responses
 input items (`store: false`, the full input each time) and the reply back. Constraints:
-non-streaming only, so a `stream` request fails loudly; reasoning items are not replayed yet.
+streaming goes through `responses_stream`; reasoning items are not replayed yet.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from halagent.provider import ChatProvider, Completion, ProviderError
+from halagent.streaming import StreamError, iter_sse, responses_stream
 
 log = logging.getLogger("halagent.responses")
 
@@ -25,8 +26,6 @@ class ResponsesProvider(ChatProvider):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        if self.stream:
-            raise ValueError("the responses api does not support stream = true yet")
         self.max_output = DEFAULT_MAX_OUTPUT
 
     def _body(self, messages: list[dict], tools: list[dict] | None) -> dict:
@@ -35,6 +34,8 @@ class ResponsesProvider(ChatProvider):
             "max_output_tokens": self.max_output, **self.extra,
             "model": self.model, "input": items, "store": False,
         }  # fmt: skip
+        if self.stream:
+            body["stream"] = True
         if instructions:
             body["instructions"] = instructions
         if tools:
@@ -42,6 +43,11 @@ class ResponsesProvider(ChatProvider):
         return body
 
     def _decode(self, resp: Any) -> Completion:
+        if self.stream:
+            try:
+                return self._collect(responses_stream(iter_sse(resp)))
+            except StreamError as exc:
+                raise ProviderError(f"bad stream: {exc}") from exc
         return self._parse(json.loads(resp.read()))
 
     @staticmethod

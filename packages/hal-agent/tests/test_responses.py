@@ -1,8 +1,11 @@
 """Tests for `halagent.responses`: input conversion and the Responses round trip on a fake server."""
 
+import json
+
 import pytest
 
 from halagent.loop import Agent
+from halagent.provider import ProviderError
 from halagent.responses import ResponsesProvider, convert_messages
 from halagent.settings import AgentSettings
 from halagent.tools import Toolset
@@ -34,9 +37,37 @@ def test_unknown_role_is_rejected():
         convert_messages([{"role": "narrator", "content": "x"}])
 
 
-def test_stream_is_refused_for_responses():
-    with pytest.raises(ValueError, match="stream"):
-        ResponsesProvider("http://127.0.0.1:1", "m", stream=True)
+def _lines(events):
+    out = []
+    for name, data in events:
+        out += [f"event: {name}\n".encode(), f"data: {json.dumps(data)}\n".encode(), b"\n"]
+    return out
+
+
+def test_streamed_reply_is_collected_into_a_completion_for_responses():
+    p = ResponsesProvider("http://127.0.0.1:1", "m", stream=True)
+    done = p._decode(
+        _lines(
+            [
+                ("response.output_text.delta", {"type": "response.output_text.delta", "delta": "hi"}),
+                (
+                    "response.completed",
+                    {
+                        "type": "response.completed",
+                        "response": {"usage": {"input_tokens": 3, "output_tokens": 2}},
+                    },
+                ),
+            ]
+        )
+    )
+    assert (done.text, done.finish, done.prompt_tokens, done.completion_tokens) == ("hi", "stop", 3, 2)
+    assert p._body([{"role": "user", "content": "x"}], None)["stream"] is True
+
+
+def test_truncated_stream_fails_loudly_for_responses():
+    p = ResponsesProvider("http://127.0.0.1:1", "m", stream=True)
+    with pytest.raises(ProviderError, match="stream"):
+        p._decode(_lines([]))
 
 
 def test_incomplete_reply_maps_to_length():

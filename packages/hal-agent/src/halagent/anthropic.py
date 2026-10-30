@@ -2,9 +2,8 @@
 
 The loop keeps its history in Chat Completions shape; this provider converts it on the way out
 (system text to `system`, tool calls to `tool_use` blocks, tool results to `tool_result` blocks
-in a user message) and the reply on the way back. Constraints: non-streaming only, because the
-streaming reader for this API is not built yet, so a `stream` request fails loudly instead of
-silently falling back; `max_tokens` is required by the API, so it defaults from the settings.
+in a user message) and the reply on the way back. Streaming goes through `anthropic_stream`.
+`max_tokens` is required by the API, so it defaults from the settings.
 """
 
 from __future__ import annotations
@@ -14,6 +13,7 @@ import logging
 from typing import Any
 
 from halagent.provider import ChatProvider, Completion, ProviderError
+from halagent.streaming import StreamError, anthropic_stream, iter_sse
 
 log = logging.getLogger("halagent.anthropic")
 
@@ -29,8 +29,6 @@ class AnthropicProvider(ChatProvider):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        if self.stream:
-            raise ValueError("the anthropic api does not support stream = true yet")
         self.max_output = DEFAULT_MAX_TOKENS
 
     def _headers(self) -> dict[str, str]:
@@ -43,6 +41,8 @@ class AnthropicProvider(ChatProvider):
     def _body(self, messages: list[dict], tools: list[dict] | None) -> dict:
         system, converted = convert_messages(messages)
         body: dict = {"max_tokens": self.max_output, **self.extra, "model": self.model, "messages": converted}
+        if self.stream:
+            body["stream"] = True
         if system:
             body["system"] = system
         if tools:
@@ -57,6 +57,11 @@ class AnthropicProvider(ChatProvider):
         return body
 
     def _decode(self, resp: Any) -> Completion:
+        if self.stream:
+            try:
+                return self._collect(anthropic_stream(iter_sse(resp)))
+            except StreamError as exc:
+                raise ProviderError(f"bad stream: {exc}") from exc
         return self._parse(json.loads(resp.read()))
 
     @staticmethod
