@@ -13,6 +13,7 @@ written.
 | [howto/connect-a-harness-to-hal-tools.md](howto/connect-a-harness-to-hal-tools.md) | How to give Claude Code or another MCP client Hal's tools, on stdio or HTTP, and answer approvals |
 | [howto/enable-local-guard.md](howto/enable-local-guard.md) | How to install, time and turn on the local prompt-injection guard |
 | [howto/write-a-tool-pack.md](howto/write-a-tool-pack.md) | How to write, install and check a tool pack with `hal-hub new` |
+| [dev/gateway.md](dev/gateway.md) | Gateway developer notes: configuration, listeners, relay, aliases, Ollama backend |
 | [dev/manifest.md](dev/manifest.md) | Tool manifest (`hal-module.toml`) reference: every table and key, placeholders, v1 rules |
 | [dev/threat-model.md](dev/threat-model.md) | Threat model: assets, adversaries, trust boundaries, threats with their mitigations, residual risks |
 | [dev/worker-protocol.md](dev/worker-protocol.md) | The JSON-lines protocol between the tool hub and a tool worker, and the v1 one-shot protocol |
