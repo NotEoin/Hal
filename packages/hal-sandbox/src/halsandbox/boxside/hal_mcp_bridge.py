@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """`hal-mcp-bridge`: splices stdin and stdout to the broker socket (02-sandbox REQ-BOX-38).
 
 Stdlib only, so it also runs as a lone file in a box image. It never writes to stdout itself: the

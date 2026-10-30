@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """`hal-relay`: a loopback TCP listener that splices each connection to a unix socket (REQ-BOX-37).
 
 Stdlib only. It does no HTTP parsing, so keep-alive, chunked bodies and SSE pass through as they

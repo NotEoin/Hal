@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """`hal-box-entry`: the box's entrypoint (02-sandbox REQ-BOX-34, REQ-BOX-36).
 
 Stdlib only; it runs as a lone file in the image and as a console script on the host. It seeds

@@ -111,6 +111,7 @@ class Session:
         *,
         kind: str = "code",
         backend: str = "auto",
+        runtime: str | None = None,
         isolated_copy: bool | None = None,
         image: str | None = None,
         approver: object = None,
@@ -141,11 +142,16 @@ class Session:
         use_copy = (kind == "code") if isolated_copy is None else isolated_copy
         if kind == "code" and not use_copy:
             policy.check_direct()
-        probe = detect.detect(cfg, policy, backend=None if backend == "auto" else backend)
+        probe = detect.detect(
+            {**cfg, "runtime": runtime or cfg["runtime"]},
+            policy,
+            backend=None if backend == "auto" else backend,
+        )
         if probe.backend == "none":
             if project is not None:
                 projects.require_none_consent(project, is_tty=lambda: interactive)
         project = project.resolve() if project else None
+        docker_path = detect.docker_binary(cfg) or "docker"
         iso = None
         if kind == "chat":
             work = paths.ensure_private_dir(paths.state_dir() / ASSISTANT_DIR)
@@ -193,7 +199,7 @@ class Session:
                 broker=broker, masked=masked, iso=iso, checkpoints=ckpt, rd=rd, lifeline=lifeline,
                 container=f"hal-{kind}-{rd.sid}", stop_timeout_s=float(limits.stop_timeout_s),
                 approver=approver, channel=channel, agent_argv=[],
-                docker=detect.docker_binary(cfg) or "docker",
+                docker=docker_path,
             )  # fmt: skip
             builder = ARGV_BUILDERS.get(probe.backend)
             if builder is None:
@@ -205,6 +211,7 @@ class Session:
                 env=box_env(kind, rd.sid, probe.backend, os.environ, extra=extra_env),
                 child=list(child_argv), pid=pid, pidstart=pidstart(pid), started=utc_now(), tty=tty,
                 git_mounts=gitlayout.discover(work) if not use_copy else (), masked=masked,
+                docker=docker_path,
                 bwrap=detect.bwrap_binary(cfg) or "bwrap",
                 scope=probe.backend == "bwrap" and user_manager_running(),
                 scratch=scratch.prepare(project or work, int(cfg["scratch_max_bytes"])),

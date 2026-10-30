@@ -7,11 +7,30 @@ from pathlib import Path
 
 import pytest
 
-from halsandbox.code import docker_args
+from halsandbox import detect, isolated
+from halsandbox.backends.docker import LaunchSpec, docker_argv
+from halsandbox.code import run_code
+from halsandbox.env import box_env
 from halsandbox.errors import SandboxError
+from halsandbox.gitlayout import discover
+from halsandbox.limits import Limits
 from halsandbox.runtime import RuntimeDir
 
 SID = "0123456789ab"
+SOCK_M, SOCK_B = "/run/hal/model.sock", "/run/hal/broker.sock"
+
+
+def docker_args(workdir, rd, *, image="hal-agent:test", runtime="runc", uid=1000, gid=1000, limits=None,
+                masked=(), scratch=None, agent_args=()):  # fmt: skip
+    """The argv `run_code` would build, with the image's own entrypoint so tests can override it."""
+    spec = LaunchSpec(
+        kind="code", sid=rd.sid, image=image, runtime=runtime, work=workdir, session_root=rd.root,
+        uid=uid, gid=gid, limits=limits or Limits(2**31, 1.0, tmp_bytes=2**28), pid=1, pidstart=1,
+        env=box_env("code", rd.sid, "docker", {}), started="2026-10-30T00:00:00Z", entrypoint=None,
+        child=["-C", "/work", "--endpoint", SOCK_M, "--broker", SOCK_B, *agent_args],
+        git_mounts=discover(workdir), masked=masked, scratch=scratch,
+    )  # fmt: skip
+    return docker_argv(spec)
 
 
 def rdir(root: Path = Path("/run/x")) -> RuntimeDir:
@@ -21,7 +40,7 @@ def rdir(root: Path = Path("/run/x")) -> RuntimeDir:
 
 def test_argv_carries_every_hardening_flag(tmp_path):
     (tmp_path / ".git").mkdir()
-    a = docker_args(tmp_path, rdir(), uid=1000, gid=1000)
+    a = docker_args(tmp_path, rdir())
     joined = " ".join(a)
     for flag in (
         "--network none",
@@ -151,6 +170,37 @@ def test_masked_files_are_bound_read_only_from_an_empty_file(tmp_path):
     a = docker_args(tmp_path, rdir(), masked=[".env", "d/k.pem"])
     assert 'type=bind,"src=/run/x/empty","dst=/work/.env",readonly' in a
     assert 'type=bind,"src=/run/x/empty","dst=/work/d/k.pem",readonly' in a
+
+
+def test_run_code_boxes_an_isolated_copy_and_cleans_up(tmp_path, monkeypatch):
+    import os
+
+    os.chmod(sockdir := Path(__import__("tempfile").mkdtemp(prefix="rc-")), 0o700)
+    log = tmp_path / "docker.log"
+    fake = tmp_path / "docker"
+    fake.write_text(f'#!/bin/sh\necho "$@" >> {log}\n[ "$1" = run ] && exit 3\nexit 0\n')
+    fake.chmod(0o755)
+    for k, v in (("HAL_DOCKER", fake), ("HAL_RUNTIME_DIR", sockdir), ("HAL_STATE_DIR", tmp_path / "st"),
+                 ("HAL_CONFIG", tmp_path / "none.toml")):  # fmt: skip
+        monkeypatch.setenv(k, str(v))
+    monkeypatch.setattr(
+        detect,
+        "detect",
+        lambda *a, **k: detect.Probe("docker", True, "runc", "rootful", "", "2026-10-30T00:00:00Z"),
+    )
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "a.py").write_text("x\n")
+    try:
+        assert run_code(project, upstream="http://127.0.0.1:1") == 3
+        run_line = [ln for ln in log.read_text().splitlines() if ln.startswith("run ")][0]
+        assert str(project) not in run_line.replace(str(tmp_path / "st"), "")
+        assert len(isolated.sessions()) == 1
+        assert not list((sockdir / "s").glob("*"))
+    finally:
+        import shutil
+
+        shutil.rmtree(sockdir, ignore_errors=True)
 
 
 def test_masked_path_that_leaves_the_work_tree_is_refused(tmp_path):
