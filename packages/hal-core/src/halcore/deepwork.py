@@ -164,8 +164,12 @@ def main(argv: list[str]) -> int:
             if not rows:
                 print("(no jobs)")
         elif cmd in ("run", "follow", "accept", "export", "worker"):
+            from . import pids
             from .jobrunner import command
 
+            if cmd in ("run", "worker"):  # the long-running ones; `hal kill` stops them
+                with pids.registered("jobs"):
+                    return command(cmd, rest)
             return command(cmd, rest)
         elif cmd == "show" and rest:
             print(json.dumps(asdict(load(rest[0])), indent=2))

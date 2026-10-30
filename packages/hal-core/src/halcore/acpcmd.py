@@ -19,6 +19,7 @@ from pathlib import Path
 from halsandbox.errors import SandboxError
 
 from . import sessions
+from . import pids
 from .acp.permissions import PermissionBridge, socket_owned_by_us
 from .acp.proxy import Proxy, ProxyFilter
 from .acp.records import RecordStore
@@ -88,7 +89,8 @@ def main(argv: list[str]) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
     opts = _parser().parse_args(argv)
     try:
-        asyncio.run(serve(opts))
+        with pids.registered("acp"):
+            asyncio.run(serve(opts))
     except SandboxError as exc:
         print(f"hal acp: {exc}", file=sys.stderr)
         return EXIT_REFUSED
