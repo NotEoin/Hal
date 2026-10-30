@@ -11,6 +11,11 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = ["hal-kit", "hal-hub"]
 
+[project.scripts]
+hal-box-entry = "halsandbox.boxside.hal_box_entry:main"
+hal-relay = "halsandbox.boxside.hal_relay:main"
+hal-mcp-bridge = "halsandbox.boxside.hal_mcp_bridge:main"
+
 [tool.uv.sources]
 hal-kit = { workspace = true }
 hal-hub = { workspace = true }
@@ -20,3 +25,4 @@ path = "src/halsandbox/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/halsandbox"]
+
