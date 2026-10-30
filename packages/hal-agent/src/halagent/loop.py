@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from halagent.mcp.lite import LiteMcpClient, McpError
 from halagent.provider import ChatProvider
 from halagent.repair import repair_call, repair_text
+from halagent.sessions import SessionWriter, replay
 from halagent.settings import AgentSettings
 from halagent.tools import ToolError, Toolset, render_error
 
@@ -54,6 +55,7 @@ class Agent:
         toolset: Toolset,
         provider: ChatProvider | None = None,
         on_event: Callable[[str, str], None] | None = None,
+        session: SessionWriter | None = None,
     ) -> None:
         self.settings = settings
         self.toolset = toolset
@@ -67,7 +69,29 @@ class Agent:
             self.mcp = LiteMcpClient(settings.broker)
             self.mcp.initialize()
             self._mcp_tools = {t["name"]: t for t in self.mcp.list_tools() if t["name"] not in toolset.tools}
-        self.messages: list[dict] = [{"role": "system", "content": self._system_prompt()}]
+        self.session = session
+        self.turn = 0
+        self._next_i = 0
+        self.messages: list[dict] = []
+        self._add({"role": "system", "content": self._system_prompt()})
+
+    def _add(self, msg: dict, **extra: object) -> None:
+        """Appends a message to the history and, with a session, to the transcript."""
+        self.messages.append(msg)
+        if self.session:
+            rec = {"type": "message", "turn": self.turn, "i": self._next_i, "msg": msg, **extra}
+            self.session.write(rec)
+        self._next_i += 1
+
+    def resume(self, records: list[dict]) -> None:
+        """Continues a stored session: replaces the history with the replayed messages."""
+        replayed = replay(records)
+        if not replayed or replayed[0].get("role") != "system":
+            raise ValueError("the stored session has no system message")
+        replayed[0] = self.messages[0]  # the current prompt wins over the stored one
+        self.messages = replayed
+        self._next_i = 1 + max((r["i"] for r in records if r["type"] == "message"), default=-1)
+        self.turn = max((r.get("turn", 0) for r in records if r["type"] == "message"), default=0)
 
     def _specs(self) -> list[dict]:
         specs = [t.spec() for t in self.toolset.tools.values()]
@@ -131,9 +155,18 @@ class Agent:
 
     def run(self, prompt: str) -> RunResult:
         """Runs one user prompt to completion or until a limit is hit."""
+        result = self._run(prompt)
+        if self.session:
+            stats = {"model_requests": result.turns, "tool_calls": result.tool_calls}
+            self.session.write({"type": "turn_end", "turn": self.turn, "stop_reason": result.stopped,
+                                "final_text": result.text, "stats": stats})  # fmt: skip
+        return result
+
+    def _run(self, prompt: str) -> RunResult:
         s = self.settings
         native = s.tool_format == "native"
-        self.messages.append({"role": "user", "content": prompt})
+        self.turn += 1
+        self._add({"role": "user", "content": prompt})
         turns = calls_made = 0
         text = ""
         while turns < s.max_turns:
@@ -146,9 +179,9 @@ class Agent:
             if text and native:
                 self.on_event("text", text)
             if not calls:
-                self.messages.append({"role": "assistant", "content": text})
+                self._add({"role": "assistant", "content": text})
                 return RunResult(text, "done", turns, calls_made)
-            self.messages.append(self._assistant_message(text if native else reply.text, calls, native))
+            self._add(self._assistant_message(text if native else reply.text, calls, native))
             for cid, name, raw in calls:
                 tool = self.toolset.tools.get(name)
                 free = bool(tool and tool.free)
@@ -157,7 +190,7 @@ class Agent:
                 calls_made += 0 if free else 1
                 self.on_event("tool", f"{name} {raw}")
                 result = self._execute(name, raw)
-                self.messages.append(self._result_message(cid, name, result, native))
+                self._add(self._result_message(cid, name, result, native))
                 if name == "finish" and not result.startswith('{"status": "error"'):
                     return RunResult(result, "finished", turns, calls_made)
         return RunResult(text, "turn_limit", turns, calls_made)

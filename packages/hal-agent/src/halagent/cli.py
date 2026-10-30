@@ -10,12 +10,14 @@ import argparse
 import sys
 from pathlib import Path
 
+from halagent import __version__
 from halagent.loop import Agent
 from halagent.mcp.lite import McpError
 from halagent.provider import ProviderError
-from halagent.settings import load_settings
+from halagent.sessions import SessionError, SessionStore, SessionWriter, check_session_id, new_session_id
+from halagent.settings import AgentSettings, load_settings
 from halagent.tools import Toolset
-from halkit import config, log
+from halkit import config, log, paths
 
 EXIT_OK, EXIT_LIMIT, EXIT_CONFIG = 0, 1, 2
 
@@ -31,6 +33,17 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--max-turns", type=int)
     p.add_argument("--max-tool-calls", type=int)
     p.add_argument("--broker", help="hub MCP socket path")
+    p.add_argument("--resume", metavar="ID", help="continue a stored session")
+    p.add_argument("--continue", dest="cont", action="store_true", help="continue the latest session here")
+    p.add_argument("--no-session", action="store_true", help="do not write a transcript")
+    p.add_argument("--sessions-dir", help="session store (default: state_dir()/sessions)")
+    sub = p.add_subparsers(dest="command")
+    ls = sub.add_parser("sessions", help="list stored sessions")
+    ls.add_argument("--all", action="store_true", help="every directory, not only this one")
+    ex = sub.add_parser("export", help="print a session as Markdown or JSONL")
+    ex.add_argument("id")
+    ex.add_argument("--format", choices=("md", "jsonl"), default="md")
+    ex.add_argument("--reasoning", action="store_true", help="include the model's reasoning")
     return p
 
 
@@ -38,6 +51,9 @@ def main(argv: list[str] | None = None) -> int:
     """Runs the CLI and returns the exit code."""
     args = _parser().parse_args(argv)
     log.setup("halagent")
+    store = SessionStore(Path(args.sessions_dir) if args.sessions_dir else paths.state_dir() / "sessions")
+    if args.command:
+        return _session_command(args, store)
     cli = {
         k: v
         for k, v in {
@@ -53,22 +69,63 @@ def main(argv: list[str] | None = None) -> int:
     }
     try:
         settings = load_settings(cli=cli)
+        root = Path(args.workspace).resolve()
+        resumed = _pick_session(args, store, root)
+        writer = None if args.no_session else _open_writer(store, resumed, root, settings)
         agent = Agent(
             settings,
-            Toolset(Path(args.workspace), task_mode=bool(args.prompt)),
+            Toolset(root, task_mode=bool(args.prompt)),
+            session=writer,
             on_event=lambda kind, text: (
                 print(f"[{kind}] {text[:200]}", file=sys.stderr) if kind == "tool" else None
             ),
         )
-    except (config.ConfigError, ValueError, McpError) as exc:
+    except (config.ConfigError, ValueError, McpError, SessionError) as exc:
         print(f"hal-agent: {exc}", file=sys.stderr)
         return EXIT_CONFIG
     try:
+        if resumed:
+            agent.resume(store.load(resumed))
         if args.prompt is not None:
             return _run_once(agent, args.prompt)
         return _repl(agent)
     finally:
         agent.close()
+        if writer:
+            writer.close()
+
+
+def _pick_session(args: argparse.Namespace, store: SessionStore, root: Path) -> str:
+    """The id to resume, or an empty string for a new session."""
+    if args.resume:
+        return check_session_id(args.resume)
+    if args.cont:
+        latest = store.latest(cwd=str(root))
+        if latest is None:
+            raise SessionError(f"no earlier session in {root}")
+        return latest.id
+    return ""
+
+
+def _open_writer(store: SessionStore, resumed: str, root: Path, settings: AgentSettings) -> SessionWriter:
+    sid = resumed or new_session_id()
+    header = {"id": sid, "agent": f"halagent {__version__}", "mode": "headless", "toolset": "coding",
+              "cwd": str(root), "model": settings.model, "api": "openai"}  # fmt: skip
+    return SessionWriter(store.path(sid), header)
+
+
+def _session_command(args: argparse.Namespace, store: SessionStore) -> int:
+    try:
+        if args.command == "sessions":
+            cwd = None if args.all else str(Path(args.workspace).resolve())
+            for info in store.list(cwd=cwd):
+                print(f"{info.id}  {info.created}  {info.model}  {info.cwd}")
+            return EXIT_OK
+        print(store.export(args.id, args.format, reasoning=args.reasoning), end="")
+        return EXIT_OK
+    except SessionError as exc:
+        print(f"hal-agent: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
 
 
 def _run_once(agent: Agent, prompt: str) -> int:
@@ -78,7 +135,7 @@ def _run_once(agent: Agent, prompt: str) -> int:
         print(f"hal-agent: {exc}", file=sys.stderr)
         return EXIT_CONFIG
     print(result.text)
-    if result.stopped != "done":
+    if result.stopped not in ("done", "finished"):
         print(f"hal-agent: stopped at {result.stopped}", file=sys.stderr)
         return EXIT_LIMIT
     return EXIT_OK
@@ -102,5 +159,5 @@ def _repl(agent: Agent) -> int:
             print(f"hal-agent: {exc}", file=sys.stderr)
             continue
         print(result.text)
-        if result.stopped != "done":
+        if result.stopped not in ("done", "finished"):
             print(f"hal-agent: stopped at {result.stopped}", file=sys.stderr)
