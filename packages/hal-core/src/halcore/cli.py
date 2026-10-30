@@ -55,6 +55,7 @@ COMMANDS: dict[str, Command] = {
     "approve": Command("halhub.cli", "approve a pending request", ("approve",)),
     "deny": Command("halhub.cli", "deny a pending request", ("deny",)),
     "gateway": Command("halgateway.cli", "model gateway admin (hal-gateway passthrough)"),
+    "box": Command("halsandbox.cli", "run an agent CLI in the box, build box images"),
     "kill": Command("killcmd", "stop everything Hal started"),
     "scratch": Command("scratch", "inspect and clean box scratchpads"),
     "security": Command("security", "security status and doctor"),

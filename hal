@@ -33,6 +33,7 @@
 #   hal serve [MODE]     max profile: start the model server without Claude Code
 #   hal stop             max profile: stop the model server
 #   hal ask|index|brief|summarize|import|obsidian-key   vault commands, from the memory extension
+#   hal box -- CLI ...   run claude, qwen, opencode, codex, crush or goose in the box
 #   hal gateway ARGS     model gateway admin (check-config, modes, token, ...)
 #   hal help             show this help
 #
@@ -47,7 +48,7 @@ halcore() { PYTHONPATH="$HALCORE_SRC${PYTHONPATH:+:$PYTHONPATH}" exec "$HAL_PYTH
 
 # ---- Commands that need neither hal.conf nor Claude Code --------------------
 case "${1:-}" in
-  -p|--print|chat|acp|jobs|lockdown|paranoia|sessions|console|eval|ext|units|configure|code|scratch|guard|policy|audit|approvals|approve|deny|gateway) halcore "$@" ;;
+  -p|--print|chat|acp|jobs|lockdown|paranoia|sessions|console|eval|ext|units|configure|code|scratch|guard|policy|audit|approvals|approve|deny|gateway|box) halcore "$@" ;;
   on|off|toggle) halcore power "$@" ;;
   kill) shift; HAL_ROOT="$HAL_ROOT" halcore kill "$@" ;;
   install) shift; halcore units install --start "$@" ;;

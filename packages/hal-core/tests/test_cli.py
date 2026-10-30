@@ -72,3 +72,9 @@ def test_gateway_passes_its_arguments_to_the_gateway_cli():
 def test_every_command_module_has_a_main():
     for command in cli.COMMANDS.values():
         assert callable(cli.load(command)), command.module
+
+
+def test_box_passes_everything_after_the_dashes_to_the_box_cli():
+    command, args = cli.resolve(["box", "--ask", "--", "crush", "--version"])
+    assert command.module == "halsandbox.cli" and args == ["--ask", "--", "crush", "--version"]
+    assert callable(cli.load(command))

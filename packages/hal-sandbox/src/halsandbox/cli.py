@@ -174,5 +174,8 @@ def box_main(argv: Sequence[str] | None = None) -> int:
         return EX_FAIL
 
 
+main = box_main  # `hal box` is dispatched to `halsandbox.cli.main` by halcore
+
+
 if __name__ == "__main__":
     raise SystemExit(sandbox_main())
