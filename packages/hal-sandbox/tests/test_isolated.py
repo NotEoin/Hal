@@ -89,7 +89,7 @@ def test_high_risk_changes_block_accept_unless_allowed(repo):
 def test_a_symlink_made_by_the_agent_is_flagged_and_never_applied(repo, tmp_path):
     iso = isolated.create(repo, CAP)
     (iso.work / "leak").symlink_to("/etc")
-    assert [c.flag for c in isolated.changes(iso)] == ["symlink"]
+    assert [c.flag for c in isolated.changes(iso)] == ["symlink_outside"]
     with pytest.raises(isolated.AcceptRefused):
         isolated.accept(iso)
     assert not (repo / "leak").exists()
@@ -145,3 +145,17 @@ def test_reject_removes_the_session(repo):
 def test_session_ids_with_path_parts_are_refused():
     with pytest.raises(SandboxError):
         isolated.load("../../etc")
+
+
+def test_a_relative_symlink_inside_the_project_is_not_high_risk(repo):
+    iso = isolated.create(repo, CAP)
+    (iso.work / "alias").symlink_to("app.py")
+    assert [c.high for c in isolated.changes(iso)] == [False]
+
+
+def test_a_medium_flag_is_reported_but_does_not_block_accept(repo):
+    iso = isolated.create(repo, CAP)
+    (iso.work / "Makefile").write_text("all:\n")
+    assert [c.flag for c in isolated.changes(iso)] == ["automation"]
+    isolated.accept(iso)
+    assert (repo / "Makefile").exists()

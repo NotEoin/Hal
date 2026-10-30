@@ -34,6 +34,7 @@ from pathlib import Path
 from halkit import fsafe, paths, proc, timeutil
 
 from . import scratch
+from .diffreport import HIGH, MODE_SYMLINK, Flag, flags_for
 from .errors import SandboxError
 
 log = logging.getLogger(__name__)
@@ -54,11 +55,6 @@ MASK_PATTERNS = (
 )
 MASK_DIRS = (".ssh", ".aws", ".gnupg")
 SKIP_DIRS = (".git", "node_modules", ".venv", "__pycache__")  # rebuilt inside the box, never worth copying
-# paths whose change can run code on the host later, so accept refuses them without allow_flags
-HIGH_RISK_PATTERNS = (
-    ".git/*", ".gitmodules", ".gitattributes", ".github/*", ".gitlab-ci.yml", ".husky/*",
-    ".envrc", ".pre-commit-config.yaml", ".vscode/tasks.json", ".claude/*", ".mcp.json", ".env", ".env.*",
-)  # fmt: skip
 PRIVATE_KEY_RE = re.compile(rb"^\+.*-----BEGIN [A-Z ]*PRIVATE KEY-----", re.M)
 _GIT_BASE = ("-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.quotepath=off")
 _IDENT = ("-c", "user.name=hal", "-c", "user.email=hal@localhost")
@@ -74,7 +70,22 @@ class Change:
 
     status: str  # A, M, D or T (type change)
     path: str
-    flag: str = ""  # empty, or the reason the change is high risk
+    flags: tuple[Flag, ...] = ()
+
+    @property
+    def flag(self) -> str:
+        """The kinds of this change's flags, comma separated; empty when it has none."""
+        return ",".join(dict.fromkeys(f.kind for f in self.flags))
+
+    @property
+    def high(self) -> bool:
+        """True when any flag is high severity."""
+        return any(f.severity == HIGH for f in self.flags)
+
+    @property
+    def high_reasons(self) -> str:
+        """The reasons of the high-severity flags, joined for an error message."""
+        return "; ".join(f.reason for f in self.flags if f.severity == HIGH)
 
 
 @dataclass(frozen=True)
@@ -256,13 +267,14 @@ def _commit_all(iso: Isolated, message: str, ref: str) -> str:
     return commit
 
 
-def _flag(path: str, mode: str, patch: bytes) -> str:
-    if mode == "120000":
-        return "symlink"
-    for pat in HIGH_RISK_PATTERNS:
-        if fnmatch.fnmatch(path, pat) or fnmatch.fnmatch(path.split("/")[-1], pat):
-            return f"touches {pat}"
-    return "private key in added lines" if PRIVATE_KEY_RE.search(patch) else ""
+def _flags(iso: Isolated, path: str, old_mode: str, new_mode: str, patch: bytes) -> tuple[Flag, ...]:
+    target = None
+    if new_mode == MODE_SYMLINK:
+        target = _git(iso.gitdir, None, "cat-file", "blob", f"refs/heads/work:{path}", cwd=iso.root).decode()
+    found = flags_for(path, old_mode, new_mode, target=target)
+    if PRIVATE_KEY_RE.search(patch):
+        found.append(Flag("secret", HIGH, "private key in added lines"))
+    return tuple(found)
 
 
 def changes(iso: Isolated) -> list[Change]:
@@ -286,7 +298,7 @@ def changes(iso: Isolated) -> list[Change]:
     while i + 1 < len(fields) and fields[i].startswith(":"):
         meta = fields[i].split()
         status, path = meta[4][0], fields[i + 1]
-        new_mode = meta[1]
+        old_mode, new_mode = meta[0][1:], meta[1]
         patch = _git(
             iso.gitdir,
             None,
@@ -299,7 +311,7 @@ def changes(iso: Isolated) -> list[Change]:
             path,
             cwd=iso.root,
         )
-        out.append(Change(status, path, _flag(path, new_mode, patch)))
+        out.append(Change(status, path, _flags(iso, path, old_mode, new_mode, patch)))
         i += 2
     return out
 
@@ -344,9 +356,9 @@ def accept(iso: Isolated, *, allow_flags: bool = False) -> list[Change]:
     apply; in the second case the patch is kept under `$STATE/patches/<sid>.patch`.
     """
     report = changes(iso)
-    flagged = [c for c in report if c.flag]
+    flagged = [c for c in report if c.high]
     if flagged and not allow_flags:
-        listing = "; ".join(f"{c.path} ({c.flag})" for c in flagged)
+        listing = "; ".join(f"{c.path} ({c.high_reasons})" for c in flagged)
         raise AcceptRefused(f"high-risk changes: {listing}; review them, then pass --allow-flags")
     if not report:
         return []
