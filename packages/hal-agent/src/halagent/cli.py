@@ -28,6 +28,11 @@ from halkit import config, log, paths
 EXIT_OK, EXIT_LIMIT, EXIT_CONFIG = 0, 1, 2
 
 
+def _notice(text: str) -> None:
+    """Prints a notice to stderr."""
+    print(f"hal-agent: {text}", file=sys.stderr)
+
+
 def _echo_tool(kind: str, text: str) -> None:
     """Prints tool calls to stderr as they happen."""
     if kind == "tool":
@@ -112,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError(f"--toolset {args.toolset} conflicts with the toolset in {args.config}")
         toolset = run_file.toolset if run_file else (args.toolset or "coding")
         assistant = run_file.assistant_options() if run_file else AssistantOptions()
+        mcp = run_file.mcp_kwargs() if run_file else {}
         profile = run_file.profile() if run_file else None
         first_sid = run_file.session_id if run_file else ""
         root = Path(args.workspace).resolve()
@@ -119,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
         user_skills = tuple(d for d in (paths.config_dir() / "skills",) if d.is_dir())
         if args.acp:
             return _serve_acp(args, settings, store, root, profile, run_file.extra_prompt if run_file else "",
-                              toolset, assistant)  # fmt: skip
+                              toolset, assistant, mcp)  # fmt: skip
         writer = None if args.no_session else boot.open_writer(store, resumed, root, settings, first_sid)
         extra = run_file.extra_prompt if run_file else ""
         if toolset == "assistant":
@@ -136,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
             agent = Agent(
                 settings,
                 Toolset(Workspace(root, readonly=user_skills), task_mode=bool(args.prompt)),
+                user_mcp=boot.start_user_mcp(root, notice=_notice, **mcp),
                 session=writer,
                 system_extra=boot.join(boot.prompt_extras(root), extra),
                 profile=profile,
@@ -170,12 +177,13 @@ def _serve_acp(
     extra: str,
     toolset: str = "coding",
     assistant: AssistantOptions | None = None,
+    mcp: dict | None = None,
 ) -> int:
     """Serves ACP on stdin and stdout (stdout carries only protocol messages)."""
     acp.serve(
         settings, root, sys.stdin, sys.stdout,
         store=store, no_session=args.no_session, profile=profile, extra=extra,
-        toolset=toolset, assistant=assistant,
+        toolset=toolset, assistant=assistant, mcp=mcp,
     )  # fmt: skip
     return EXIT_OK
 

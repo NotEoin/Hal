@@ -5,9 +5,9 @@ halcore and `hal-agent --acp` both call it, so the two paths cannot drift (03-ag
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import IO
+from typing import IO, Any
 
 from halagent import boot
 from halagent.acp.server import AcpServer
@@ -32,21 +32,26 @@ def serve(
     extra: str = "",
     toolset: str = "coding",
     assistant: AssistantOptions | None = None,
+    mcp: Mapping[str, Any] | None = None,
 ) -> None:
     """Serves ACP on the two text streams until `rfile` closes; stdout of a process carries only protocol."""
     store = store or SessionStore(paths.state_dir() / "sessions")
     user_skills = tuple(d for d in (paths.config_dir() / "skills",) if d.is_dir())
 
-    def factory(cwd: Path, sid: str, on_update: Callable[[dict], None], session=None) -> Agent:  # noqa: ANN001 - a record sink or None
+    def factory(
+        cwd: Path, sid: str, on_update: Callable[[dict], None], session=None, mcp_servers=()
+    ) -> Agent:  # noqa: ANN001 - a record sink or None
         writer = session or (None if no_session else boot.open_writer(store, "", cwd, settings, sid))
         if toolset == "assistant":  # no project instructions, skills or coding tools (REQ-AGT-102)
             return build_assistant(
                 settings, assistant or AssistantOptions(), cwd,
                 session=writer, on_update=on_update, profile=profile, system_extra=extra,
             )  # fmt: skip
+        user_mcp = boot.start_user_mcp(cwd, acp=mcp_servers, **(mcp or {}))
         return Agent(
             settings,
             Toolset(Workspace(cwd, readonly=user_skills)),
+            user_mcp=user_mcp,
             session=writer,
             system_extra=boot.join(boot.prompt_extras(cwd), extra),
             on_update=on_update,

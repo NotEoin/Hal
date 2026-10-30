@@ -34,6 +34,7 @@ from halagent.context import (
     compaction_prompt,
     render_for_summary,
 )
+from halagent.mcp.client import UserMcp
 from halagent.mcp.lite import McpError
 from halagent.profiles import Profile, resolve_profile
 from halagent.prompts import render_code_prompt
@@ -133,8 +134,12 @@ class Agent:
         profile: Profile | None = None,
         permission: PermissionFn | None = None,
         assistant: AssistantOptions | None = None,
+        user_mcp: UserMcp | None = None,
     ) -> None:
         self.assistant = assistant
+        self.user_mcp = (
+            None if assistant else user_mcp
+        )  # an assistant box starts no user server (REQ-AGT-102)
         self.claims = (
             ClaimsCheck(has_tools=bool(settings.broker)) if assistant and assistant.claims_check else None
         )
@@ -305,6 +310,10 @@ class Agent:
         for t in self._mcp_tools.values():
             fn = {"name": t["name"], "description": t.get("description", ""), "parameters": t["inputSchema"]}
             specs.append({"type": "function", "function": fn})
+        if self.user_mcp:
+            for t in self.user_mcp.tools():
+                specs.append({"type": "function", "function": {"name": t.name, "description": t.description,
+                                                               "parameters": t.schema}})  # fmt: skip
         if self.backend:
             specs.append(FIND_SPEC)
         return specs
@@ -316,6 +325,12 @@ class Agent:
         for n, t in self._mcp_tools.items():
             schema = t.get("inputSchema") or {}
             offered[n] = {"properties": schema.get("properties", {}), "required": schema.get("required", [])}
+        if self.user_mcp:
+            for t in self.user_mcp.tools():
+                offered[t.name] = {
+                    "properties": t.schema.get("properties", {}),
+                    "required": t.schema.get("required", []),
+                }
         if self.backend:
             offered[FIND_NAME] = {"properties": FIND_PROPS, "required": ["query"]}
         return offered
@@ -343,6 +358,8 @@ class Agent:
         """Closes the hub connection, if any."""
         if self.backend:
             self.backend.close()
+        if self.user_mcp:
+            self.user_mcp.close()
 
     def _execute(self, name: str, raw_args: object) -> str:
         fixed = repair_call(name, raw_args, self._offered())
@@ -354,6 +371,8 @@ class Agent:
         try:
             if name in self.toolset.tools:
                 out = self.toolset.tools[name].fn(args)
+            elif self.user_mcp and name in {t.name for t in self.user_mcp.tools()}:
+                out, _ = self.user_mcp.call(name, args)
             elif name == FIND_NAME and self.backend:
                 out = self._find_tools(args)
             elif name in self._mcp_tools and self.backend:

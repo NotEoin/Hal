@@ -216,16 +216,17 @@ class AcpServer:
             raise RpcError(ERR_PARAMS, f"cwd {cwd} is outside the workspace {self.root}")
         return cwd
 
-    def _make(self, cwd: Path, sid: str, *, new: bool) -> Agent:
+    def _make(self, cwd: Path, sid: str, *, new: bool, mcp_servers: list | None = None) -> Agent:
         """Builds the agent of session `sid`; with host records it gets a `_hal/record` sink."""
         update = lambda u: self._map_update(sid, u)  # noqa: E731 - a one-line closure over `sid`
+        extra = {"mcp_servers": mcp_servers} if mcp_servers else {}
         if self.records:
             header = {"id": sid, "agent": f"halagent {__version__}", "mode": "code", "toolset": "coding",
                       "cwd": str(cwd)} if new else None  # fmt: skip
             sink = RecordSink(self._send, sid, header)
-            agent = self.factory(cwd, sid, update, session=sink)
+            agent = self.factory(cwd, sid, update, session=sink, **extra)
         else:
-            agent = self.factory(cwd, sid, update)
+            agent = self.factory(cwd, sid, update, **extra)
         agent.permission = lambda cid, name, kind, args: self._ask(sid, agent, cid, name, kind, args)
         self.sessions[sid] = agent
         return agent
@@ -239,7 +240,8 @@ class AcpServer:
             raise RpcError(ERR_PARAMS, str(exc)) from exc
         if sid in self.sessions:
             raise RpcError(ERR_PARAMS, f"session {sid} already exists")
-        agent = self._make(cwd, sid, new=True)
+        listed = params.get("mcpServers")
+        agent = self._make(cwd, sid, new=True, mcp_servers=listed if isinstance(listed, list) else None)
         return {"sessionId": sid, "modes": _modes(agent.mode)}
 
     def _load_session(self, params: dict) -> dict:

@@ -143,6 +143,12 @@ class AgentFile:
         """`coding` or `assistant`."""
         return str(self.data["toolset"])
 
+    def mcp_kwargs(self) -> dict[str, Any]:
+        """Keyword arguments for `boot.start_user_mcp` (the sandbox, servers and restart limit)."""
+        m = self.data["mcp"]
+        return {"configured": list(m["servers"]), "project_servers": str(m["project_servers"]),
+                "restart_limit": int(m["restart_limit"]), "sandbox": str(self.data["sandbox"])}  # fmt: skip
+
     def assistant_options(self) -> AssistantOptions:
         """The `assistant` table and the channel as options for `build_assistant`."""
         a = self.data["assistant"]

@@ -10,6 +10,7 @@ How `packages/hal-agent` is put together and how to change it. The requirements 
 | `provider.py` | Chat Completions client over TCP or a unix socket, retry with backoff, `model_info()` from `GET /v1/models` |
 | `loop.py` | The agent loop; `effective_settings()` merges settings, gateway and profile; overflow retry; `hal_find_tools` |
 | `backends.py` | `ToolBackend` protocol and `BrokerBackend`; maps `_meta.hal.status` to `ok`, `error`, `denied`, `unavailable` |
+| `mcp/client.py` | User MCP servers on the `mcp` SDK: config merge, `mcp__<server>__<tool>` names, untrusted envelope, one restart, backend `none` refusal |
 | `mcp/lite.py` | Stdlib MCP client for the broker (4 MiB line cap) |
 | `profiles/` | Shipped `model-profiles.toml` and the strict resolver |
 | `assistant/` | Assistant toolset: `build_assistant()`, ported prompts, `ClaimsCheck` (REQ-AGT-51), per-turn broker tool choice (REQ-AGT-52) |
@@ -49,7 +50,7 @@ it in `server.model_list_requests`. Keep both autouse fixtures in `tests/conftes
 Unverified items and gaps against the design, so a reader does not assume them:
 
 - Anthropic and Responses providers, token counting endpoint, `messages.py` and `events.py`.
-- User MCP servers on the SDK, vendored ACP schema and conformance tests, path
+- Vendored ACP schema and conformance tests, path
   mapping between host and box, the `notice` sent when a boxed agent has no transcript path.
 - Assistant: the claims check runs on whole completions, not on a token stream, so a voice client
   hears the reply only after the round ends; `history_turns` is not applied (the context manager
@@ -57,3 +58,8 @@ Unverified items and gaps against the design, so a reader does not assume them:
 - Directive I1 (always boxed): the box and its `/scratch` come from 02-sandbox and halcore; this
   package only runs inside one when `hal` starts it so.
 - Nothing has run against a real llama-server, Ollama, gateway or docker.
+
+User MCP servers: only `agent.json` `mcp.servers`, a project `.mcp.json` (with a real box and
+`project_servers = "box"`) and ACP `mcpServers` are read; `config.toml` is not. `notice` text goes to
+the log and stderr, not to the ACP client. `pinned` is stored but every server tool is offered.
+A call that crashes its server is not retried; the next call restarts it (once).
