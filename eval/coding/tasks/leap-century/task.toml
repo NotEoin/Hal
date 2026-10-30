@@ -1,0 +1,9 @@
+id = "leap-century"
+title = "is_leap is wrong for century years"
+kind = "bugfix"
+task = """is_leap in calendar_utils/leap.py treats every year divisible by 4 as a leap year. Century years are leap years only when divisible by 400: 1900 is not a leap year, 2000 is."""
+check = "python -m pytest -q hidden/test_leap.py"
+protected = ["tests/**", "hidden/**", "pyproject.toml", "conftest.py"]
+timeout_s = 120
+split = "dev"
+license = "MIT"

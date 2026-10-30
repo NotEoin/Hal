@@ -1,0 +1,12 @@
+diff --git a/listtools/dedupe.py b/listtools/dedupe.py
+index 6fd3f00..465d9da 100644
+--- a/listtools/dedupe.py
++++ b/listtools/dedupe.py
+@@ -2,5 +2,5 @@
+ 
+ 
+ def dedupe(items):
+-    """Returns the items without duplicates."""
+-    return list(set(items))
++    """Returns the items without duplicates, keeping the first occurrence and the order."""
++    return list(dict.fromkeys(items))

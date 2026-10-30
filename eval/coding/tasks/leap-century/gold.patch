@@ -1,0 +1,10 @@
+diff --git a/calendar_utils/leap.py b/calendar_utils/leap.py
+index 58f2644..12accad 100644
+--- a/calendar_utils/leap.py
++++ b/calendar_utils/leap.py
+@@ -3,4 +3,4 @@
+ 
+ def is_leap(year):
+     """True when `year` is a leap year in the Gregorian calendar."""
+-    return year % 4 == 0
++    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)

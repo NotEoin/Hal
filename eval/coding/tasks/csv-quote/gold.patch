@@ -1,0 +1,19 @@
+diff --git a/csvlite/writer.py b/csvlite/writer.py
+index a33f1b6..e56aa8c 100644
+--- a/csvlite/writer.py
++++ b/csvlite/writer.py
+@@ -1,6 +1,13 @@
+ """A tiny CSV writer."""
+ 
+ 
++def _quote(field):
++    text = str(field)
++    if any(c in text for c in ',"\n\r'):
++        return '"' + text.replace('"', '""') + '"'
++    return text
++
++
+ def write_row(fields):
+     """Returns one CSV line (without the newline) for the list of fields."""
+-    return ",".join(str(f) for f in fields)
++    return ",".join(_quote(f) for f in fields)

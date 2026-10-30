@@ -1,0 +1,9 @@
+id = "csv-quote"
+title = "CSV writer does not quote fields that contain commas"
+kind = "bugfix"
+task = """The function write_row in csvlite/writer.py produces a broken row when a field contains a comma: 'a,b' and 'c' give 'a,b,c'. Fields that contain a comma, a quote or a newline must be quoted as in RFC 4180 (quotes inside a field are doubled)."""
+check = "python -m pytest -q hidden/test_writer.py"
+protected = ["tests/**", "hidden/**", "pyproject.toml", "conftest.py"]
+timeout_s = 120
+split = "dev"
+license = "MIT"
