@@ -49,3 +49,12 @@ config file on the host; there is no flag or environment variable for it.
 | standard | runsc if installed, else runc plus a warning | no | no | per policy |
 | relaxed | as standard | yes | no | per policy |
 | off | as standard | yes | yes, after per-project consent | per policy |
+
+## Isolated sessions
+
+`halsandbox.isolated` copies the project to `$STATE/isolated/<sid>/work` (no `.git`, no symlinks, no
+secret files such as `.env*` and `*.pem`, no `node_modules` or `.venv`) and keeps a base snapshot in a
+shadow repository. The box mounts only that copy. `accept` shows the changed paths with risk flags,
+refuses high-risk paths (CI files, git config, hooks, symlinks, private keys) unless allowed, takes a
+checkpoint of the project in `$STATE/checkpoints/<project>`, then runs `git apply` all or nothing.
+`export` writes a patch or a git bundle and never touches the project.
