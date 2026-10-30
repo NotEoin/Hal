@@ -44,6 +44,9 @@ class FakeOllama(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         FakeOllama.seen.append(("POST", self.path, body))
+        if self.path == "/api/chat" and "options" in body:
+            reply = {"message": {"role": "assistant", "content": "pong"}, "done_reason": "stop"}
+            return self._reply(200, {**reply, "prompt_eval_count": 7, "eval_count": 2})
         self._reply(200, {"ok": True}) if self.path.startswith("/api/") else self._reply(404, {"error": "x"})
 
 
@@ -212,3 +215,31 @@ def _stop_built():
     yield
     while built:
         built.pop().stop()
+
+
+def test_chat_options_reach_ollama_through_the_native_route(gateway):
+    body = {"model": "coder", "messages": [{"role": "user", "content": "ping"}], "max_tokens": 5}
+    resp, raw = call(gateway, "POST", "/v1/chat/completions", {**body, "options": {"num_gpu": 0}})
+    reply = json.loads(raw)
+    assert resp.status == 200 and reply["choices"][0]["message"]["content"] == "pong"
+    assert reply["usage"] == {"prompt_tokens": 7, "completion_tokens": 2, "total_tokens": 9}
+    assert FakeOllama.seen[-1] == (
+        "POST",
+        "/api/chat",
+        {
+            "model": "gemma:1",
+            "messages": body["messages"],
+            "stream": False,
+            "options": {"num_gpu": 0, "num_predict": 5},
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [{"options": {"model_path": "/etc"}}, {"options": [1]}, {"options": {"num_gpu": 0}, "tools": [{}]}],
+)
+def test_chat_options_that_are_not_allowed_are_400(gateway, extra):
+    body = {"model": "coder", "messages": [{"role": "user", "content": "x"}], **extra}
+    resp, _ = call(gateway, "POST", "/v1/chat/completions", body)
+    assert resp.status == 400 and not [s for s in FakeOllama.seen if s[1] == "/api/chat"]

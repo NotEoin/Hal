@@ -11,9 +11,13 @@ Ported from `halcore/power.py`. Decisions:
 from __future__ import annotations
 
 from .. import relay
+from ..errors import BadGatewayError, BadRequest
 from .openai import OpenAIBackend
 
 LLAMACPP_PREFIX = "llamacpp:"
+# Options a caller may set through the `options` field of a chat request; the rest of Ollama's
+# options (paths, runners) are not the caller's business.
+ALLOWED_OPTIONS = frozenset({"num_gpu", "num_ctx", "num_predict", "temperature", "top_p", "seed"})
 UNLOAD_TIMEOUT_S = 30.0  # Ollama waits for a running generation before it unloads
 
 
@@ -42,6 +46,52 @@ class OllamaBackend(OpenAIBackend):
         """Names of the models Ollama holds in memory now (`GET /api/ps`)."""
         doc = relay.call_json(self, "GET", "/api/ps")
         return [str(m["name"]) for m in doc.get("models", []) if isinstance(m, dict) and "name" in m]
+
+    def chat_with_options(
+        self,
+        body: dict,
+        options: dict,
+        timeout_s: float,  # type: ignore[type-arg]
+    ) -> dict:  # type: ignore[type-arg]
+        """A non-streaming chat through the native `/api/chat`, returned in OpenAI shape.
+
+        The OpenAI route of Ollama has no way to set `num_gpu`, which the GPU-or-CPU choice of
+        the classifier needs (I5), so this one case is mapped by hand. Tools are not supported.
+        """
+        unknown = sorted(set(options) - ALLOWED_OPTIONS)
+        if unknown:
+            raise BadRequest(f"options {unknown} are not allowed; allowed: {sorted(ALLOWED_OPTIONS)}")
+        if body.get("tools"):
+            raise BadRequest("options cannot be combined with tools")
+        native_options = dict(options)
+        if body.get("max_tokens") is not None:
+            native_options.setdefault("num_predict", body["max_tokens"])
+        if body.get("temperature") is not None:
+            native_options.setdefault("temperature", body["temperature"])
+        native = {"model": body["model"], "messages": body.get("messages") or [], "stream": False}
+        if native_options:
+            native["options"] = native_options
+        reply = relay.call_json(self, "POST", "/api/chat", native, timeout_s=timeout_s)
+        message = reply.get("message") if isinstance(reply, dict) else None
+        if not isinstance(message, dict):
+            raise BadGatewayError(f"backend {self.name} sent no message for /api/chat")
+        prompt, completion = int(reply.get("prompt_eval_count") or 0), int(reply.get("eval_count") or 0)
+        return {
+            "object": "chat.completion",
+            "model": body["model"],
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": str(message.get("content", ""))},
+                    "finish_reason": "length" if reply.get("done_reason") == "length" else "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": prompt,
+                "completion_tokens": completion,
+                "total_tokens": prompt + completion,
+            },
+        }
 
     def in_vram(self) -> list[str]:
         """Names of the models that hold VRAM now (`size_vram > 0` in `GET /api/ps`)."""

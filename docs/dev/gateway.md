@@ -198,3 +198,17 @@ Policies apply to `llama-router` backends on `/v1/messages` and `/v1/chat/comple
   subagent key is the conversation key, so a subagent whose conversation grows keeps one key.
   Not built: the idle `load main` after a gpu-light reclaim (plan step 16) and the
   gpu-light claim held for the swap (step 18). Stop reasons come from the last 8 KiB of the reply.
+
+## Chat `options` (`handler`, `backends/ollama`)
+
+`halkit.llm.chat(options=...)` sends an Ollama `options` object on `/v1/chat/completions`;
+the classifier and reviewer use `{"num_gpu": 0}` to run on the CPU while the GPU is busy (I5).
+Ollama's OpenAI route cannot set `num_gpu`, so for an Ollama backend and a non-streaming
+request the gateway calls the native `/api/chat` with the options and answers in OpenAI chat
+shape (text and usage only). This is the one place the gateway translates an API; it is kept
+this small on purpose (design decision 2). Allowed options: `num_gpu`, `num_ctx`,
+`num_predict`, `temperature`, `top_p`, `seed`; anything else, a non-object value, or `tools`
+alongside `options` is 400. Every other backend, and a streaming request, gets the field
+stripped. The mapping is tested against a fake Ollama only; a run against a real Ollama with
+`num_gpu: 0` is unverified (check with `ollama ps`, where the processor column should read
+`100% CPU`).

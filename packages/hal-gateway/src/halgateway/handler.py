@@ -209,11 +209,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
         scheduler = self._scheduler(backend, route)
         ticket = self._admit(scheduler, backend, model, body) if scheduler else None
         body["model"] = ticket.model if ticket else model
+        if route.api is Api.CHAT and "options" in body and self._options(gateway, backend, body):
+            return
         try:
             self._relay(gateway, backend, json.dumps(body).encode("utf-8"))
         finally:
             if scheduler and ticket:
                 scheduler.finish(ticket, swap.last_stop_reason(self.tail))
+
+    def _options(self, gateway, backend, body: dict) -> bool:  # type: ignore[no-untyped-def,type-arg]
+        """Handles the Ollama `options` field of a chat request; True when the reply was sent.
+
+        Ollama gets a non-streaming request through its native route (it has no OpenAI-route
+        equivalent of `num_gpu`); every other backend gets the field stripped, since a strict
+        OpenAI server may refuse an unknown one.
+        """
+        options = body.pop("options")
+        if backend.type != "ollama" or body.get("stream"):
+            return False
+        if not isinstance(options, dict):
+            raise BadRequest("options must be an object")
+        timeout = float(gateway.config["upstream_read_timeout_s"])
+        reply = backend.chat_with_options(body, options, timeout)
+        self.rec["upstream_model"] = body["model"]
+        self._send(200, json.dumps(reply).encode("utf-8"))
+        return True
 
     @staticmethod
     def _scheduler(backend, route: Route):  # type: ignore[no-untyped-def]

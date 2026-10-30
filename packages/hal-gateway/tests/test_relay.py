@@ -245,3 +245,9 @@ def test_backend_defaults_follow_the_type_table(tmp_path):
     assert backends["r"].supports(Api.RESPONSES_COUNT) and not backends["r"].supports(Api.OLLAMA_NATIVE)
     assert backends["x"].supports(Api.COUNT_TOKENS) and not backends["x"].supports(Api.CHAT)
     assert backends["o"].address().port == 11434 and backends["r"].address().port == 8080
+
+
+def test_chat_options_are_stripped_for_a_backend_that_is_not_ollama(gateway):
+    body = {"model": "up/m", "options": {"num_gpu": 0}, "temperature": 0.1}
+    resp, _ = call(gateway(), "POST", "/v1/chat/completions", body)
+    assert resp.status == 200 and Upstream.seen[0]["body"] == {"model": "m", "temperature": 0.1}
