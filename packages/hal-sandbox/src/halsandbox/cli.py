@@ -1,7 +1,8 @@
 """Command line for `hal box` and `hal-sandbox` (02-sandbox "hal box", step 32).
 
 `box_main` parses the `hal box` options before `--` and passes everything after it to the CLI
-unchanged. `sandbox_main` is the `hal-sandbox` script: `harnesses`, `image build|status`, `deps`.
+unchanged. `sandbox_main` is the `hal-sandbox` script: `harnesses`, `image`, `deps`, `doctor`, `ls`,
+`gc`, `forget`.
 Entry points print; the library modules log.
 """
 
@@ -17,8 +18,9 @@ from pathlib import Path
 from halkit.termsafe import strip_terminal_controls
 
 from . import box as boxmod
-from . import boximages, images
+from . import boximages, images, labels, projects
 from . import deps as depsmod
+from . import doctor as doctormod
 from .errors import SandboxError
 from .forwarder import ModelForwarder
 
@@ -116,6 +118,44 @@ def _deps(args: argparse.Namespace) -> int:
     return 0 if all(r.ok for r in results) else EX_FAIL
 
 
+def _doctor(args: argparse.Namespace) -> int:
+    checks = doctormod.run_checks(refresh=args.refresh)
+    if args.json:
+        _print_json(doctormod.as_dicts(checks))
+    else:
+        for c in checks:
+            print(_out(f"{c.status:4} {c.name}: {c.detail}"))
+    return EX_FAIL if any(c.status == doctormod.FAIL for c in checks) else 0
+
+
+def _ls(args: argparse.Namespace) -> int:
+    rows = doctormod.list_boxes()
+    if args.json:
+        _print_json(rows)
+    else:
+        for r in rows:
+            print(_out(f"{r['name']}  {r['kind']}  {r['session']}  {r['status']}"))
+    return 0
+
+
+def _gc(args: argparse.Namespace) -> int:
+    res = labels.sweep(dry_run=args.dry_run)
+    if res.error:
+        print(_out(f"hal-sandbox: {res.error}"), file=sys.stderr)
+        return EX_FAIL
+    verb = "would remove" if args.dry_run else "removed"
+    print(f"{verb} {len(res.removed)} container(s), {len(res.dirs_removed)} directorie(s)")
+    return 0
+
+
+def _forget(args: argparse.Namespace) -> int:
+    print("forgot" if projects.forget(Path(args.dir).resolve()) else "nothing to forget")
+    return 0
+
+
+_SIMPLE = {"doctor": _doctor, "ls": _ls, "gc": _gc, "forget": _forget}
+
+
 def sandbox_main(argv: Sequence[str] | None = None) -> int:
     """The `hal-sandbox` script; returns the exit code."""
     parser = argparse.ArgumentParser(prog="hal-sandbox")
@@ -130,8 +170,19 @@ def sandbox_main(argv: Sequence[str] | None = None) -> int:
     d = sub.add_parser("deps", help="install project dependencies in the egress-limited prep box")
     d.add_argument("--dir", default=".")
     d.add_argument("--json", action="store_true")
+    dr = sub.add_parser("doctor", help="check lockdown, backend, runtime and images")
+    dr.add_argument("--refresh", action="store_true", help="ignore the cached probe")
+    dr.add_argument("--json", action="store_true")
+    ls = sub.add_parser("ls", help="list running boxes")
+    ls.add_argument("--json", action="store_true")
+    gc = sub.add_parser("gc", help="remove orphaned boxes and empty session directories")
+    gc.add_argument("--dry-run", action="store_true")
+    fg = sub.add_parser("forget", help="drop the saved choices for a project")
+    fg.add_argument("dir", nargs="?", default=".")
     args = parser.parse_args(argv)
     try:
+        if args.cmd in _SIMPLE:
+            return _SIMPLE[args.cmd](args)
         if args.cmd == "harnesses":
             return _harnesses(args.json)
         if args.cmd == "image":
@@ -147,7 +198,7 @@ def box_main(argv: Sequence[str] | None = None) -> int:
     own, rest = _split(sys.argv[1:] if argv is None else argv)
     if own[:1] == ["harnesses"]:
         return sandbox_main(["harnesses", *own[1:]])
-    if own[:1] == ["image"]:
+    if own[:1] and own[0] in ("image", "doctor", "ls", "gc", "forget"):
         return sandbox_main(own)
     parser = argparse.ArgumentParser(prog="hal box")
     parser.add_argument("--dir", default=".")

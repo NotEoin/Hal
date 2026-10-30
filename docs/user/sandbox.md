@@ -55,6 +55,10 @@ isolated copy of the project, with no network. The CLI talks to the model throug
 ```sh
 hal-sandbox image build            # the base image; then `hal-sandbox image build crush`
 hal-sandbox harnesses              # which CLIs are built
+hal-sandbox doctor                 # lockdown, backend, runtime and image sizes (exit 1 on a failed check)
+hal-sandbox ls                     # running boxes
+hal-sandbox gc [--dry-run]         # remove orphaned boxes and empty session dirs
+hal-sandbox forget [DIR]           # drop saved per-project choices
 hal box -- crush --version         # extra arguments after -- reach the CLI unchanged
 ```
 

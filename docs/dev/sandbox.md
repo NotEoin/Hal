@@ -81,7 +81,7 @@ other CLIs were not built here. Tested by `test_boximages.py` and the live tests
 Plan steps 29 to 33 are done; `hal box` and `hal-sandbox` exist with `run`, `harnesses`, `image`
 and `deps`. Not built yet:
 
-- `hal-sandbox doctor`, `ls`, `shell`, `undo`, `diff`, `forget` and `gc` (step 32), so the undo
+- `hal-sandbox shell`, `undo` and `diff` (step 32; `doctor`, `ls`, `gc` and `forget` exist), so the undo
   how-to uses `hal code` and git refs.
 - The startup benchmark `scripts/bench-sandbox.py` (step 34), and steps 35 to 38: sanitized git
   config, the terminal filter, upstream elicitations, stripped command output.
