@@ -76,6 +76,7 @@ from . import install, policy
 from .approvals import ApprovalRequest, ApprovalRouter, control
 from .classifier import floor_from_env
 from .config import HubConfig
+from .gatewaychat import hub_kwargs
 from .guard import GuardClient, GuardUnavailable
 from .hub import CallResult, Hub
 from .manifest import ModuleSpec, ToolSpec
@@ -869,9 +870,9 @@ def _new_hub() -> Hub:
     scope = _current()
     floor = floor_from_env()  # set by the broker for a boxed session, never by the box
     if scope.modules is None:
-        return Hub(paranoia_floor=floor)
+        return Hub(paranoia_floor=floor, **hub_kwargs())
     config = HubConfig.load()
-    return Hub(Registry.load(config, only=scope.modules), config=config, paranoia_floor=floor)
+    return Hub(Registry.load(config, only=scope.modules), config=config, paranoia_floor=floor, **hub_kwargs())
 
 
 def _usage() -> str:

@@ -21,6 +21,7 @@ import threading
 import warnings
 from collections.abc import Mapping
 
+from .gatewaychat import hub_kwargs
 from .hub import FrontEnd, Hub
 from .manifest import ToolSpec
 from .session import HubSession
@@ -49,7 +50,7 @@ def default_hub() -> Hub:
     global _hub
     with _lock:
         if _hub is None:
-            _hub = Hub()
+            _hub = Hub(**hub_kwargs())
             atexit.register(_hub.close)
         return _hub
 
