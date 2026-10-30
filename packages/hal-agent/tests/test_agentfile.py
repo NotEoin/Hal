@@ -1,6 +1,7 @@
 """Tests for `halagent.agentfile` (strict `agent.json`) and `map_brain`."""
 
 import copy
+import io
 import json
 
 import pytest
@@ -120,3 +121,63 @@ def test_map_brain_keeps_an_existing_hal_user_name():
 def test_map_brain_rejects_an_unknown_key():
     with pytest.raises(ValueError, match=r"\[brain\]\.colour"):
         map_brain({"colour": "red"})
+
+
+def test_tuning_comes_from_budget_context_and_tools_keys(tmp_path):
+    data = copy.deepcopy(GOOD)
+    data["budget"].update(warn_calls=4, loop_repeat_limit=2)
+    data["context"].update(mask_at=0.5, mask_to=0.3, summarize_at=0.7)
+    data["tools"].update(max_result_chars=900, syntax_guard=False, protect=["secrets/**"])
+    t = load_agent_file(write(tmp_path, data)).to_settings().tuning
+    assert (t.warn_calls, t.loop_repeat_limit, t.mask_at, t.max_result_chars) == (4, 2, 0.5, 900)
+    assert t.syntax_guard is False and t.protect == ("secrets/**",)
+
+
+def test_context_fractions_out_of_order_fail(tmp_path):
+    data = copy.deepcopy(GOOD)
+    data["context"]["mask_to"] = 0.9
+    with pytest.raises(AgentFileError, match="mask_to < mask_at"):
+        load_agent_file(write(tmp_path, data))
+
+
+def test_result_cap_from_the_file_cuts_long_tool_output(server, tmp_path):
+    data = copy.deepcopy(GOOD)
+    data["endpoint"]["url"] = server.url
+    data["tools"]["max_result_chars"] = 300
+    (tmp_path / "big.txt").write_text("x" * 5000)
+    server.script(
+        Reply(tool_calls=[("read", {"path": "big.txt"})]), Reply(tool_calls=[("finish", {"summary": "ok"})])
+    )
+    main(["--config", str(write(tmp_path, data)), "-p", "go", "-C", str(tmp_path), "--no-session"])
+    tool = [m for m in server.requests[1]["body"]["messages"] if m["role"] == "tool"][0]["content"]
+    assert len(tool) < 600 and "characters cut" in tool
+
+
+def test_instructions_and_skills_switches_remove_their_prompt_sections(server, tmp_path):
+    (tmp_path / "AGENTS.md").write_text("PROJECT-RULE")
+    data = copy.deepcopy(GOOD)
+    data["endpoint"]["url"] = server.url
+    data["instructions"]["agents_md"] = False
+    server.script(Reply(tool_calls=[("finish", {"summary": "ok"})]))
+    main(["--config", str(write(tmp_path, data)), "-p", "go", "-C", str(tmp_path), "--no-session"])
+    assert "PROJECT-RULE" not in server.requests[0]["body"]["messages"][0]["content"]
+
+
+def test_first_acp_session_takes_the_files_session_id_and_permissions(tmp_path):
+    from halagent.acp.entry import serve
+
+    data = copy.deepcopy(GOOD)
+    data["session_id"] = "aaaaaaaaaaaa"
+    f = load_agent_file(write(tmp_path, {**data, "permissions": "review"}))
+    out = io.StringIO()
+    reqs = [
+        {"jsonrpc": "2.0", "id": 1, "method": "session/new", "params": {"cwd": str(tmp_path)}},
+        {"jsonrpc": "2.0", "id": 2, "method": "session/new", "params": {"cwd": str(tmp_path)}},
+    ]
+    serve(
+        f.to_settings(), tmp_path, io.StringIO("\n".join(json.dumps(r) for r in reqs) + "\n"), out,
+        no_session=True, permissions=f.permissions, first_session_id=f.session_id,
+    )  # fmt: skip
+    results = {m["id"]: m["result"] for m in map(json.loads, out.getvalue().splitlines()) if "id" in m}
+    assert results[1]["sessionId"] == "aaaaaaaaaaaa" and results[2]["sessionId"] != "aaaaaaaaaaaa"
+    assert results[1]["modes"]["currentModeId"] == "review"

@@ -11,11 +11,11 @@ from pathlib import Path
 from typing import Any
 
 from halagent import __version__
-from halagent.instructions import load_instructions
+from halagent.instructions import DEFAULT_MAX_CHARS, load_instructions
 from halagent.mcp.client import UserMcp, acp_servers, merge_servers, read_project_servers
 from halagent.sessions import SessionStore, SessionWriter, new_session_id
 from halagent.settings import AgentSettings
-from halagent.skills import discover_skills, render_skills
+from halagent.skills import MAX_LIST_CHARS, MAX_SKILLS, discover_skills, render_skills
 from halkit import paths
 
 log = logging.getLogger("halagent.boot")
@@ -26,13 +26,31 @@ def join(*parts: str) -> str:
     return "\n\n".join(p for p in parts if p)
 
 
-def prompt_extras(root: Path) -> str:
-    """The "Project instructions" and "Skills" sections of the system prompt."""
-    instructions = load_instructions(root, root, paths.config_dir() / "AGENTS.md")
-    skills, _ = discover_skills(root, (paths.config_dir() / "skills",))
+def prompt_extras(
+    root: Path,
+    *,
+    agents_md: bool = True,
+    max_chars: int = DEFAULT_MAX_CHARS,
+    user_file: Path | None = None,
+    skills_enabled: bool = True,
+    skill_dirs: Sequence[Path] = (),
+    max_listed: int = MAX_SKILLS,
+    skills_chars: int = MAX_LIST_CHARS,
+) -> str:
+    """The "Project instructions" and "Skills" sections of the system prompt.
+
+    The defaults read the user's config directory; `agent.json` overrides every argument.
+    """
+    user_file = user_file or paths.config_dir() / "AGENTS.md"
+    text = load_instructions(root, root, user_file, max_chars).text if agents_md else ""
+    skills = (
+        discover_skills(root, tuple(skill_dirs) or (paths.config_dir() / "skills",))[0]
+        if skills_enabled
+        else []
+    )
     parts = [
-        f"## Project instructions\n\n{instructions.text}" if instructions.text else "",
-        render_skills(skills),
+        f"## Project instructions\n\n{text}" if text else "",
+        render_skills(skills, max_listed, skills_chars),
     ]
     return "\n\n".join(p for p in parts if p)
 

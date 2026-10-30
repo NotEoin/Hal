@@ -104,8 +104,8 @@ def discover_skills(root: Path, user_dirs: tuple[Path, ...] = ()) -> tuple[list[
     return list(skills.values()), problems
 
 
-def render_skills(skills: list[Skill]) -> str:
-    """The "Skills" prompt section, at most 12 skills and 3000 characters; empty with none."""
+def render_skills(skills: list[Skill], max_listed: int = MAX_SKILLS, max_chars: int = MAX_LIST_CHARS) -> str:
+    """The "Skills" prompt section, cut to `max_listed` skills and `max_chars` characters; empty with none."""
     if not skills:
         return ""
     head = (
@@ -114,9 +114,9 @@ def render_skills(skills: list[Skill]) -> str:
     )
     out = [head]
     size = len(head)
-    for skill in skills[:MAX_SKILLS]:
+    for skill in skills[:max_listed]:
         line = f"- {skill.name}: {skill.description} ({skill.path})"
-        if size + len(line) + 1 > MAX_LIST_CHARS:
+        if size + len(line) + 1 > max_chars:
             break
         out.append(line)
         size += len(line) + 1

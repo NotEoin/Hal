@@ -70,9 +70,7 @@ FIND_SPEC = {
 }
 MAX_OUTPUT_SHARE = 4  # a reply may take at most a quarter of the window
 OVERFLOW_SHRINK = 0.75  # after a context_length_exceeded answer, plan for 25% less input
-MAX_RESULT_CHARS = 12_000
-HEAD_KEEP = 4_000
-TAIL_KEEP = 8_000
+HEAD_SHARE = 3  # a cut result keeps the first third and the last two thirds of the cap
 
 
 def _describe(fn: dict) -> str:
@@ -177,7 +175,11 @@ class Agent:
         self.turn = 0
         self._next_i = 0
         self.note = StateNote()
-        self.context = ContextManager(settings.context_window, settings.max_output, self._summarize)
+        t = settings.tuning
+        self.context = ContextManager(
+            settings.context_window, settings.max_output, self._summarize, keep_recent=t.keep_recent,
+            mask_at=t.mask_at, mask_to=t.mask_to, summarize_at=t.summarize_at, safety_tokens=t.safety_tokens,
+        )  # fmt: skip
         self._ids: list[int] = []
         self.messages: list[dict] = []
         self._add({"role": "system", "content": self._system_prompt()})
@@ -335,6 +337,14 @@ class Agent:
             offered[FIND_NAME] = {"properties": FIND_PROPS, "required": ["query"]}
         return offered
 
+    def _budget(self) -> Budget:
+        s, t = self.settings, self.settings.tuning
+        return Budget(
+            s.max_tool_calls, s.max_turns, float(s.max_wall_s), warn_calls=t.warn_calls,
+            max_calls_per_response=t.max_calls_per_response, max_consecutive_nudges=t.max_consecutive_nudges,
+            loop_repeat_limit=t.loop_repeat_limit, max_consecutive_tool_errors=t.max_consecutive_tool_errors,
+        )  # fmt: skip
+
     def _system_prompt(self) -> str:
         if self.assistant:
             return system_prompt(
@@ -347,7 +357,7 @@ class Agent:
         if self.settings.tool_format == "prompt":
             lines = "\n".join(f"- {_describe(s['function'])}" for s in self._specs())
         return render_code_prompt(
-            Budget(self.settings.max_tool_calls, self.settings.max_turns, float(self.settings.max_wall_s)),
+            self._budget(),
             task=task,
             workdir=str(self.toolset.workspace.root),
             extras=self.system_extra,
@@ -385,12 +395,10 @@ class Agent:
         except (McpError, ValueError, OSError) as exc:
             log.info("tool %s failed: %s", name, exc)
             out = render_error(ToolError("internal", str(exc)))
-        if len(out) > MAX_RESULT_CHARS:
-            out = (
-                out[:HEAD_KEEP]
-                + f"\n[... {len(out) - MAX_RESULT_CHARS} characters cut ...]\n"
-                + out[-TAIL_KEEP:]
-            )
+        cap = self.settings.tuning.max_result_chars
+        if len(out) > cap:
+            head = cap // HEAD_SHARE
+            out = out[:head] + f"\n[... {len(out) - cap} characters cut ...]\n" + out[-(cap - head) :]
         return out + "".join(f"\n{n}" for n in fixed.notes)
 
     def run(self, prompt: str) -> RunResult:
@@ -411,7 +419,7 @@ class Agent:
         if self.assistant and self.backend:
             self._select_for_turn(prompt)
         self._add({"role": "user", "content": prompt})
-        budget = Budget(s.max_tool_calls, s.max_turns, float(s.max_wall_s))
+        budget = self._budget()
         clock, dog = BudgetClock(budget), Watchdog(budget)
         turns = nudges = 0
         text = ""

@@ -108,7 +108,13 @@ class AcpServer:
         wfile: IO[str],
         *,
         load_records: RecordLoader | None = None,
+        first_session_id: str = "",
+        mode: str = "auto",
     ) -> None:
+        self.first_session_id = (
+            first_session_id  # `agent.json` session_id: the host's id for the first session
+        )
+        self.default_mode = mode
         self.root = root.resolve()
         self.factory = factory
         self.load_records = load_records
@@ -227,6 +233,7 @@ class AcpServer:
             agent = self.factory(cwd, sid, update, session=sink, **extra)
         else:
             agent = self.factory(cwd, sid, update, **extra)
+        agent.mode = self.default_mode
         agent.permission = lambda cid, name, kind, args: self._ask(sid, agent, cid, name, kind, args)
         self.sessions[sid] = agent
         return agent
@@ -235,11 +242,16 @@ class AcpServer:
         cwd = self._cwd(params)
         hint = ((params.get("_meta") or {}).get("hal") or {}).get("sessionId")
         try:
-            sid = check_session_id(hint) if hint else new_session_id()
+            sid = (
+                check_session_id(hint or self.first_session_id)
+                if hint or self.first_session_id
+                else new_session_id()
+            )
         except SessionError as exc:
             raise RpcError(ERR_PARAMS, str(exc)) from exc
         if sid in self.sessions:
             raise RpcError(ERR_PARAMS, f"session {sid} already exists")
+        self.first_session_id = ""  # used once
         listed = params.get("mcpServers")
         agent = self._make(cwd, sid, new=True, mcp_servers=listed if isinstance(listed, list) else None)
         return {"sessionId": sid, "modes": _modes(agent.mode)}

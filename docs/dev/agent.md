@@ -63,3 +63,8 @@ User MCP servers: only `agent.json` `mcp.servers`, a project `.mcp.json` (with a
 `project_servers = "box"`) and ACP `mcpServers` are read; `config.toml` is not. `notice` text goes to
 the log and stderr, not to the ACP client. `pinned` is stored but every server tool is offered.
 A call that crashes its server is not retried; the next call restarts it (once).
+
+`agent.json` is consumed except for: `tools.read_*`, `grep_*`, `glob_max`, `run_*`, `write_max_chars`
+(the tools keep their built-in limits), `workspace`, `host_root`, `scratch`, `channel` (only for the
+assistant), `broker_call_timeout_s` and `api`. The first ACP session of a process takes
+`session_id`; `permissions` sets the default mode of every session.

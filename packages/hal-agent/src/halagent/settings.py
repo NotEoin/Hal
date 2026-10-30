@@ -61,6 +61,25 @@ AGENT_TABLE = config.register(
 
 
 @dataclass(frozen=True)
+class Tuning:
+    """Turn, context and tool limits that only the host's `agent.json` sets; defaults are the design's."""
+
+    warn_calls: int = 10
+    max_calls_per_response: int = 8
+    max_consecutive_nudges: int = 3
+    loop_repeat_limit: int = 3
+    max_consecutive_tool_errors: int = 6
+    mask_at: float = 0.6
+    mask_to: float = 0.4
+    summarize_at: float = 0.8
+    keep_recent: int = 3
+    safety_tokens: int = 512
+    max_result_chars: int = 12_000
+    syntax_guard: bool = True
+    protect: tuple[str, ...] = (".git", ".git/**")
+
+
+@dataclass(frozen=True)
 class AgentSettings:
     """Resolved agent settings."""
 
@@ -75,6 +94,7 @@ class AgentSettings:
     context_window: int = DEFAULT_WINDOW
     max_output: int = DEFAULT_MAX_OUTPUT
     max_wall_s: int = DEFAULT_MAX_WALL_S
+    tuning: Tuning = field(default_factory=Tuning)
 
 
 def load_settings(

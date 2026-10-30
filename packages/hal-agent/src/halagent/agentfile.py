@@ -17,7 +17,7 @@ from typing import Any
 from halagent.assistant import AssistantOptions
 from halagent.profiles import KEYS as PROFILE_KEYS
 from halagent.profiles import Profile
-from halagent.settings import AgentSettings
+from halagent.settings import AgentSettings, Tuning
 
 SCHEMA_VERSION = 1
 MODES = ("code", "assistant", "headless")
@@ -143,6 +143,28 @@ class AgentFile:
         """`coding` or `assistant`."""
         return str(self.data["toolset"])
 
+    def extras_kwargs(self) -> dict[str, Any]:
+        """Keyword arguments for `boot.prompt_extras` (instructions and skills)."""
+        i, k = self.data["instructions"], self.data["skills"]
+        return {"agents_md": bool(i["agents_md"]), "max_chars": int(i["max_chars"]),
+                "user_file": Path(i["user_file"]) if i["user_file"] else None,
+                "skills_enabled": bool(k["enabled"]), "skill_dirs": tuple(Path(d) for d in k["dirs"]),
+                "max_listed": int(k["max_listed"]), "skills_chars": int(k["max_chars"])}  # fmt: skip
+
+    def tuning(self) -> Tuning:
+        """The budget, context and tool limits of the file."""
+        b, c, t = self.data["budget"], self.data["context"], self.data["tools"]
+        return Tuning(
+            warn_calls=int(b["warn_calls"]), max_calls_per_response=int(b["max_calls_per_response"]),
+            max_consecutive_nudges=int(b["max_consecutive_nudges"]),
+            loop_repeat_limit=int(b["loop_repeat_limit"]),
+            max_consecutive_tool_errors=int(b["max_consecutive_tool_errors"]),
+            mask_at=float(c["mask_at"]), mask_to=float(c["mask_to"]), summarize_at=float(c["summarize_at"]),
+            keep_recent=int(c["keep_recent"]), safety_tokens=int(c["safety_tokens"]),
+            max_result_chars=int(t["max_result_chars"]), syntax_guard=bool(t["syntax_guard"]),
+            protect=tuple(str(g) for g in t["protect"]),
+        )  # fmt: skip
+
     def mcp_kwargs(self) -> dict[str, Any]:
         """Keyword arguments for `boot.start_user_mcp` (the sandbox, servers and restart limit)."""
         m = self.data["mcp"]
@@ -183,6 +205,7 @@ class AgentFile:
             max_turns=int(budget["max_model_requests"]),
             max_tool_calls=int(budget["max_tool_calls"]),
             max_wall_s=int(budget["max_wall_s"]),
+            tuning=self.tuning(),
             **({"context_window": window} if window > 0 else {}),
         )
 
@@ -205,6 +228,9 @@ def load_agent_file(path: Path) -> AgentFile:
             raise AgentFileError("session_id: must be 12 lowercase hex characters")
         if data["permissions"] not in ("auto", "review"):
             raise AgentFileError("permissions: must be auto or review")
+        c = data["context"]
+        if not 0 < c["mask_to"] < c["mask_at"] < c["summarize_at"] <= 1:
+            raise AgentFileError("context: need 0 < mask_to < mask_at < summarize_at <= 1")
         unknown = set(data["profile"]["values"]) - set(PROFILE_KEYS)
         if unknown:
             raise AgentFileError(f"profile.values.{sorted(unknown)[0]}: unknown key")

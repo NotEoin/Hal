@@ -33,6 +33,9 @@ def serve(
     toolset: str = "coding",
     assistant: AssistantOptions | None = None,
     mcp: Mapping[str, Any] | None = None,
+    extras: Mapping[str, Any] | None = None,
+    permissions: str = "auto",
+    first_session_id: str = "",
 ) -> None:
     """Serves ACP on the two text streams until `rfile` closes; stdout of a process carries only protocol."""
     store = store or SessionStore(paths.state_dir() / "sessions")
@@ -50,10 +53,13 @@ def serve(
         user_mcp = boot.start_user_mcp(cwd, acp=mcp_servers, **(mcp or {}))
         return Agent(
             settings,
-            Toolset(Workspace(cwd, readonly=user_skills)),
+            Toolset(
+                Workspace(cwd, readonly=user_skills, protect=settings.tuning.protect),
+                syntax_guard=settings.tuning.syntax_guard,
+            ),
             user_mcp=user_mcp,
             session=writer,
-            system_extra=boot.join(boot.prompt_extras(cwd), extra),
+            system_extra=boot.join(boot.prompt_extras(cwd, **(extras or {})), extra),
             on_update=on_update,
             profile=profile,
         )
@@ -64,4 +70,7 @@ def serve(
         except SessionError:
             return []
 
-    AcpServer(root, factory, rfile, wfile, load_records=load_records).serve()
+    AcpServer(
+        root, factory, rfile, wfile, load_records=load_records, first_session_id=first_session_id,
+        mode=permissions,
+    ).serve()  # fmt: skip

@@ -148,8 +148,13 @@ class ContextManager:
         summarize: Callable[[list[dict]], str] | None = None,
         *,
         keep_recent: int = KEEP_RECENT,
+        mask_at: float = MASK_AT,
+        mask_to: float = MASK_TO,
+        summarize_at: float = SUMMARIZE_AT,
+        safety_tokens: int = SAFETY_TOKENS,
     ) -> None:
-        self.input_budget = window - max_output - SAFETY_TOKENS
+        self.mask_at, self.mask_to, self.summarize_at = mask_at, mask_to, summarize_at
+        self.input_budget = window - max_output - safety_tokens
         if self.input_budget <= 0:
             raise ValueError(f"context window {window} is too small for max_output {max_output}")
         self.summarize = summarize
@@ -158,10 +163,10 @@ class ContextManager:
     def fit(self, messages: list[dict], ids: list[int], note: StateNote, tools_chars: int = 0) -> Fitted:
         """Returns the history to send, compacted if it was over budget."""
         out = Fitted(list(messages), list(ids))
-        if estimate_tokens(out.messages, tools_chars) <= MASK_AT * self.input_budget:
+        if estimate_tokens(out.messages, tools_chars) <= self.mask_at * self.input_budget:
             return out
         self._mask(out, tools_chars)
-        if estimate_tokens(out.messages, tools_chars) > SUMMARIZE_AT * self.input_budget:
+        if estimate_tokens(out.messages, tools_chars) > self.summarize_at * self.input_budget:
             self._summarise(out, note)
         self._cut_largest(out, tools_chars)
         if estimate_tokens(out.messages, tools_chars) > self.input_budget:
@@ -180,7 +185,7 @@ class ContextManager:
             msg = out.messages[i]
             if not _is_result(msg) or str(msg["content"]).startswith("[hal] output of"):
                 continue
-            if estimate_tokens(out.messages, tools_chars) <= MASK_TO * self.input_budget:
+            if estimate_tokens(out.messages, tools_chars) <= self.mask_to * self.input_budget:
                 break
             name, path = names.get(msg.get("tool_call_id", ""), (msg.get("name", "tool"), ""))
             stub = (
