@@ -23,8 +23,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from typing import TYPE_CHECKING
+
 from .records import RecordRefused, RecordStore
 from .transport import Transport
+
+if TYPE_CHECKING:  # permissions imports OWN_ID_PREFIX from here
+    from .permissions import PermissionBridge
 
 log = logging.getLogger(__name__)
 
@@ -188,8 +193,14 @@ class ProxyFilter:
 class Proxy:
     """Pumps messages between an editor transport and the agent transport through a filter."""
 
-    def __init__(self, editor: Transport, agent: Transport, rules: ProxyFilter) -> None:
-        self.editor, self.agent, self.rules = editor, agent, rules
+    def __init__(
+        self,
+        editor: Transport,
+        agent: Transport,
+        rules: ProxyFilter,
+        bridge: PermissionBridge | None = None,
+    ) -> None:
+        self.editor, self.agent, self.rules, self.bridge = editor, agent, rules, bridge
 
     async def run(self) -> None:
         """Runs until either side closes; raises `AgentCrashed` if the agent broke a limit."""
@@ -197,6 +208,8 @@ class Proxy:
             asyncio.ensure_future(self._pump(self.editor, self.agent, self.rules.to_agent)),
             asyncio.ensure_future(self._pump(self.agent, self.editor, self.rules.to_client)),
         ]
+        if self.bridge is not None:
+            tasks.append(asyncio.ensure_future(self.bridge.run(self.editor.send)))
         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:
             task.cancel()
