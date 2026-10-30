@@ -58,3 +58,23 @@ def test_file_holds_only_booleans_per_project(tmp_path):
     _set(tmp_path)
     data = json.loads(projects.projects_file().read_text())
     assert data == {str(tmp_path.resolve()): {"unmask": True}}
+
+
+def test_none_asks_once_per_project(tmp_path):
+    asked = []
+
+    def ask(prompt):
+        asked.append(prompt)
+        return projects.CONFIRM_WORD
+
+    projects.require_none_consent(tmp_path, is_tty=lambda: True, ask=ask)
+    projects.require_none_consent(
+        tmp_path, is_tty=lambda: False, ask=ask
+    )  # recorded: no prompt, no tty needed
+    assert len(asked) == 1 and projects.is_set(tmp_path, "none_consent")
+
+
+def test_none_without_terminal_refuses(tmp_path):
+    with pytest.raises(projects.NotATerminal):
+        projects.require_none_consent(tmp_path, is_tty=lambda: False, ask=lambda _: projects.CONFIRM_WORD)
+    assert not projects.is_set(tmp_path, "none_consent")

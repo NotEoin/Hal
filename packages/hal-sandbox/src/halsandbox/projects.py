@@ -118,3 +118,19 @@ def clear(project: Path, choice: Choice | None = None) -> bool:
 def forget(project: Path) -> bool:
     """`hal-sandbox forget DIR`: drops every choice for the project."""
     return clear(project)
+
+
+def require_none_consent(
+    project: Path,
+    *,
+    is_tty: Callable[[], bool] = lambda: sys.stdin.isatty() and sys.stdout.isatty(),
+    ask: Callable[[str], str] = _tty_confirm,
+) -> None:
+    """Returns when the user has consented to backend `none` for `project`, asking once on a terminal.
+
+    Raises `NotATerminal` without a recorded consent and without a terminal (REQ-BOX-68): a banner
+    alone is not consent.
+    """
+    if is_set(project, "none_consent"):
+        return
+    set_choice(project, "none_consent", is_tty=is_tty, ask=ask)
