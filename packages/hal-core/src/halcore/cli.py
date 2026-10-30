@@ -10,6 +10,10 @@ import importlib
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
+
+from halkit import config as kitconfig
+from halkit import paths
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -75,9 +79,22 @@ ALIASES: dict[str, Alias] = {
 HEADLESS = Command("headless", "one prompt, no TUI (hal -p)")
 
 
+def default_command() -> str:
+    """What a bare `hal` runs: `code` in a project folder, `chat` elsewhere (REQ-CLI-08)."""
+    from . import launch  # lazy: it imports the policy profiles
+
+    requested = kitconfig.read_toml(paths.config_file()).get("ui", {}).get("default_mode", "auto")
+    if requested not in ("auto", "code", "chat"):
+        raise ValueError(f"[ui].default_mode = {requested!r} is unknown; use auto, code or chat")
+    try:
+        return launch.resolve_target(Path.cwd(), requested, home=Path.home()).mode
+    except launch.ForbiddenRoot:
+        return DEFAULT_COMMAND
+
+
 def resolve(argv: list[str]) -> tuple[Command, list[str]] | None:
     """The command and its arguments for `argv` (without the program name), or None when unknown."""
-    name, rest = (argv[0], argv[1:]) if argv else (DEFAULT_COMMAND, [])
+    name, rest = (argv[0], argv[1:]) if argv else (default_command(), [])
     alias = ALIASES.get(name)
     if alias:
         if alias.notice:

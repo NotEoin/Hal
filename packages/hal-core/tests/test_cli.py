@@ -5,9 +5,22 @@ import pytest
 from halcore import cli
 
 
-def test_bare_hal_resolves_to_chat():
+def test_bare_hal_in_a_plain_folder_opens_chat(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    monkeypatch.chdir(plain)
     command, args = cli.resolve([])
     assert command.module == "chat" and args == []
+
+
+def test_bare_hal_in_a_project_folder_opens_code(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    app = tmp_path / "app"
+    app.mkdir()
+    (app / "go.mod").write_text("")
+    monkeypatch.chdir(app)
+    assert cli.resolve([])[0].module == "code"
 
 
 def test_print_flag_runs_headless_without_the_flag_in_its_arguments():
@@ -47,3 +60,4 @@ def test_every_command_module_exposes_main():
     for command in cli.COMMANDS.values():
         assert callable(cli.load(command))
     assert callable(cli.load(cli.HEADLESS))
+
