@@ -22,6 +22,7 @@ from halkit import paths
 from . import config as sbconfig
 from . import detect, gitlayout, isolated, projects, scratch
 from .backends import Launch
+from .backends.bwrap import bwrap_launch, user_manager_running
 from .backends.docker import LaunchSpec, docker_argv
 from .backends.none import none_launch
 from .broker import DEFAULT_COMMAND, Broker
@@ -52,7 +53,11 @@ def _docker_builder(spec: LaunchSpec) -> Launch:
     return Launch(docker_argv(spec))
 
 
-ARGV_BUILDERS: dict[str, ArgvBuilder] = {"docker": _docker_builder, "none": none_launch}
+ARGV_BUILDERS: dict[str, ArgvBuilder] = {
+    "docker": _docker_builder,
+    "none": none_launch,
+    "bwrap": bwrap_launch,
+}
 
 
 def _write_files(root: Path, files: Mapping[str, bytes], forbidden: Sequence[bytes]) -> None:
@@ -96,6 +101,7 @@ class Session:
     channel: str
     docker: str = "docker"
     launch: Launch | None = None
+    scoped: bool = False
     closed: bool = False
 
     @classmethod
@@ -199,8 +205,11 @@ class Session:
                 env=box_env(kind, rd.sid, probe.backend, os.environ, extra=extra_env),
                 child=list(child_argv), pid=pid, pidstart=pidstart(pid), started=utc_now(), tty=tty,
                 git_mounts=gitlayout.discover(work) if not use_copy else (), masked=masked,
+                bwrap=detect.bwrap_binary(cfg) or "bwrap",
+                scope=probe.backend == "bwrap" and user_manager_running(),
                 scratch=scratch.prepare(project or work, int(cfg["scratch_max_bytes"])),
             )  # fmt: skip
+            session.scoped = spec.scope
             session.launch = builder(spec)
             session.agent_argv = list(session.launch.argv)
             rd.write_owner(kind=kind, backend=probe.backend, container=session.container, work=str(work))
@@ -229,6 +238,7 @@ class Session:
             "masked": list(self.masked),
             "work": "/work" if self.kind == "code" else None,
             "scratch": "/scratch",
+            **({"limits": "scope" if self.scoped else "none"} if self.backend == "bwrap" else {}),
         }
 
     def _ckpt(self) -> Checkpoints:

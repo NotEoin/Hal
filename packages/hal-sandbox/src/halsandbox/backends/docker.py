@@ -54,6 +54,8 @@ class LaunchSpec:
     entrypoint: str | None = DEFAULT_ENTRYPOINT  # None keeps the image's own entrypoint
     relay_port: int | None = None
     extra_labels: Mapping[str, str] = field(default_factory=dict)
+    bwrap: str = "bwrap"  # bwrap backend only
+    scope: bool = False  # bwrap backend only: wrap in `systemd-run --user --scope` for limits
 
     @property
     def container_name(self) -> str:
