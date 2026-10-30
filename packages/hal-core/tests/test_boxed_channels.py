@@ -157,3 +157,46 @@ def test_code_refusal_by_the_sandbox_exits_3(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["hal", "code", "--", "x"])
     assert code.main(["--", "x"]) == 3
     assert "docker answered before" in capsys.readouterr().err
+
+
+def _headless_run(output_format, tmp_path, monkeypatch, assistant=True):
+    from halcore import headless
+
+    log = []
+    broker = fake_box(tmp_path, monkeypatch, log)
+    monkeypatch.setenv("HAL_STATE", str(tmp_path / "state"))
+    args = argparse.Namespace(
+        output_format=output_format, assistant=assistant, dir=str(tmp_path), model=None, prompt=[]
+    )
+    out = io.StringIO()
+    status = asyncio.run(headless.run(args, "hello", out))
+    return status, out.getvalue(), broker, log
+
+
+def test_headless_json_prints_one_result_object_and_tells_the_broker(tmp_path, monkeypatch):
+    import json
+
+    status, out, broker, log = _headless_run("json", tmp_path, monkeypatch)
+    result = json.loads(out)
+    assert status == 0 and result["reply"] == "hi" and result["stop_reason"] == "end_turn"
+    assert broker.heard == [("hello", "tui")] and log[0]["kind"] == "chat"
+
+
+def test_headless_stream_json_emits_updates_then_a_result_line(tmp_path, monkeypatch):
+    import json
+
+    status, out, _, _ = _headless_run("stream-json", tmp_path, monkeypatch, assistant=False)
+    lines = [json.loads(line) for line in out.splitlines()]
+    assert status == 0 and lines[0]["type"] == "update" and lines[-1]["type"] == "result"
+
+
+def test_headless_text_streams_the_reply_without_json(tmp_path, monkeypatch):
+    status, out, _, _ = _headless_run("text", tmp_path, monkeypatch)
+    assert status == 0 and out.strip() == "hi"
+
+
+def test_headless_without_a_prompt_is_a_usage_error():
+    from halcore import headless
+
+    with pytest.raises(ValueError, match="no prompt"):
+        headless._read_prompt([], io.StringIO(""))

@@ -39,3 +39,19 @@ always has a point to return to.
 | `/rewind` says no checkpoints | `hal chat` boxes have no work tree; use `hal code` |
 | `/mode plan` is refused | Not built into the agent yet; use `default` and read `/diff` before `/apply` |
 | `/image` is accepted but the agent ignores it | The agent build does not advertise image input yet |
+
+## Headless: `hal -p`
+
+`hal -p "PROMPT"` runs one turn in a coding box on the current directory and exits. Add
+`--assistant` for an assistant box (`/scratch` only), `--dir DIR` for another project, and
+`--output-format text|json|stream-json`. Standard input is the prompt when no arguments are given.
+
+```
+hal -p --output-format json "list the failing tests"   # one object: reply, stop_reason, tool_calls, isolated_session
+hal -p --output-format stream-json "..."               # one line per update, then a result line
+```
+
+A coding turn works on an isolated copy, so `isolated_session` names what to give to
+`hal code accept` or `hal code export`. Exit status: 0 for a finished turn, 1 for another stop
+reason or an agent failure, 2 for no prompt, 3 for a refused start (docker down, lockdown, no
+consent). Verified by `packages/hal-core/tests/test_boxed_channels.py` with a fake agent.
