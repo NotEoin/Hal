@@ -155,3 +155,14 @@ It replaces `hal-serve start|stop|status`.
   claims. `listen = "unix"` is implemented but untested against a real server.
 
 Tests use a fake `llama-server` script (`tests/test_llama_router.py`); no real model is loaded.
+
+## Policies (`policies/`)
+
+Policies apply to `llama-router` backends on `/v1/messages` and `/v1/chat/completions` only.
+
+- **Overflow** (`policies/overflow.py`, REQ-GW-40): a 400 whose JSON `error.type` is
+  `exceed_context_size_error` is rewritten to `prompt is too long: N tokens > M maximum`
+  (Anthropic, the text Claude Code compacts on) or to the `context_length_exceeded` code
+  (OpenAI). The relay reads a 400 body whole, up to 1 MiB, and recomputes `Content-Length`.
+  Any other body passes unchanged. Which OpenAI clients act on the code is unverified; check
+  by overflowing a small `ctx-size` from a Codex or opencode session.

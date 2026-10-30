@@ -30,6 +30,7 @@ from .errors import (
     error_body,
 )
 from .estimate import ESTIMATE_HEADER, estimate_input_tokens
+from .policies import overflow
 from .routes import Api, Route
 
 log = logging.getLogger(__name__)
@@ -346,6 +347,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             headers["Content-Length"] = str(len(body))
         try:
             resp = relay.open_response(conn, self.command, self.path, body, headers)
+            if resp.status == 400 and isinstance(backend, LlamaRouter) and self._send_overflow(resp):
+                return
             self.send_response_only(resp.status)
             self.rec["status"] = resp.status
             self.send_header("X-Request-Id", self.request_id)
@@ -365,6 +368,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.close_connection = True
         finally:
             conn.close()
+
+    def _send_overflow(self, resp) -> bool:  # type: ignore[no-untyped-def]
+        """Maps a context overflow 400 (REQ-GW-40); False when the route or body is not one."""
+        route = routes.match(self.command, self.path)
+        if route is None or route.api not in (Api.MESSAGES, Api.CHAT):
+            return False
+        raw = resp.read(overflow.MAX_BODY_BYTES + 1)
+        mapped = overflow.map_overflow(route.fmt, 400, raw)
+        payload = raw if mapped is None else mapped
+        self.rec["status"] = 400
+        self.send_response_only(400)
+        self.send_header("X-Request-Id", self.request_id)
+        for name, value in relay.response_headers(resp.getheaders()):
+            if name.lower() not in ("date", "server", "content-length", "connection"):
+                self.send_header(name, value)
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self._write(payload)
+        return True
 
     def _write(self, chunk: bytes) -> None:
         if self.rec["ttfb_ms"] is None:
