@@ -5,7 +5,8 @@ The Hal coding agent. Import name: `halagent`. Design: [docs/design/03-agent.md]
 Status: essentials only. Implemented: OpenAI-compatible chat (TCP or unix socket, optional
 streaming), native tool calls with a text fallback, workspace-confined tools (`read`, `grep`, `glob`, `edit`, `write`, `run`, `todo`, `finish`),
 turn and tool-call limits, and
-an MCP client for the hub socket. Not implemented: sessions, compaction, ACP, profiles, repair.
+an MCP client for the hub socket. Tool-call repair (leaked-call parsers, name and argument aliases, coercion) is in
+`halagent.repair`. Not implemented: sessions, compaction, ACP, profiles.
 
 ## Usage
 

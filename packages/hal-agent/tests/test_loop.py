@@ -92,3 +92,18 @@ def test_unknown_tool_error_is_json_with_error_type(server, tmp_path):
     make(server, tmp_path).run("go")
     tool = [m for m in server.requests[1]["body"]["messages"] if m["role"] == "tool"][0]
     assert json.loads(tool["content"])["error_type"] == "unknown_tool"
+
+
+def test_aliased_tool_name_and_argument_run_the_real_tool(server, tmp_path):
+    (tmp_path / "a.txt").write_text("hello")
+    server.script(Reply(tool_calls=[("read_file", {"file_path": "a.txt"})]), "ok")
+    make(server, tmp_path).run("go")
+    tool = [m for m in server.requests[1]["body"]["messages"] if m["role"] == "tool"][0]
+    assert "hello" in tool["content"]
+
+
+def test_call_leaked_into_native_text_is_executed(server, tmp_path):
+    leak = '<tool_call>{"name": "write", "arguments": {"path": "l.txt", "content": "z"}}</tool_call>'
+    server.script(leak, "done")
+    r = make(server, tmp_path).run("go")
+    assert (tmp_path / "l.txt").read_text() == "z" and r.text == "done"

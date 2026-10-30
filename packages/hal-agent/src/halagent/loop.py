@@ -10,19 +10,20 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from halagent.mcp.lite import LiteMcpClient, McpError
 from halagent.provider import ChatProvider
+from halagent.repair import repair_call, repair_text
 from halagent.settings import AgentSettings
 from halagent.tools import ToolError, Toolset, render_error
 
 log = logging.getLogger("halagent.loop")
 
 MAX_RESULT_CHARS = 12_000
-CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
+HEAD_KEEP = 4_000
+TAIL_KEEP = 8_000
 SYSTEM = (
     "You are a coding agent. Work inside the workspace using the tools. Read before you edit, "
     "check your work by running tests, and answer briefly when the task is done."
@@ -75,6 +76,15 @@ class Agent:
             specs.append({"type": "function", "function": fn})
         return specs
 
+    def _offered(self) -> dict[str, dict]:
+        offered = {
+            n: {"properties": t.properties, "required": t.required} for n, t in self.toolset.tools.items()
+        }
+        for n, t in self._mcp_tools.items():
+            schema = t.get("inputSchema") or {}
+            offered[n] = {"properties": schema.get("properties", {}), "required": schema.get("required", [])}
+        return offered
+
     def _system_prompt(self) -> str:
         if self.settings.tool_format != "prompt":
             return SYSTEM
@@ -90,13 +100,13 @@ class Agent:
         if self.mcp:
             self.mcp.close()
 
-    def _execute(self, name: str, raw_args: str) -> str:
-        try:
-            args = json.loads(raw_args) if raw_args.strip() else {}
-            if not isinstance(args, dict):
-                raise ValueError("arguments must be a JSON object")
-        except ValueError as exc:
-            return render_error(ToolError("invalid_args", f"arguments must be a JSON object ({exc})"))
+    def _execute(self, name: str, raw_args: object) -> str:
+        fixed = repair_call(name, raw_args, self._offered())
+        if fixed.error:
+            return render_error(ToolError(*fixed.error)) + "".join(f"\n{n}" for n in fixed.notes)
+        if fixed.repairs:
+            log.info("repaired %s: %s", name, "; ".join(fixed.repairs))
+        name, args = fixed.name, fixed.args
         try:
             if name in self.toolset.tools:
                 out = self.toolset.tools[name].fn(args)
@@ -107,11 +117,17 @@ class Agent:
                 return render_error(ToolError("unknown_tool", f"no tool named {name!r}"))
         except ToolError as exc:
             log.info("tool %s failed: %s", name, exc)
-            return render_error(exc)
+            out = render_error(exc)
         except (McpError, ValueError, OSError) as exc:
             log.info("tool %s failed: %s", name, exc)
-            return render_error(ToolError("internal", str(exc)))
-        return out if len(out) <= MAX_RESULT_CHARS else out[:MAX_RESULT_CHARS] + "\n[result truncated]"
+            out = render_error(ToolError("internal", str(exc)))
+        if len(out) > MAX_RESULT_CHARS:
+            out = (
+                out[:HEAD_KEEP]
+                + f"\n[... {len(out) - MAX_RESULT_CHARS} characters cut ...]\n"
+                + out[-TAIL_KEEP:]
+            )
+        return out + "".join(f"\n{n}" for n in fixed.notes)
 
     def run(self, prompt: str) -> RunResult:
         """Runs one user prompt to completion or until a limit is hit."""
@@ -125,14 +141,14 @@ class Agent:
             reply = self.provider.complete(self.messages, self._specs() if native else None)
             text = reply.text
             calls = list(reply.tool_calls)
-            if not native:
-                calls = self._parse_text_calls(text, turns)
+            if not calls:
+                calls, text = self._leaked_calls(text, turns)
             if text and native:
                 self.on_event("text", text)
             if not calls:
                 self.messages.append({"role": "assistant", "content": text})
                 return RunResult(text, "done", turns, calls_made)
-            self.messages.append(self._assistant_message(text, calls, native))
+            self.messages.append(self._assistant_message(text if native else reply.text, calls, native))
             for cid, name, raw in calls:
                 tool = self.toolset.tools.get(name)
                 free = bool(tool and tool.free)
@@ -146,16 +162,14 @@ class Agent:
                     return RunResult(result, "finished", turns, calls_made)
         return RunResult(text, "turn_limit", turns, calls_made)
 
-    @staticmethod
-    def _parse_text_calls(text: str, turn: int) -> list[tuple[str, str, str]]:
-        out = []
-        for i, m in enumerate(CALL_RE.finditer(text)):
-            try:
-                obj = json.loads(m.group(1))
-                out.append((f"t{turn}_{i}", str(obj["name"]), json.dumps(obj.get("arguments") or {})))
-            except (ValueError, KeyError, TypeError):
-                out.append((f"t{turn}_{i}", "?", "{}"))
-        return out
+    def _leaked_calls(self, text: str, turn: int) -> tuple[list[tuple[str, str, str]], str]:
+        """Calls the model wrote into its text; returns them and the text without them."""
+        order = ("hermes",) if self.settings.tool_format == "prompt" else None
+        parser, repaired, rest = repair_text(text, self._offered(), order)
+        if not repaired:
+            return [], text
+        log.info("parsed %d leaked call(s) with %s", len(repaired), parser)
+        return [(f"t{turn}_{i}", r.name, json.dumps(r.args)) for i, r in enumerate(repaired)], rest
 
     @staticmethod
     def _assistant_message(text: str, calls: list[tuple[str, str, str]], native: bool) -> dict:
