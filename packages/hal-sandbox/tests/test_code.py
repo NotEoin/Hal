@@ -109,3 +109,21 @@ def test_container_reaches_the_model_forwarder_socket(tmp_path, runtime, sockdir
         fw.stop()
     assert out.returncode == 0, out.stderr
     assert '"ok": true' in out.stdout
+
+
+def test_argv_limits_memory_cpus_and_pids(tmp_path):
+    from halsandbox.limits import Limits
+
+    a = docker_args(
+        tmp_path, Path("/run/x"), limits=Limits(memory_bytes=2**31, cpus=2.0, pids=100, tmp_bytes=2**28)
+    )
+    joined = " ".join(a)
+    for flag in ("--memory 2147483648", "--memory-swap 2147483648", "--cpus 2", "--pids-limit 100"):
+        assert flag in joined
+    assert "size=268435456" in joined
+
+
+def test_scratch_is_mounted_rw_at_scratch(tmp_path):
+    a = docker_args(tmp_path, Path("/run/x"), scratch=Path("/st/scratch/p"))
+    assert "/st/scratch/p:/scratch:rw" in a
+    assert not any(":/scratch" in x for x in docker_args(tmp_path, Path("/run/x")))

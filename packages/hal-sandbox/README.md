@@ -30,6 +30,14 @@ uv run pytest packages/hal-sandbox
 
 `hal claude` starts Claude Code as before. It is not private and not sandboxed.
 
+## Limits and scratchpad
+
+- Limits (`[sandbox]` memory, cpus, pids, tmp_size): memory equals swap, default `min(8 GiB, RAM/4)`,
+  cpus `min(4, nproc/2)`, pids 1024. `tmp_size` must stay below `memory`.
+- Every box gets `/scratch` (rw), backed by `$STATE/scratch/<project>-<hash>/`, kept between sessions.
+  A session refuses to start when it is over `scratch_max_bytes` (2 GiB); the cap is checked at start
+  because a bind mount cannot enforce one.
+
 ## Lockdown
 
 `[sandbox].lockdown` is `strict`, `standard` (default), `relaxed` or `off`. Only the user sets it, in the

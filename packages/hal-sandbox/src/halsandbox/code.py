@@ -20,9 +20,11 @@ from pathlib import Path
 from halkit import paths
 
 from . import config as sbconfig
+from . import scratch as scratch_dir
 from .broker import Broker
 from .errors import SandboxError
 from .forwarder import ModelForwarder
+from .limits import Limits
 from .lockdown import Policy
 
 log = logging.getLogger(__name__)
@@ -32,7 +34,6 @@ DEFAULT_UPSTREAM = "http://127.0.0.1:8080"  # llama-server; Ollama is http://127
 DOCKER_QUICK_S = 30.0
 SESSION_MAX_S = 12 * 3600.0  # upper bound for one interactive session
 BUILD_TIMEOUT_S = 1800.0  # a cold pip install on a slow link
-TMP_SIZE = "256m"
 PACKAGES = ("hal-kit", "hal-agent")
 
 
@@ -60,9 +61,12 @@ def docker_args(
     uid: int | None = None,
     gid: int | None = None,
     tty: bool = False,
+    scratch: Path | None = None,
+    limits: Limits | None = None,
     agent_args: Sequence[str] = (),
 ) -> list[str]:
     """The `docker run` argv for one boxed hal-agent session."""
+    limits = limits or Limits.from_config()
     uid = os.getuid() if uid is None else uid
     gid = os.getgid() if gid is None else gid
     args = [
@@ -83,7 +87,8 @@ def docker_args(
         "--user",
         f"{uid}:{gid}",
         "--tmpfs",
-        f"/tmp:rw,nosuid,nodev,size={TMP_SIZE}",
+        f"/tmp:rw,nosuid,nodev,size={limits.tmp_bytes}",
+        *limits.docker_flags(),
         "-e",
         "HOME=/tmp",
         "-v",
@@ -91,6 +96,8 @@ def docker_args(
     ]
     if (workdir / ".git").exists():
         args += ["-v", f"{workdir / '.git'}:/work/.git:ro"]
+    if scratch is not None:
+        args += ["-v", f"{scratch}:/scratch:rw"]
     args += ["-v", f"{sockdir}:/run/hal:ro", "-w", "/work", image]
     args += ["-C", "/work", "--endpoint", "/run/hal/model.sock", "--broker", "/run/hal/hub.sock"]
     return args + list(agent_args)
@@ -141,10 +148,12 @@ def run_code(
         raise SandboxError(f"cannot query docker: {exc}") from exc
     if not have:
         raise SandboxError(f"image {image} not found; run `hal code --build`")
-    policy = Policy.for_level(str(sbconfig.load()["lockdown"]))
+    cfg = sbconfig.load()
+    policy = Policy.for_level(str(cfg["lockdown"]))
     runtime, warnings = policy.choose_runtime(docker_runtimes(), runtime)
     for warning in warnings:
         log.warning("hal code: %s", warning)
+    scratch = scratch_dir.prepare(workdir, int(cfg["scratch_max_bytes"]))
     base = paths.ensure_private_dir(paths.runtime_dir())
     sockdir = paths.ensure_private_dir(Path(tempfile.mkdtemp(prefix="code-", dir=base)))
     sockdir.chmod(0o700)
@@ -161,6 +170,8 @@ def run_code(
             image=image,
             runtime=runtime,
             tty=os.isatty(0) and os.isatty(1),
+            scratch=scratch,
+            limits=Limits.from_config(cfg),
             agent_args=agent_args,
         )
         return subprocess.run(argv, timeout=SESSION_MAX_S).returncode
