@@ -5,7 +5,7 @@ import json
 import pytest
 
 from halkit import config
-from halremote import cli, serve, servercheck
+from halremote import authorize, cli, serve, servercheck
 
 
 @pytest.mark.parametrize("command", sorted(set(cli.COMMANDS) - cli.IMPLEMENTED))
@@ -64,3 +64,26 @@ def test_serve_receives_its_options_unparsed(monkeypatch):
     monkeypatch.setattr(serve, "main", lambda argv: seen.append(list(argv)) or 64)
     assert cli.main(["serve", "--client", "laptop", "--hub", "/x"]) == 64
     assert seen == [["--client", "laptop", "--hub", "/x"]]
+
+
+def test_revoke_exits_1_and_names_what_failed(monkeypatch, capsys):
+    monkeypatch.setattr(authorize, "revoke", lambda *a, **k: ["gateway token: boom"])
+    assert cli.main(["revoke", "laptop"]) == cli.EXIT_FAILED
+    assert "gateway token: boom" in capsys.readouterr().err
+
+
+def test_authorize_refusal_exits_1_with_the_message(monkeypatch, capsys):
+    monkeypatch.setattr(
+        authorize, "resolve_paths", lambda: (_ for _ in ()).throw(authorize.AuthorizeError("no hal"))
+    )
+    assert cli.main(["authorize", "--client", "laptop", "--stdin"]) == cli.EXIT_FAILED
+    assert "no hal" in capsys.readouterr().err
+
+
+def test_clients_json_lists_the_registry(monkeypatch, capsys):
+    from halremote.model import ClientRecord
+
+    rec = ClientRecord("laptop", "c", "u", "any", "", "SHA256:a", "SHA256:b", (8741,), "remote-laptop")
+    monkeypatch.setattr(authorize, "clients", lambda: [rec])
+    assert cli.main(["clients", "--json"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)[0]["forwards"] == [8741]

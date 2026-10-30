@@ -87,3 +87,19 @@ def profile_paths(name: str) -> ProfilePaths:
         token=root / "gateway-token",
         state=paths.state_dir() / "remote" / name,
     )
+
+
+@dataclass(frozen=True)
+class ClientRecord:
+    """One authorized laptop, as stored in the desktop registry `clients.toml`."""
+
+    name: str
+    created: str
+    updated: str
+    from_pattern: str  # a `from=` pattern, or "any" when the option is omitted
+    expires: str  # YYYY-MM-DD, empty for none
+    tunnel_fingerprint: str
+    mcp_fingerprint: str
+    forwards: tuple[int, ...]
+    gateway_token_name: str
+    accepted_risks: tuple[str, ...] = ()

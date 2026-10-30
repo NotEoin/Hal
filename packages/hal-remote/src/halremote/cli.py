@@ -10,16 +10,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
-from . import __version__, serve, servercheck
+from . import __version__, authorize, serve, servercheck
 from . import config as _config  # noqa: F401 - import registers the [remote] tables
 
 EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_USAGE = 2
-IMPLEMENTED = frozenset({"server-check", "serve"})
+IMPLEMENTED = frozenset({"server-check", "serve", "authorize", "revoke", "clients"})
 
 HARNESSES = ("claude", "qwen", "opencode", "codex", "crush", "goose", "cline", "openai", "mcp")
 COMMANDS = (
@@ -39,6 +41,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--sshd-t", action="store_true", help="read the effective config with `sudo -n sshd -T`"
     )
     check.add_argument("--fix", action="store_true", help="delete token deliveries past their TTL")
+    auth = sub.add_parser("authorize", help="authorize a laptop (desktop side of pairing)")
+    auth.add_argument("--client", required=True)
+    auth.add_argument("--stdin", action="store_true", help="read the request JSON from stdin")
+    auth.add_argument("--tunnel-key")
+    auth.add_argument("--mcp-key")
+    auth.add_argument("--from", dest="from_pattern", help="from= pattern, or 'any'")
+    auth.add_argument("--expires", help="YYYY-MM-DD")
+    auth.add_argument("--rotate", action="store_true", help="replace the keys of an existing client")
+    auth.add_argument("--rotate-token", action="store_true", help="issue a new token for delivery")
+    auth.add_argument("--token-only", action="store_true", help="print a new token for a hand-made client")
+    auth.add_argument("--accept-risk", action="append", default=[], metavar="ID")
+    auth.add_argument("--json", action="store_true")
+    auth.add_argument("--authorized-keys", type=Path, default=None)
+    sub.add_parser("revoke", help="remove a client").add_argument("name")
+    sub.add_parser("clients", help="list authorized clients").add_argument("--json", action="store_true")
     # serve is the forced command: it parses its own arguments and must not print argparse help.
     sub.add_parser("serve", add_help=False).add_argument("args", nargs=argparse.REMAINDER)
     for name in COMMANDS:
@@ -71,6 +88,104 @@ def _server_check(args: argparse.Namespace) -> int:
     return EXIT_FAILED if servercheck.has_critical_failure(results) else EXIT_OK
 
 
+def _out(text: str) -> None:
+    sys.stdout.write(text + "\n")
+
+
+def _err(text: str) -> None:
+    sys.stderr.write(f"hal-remote: {text}\n")
+
+
+def _authorize(args: argparse.Namespace) -> int:
+    from halkit import proc
+
+    from .keys import parse_public_key
+
+    keys_file = args.authorized_keys or Path.home() / ".ssh" / "authorized_keys"
+    try:
+        resolved = authorize.resolve_paths()
+        if args.rotate_token or args.token_only:
+            token = authorize.rotate_token(args.client, runner=proc.run, resolved=resolved)
+            _out(token if args.token_only else f"new token for {args.client} is waiting for delivery")
+            return EXIT_OK
+        if args.from_pattern and not (args.stdin or args.tunnel_key):
+            authorize.update_from(
+                args.client, args.from_pattern, authorized_keys=keys_file, resolved=resolved
+            )
+            _out(f"updated from= for {args.client}")
+            return EXIT_OK
+        if args.stdin:
+            req = authorize.AuthorizeRequest.from_json(sys.stdin.read())
+            if req.client != args.client:
+                raise authorize.AuthorizeError("--client does not match the request")
+        else:
+            req = authorize.AuthorizeRequest.build(
+                client=args.client,
+                tunnel_key=args.tunnel_key or "",
+                mcp_key=args.mcp_key or "",
+                from_pattern=args.from_pattern,
+                expires=args.expires,
+                rotate=args.rotate,
+            )
+        addr = os.environ.get("SSH_CONNECTION", "").split(" ")[0] or None
+        resp = authorize.authorize(
+            req,
+            client_addr=addr,
+            runner=proc.run,
+            accept_risks=frozenset(args.accept_risk),
+            authorized_keys=keys_file,
+            resolved=resolved,
+        )
+    except authorize.AuthorizeError as exc:
+        _err(str(exc))
+        return EXIT_FAILED
+    if args.json:
+        _out(json.dumps(resp))
+        return EXIT_OK
+    _out(f"authorized {args.client} from {resp['from']}")
+    for line in resp["host_keys"]:
+        key = parse_public_key(line)
+        _out(f"{key.type} {key.fingerprint()}  (compare this on the laptop)")
+    if resp["gateway_tcp_enabled"]:
+        _out("gateway TCP listener switched on; restart the gateway to apply")
+    if resp["checks"]["warnings"]:
+        _out("warnings: " + ", ".join(resp["checks"]["warnings"]))
+    return EXIT_OK
+
+
+def _revoke(args: argparse.Namespace) -> int:
+    from halkit import proc
+
+    problems = authorize.revoke(
+        args.name, runner=proc.run, authorized_keys=Path.home() / ".ssh" / "authorized_keys"
+    )
+    for problem in problems:
+        _err(f"could not remove: {problem}")
+    if not problems:
+        _out(f"revoked {args.name}")
+    return EXIT_FAILED if problems else EXIT_OK
+
+
+def _clients(args: argparse.Namespace) -> int:
+    try:
+        rows = authorize.clients()
+    except authorize.AuthorizeError as exc:
+        _err(str(exc))
+        return EXIT_FAILED
+    if args.json:
+        _out(
+            json.dumps(
+                [
+                    {**r.__dict__, "forwards": list(r.forwards), "accepted_risks": list(r.accepted_risks)}
+                    for r in rows
+                ]
+            )
+        )
+    for r in [] if args.json else rows:
+        _out(f"{r.name:<16} from={r.from_pattern} expires={r.expires or '-'} {r.tunnel_fingerprint}")
+    return EXIT_OK
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Runs `hal-remote`; returns the process exit code."""
     words = list(sys.argv[1:] if argv is None else argv)
@@ -78,6 +193,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Bypasses argparse: REMAINDER rejects a first token that is an option (`--client`).
         return serve.main(words[1:])
     args = build_parser().parse_args(words)
+    handlers = {"authorize": _authorize, "revoke": _revoke, "clients": _clients}
+    if args.command in handlers:
+        return handlers[args.command](args)
     if args.command == "server-check":
         return _server_check(args)
     sys.stderr.write(f"hal-remote {args.command}: not implemented\n")
