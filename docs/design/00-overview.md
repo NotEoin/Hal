@@ -1383,7 +1383,7 @@ Commits owned by this spec, in order, on branch `next` (each one sitting, each g
    not bwrap and not systemd and not live"`), `.gitignore` additions (`.pytest_cache/`,
    `.venv/`, `*.bak`).
 2. `Add hal-kit package with paths and time helpers` - `halkit.paths` (XDG and the F6
-   runtime-dir rule), `halkit.timeutil`, tests; version `0.1.0.dev0`.
+   runtime-dir rule), `halkit.timeutil`, tests; version `0.1.0`.
 3. `Port HAL_STATE_DIR override from hal-private` - `HAL_STATE_DIR`, `HAL_DATA_DIR`,
    `HAL_RUNTIME_DIR` and the deprecated aliases, tests.
 4. `Add strict TOML config loader to hal-kit` - `halkit.config` including `hal()`, tests.

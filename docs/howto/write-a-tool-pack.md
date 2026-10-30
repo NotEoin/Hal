@@ -51,8 +51,7 @@ editable installs of `hal-kit`, `hal-hub` and the generated pack.
    uv run --group dev pytest                     # the generated behaviour test
    ```
 
-   Inside the Hal monorepo the workspace version is `0.1.0.dev0`, which the generated
-   `hal-hub>=0.1,<0.2` pin does not accept; install with `--no-deps` there.
+   The workspace version is `0.1.0`, which the generated `hal-hub>=0.1,<0.2` pin accepts.
 
 5. Check the pack through the hub.
 

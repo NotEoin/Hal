@@ -40,7 +40,7 @@ def test_prefix_check_rejects_zero(key):
 def test_package_carries_the_workspace_version():
     import halremote
 
-    assert halremote.__version__ == "0.1.0.dev0"
+    assert halremote.__version__ == "0.1.0"
 
 
 def test_server_check_prints_json_and_exits_1_on_a_critical_failure(monkeypatch, capsys):

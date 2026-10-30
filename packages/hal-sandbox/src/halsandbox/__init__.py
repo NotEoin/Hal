@@ -6,4 +6,4 @@ It never imports `halagent` or `halgateway`. Design: docs/design/02-sandbox.md.
 This package is a skeleton: the first behaviour lands in phase 5 of the implementation plan.
 """
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.1.0"
