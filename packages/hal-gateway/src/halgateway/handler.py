@@ -314,6 +314,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 f"{route.path} is not available" + ("" if router else ": no managed llama-router backend")
             )
         body = {} if name == "router/stop" else self._read_json(ADMIN_BODY_LIMIT)
+        if name in ("mode", "models/load"):
+            gateway.gpu.check_peers()
         if name == "router/stop":
             router.stop()
         elif name == "mode":

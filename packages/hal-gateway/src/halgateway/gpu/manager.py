@@ -17,6 +17,7 @@ from pathlib import Path
 
 from ..errors import GatewayError, Unavailable
 from . import AcquireResult, ClaimClass, GpuCoordinator, LeaseInfo, ReleaseResult
+from .peers import PeerGuard
 
 log = logging.getLogger(__name__)
 
@@ -59,8 +60,10 @@ class GpuManager:
         *,
         state_dir: Path,
         clock: Callable[[], float] = time.monotonic,
+        guard: PeerGuard | None = None,
     ) -> None:
         self.cfg = cfg
+        self.guard = guard
         self.backends = backends
         self.coordinator = coordinator
         self.off_flag = state_dir.parent / OFF_FLAG
@@ -131,16 +134,22 @@ class GpuManager:
             return
         if self.cfg["respect_off_flag"] and not getattr(principal, "lease", False) and self.off_flag.exists():
             raise Unavailable(OFF_MESSAGE)
-        if self.coordinator is None:
-            return
         cls = self.claim_class(principal)
         with self._lock:
-            if cls in self._held:
+            if cls in self._held or (self.coordinator is None and self.in_flight()):
+                return
+            self.check_peers()
+            if self.coordinator is None:
                 return
             result = self._acquire(cls, target)
             if result.held:
                 self._held.add(cls)
         self._unload_offloaded()
+
+    def check_peers(self) -> None:
+        """REQ-GW-56: raises `PeerBusy` when a peer holds the GPU; call before a router start or load."""
+        if self.guard is not None:
+            self.guard.check()
 
     def _acquire(self, cls: ClaimClass, target: object) -> AcquireResult:
         assert self.coordinator is not None  # noqa: S101 - callers check
@@ -244,5 +253,6 @@ class GpuManager:
                 "in_flight": self.in_flight(),
                 "leases": len(self._leases),
                 "off": self.off_flag.exists(),
+                "peers": self.guard.status() if self.guard else [],
             }
         return doc

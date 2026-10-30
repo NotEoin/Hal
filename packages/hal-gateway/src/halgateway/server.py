@@ -275,7 +275,7 @@ class Gateway:
                 router.peek()
             if router.entry["autostart"] == "with-gateway":
                 threading.Thread(
-                    target=self._autostart, args=(router,), name="hal-router-start", daemon=True
+                    target=self._autostart, args=(router, self.gpu), name="hal-router-start", daemon=True
                 ).start()
 
     def _stop_router(self) -> None:
@@ -301,8 +301,9 @@ class Gateway:
         self.resolver.mode_aliases.update(aliases)
 
     @staticmethod
-    def _autostart(router: LlamaRouter) -> None:
+    def _autostart(router: LlamaRouter, gpu: GpuManager) -> None:
         try:
+            gpu.check_peers()
             router.ensure()
         except GatewayError as exc:
             log.error("router autostart failed: %s", exc.message)

@@ -235,3 +235,12 @@ model. `POST /hal/v1/gpu/release` and `hal-gateway release-gpu [--force] [--stop
 Verified with fakes only (a fake coordinator, a fake Ollama, a temporary gpu-light directory);
 no real GPU, `gpu-light` watcher or Ollama was used. The peer guard (REQ-GW-56) and lease
 registration come with later steps; `add_lease` / `drop_lease` are the hooks.
+
+### Peer guard (`gpu/peers`)
+
+`[[gateway.gpu.peers]]` (`url`, optional `api_key_file`) is validated at config load. Before a
+new claim (or, with no coordinator, when no GPU request is running), before `mode` and
+`models/load`, and before the router autostart, `PeerGuard.check` reads each peer's
+`GET <url>/models` (timeout `peer_timeout_s`) and answers 409 `gpu_busy_peer` when an entry
+has `status.value == "loaded"`. An unreachable or unparsable peer is logged and ignored.
+Tested with fake fetchers only.

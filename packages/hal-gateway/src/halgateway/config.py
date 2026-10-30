@@ -19,6 +19,8 @@ from urllib.parse import urlsplit
 
 from halkit import config, paths
 
+from .gpu.peers import PeerConfigError, parse_peers
+
 OWNER = "hal-gateway"
 LOOPBACK_HOSTS = ("127.0.0.1", "::1")
 BACKEND_TYPES = ("llama-router", "ollama", "openai")
@@ -63,6 +65,14 @@ def _strings(value: object) -> str | None:
     if isinstance(value, list) and all(isinstance(item, str) for item in value):
         return None
     return "must be a list of strings"
+
+
+def _peers(value: object) -> str | None:
+    try:
+        parse_peers(value if isinstance(value, list) else [None])
+    except PeerConfigError as exc:
+        return str(exc)
+    return None
 
 
 def _url_or_empty(value: object) -> str | None:
@@ -179,7 +189,7 @@ GPU_TABLE = config.register(
             K("v1_claim_wait_s", float, 120.0, check=_non_negative, doc="Wait for a v1 claim"),
             K("v1_dir", str, "", doc="gpu-light v1 directory; empty = its own resolution order"),
             K("vram_mib", dict, {}, check=_vram_map, doc="Model or preset -> MiB for admission"),
-            K("peers", list, [], doc="Peer GPU servers to check before loading"),
+            K("peers", list, [], check=_peers, doc="Peer GPU servers to check before loading"),
         ),
     )
 )
