@@ -1,0 +1,24 @@
+diff --git a/inilite/parser.py b/inilite/parser.py
+index 9749970..f3aa4b0 100644
+--- a/inilite/parser.py
++++ b/inilite/parser.py
+@@ -1,13 +1,17 @@
+ """Parses key = value lines."""
+ 
++import re
++
++_INLINE_COMMENT = re.compile(r"\s+[;#].*$")
++
+ 
+ def parse(text):
+-    """Returns a dict of the key = value lines."""
++    """Returns a dict of the key = value lines; an inline comment after whitespace is dropped."""
+     result = {}
+     for line in text.splitlines():
+         line = line.strip()
+         if not line or line[0] in ";#":
+             continue
+         key, _, value = line.partition("=")
+-        result[key.strip()] = value.strip()
++        result[key.strip()] = _INLINE_COMMENT.sub("", value.strip())
+     return result

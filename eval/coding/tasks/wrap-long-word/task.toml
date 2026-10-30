@@ -1,0 +1,9 @@
+id = "wrap-long-word"
+title = "wrap loses words longer than the width"
+kind = "bugfix"
+task = """wrap(text, width) in textwrapx/wrap.py splits text into lines of at most width characters at spaces. A single word longer than width is dropped today. It must be split into chunks of width characters instead, and the following words continue on a new line."""
+check = "python -m pytest -q hidden/test_wrap_long_word.py"
+protected = ["tests/**", "hidden/**", "pyproject.toml", "conftest.py"]
+timeout_s = 120
+split = "dev"
+license = "MIT"

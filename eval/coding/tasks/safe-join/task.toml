@@ -1,0 +1,9 @@
+id = "safe-join"
+title = "safe_join lets .. escape the base directory"
+kind = "bugfix"
+task = """safe_join(base, *parts) in pathsafe/join.py joins parts under base and must raise ValueError when the result is outside base (for example a '..' part or an absolute part). Today it only checks that the string starts with base, so '/srv/data-evil' passes for base '/srv/data'. Do not touch the filesystem (no resolve of symlinks)."""
+check = "python -m pytest -q hidden/test_safe_join.py"
+protected = ["tests/**", "hidden/**", "pyproject.toml", "conftest.py"]
+timeout_s = 120
+split = "dev"
+license = "MIT"

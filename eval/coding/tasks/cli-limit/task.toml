@@ -1,0 +1,9 @@
+id = "cli-limit"
+title = "add a --limit option to the list command"
+kind = "feature"
+task = """main(argv) in listcli/cli.py prints the lines of the file given as the first argument and returns 0. Add an option --limit N (also -n N) that prints only the first N lines. N must be a positive integer; otherwise print 'error: --limit must be a positive integer' to stderr and return 2. Without the option, behaviour is unchanged. Keep using argparse."""
+check = "python -m pytest -q hidden/test_cli_limit.py"
+protected = ["tests/**", "hidden/**", "pyproject.toml", "conftest.py"]
+timeout_s = 120
+split = "dev"
+license = "MIT"

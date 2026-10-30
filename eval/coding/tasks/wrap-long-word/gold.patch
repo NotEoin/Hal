@@ -1,0 +1,25 @@
+diff --git a/textwrapx/wrap.py b/textwrapx/wrap.py
+index 121a3e3..867e3cb 100644
+--- a/textwrapx/wrap.py
++++ b/textwrapx/wrap.py
+@@ -2,11 +2,17 @@
+ 
+ 
+ def wrap(text, width):
+-    """Returns the lines of `text` wrapped at `width` characters."""
++    """Returns the lines of `text` wrapped at `width` characters; long words are split."""
++    if width < 1:
++        raise ValueError("width must be >= 1")
+     lines, current = [], ""
+     for word in text.split():
+-        if len(word) > width:
+-            continue
++        while len(word) > width:
++            if current:
++                lines.append(current)
++                current = ""
++            lines.append(word[:width])
++            word = word[width:]
+         if not current:
+             current = word
+         elif len(current) + 1 + len(word) <= width:

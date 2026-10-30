@@ -1,0 +1,47 @@
+diff --git a/geom/__init__.py b/geom/__init__.py
+index f11da2a..a77f9f3 100644
+--- a/geom/__init__.py
++++ b/geom/__init__.py
+@@ -1,5 +1,5 @@
+ """Geometry helpers."""
+ 
+-from geom.shapes import area_of
++from geom.shapes import area, area_of
+ 
+-__all__ = ["area_of"]
++__all__ = ["area", "area_of"]
+diff --git a/geom/report.py b/geom/report.py
+index 5e9eece..d5ae5e2 100644
+--- a/geom/report.py
++++ b/geom/report.py
+@@ -1,8 +1,8 @@
+ """Text report."""
+ 
+-from geom.shapes import area_of
++from geom.shapes import area
+ 
+ 
+ def describe(width, height):
+     """Returns a one-line description of a rectangle."""
+-    return f"{width}x{height} has area {area_of(width, height)}"
++    return f"{width}x{height} has area {area(width, height)}"
+diff --git a/geom/shapes.py b/geom/shapes.py
+index 083c825..98c0156 100644
+--- a/geom/shapes.py
++++ b/geom/shapes.py
+@@ -1,6 +1,14 @@
+ """Shape maths."""
+ 
++import warnings
+ 
+-def area_of(width, height):
++
++def area(width, height):
+     """Returns the area of a rectangle."""
+     return width * height
++
++
++def area_of(width, height):
++    """Deprecated alias of `area`."""
++    warnings.warn("area_of is deprecated, use area", DeprecationWarning, stacklevel=2)
++    return area(width, height)

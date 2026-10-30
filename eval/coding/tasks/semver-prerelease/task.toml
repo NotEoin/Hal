@@ -1,0 +1,9 @@
+id = "semver-prerelease"
+title = "version compare ranks a prerelease above its release"
+kind = "bugfix"
+task = """compare(a, b) in semverx/version.py returns -1, 0 or 1 for semantic versions like '1.2.3' or '1.0.0-rc.1'. A prerelease sorts BELOW its release (1.0.0-rc.1 < 1.0.0). Prerelease identifiers compare dot by dot: numeric ones as numbers, others as text, numeric below text, and a shorter list below a longer one with the same start (1.0.0-rc < 1.0.0-rc.1). Build metadata after '+' is ignored."""
+check = "python -m pytest -q hidden/test_semver_prerelease.py"
+protected = ["tests/**", "hidden/**", "pyproject.toml", "conftest.py"]
+timeout_s = 120
+split = "heldout"
+license = "MIT"

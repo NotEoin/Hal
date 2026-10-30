@@ -1,0 +1,9 @@
+id = "lru-evict"
+title = "LRU cache evicts the most recently used key"
+kind = "bugfix"
+task = """LRUCache in cachex/lru.py holds at most capacity entries. get(key) returns the value or None and marks the key most recently used. put(key, value) adds or replaces and marks the key most recently used; when over capacity it must evict the LEAST recently used key. Today it evicts the wrong end and get does not refresh the key."""
+check = "python -m pytest -q hidden/test_lru_evict.py"
+protected = ["tests/**", "hidden/**", "pyproject.toml", "conftest.py"]
+timeout_s = 120
+split = "heldout"
+license = "MIT"

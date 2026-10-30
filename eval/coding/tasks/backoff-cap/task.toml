@@ -1,0 +1,9 @@
+id = "backoff-cap"
+title = "backoff delay ignores the cap"
+kind = "bugfix"
+task = """delay(attempt, base, cap) in retrylib/backoff.py returns the seconds to wait before retry number attempt (0 is the first retry): base * 2**attempt, but never more than cap. Today it ignores cap, and a large attempt raises OverflowError with float base. Fix both."""
+check = "python -m pytest -q hidden/test_backoff_cap.py"
+protected = ["tests/**", "hidden/**", "pyproject.toml", "conftest.py"]
+timeout_s = 120
+split = "dev"
+license = "MIT"

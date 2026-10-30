@@ -1,0 +1,9 @@
+id = "money-round"
+title = "format_cents rounds half cases the wrong way"
+kind = "bugfix"
+task = """format_cents(amount, rate) in moneyfmt/fmt.py applies a percentage rate (for example 7.5) to an integer amount of cents and returns the integer cents of the result, rounded half up (away from zero for negatives): 5% of 10 cents is 0.5, which gives 1. Today float maths and round() give banker's rounding and float errors. Use integers or Decimal only."""
+check = "python -m pytest -q hidden/test_money_round.py"
+protected = ["tests/**", "hidden/**", "pyproject.toml", "conftest.py"]
+timeout_s = 120
+split = "dev"
+license = "MIT"

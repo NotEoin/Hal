@@ -1,0 +1,15 @@
+diff --git a/pathsafe/join.py b/pathsafe/join.py
+index 9132ca0..b6cc737 100644
+--- a/pathsafe/join.py
++++ b/pathsafe/join.py
+@@ -5,7 +5,8 @@ import os
+ 
+ def safe_join(base, *parts):
+     """Returns the joined path; raises ValueError when it leaves `base`."""
+-    path = os.path.normpath(os.path.join(base, *parts))
+-    if not path.startswith(os.path.normpath(base)):
++    root = os.path.normpath(base)
++    path = os.path.normpath(os.path.join(root, *parts))
++    if os.path.commonpath([root, path]) != root:
+         raise ValueError(f"path escapes base: {path}")
+     return path

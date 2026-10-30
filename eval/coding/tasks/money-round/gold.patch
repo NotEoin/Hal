@@ -1,0 +1,17 @@
+diff --git a/moneyfmt/fmt.py b/moneyfmt/fmt.py
+index e02eb89..a8ade91 100644
+--- a/moneyfmt/fmt.py
++++ b/moneyfmt/fmt.py
+@@ -1,6 +1,10 @@
+ """Percent of cents."""
+ 
++from decimal import ROUND_HALF_UP, Decimal
++
+ 
+ def format_cents(amount, rate):
+-    """Returns `rate` percent of `amount` cents as integer cents."""
+-    return round(amount * rate / 100)
++    """Returns `rate` percent of `amount` cents as integer cents, rounded half up."""
++    exact = Decimal(amount) * Decimal(str(rate)) / Decimal(100)
++    magnitude = abs(exact).quantize(Decimal(1), rounding=ROUND_HALF_UP)
++    return int(magnitude) if exact >= 0 else -int(magnitude)

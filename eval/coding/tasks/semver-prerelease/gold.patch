@@ -1,0 +1,29 @@
+diff --git a/semverx/version.py b/semverx/version.py
+index 9fdb291..a88b445 100644
+--- a/semverx/version.py
++++ b/semverx/version.py
+@@ -2,8 +2,14 @@
+ 
+ 
+ def _split(text):
++    text = text.partition("+")[0]
+     core, _, pre = text.partition("-")
+-    return tuple(int(p) for p in core.split(".")), pre
++    return tuple(int(p) for p in core.split(".")), pre.split(".") if pre else []
++
++
++def _ident_key(ident):
++    # numeric identifiers sort below text ones (semver.org rule 11)
++    return (0, int(ident), "") if ident.isdigit() else (1, 0, ident)
+ 
+ 
+ def compare(a, b):
+@@ -13,4 +19,7 @@ def compare(a, b):
+         return -1 if ca < cb else 1
+     if pa == pb:
+         return 0
+-    return -1 if pa < pb else 1
++    if not pa or not pb:
++        return 1 if not pa else -1
++    ka, kb = [_ident_key(i) for i in pa], [_ident_key(i) for i in pb]
++    return -1 if ka < kb else 1

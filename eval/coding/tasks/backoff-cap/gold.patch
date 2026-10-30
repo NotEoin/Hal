@@ -1,0 +1,17 @@
+diff --git a/retrylib/backoff.py b/retrylib/backoff.py
+index 9e64a10..e8a47f7 100644
+--- a/retrylib/backoff.py
++++ b/retrylib/backoff.py
+@@ -1,6 +1,10 @@
+ """Exponential backoff."""
+ 
++MAX_EXPONENT = 62  # beyond this the result is capped for any sane base
++
+ 
+ def delay(attempt, base=0.5, cap=30.0):
+-    """Returns the seconds to wait before retry number `attempt`."""
+-    return base * 2.0**attempt
++    """Returns the seconds to wait before retry number `attempt`, at most `cap`."""
++    if attempt < 0:
++        raise ValueError("attempt must be >= 0")
++    return min(cap, base * 2.0 ** min(attempt, MAX_EXPONENT))

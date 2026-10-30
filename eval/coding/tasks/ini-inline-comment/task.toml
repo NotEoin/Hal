@@ -1,0 +1,9 @@
+id = "ini-inline-comment"
+title = "ini parser keeps inline comments in values"
+kind = "bugfix"
+task = """parse in inilite/parser.py returns a dict of key to value. A ';' or '#' that follows whitespace after a value starts a comment and must be cut off: 'name = hal ; the agent' gives {'name': 'hal'}. A '#' inside a value with no space before it (colour = a#b) is part of the value. Whole-line comments are already skipped."""
+check = "python -m pytest -q hidden/test_ini_inline_comment.py"
+protected = ["tests/**", "hidden/**", "pyproject.toml", "conftest.py"]
+timeout_s = 120
+split = "dev"
+license = "MIT"

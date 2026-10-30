@@ -1,0 +1,9 @@
+id = "rename-api"
+title = "rename area_of to area across the package"
+kind = "refactor"
+task = """The function area_of in geom/shapes.py is called from geom/report.py and geom/__init__.py. Rename it to area everywhere in the package. Keep area_of as a deprecated alias that returns the same result and emits a DeprecationWarning (warnings.warn with stacklevel=2)."""
+check = "python -m pytest -q hidden/test_rename_api.py"
+protected = ["tests/**", "hidden/**", "pyproject.toml", "conftest.py"]
+timeout_s = 120
+split = "heldout"
+license = "MIT"

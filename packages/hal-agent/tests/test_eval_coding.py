@@ -35,7 +35,18 @@ def test_shipped_tasks_load_and_split_by_name():
     tasks = load_tasks(TASKS)
     assert {t.id for t in tasks} >= {"csv-quote", "leap-century", "dedupe-stable"}
     assert all(t.license == "MIT" for t in tasks)
-    assert {t.id for t in load_tasks(TASKS, "heldout")} == {"dedupe-stable"}
+    assert {t.id for t in load_tasks(TASKS, "heldout")} == {
+        "dedupe-stable",
+        "lru-evict",
+        "rename-api",
+        "semver-prerelease",
+    }
+
+
+def test_task_set_has_twelve_tasks_with_gold_patches():
+    tasks = load_tasks(TASKS)
+    assert len(tasks) == 12
+    assert all((TASKS / t.id / "gold.patch").read_text().startswith("diff --git") for t in tasks)
 
 
 @pytest.mark.parametrize("task", load_tasks(TASKS), ids=lambda t: t.id)

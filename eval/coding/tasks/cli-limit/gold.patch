@@ -1,0 +1,26 @@
+diff --git a/listcli/cli.py b/listcli/cli.py
+index 88da9fc..fac4548 100644
+--- a/listcli/cli.py
++++ b/listcli/cli.py
+@@ -1,6 +1,7 @@
+ """Command line for printing a file."""
+ 
+ import argparse
++import itertools
+ import sys
+ 
+ 
+@@ -8,8 +9,12 @@ def main(argv=None):
+     """Prints the lines of the file named in `argv`; returns the exit code."""
+     parser = argparse.ArgumentParser(prog="listcli")
+     parser.add_argument("path")
++    parser.add_argument("--limit", "-n", type=int, default=None)
+     args = parser.parse_args(argv)
++    if args.limit is not None and args.limit < 1:
++        print("error: --limit must be a positive integer", file=sys.stderr)
++        return 2
+     with open(args.path, encoding="utf-8") as handle:
+-        for line in handle:
++        for line in itertools.islice(handle, args.limit):
+             sys.stdout.write(line)
+     return 0
