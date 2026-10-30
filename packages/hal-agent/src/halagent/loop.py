@@ -29,6 +29,7 @@ from halagent.budget import (
     nudge_text,
 )
 from halagent.context import (
+    CHARS_PER_TOKEN,
     ContextManager,
     ContextOverflow,
     StateNote,
@@ -44,6 +45,7 @@ from halagent.repair import has_open_marker, repair_call, repair_text
 from halagent.repair.aliases import parse_args
 from halagent.sessions import SessionWriter, replay_indexed
 from halagent.settings import DEFAULT_MAX_OUTPUT, DEFAULT_WINDOW, AgentSettings
+from halagent.tokens import ESTIMATE_FACTOR, TokenCounter
 from halagent.tools import ToolError, Toolset, render_error
 from halkit import paths
 
@@ -173,6 +175,7 @@ class Agent:
             if assistant and any(t.name == "memory_profile" for t in listed):
                 self._profile_text = self._fetch_profile()
         self.session = session
+        self.tokens = TokenCounter("openai", settings.context_window)
         self.counters: Counter[str] = Counter()  # per-run quality counters for the eval (REQ-AGT-95)
         self.turn = 0
         self._next_i = 0
@@ -462,6 +465,7 @@ class Agent:
                     log.error("%s", again)
                     return RunResult(text, "context_overflow", turns, clock.calls_used)
             self._report_usage(reply)
+            self._calibrate(history, reply, native)
             text = reply.text
             calls = list(reply.tool_calls)
             if not calls:
@@ -496,6 +500,18 @@ class Agent:
             stop = self._run_calls(calls, native, clock, dog)
             if stop:
                 return RunResult(stop[1], stop[0], turns, clock.calls_used)
+
+    def _calibrate(self, history: list[dict], reply: Completion, native: bool) -> None:
+        """Sets the context estimate's ratio from the server's real prompt count for this request."""
+        if reply.prompt_tokens <= 0:
+            return
+        chars = len(json.dumps(self._wire(history), ensure_ascii=False))
+        if native:
+            chars += len(json.dumps(self._specs(), ensure_ascii=False))
+        self.tokens.observe(chars, reply.prompt_tokens)
+        # only ever more cautious than the default: a server that under-reports (prefix cache,
+        # fake servers) must not make the window check trust a too-small estimate
+        self.context.chars_per_token = min(CHARS_PER_TOKEN, 1 / (self.tokens.ratio * ESTIMATE_FACTOR))
 
     def _report_usage(self, reply: Completion) -> None:
         """Emits a `usage` update when the server reported token counts."""

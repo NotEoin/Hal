@@ -143,3 +143,11 @@ def test_counters_record_repairs_unknown_calls_and_nudges(server, tmp_path):
     agent = make(server, tmp_path)
     agent.run("go")
     assert dict(agent.counters) == {"repaired": 1, "unknown": 1, "nudges": 1, "truncated": 1}
+
+
+def test_server_prompt_count_recalibrates_the_context_estimate(server, tmp_path):
+    server.script(Reply(text="hi", prompt_tokens=2000))
+    agent = make(server, tmp_path)
+    before = agent.context.chars_per_token
+    agent.run("hello")
+    assert agent.context.chars_per_token < before

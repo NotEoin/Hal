@@ -138,6 +138,29 @@ class ChatProvider:
         finally:
             conn.close()
 
+    def post_json(self, path: str, body: dict) -> tuple[int, Any]:
+        """POSTs `body` to `path` below the endpoint's base; returns `(status, parsed body or None)`.
+
+        One attempt, no retry: callers use it for optional routes such as token counts.
+        """
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        route = path[len("/v1") :] if self._prefix.endswith("/v1") and path.startswith("/v1") else path
+        conn = self._connect()
+        try:
+            conn.request("POST", self._prefix + route, json.dumps(body), headers)
+            resp = conn.getresponse()
+            raw = resp.read()
+            try:
+                return resp.status, json.loads(raw)
+            except ValueError:
+                return resp.status, None
+        except (OSError, http.client.HTTPException) as exc:
+            raise ProviderError(f"model endpoint unreachable: {exc}") from exc
+        finally:
+            conn.close()
+
     def model_info(self) -> ModelInfo:
         """Reads `context_length` and `meta.hal_profile` of the model; empty if the server has none."""
         path = "/models" if self._prefix.endswith("/v1") else "/v1/models"

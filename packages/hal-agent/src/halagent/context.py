@@ -33,10 +33,12 @@ TOOL_RESULT_PREFIX = "<tool_result"
 SUMMARY_HEADER = "[hal] The earlier part of this session was compacted. Summary:\n"
 
 
-def estimate_tokens(messages: list[dict], extra_chars: int = 0) -> int:
-    """A rough token count: characters over four plus a per-message overhead."""
+def estimate_tokens(
+    messages: list[dict], extra_chars: int = 0, chars_per_token: float = CHARS_PER_TOKEN
+) -> int:
+    """A rough token count: characters over `chars_per_token` plus a per-message overhead."""
     chars = extra_chars + sum(len(json.dumps(m, ensure_ascii=False)) for m in messages)
-    return chars // CHARS_PER_TOKEN + MESSAGE_OVERHEAD_TOKENS * len(messages)
+    return int(chars / chars_per_token) + MESSAGE_OVERHEAD_TOKENS * len(messages)
 
 
 @dataclass
@@ -158,20 +160,24 @@ class ContextManager:
         if self.input_budget <= 0:
             raise ValueError(f"context window {window} is too small for max_output {max_output}")
         self.summarize = summarize
+        self.chars_per_token: float = CHARS_PER_TOKEN  # recalibrated from the server's prompt counts
         self.keep_recent = keep_recent
+
+    def _est(self, messages: list[dict], extra_chars: int = 0) -> int:
+        return estimate_tokens(messages, extra_chars, self.chars_per_token)
 
     def fit(self, messages: list[dict], ids: list[int], note: StateNote, tools_chars: int = 0) -> Fitted:
         """Returns the history to send, compacted if it was over budget."""
         out = Fitted(list(messages), list(ids))
-        if estimate_tokens(out.messages, tools_chars) <= self.mask_at * self.input_budget:
+        if self._est(out.messages, tools_chars) <= self.mask_at * self.input_budget:
             return out
         self._mask(out, tools_chars)
-        if estimate_tokens(out.messages, tools_chars) > self.summarize_at * self.input_budget:
+        if self._est(out.messages, tools_chars) > self.summarize_at * self.input_budget:
             self._summarise(out, note)
         self._cut_largest(out, tools_chars)
-        if estimate_tokens(out.messages, tools_chars) > self.input_budget:
+        if self._est(out.messages, tools_chars) > self.input_budget:
             raise ContextOverflow(
-                f"the request needs about {estimate_tokens(out.messages, tools_chars)} tokens, "
+                f"the request needs about {self._est(out.messages, tools_chars)} tokens, "
                 f"the budget is {self.input_budget}"
             )
         return out
@@ -180,12 +186,12 @@ class ContextManager:
         names = _tool_names(out.messages)
         limit = protected_from(out.messages, self.keep_recent)
         masked: dict[str, str] = {}
-        before = estimate_tokens(out.messages, tools_chars)
+        before = self._est(out.messages, tools_chars)
         for i in range(1, limit):
             msg = out.messages[i]
             if not _is_result(msg) or str(msg["content"]).startswith("[hal] output of"):
                 continue
-            if estimate_tokens(out.messages, tools_chars) <= self.mask_to * self.input_budget:
+            if self._est(out.messages, tools_chars) <= self.mask_to * self.input_budget:
                 break
             name, path = names.get(msg.get("tool_call_id", ""), (msg.get("name", "tool"), ""))
             stub = (
@@ -195,7 +201,7 @@ class ContextManager:
             out.messages[i] = {**msg, "content": stub}
             masked[str(out.ids[i])] = stub
         if masked:
-            after = estimate_tokens(out.messages, tools_chars)
+            after = self._est(out.messages, tools_chars)
             out.records.append(
                 {
                     "type": "compaction",
@@ -211,7 +217,7 @@ class ContextManager:
         old = out.messages[start:end]
         if len(old) < 2:
             return
-        before = estimate_tokens(out.messages)
+        before = self._est(out.messages)
         summary, kind = "", "note"
         if self.summarize:
             try:
@@ -228,12 +234,12 @@ class ContextManager:
         out.messages[start:end] = [{"role": "user", "content": text}]
         out.ids[start:end] = [-1]  # the agent assigns the id when it writes the summary message
         out.summary_at = start
-        after = estimate_tokens(out.messages)
+        after = self._est(out.messages)
         record = {"type": "compaction", "kind": kind, "replaces": [first, last]}
         out.records.append({**record, "before_tokens": before, "after_tokens": after})
 
     def _cut_largest(self, out: Fitted, tools_chars: int) -> None:
-        while estimate_tokens(out.messages, tools_chars) > self.input_budget:
+        while self._est(out.messages, tools_chars) > self.input_budget:
             sizes = [(len(str(out.messages[i].get("content") or "")), i) for i in range(1, len(out.messages))
                      if i != out.summary_at and out.messages[i].get("role") != "system"]  # fmt: skip
             if not sizes:
