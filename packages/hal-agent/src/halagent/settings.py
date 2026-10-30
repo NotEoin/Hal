@@ -34,6 +34,14 @@ AGENT_TABLE = config.register(
             config.Key(
                 "api_key", str, "", env="HAL_AGENT_API_KEY", doc="Bearer token, if the endpoint needs one"
             ),
+            config.Key(
+                "api",
+                str,
+                "openai",
+                env="HAL_AGENT_API",
+                choices=("openai", "anthropic"),
+                doc="Wire API of the endpoint: Chat Completions or Anthropic Messages",
+            ),
             config.Key("stream", bool, False, env="HAL_AGENT_STREAM", doc="Use streaming responses"),
             config.Key(
                 "tool_format",
@@ -86,6 +94,7 @@ class AgentSettings:
     endpoint: str
     model: str = DEFAULT_MODEL
     api_key: str = ""
+    api: str = "openai"
     stream: bool = False
     tool_format: str = "native"
     max_turns: int = DEFAULT_MAX_TURNS
@@ -110,6 +119,7 @@ def load_settings(
         endpoint=endpoint,
         model=str(values["model"]),
         api_key=str(values["api_key"]),
+        api=str(values["api"]),
         stream=bool(values["stream"]),
         tool_format=str(values["tool_format"]),
         max_turns=int(values["max_turns"]),  # type: ignore[call-overload]  # validated by `_positive`

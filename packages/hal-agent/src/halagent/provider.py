@@ -78,6 +78,8 @@ class _UnixConnection(http.client.HTTPConnection):
 class ChatProvider:
     """Calls `POST {base}/v1/chat/completions` on an endpoint."""
 
+    route = "/v1/chat/completions"
+
     def __init__(
         self,
         endpoint: str,
@@ -182,17 +184,9 @@ class ChatProvider:
 
     def complete(self, messages: list[dict], tools: list[dict] | None = None) -> Completion:
         """Sends `messages` (and native `tools` if given) and returns the assistant reply."""
-        body: dict = {**self.extra, "model": self.model, "messages": messages, "stream": self.stream}
-        if self.stream:
-            body["stream_options"] = {"include_usage": True}
-        if tools:
-            body["tools"] = tools
-        headers = {"Content-Type": "application/json"}
-        if self._api_key:
-            headers["Authorization"] = f"Bearer {self._api_key}"
-        path = self._prefix + (
-            "/chat/completions" if self._prefix.endswith("/v1") else "/v1/chat/completions"
-        )
+        body = self._body(messages, tools)
+        headers = self._headers()
+        path = self._path()
         payload = json.dumps(body)
         for attempt in range(self.max_retries + 1):
             try:
@@ -205,6 +199,28 @@ class ChatProvider:
                 log.warning("model request failed (%s); retry %d in %.1fs", exc, attempt + 1, delay)
                 self._sleep(delay)
         raise AssertionError("unreachable")  # the loop returns or raises
+
+    def _body(self, messages: list[dict], tools: list[dict] | None) -> dict:
+        """The request body in this API's wire format."""
+        body: dict = {**self.extra, "model": self.model, "messages": messages, "stream": self.stream}
+        if self.stream:
+            body["stream_options"] = {"include_usage": True}
+        if tools:
+            body["tools"] = tools
+        return body
+
+    def _headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        return headers
+
+    def _path(self) -> str:
+        """The request path below the endpoint's base."""
+        return self._prefix + (self.route[len("/v1") :] if self._prefix.endswith("/v1") else self.route)
+
+    def _decode(self, resp: http.client.HTTPResponse) -> Completion:
+        return self._read_stream(resp) if self.stream else self._parse(json.loads(resp.read()))
 
     def _once(self, path: str, payload: str, headers: dict[str, str]) -> Completion:
         """One request. Only a failure before any reply text is a `ProviderError` worth retrying."""
@@ -219,7 +235,7 @@ class ChatProvider:
                     status=resp.status,
                     retry_after=_retry_after(resp.getheader("Retry-After")),
                 )
-            return self._read_stream(resp) if self.stream else self._parse(json.loads(resp.read()))
+            return self._decode(resp)
         except (OSError, http.client.HTTPException, json.JSONDecodeError) as exc:
             raise ProviderError(f"model request failed: {exc}") from exc
         finally:
@@ -288,3 +304,15 @@ def _retry_after(value: str | None) -> float | None:
         return float(value) if value is not None else None
     except ValueError:
         return None
+
+
+def make_provider(settings: Any) -> ChatProvider:
+    """The provider for `settings.api`: Chat Completions (default) or Anthropic Messages."""
+    kwargs = {"api_key": settings.api_key, "stream": settings.stream}
+    if settings.api == "anthropic":
+        from halagent.anthropic import AnthropicProvider  # noqa: PLC0415 - the module imports this one
+
+        return AnthropicProvider(settings.endpoint, settings.model, **kwargs)
+    if settings.api != "openai":
+        raise ValueError(f"api {settings.api!r} is not supported; use openai or anthropic")
+    return ChatProvider(settings.endpoint, settings.model, **kwargs)

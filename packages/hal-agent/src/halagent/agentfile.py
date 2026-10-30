@@ -201,6 +201,7 @@ class AgentFile:
         return AgentSettings(
             endpoint=str(d["endpoint"]["url"]),
             model=str(d["model"]),
+            api=str(d["endpoint"]["api"]),
             broker=str(d["broker"]),
             max_turns=int(budget["max_model_requests"]),
             max_tool_calls=int(budget["max_tool_calls"]),

@@ -29,6 +29,12 @@ Resume a session with `--resume ID` or `--continue`. `--no-session` writes no tr
 [resume and export a session](../howto/resume-and-export-a-session.md) and
 [use the agent from an editor over ACP](../howto/use-the-agent-from-an-editor-over-acp.md).
 
+## Wire API
+
+`api = "openai"` (default, Chat Completions) or `api = "anthropic"` (Messages, `HAL_AGENT_API`) in
+`[agent]`, or `endpoint.api` in `agent.json`. The Anthropic API runs without streaming only; `stream = true`
+with it is an error. `responses` is not built yet and is refused by name.
+
 ## Limits come from the model
 
 When the gateway lists the model, its `context_length` sets the context window and its

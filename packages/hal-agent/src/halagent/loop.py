@@ -40,7 +40,7 @@ from halagent.mcp.client import UserMcp
 from halagent.mcp.lite import McpError
 from halagent.profiles import Profile, resolve_profile
 from halagent.prompts import render_code_prompt
-from halagent.provider import ChatProvider, Completion, ModelInfo, ProviderError
+from halagent.provider import ChatProvider, Completion, ModelInfo, ProviderError, make_provider
 from halagent.repair import has_open_marker, repair_call, repair_text
 from halagent.repair.aliases import parse_args
 from halagent.sessions import SessionWriter, replay_indexed
@@ -148,9 +148,7 @@ class Agent:
         self.permission = permission
         self._remembered: dict[str, str] = {}  # tool name -> allow_always or reject_always
         built = provider is None
-        self.provider = provider or ChatProvider(
-            settings.endpoint, settings.model, api_key=settings.api_key, stream=settings.stream
-        )
+        self.provider = provider or make_provider(settings)
         info = self.provider.model_info() if hasattr(self.provider, "model_info") else ModelInfo()
         self.profile = profile or resolve_profile(
             settings.model, user_file=paths.config_dir() / "model-profiles.toml", hal_profile=info.hal_profile
@@ -158,6 +156,8 @@ class Agent:
         if built:
             self.provider.extra = self.profile.request_extras()
         self.settings = effective_settings(settings, self.profile, info)
+        if built and hasattr(self.provider, "max_output"):
+            self.provider.max_output = self.settings.max_output
         settings = self.settings
         self.system_extra = system_extra
         self.on_update = on_update or (lambda update: None)
