@@ -1,0 +1,10 @@
+# Every external input of the sandbox images (02-sandbox REQ-BOX-23, REQ-BOX-24).
+# `published` is the upstream release date; a pin is at least 14 days old when it is made.
+
+[base]
+debian = "debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad"
+node = "node:22-trixie-slim@sha256:8eb619e402eaede1748a3c8173bffab391592812e85136452f781741c7242ddf"
+
+[tools.uv]
+version = "0.11.19"
+published = "2026-06-03"

@@ -1,0 +1,24 @@
+# syntax=docker/dockerfile:1.7
+${NODE_FROM}FROM ${BASE_DIGEST}
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      bash coreutils findutils grep sed gawk diffutils patch file less procps \
+      ca-certificates git ripgrep fd-find python3 python3-venv make \
+      ${FULL_PACKAGES} ${EXTRA_APT} \
+ && ln -s /usr/bin/fdfind /usr/local/bin/fd \
+ && rm -rf /var/lib/apt/lists/*
+${NODE_COPY}COPY requirements-box.txt requirements-tools.txt /opt/hal/
+COPY wheels/ /opt/hal/wheels/
+RUN python3 -m venv /opt/hal/venv \
+ && /opt/hal/venv/bin/pip install --no-cache-dir --no-deps --require-hashes \
+      -r /opt/hal/requirements-box.txt -r /opt/hal/requirements-tools.txt \
+ && /opt/hal/venv/bin/pip install --no-cache-dir --no-deps --no-index /opt/hal/wheels/*.whl \
+ && rm -rf /opt/hal/wheels
+COPY bin/ /opt/hal/bin/
+RUN chmod 0755 /opt/hal/bin/* \
+ && dpkg-query -W -f '$${Package} $${Version}\n' > /opt/hal/packages.txt
+LABEL org.opencontainers.image.title="hal-sandbox" hal.image.context="${CTX}" \
+      hal.image.flavor="${FLAVOR}" hal.version="${VERSION}"
+USER 65534:65534
+WORKDIR /work
+ENTRYPOINT ["/opt/hal/bin/hal-box-entry"]

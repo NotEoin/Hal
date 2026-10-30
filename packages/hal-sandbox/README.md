@@ -24,7 +24,7 @@ uv run pytest packages/hal-sandbox
   server (`--upstream URL`, env `HAL_CODE_UPSTREAM`, default `http://127.0.0.1:8080`).
   `hub.sock` serves `hal-hub mcp` on the host, so pack tools use the host policy, approvals and audit.
 - Approvals wait on the host: answer with `hal-hub approve ID` in a host terminal.
-- `hal code --build` builds the image `hal-agent:local` (needs network for pip once).
+- `hal code --build` builds the `hal-sandbox:full-<hash>` image from `images/` (pinned base digest, hash-pinned wheels, `--selftest` after the build) and tags it `hal-agent:local`. It is the only step that uses the network.
 - Extra agent arguments go after `--`: `hal code . -- -p "fix the tests"`.
 - Docker tests: `pytest -m docker packages/hal-sandbox`.
 

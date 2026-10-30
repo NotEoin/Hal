@@ -54,8 +54,14 @@ SELFTEST_TOOLS = (
     "patch",
     "file",
     "less",
-    "pkg-config",
+    "find",
+    "grep",
+    "diff",
 )
+SELFTEST_FULL_TOOLS = ("pkg-config", "cc")  # only the `full` flavor has a C toolchain
+VENV_BIN = "/opt/hal/venv/bin"
+SELFTEST_IMPORTS = ("halagent", "mcp")  # checked with the image venv's python
+VENV_PYTHON = "/opt/hal/venv/bin/python"
 
 log = logging.getLogger("hal-box-entry")
 
@@ -207,12 +213,13 @@ def probe(socket_path: str) -> int:
     return 0
 
 
-def selftest() -> int:
+def selftest(flavor: str = "full") -> int:
     """Checks the image tools; prints one JSON object of versions; 0 when all are present."""
     versions: dict[str, str] = {}
     missing: list[str] = []
-    for tool in SELFTEST_TOOLS:
-        path = shutil.which(tool)
+    search = f"{VENV_BIN}:{os.environ.get('PATH', os.defpath)}"  # `uv` lives in the venv
+    for tool in (*SELFTEST_TOOLS, *(SELFTEST_FULL_TOOLS if flavor == "full" else ())):
+        path = shutil.which(tool, path=search)
         if path is None:
             missing.append(tool)
             continue
@@ -223,6 +230,22 @@ def selftest() -> int:
             versions[tool] = (out.stdout or out.stderr).splitlines()[0] if (out.stdout or out.stderr) else ""
         except (OSError, subprocess.SubprocessError):
             missing.append(tool)
+    if os.path.exists(VENV_PYTHON):
+        for mod in SELFTEST_IMPORTS:
+            try:
+                ok = (
+                    subprocess.run(  # noqa: S603 - fixed interpreter and module names
+                        [VENV_PYTHON, "-c", f"import {mod}"],
+                        capture_output=True,
+                        timeout=SELFTEST_TIMEOUT_S,
+                        check=False,
+                    ).returncode
+                    == 0
+                )
+            except (OSError, subprocess.SubprocessError):
+                ok = False
+            if not ok:
+                missing.append(f"import {mod}")
     sys.stdout.write(json.dumps({"versions": versions, "missing": missing}) + "\n")
     return 0 if not missing else EXIT_UNAVAILABLE
 
@@ -230,7 +253,10 @@ def selftest() -> int:
 def main(argv: list[str] | None = None) -> int:
     """Entry point; returns the exit status."""
     argv = list(sys.argv[1:] if argv is None else argv)
-    logging.basicConfig(filename=LOG_PATH, level=logging.WARNING)
+    try:
+        logging.basicConfig(filename=LOG_PATH, level=logging.WARNING)
+    except OSError:  # a read-only /tmp (image checks run without tmpfs): log nowhere, never to stdout
+        logging.basicConfig(handlers=[logging.NullHandler()], level=logging.WARNING)
     parser = argparse.ArgumentParser(prog="hal-box-entry")
     parser.add_argument("--relay-port", type=int)
     parser.add_argument("--relay-socket", default="/run/hal/model.sock")
@@ -238,6 +264,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--grace", type=float, default=DEFAULT_GRACE_S)
     parser.add_argument("--lifeline", default=LIFELINE_SOCKET)
     parser.add_argument("--selftest", action="store_true")
+    parser.add_argument("--flavor", choices=("slim", "full"), default="full", help="with --selftest")
     parser.add_argument("--probe", metavar="SOCKET")
     if "--" in argv:
         cut = argv.index("--")
@@ -249,7 +276,7 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         return EXIT_USAGE if exc.code else 0
     if args.selftest:
-        return selftest()
+        return selftest(args.flavor)
     if args.probe:
         return probe(args.probe)
     if not child:

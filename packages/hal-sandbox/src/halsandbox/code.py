@@ -11,12 +11,11 @@ from __future__ import annotations
 import json
 import logging
 import os
-import shutil
 import subprocess
-import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
+from . import images
 from .errors import SandboxError
 from .forwarder import ModelForwarder
 from .session import Session
@@ -29,8 +28,6 @@ MODEL_SOCKET = "/run/hal/model.sock"
 BROKER_SOCKET = "/run/hal/broker.sock"
 DOCKER_QUICK_S = 30.0
 SESSION_MAX_S = 12 * 3600.0  # upper bound for one interactive session
-BUILD_TIMEOUT_S = 1800.0  # a cold pip install on a slow link
-PACKAGES = ("hal-kit", "hal-agent")
 
 
 def docker_runtimes(docker: str = "docker") -> set[str]:
@@ -48,26 +45,13 @@ def docker_runtimes(docker: str = "docker") -> set[str]:
         raise SandboxError(f"cannot query docker: {exc}") from exc
 
 
-def build_image(repo_root: Path, image: str = DEFAULT_IMAGE) -> None:
-    """Builds the agent image from a staged copy of the two packages (not the whole checkout)."""
-    dockerfile = repo_root / "packages" / "hal-sandbox" / "docker" / "agent.Dockerfile"
-    if not dockerfile.is_file():
-        raise SandboxError(f"missing {dockerfile}")
-    with tempfile.TemporaryDirectory(prefix="hal-build-") as tmp:
-        ctx = Path(tmp)
-        for name in PACKAGES:
-            shutil.copytree(
-                repo_root / "packages" / name,
-                ctx / name,
-                ignore=shutil.ignore_patterns("__pycache__", "tests", "*.pyc", ".venv"),
-            )
-        boxside = repo_root / "packages" / "hal-sandbox" / "src" / "halsandbox" / "boxside"
-        shutil.copytree(boxside, ctx / "boxside", ignore=shutil.ignore_patterns("__pycache__", "__init__.py"))
-        shutil.copy(dockerfile, ctx / "Dockerfile")
-        try:
-            subprocess.run(["docker", "build", "-t", image, str(ctx)], check=True, timeout=BUILD_TIMEOUT_S)
-        except (OSError, subprocess.SubprocessError) as exc:
-            raise SandboxError(f"docker build failed: {exc}") from exc
+def build_image(repo_root: Path | None = None, image: str = DEFAULT_IMAGE) -> None:
+    """Builds the sandbox image (`halsandbox.images`) and tags it `image` for `hal code`."""
+    info = images.build("sandbox", repo_root=repo_root)
+    try:
+        subprocess.run(["docker", "tag", info.tag, image], check=True, timeout=DOCKER_QUICK_S)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise SandboxError(f"docker tag failed: {exc}") from exc
 
 
 def run_code(
