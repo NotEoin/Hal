@@ -12,6 +12,8 @@ def main() -> int:
         from .levels import main as run
 
         return run([cmd, *rest])
+    elif cmd == "jobs":
+        from .deepwork import main as run
     elif cmd == "ext":
         from .ext import main as run
     elif cmd == "eval":

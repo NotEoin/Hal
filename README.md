@@ -194,8 +194,9 @@ rendered with its own path, so it works wherever it is cloned; a unit marked `X-
   are on your own GPU.
 - **On the `cloud` profile, coding goes to Claude Code with your own login.** The chat brain still runs
   locally.
-- **Long jobs** that Hal hands to Claude Code (`deep_work`) use your Claude Code login unless you set
-  `[brain].deep_work = "hal"` (the local launcher) or `"off"`.
+- **Long jobs** (`[agent].deep_work`) are `queue` by default: they wait in `hal jobs` for Hal's own boxed
+  agent. `off` refuses them and `ask` confirms first. Only `claude`, which you must set yourself, hands a
+  job to Claude Code (not private, not sandboxed). The older `[brain].deep_work` still maps onto these.
 - Extensions that reach the internet (web search, weather, iCloud sync, ntfy) say so in their READMEs.
 
 ## 🧭 Limitations
