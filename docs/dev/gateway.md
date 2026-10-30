@@ -278,3 +278,21 @@ the remote opt-in after resolving, and filters `GET /v1/models`. A session minte
 Not built yet: the forwarder-side limits `max_requests_per_min`, `max_output_tokens` and
 `max_tokens_per_hour` (REQ-GW-69, step 20), client tokens (step 21), the full
 `GET /hal/v1/status` document.
+
+## Session forwarder (`forwarder`)
+
+`SessionForwarder(listen_path, gateway_socket | gateway_url=, token)` serves one box session on
+a 0600 unix socket and relays to the gateway with the session token. It passes only the seven
+routes of REQ-SEC-66 (path matched without the query string; everything else is 403 without
+contacting the gateway), strips `Authorization`, `X-Api-Key`, `Cookie` and `X-Hal-*`, caps the
+body and the concurrency, and drops a head or body that is slower than `read_timeout_s` in
+total. `gateway_url` must be a loopback `http://` URL (checked at construction).
+
+The model budget (REQ-GW-69) exists only here: `max_requests_per_min`, the output cap
+(`max_tokens`, `max_completion_tokens` or `max_output_tokens` is set to at most
+`max_output_tokens`; a missing one is added; embeddings and count routes are not clamped) and
+`max_tokens_per_hour`, counted from the reply `usage` or estimated as output cap plus body
+length / 4. Before a request the estimate must fit, else 429 `budget_exceeded` with
+`Retry-After`. A body that is not a JSON object is a 400. `on_event` gets `token_rejected`
+(gateway 401 `session_unknown` or `session_expired`), `gateway_down`, `rejected` (with the limit
+name) and `request`. Tested against a fake gateway on a loopback port and a unix socket.
