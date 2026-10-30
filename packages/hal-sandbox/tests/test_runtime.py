@@ -87,3 +87,13 @@ def test_remove_deletes_the_tree(rdir):
 
 def test_new_session_id_is_12_hex():
     assert paths.SESSION_ID_RE.fullmatch(runtime.new_session_id())
+
+
+def test_read_cid_accepts_only_a_hex_container_id(tmp_path):
+    from halsandbox.runtime import read_cid
+
+    assert read_cid(tmp_path) is None
+    (tmp_path / "cid").write_text("not an id\n")
+    assert read_cid(tmp_path) is None
+    (tmp_path / "cid").write_text("0123456789abcdef" * 4 + "\n")
+    assert read_cid(tmp_path) == "0123456789abcdef" * 4

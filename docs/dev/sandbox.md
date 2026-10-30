@@ -39,7 +39,6 @@ Regenerate a golden file only after reading the diff: it is the reviewed list of
 ## What is not built
 
 - `Session` accepts an `approver` and does not use it; approvals still come from the `halhub mcp` child.
-- No cgroup check on the broker for runc (the container id is only known after `docker run`).
 - Sanitised git config (REQ-BOX-15), the terminal filter, host MCP upstreams, labels and orphan sweep,
   images and `hal box` are later steps of the plan.
 - The runsc probe still connects with `python3` in the image, not `hal-box-entry --probe`.

@@ -62,7 +62,18 @@ class PeerRule:
     """Who may connect: the expected uid, and for runc the container id the peer's cgroup must name."""
 
     uid: int
-    container_id: str | None = None
+    container_id: str | Callable[[], str | None] | None = None
+    """A container id, or a function that reads it at connect time (docker writes the cidfile only
+    after the broker exists). A function returning None means the id is not known yet: refuse."""
+
+    def expected_container(self) -> str | None:
+        """The id the peer's cgroup must name, or None when no cgroup check applies."""
+        return self.container_id() if callable(self.container_id) else self.container_id
+
+    @property
+    def checks_cgroup(self) -> bool:
+        """True when a container id, or a way to read one, was given."""
+        return bool(self.container_id)
 
 
 def error_frame(code: int, message: str) -> bytes:
@@ -228,9 +239,11 @@ class LineServer:
         if uid != self.peer.uid:
             log.warning("transport: dropped a connection from uid %d (pid %d)", uid, pid)
             return False
-        if self.peer.container_id and not _in_container(pid, self.peer.container_id):
-            log.warning("transport: dropped pid %d, not in container %s", pid, self.peer.container_id[:12])
-            return False
+        if self.peer.checks_cgroup:
+            cid = self.peer.expected_container()
+            if not cid or not _in_container(pid, cid):
+                log.warning("transport: dropped pid %d, not in container %s", pid, (cid or "(unknown)")[:12])
+                return False
         return True
 
     def _admit(self, sock: socket.socket) -> None:

@@ -161,3 +161,13 @@ def test_message_with_a_newline_cannot_be_written(make):
 
     _read_all(_dial(make(handler)))
     assert errors
+
+
+def test_container_id_read_at_connect_time_is_used(make, monkeypatch):
+    monkeypatch.setattr("halsandbox.transport._in_container", lambda pid, cid: cid == "abc123")
+    ids = iter([None, "abc123"])  # the cidfile appears after the first connection attempt
+    s = make(peer=PeerRule(UID, container_id=lambda: next(ids)))
+    assert _read_all(_dial(s)) == b""  # id not known yet: refused, never allowed
+    c = _dial(s)
+    c.sendall(b"ok\n")
+    assert c.makefile("rb").readline() == b"re:ok\n"

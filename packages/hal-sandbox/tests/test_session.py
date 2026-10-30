@@ -168,3 +168,10 @@ def test_failed_start_removes_the_runtime_dir_and_the_copy(project, sockdir):
     with pytest.raises(SandboxError):
         Session.start(project, run_files={"/abs": b"x"})
     assert isolated.sessions() == []
+
+
+def test_runc_broker_checks_the_container_cgroup_from_the_cidfile(session):
+    rule = session.broker._server.peer
+    assert rule.checks_cgroup and rule.expected_container() is None  # docker has not written `cid`
+    (session.rd.root / "cid").write_text("ab" * 32 + "\n")
+    assert rule.expected_container() == "ab" * 32

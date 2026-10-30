@@ -27,7 +27,7 @@ import os
 import subprocess
 import sys
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from .transport import (
@@ -67,7 +67,7 @@ class Broker:
         command: Sequence[str] = DEFAULT_COMMAND,
         *,
         allowed_uid: int | None = None,
-        container_id: str | None = None,
+        container_id: str | Callable[[], str | None] | None = None,
         paranoia_floor: str = "off",
         max_frame_bytes: int = MAX_FRAME_BYTES,
         partial_timeout_s: float = PARTIAL_TIMEOUT_S,

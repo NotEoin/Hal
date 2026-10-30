@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import shutil
 from collections.abc import Mapping
@@ -151,6 +152,15 @@ class RuntimeDir:
     def remove(self) -> None:
         """Deletes the whole directory; missing is fine."""
         shutil.rmtree(self.root, ignore_errors=True)
+
+
+def read_cid(root: Path) -> str | None:
+    """The container id docker wrote to `<root>/cid` (`--cidfile`), or None while it is missing."""
+    try:
+        text = (root / "cid").read_text().strip()
+    except OSError:
+        return None
+    return text if re.fullmatch(r"[0-9a-f]{12,64}", text) else None
 
 
 def read_owner(root: Path) -> dict[str, object]:

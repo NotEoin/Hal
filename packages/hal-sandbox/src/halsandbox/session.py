@@ -35,7 +35,7 @@ from .lifeline import Lifeline
 from .limits import Limits
 from .lockdown import Policy
 from .mask import find_masked, resolve_patterns
-from .runtime import RuntimeDir, pidstart, utc_now
+from .runtime import RuntimeDir, pidstart, read_cid, utc_now
 from .shadow import open_checkpoints
 from .upstreams import parse_upstreams
 
@@ -205,6 +205,9 @@ class Session:
                 rd.socket("broker.sock"),
                 command,
                 allowed_uid=probe.peer_uid,
+                container_id=(lambda: read_cid(rd.root))
+                if probe.backend == "docker" and probe.runtime == "runc"
+                else None,
                 paranoia_floor=policy.paranoia_floor,
             )
             lifeline = Lifeline(rd.socket("lifeline.sock"), rd.sid)
