@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -40,6 +41,34 @@ class RuntimeDirMissing(Exception):
 
 class SocketPathTooLong(ValueError):
     """A unix socket path exceeds what `sockaddr_un` can hold."""
+
+
+class PathNotAllowed(ValueError):
+    """A path is outside every allowed root or inside a denied one."""
+
+
+def _inside(path: Path, base: Path) -> bool:
+    return path == base or base in path.parents
+
+
+def confine(path: str, roots: Sequence[Path], deny: Sequence[Path]) -> Path:
+    """The resolved `path`, if it is inside a root in `roots` and inside no entry of `deny`.
+
+    Expands `~`, resolves symlinks and `..` (a missing tail is resolved as far as it exists, so a
+    new file can be confined), then compares whole path components, never string prefixes:
+    `/data/ab` is not inside `/data/a`. Raises `PathNotAllowed` otherwise, and when `roots` is
+    empty. `deny` wins over `roots`. Opening the result safely is `halkit.fsafe.open_beneath`.
+    """
+    if not path or "\0" in path:
+        raise PathNotAllowed("empty path or NUL byte")
+    resolved = Path(path).expanduser().resolve(strict=False)
+    allowed = [Path(r).expanduser().resolve(strict=False) for r in roots]
+    if not any(_inside(resolved, root) for root in allowed):
+        raise PathNotAllowed(f"{resolved} is outside the allowed roots")
+    for entry in deny:
+        if _inside(resolved, Path(entry).expanduser().resolve(strict=False)):
+            raise PathNotAllowed(f"{resolved} is inside the denied path {entry}")
+    return resolved
 
 
 def _env(name: str) -> str:

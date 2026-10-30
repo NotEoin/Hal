@@ -219,3 +219,46 @@ def test_new_variable_beats_the_deprecated_one_without_a_warning(monkeypatch, tm
     with caplog.at_level("WARNING", logger="halkit.paths"):
         assert paths.state_dir() == tmp_path / "new"
     assert not caplog.records
+
+
+def test_confine_returns_the_resolved_path_inside_a_root(tmp_path):
+    (tmp_path / "docs").mkdir()
+    assert (
+        paths.confine(str(tmp_path / "docs" / "a.txt"), [tmp_path / "docs"], [])
+        == (tmp_path / "docs" / "a.txt").resolve()
+    )
+
+
+def test_confine_expands_the_home_directory(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert paths.confine("~/Downloads/x", ["~/Downloads"], []) == (tmp_path / "Downloads" / "x").resolve()
+
+
+@pytest.mark.parametrize("name", ["elsewhere/x", "docs-evil/x", "docs/../other/x"])
+def test_confine_refuses_paths_that_leave_the_root(tmp_path, name):
+    (tmp_path / "docs").mkdir()
+    with pytest.raises(paths.PathNotAllowed):
+        paths.confine(str(tmp_path / name), [tmp_path / "docs"], [])
+
+
+def test_confine_refuses_a_symlink_that_points_outside(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "secret").mkdir()
+    (tmp_path / "docs" / "link").symlink_to(tmp_path / "secret")
+    with pytest.raises(paths.PathNotAllowed, match="outside"):
+        paths.confine(str(tmp_path / "docs" / "link" / "key"), [tmp_path / "docs"], [])
+
+
+def test_confine_deny_wins_over_root(tmp_path):
+    (tmp_path / "docs" / ".git").mkdir(parents=True)
+    with pytest.raises(paths.PathNotAllowed, match="denied"):
+        paths.confine(
+            str(tmp_path / "docs" / ".git" / "config"), [tmp_path / "docs"], [tmp_path / "docs" / ".git"]
+        )
+
+
+def test_confine_with_no_roots_or_an_empty_path_refuses_everything(tmp_path):
+    with pytest.raises(paths.PathNotAllowed):
+        paths.confine(str(tmp_path), [], [])
+    with pytest.raises(paths.PathNotAllowed):
+        paths.confine("", [tmp_path], [])
