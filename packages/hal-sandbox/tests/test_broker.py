@@ -38,6 +38,7 @@ def test_each_connection_gets_its_own_child_that_answers(sockdir):
 
 def test_socket_is_private_and_removed_on_stop(sockdir):
     b = Broker(sockdir / "h.sock", ECHO)
+    b.start()
     mode = b.socket_path.stat().st_mode & 0o777
     b.stop()
     assert mode == 0o600 and not b.socket_path.exists()
@@ -141,14 +142,14 @@ def test_an_unterminated_last_frame_is_never_forwarded(sockdir):
         b.stop()
 
 
-def test_connections_over_the_limit_are_dropped(sockdir):
+def test_connections_over_the_limit_get_an_error_frame(sockdir):
     b = Broker(sockdir / "h.sock", ECHO, max_connections=1)
     b.start()
     try:
         first = _connect(b.socket_path)
         first.sendall(b"a\n")
         assert first.recv(100) == b"re:a\n"  # first is now being served
-        assert ask(b.socket_path, b"b\n") == b""
+        assert b"too many connections" in ask(b.socket_path, b"b\n")
         first.close()
     finally:
         b.stop()
@@ -215,5 +216,15 @@ def test_children_get_the_lockdown_paranoia_floor_over_the_inherited_environment
     b.start()
     try:
         assert ask(b.socket_path, b"go\n") == b"floor:high\n"
+    finally:
+        b.stop()
+
+
+def test_a_child_reply_over_the_cap_closes_the_connection(sockdir):
+    big = (sys.executable, "-c", "import sys\nsys.stdin.readline()\nsys.stdout.write('x'*500+'\\n')")
+    b = Broker(sockdir / "h.sock", big, max_frame_bytes=100)
+    b.start()
+    try:
+        assert ask(b.socket_path, b"go\n") == b""
     finally:
         b.stop()

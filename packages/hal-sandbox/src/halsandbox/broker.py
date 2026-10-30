@@ -7,12 +7,9 @@ that needs approval waits, and the person answers on the host terminal with `hal
 0700 directory. An idle or stuck child is killed when the connection closes.
 
 The box is hostile, so the broker treats the connection as untrusted input:
-- the peer must have the broker's own uid (`SO_PEERCRED`), else it is dropped before a child starts;
-- messages are newline-framed JSON-RPC and only complete lines reach the child, so a half-sent
-  frame cannot confuse it; a frame over `MAX_FRAME_BYTES` closes the connection;
-- a partial frame that does not finish within `PARTIAL_TIMEOUT_S` closes the connection (an idle
-  connection with nothing pending is fine: a call may wait on a human approval);
-- at most `MAX_CONNECTIONS` children run at once.
+The framing, peer-credential check (uid, and container cgroup on runc), 4 MiB cap, partial-message
+timeout and connection cap all live in `halsandbox.transport.LineServer`; this module only
+splices complete messages to a child and back. A child reply over the cap closes the connection.
 
 The lockdown level's paranoia floor reaches the children in `HAL_PARANOIA_FLOOR`, set by the host
 after the inherited environment so nothing upstream can lower it.
@@ -27,24 +24,25 @@ from __future__ import annotations
 import json
 import logging
 import os
-import select
-import socket
-import socketserver
-import struct
 import subprocess
 import sys
 import threading
-import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from pathlib import Path
+
+from .transport import (
+    MAX_CONNECTIONS,
+    MAX_MESSAGE_BYTES,
+    PARTIAL_TIMEOUT_S,
+    LineConnection,
+    LineServer,
+    MessageTooLarge,
+    PeerRule,
+)
 
 log = logging.getLogger(__name__)
 
-CHUNK_BYTES = 65536
-MAX_FRAME_BYTES = 4 * 1024 * 1024  # largest single MCP message accepted from the box
-PARTIAL_TIMEOUT_S = 30.0  # a frame that starts must finish within this time
-MAX_CONNECTIONS = 8  # concurrent hub children per session
-_PEERCRED = struct.Struct("3i")  # pid, uid, gid
+MAX_FRAME_BYTES = MAX_MESSAGE_BYTES  # one cap for both directions, owned by the transport
 EXIT_WAIT_S = 5.0
 PARANOIA_FLOOR_ENV = "HAL_PARANOIA_FLOOR"  # same name as `halhub.classifier.FLOOR_ENV`
 HUMAN_FD_ENV = "HAL_HUMAN_FD"  # same name as `halhub.humanfeed.ENV_FD`; the sandbox does not import halhub
@@ -52,10 +50,8 @@ SURFACES = frozenset({"tui", "acp", "telegram", "voice", "console", "headless", 
 DEFAULT_COMMAND = (sys.executable, "-m", "halhub", "mcp", "--approvals", "out-of-band")
 
 
-class Broker(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+class Broker:
     """A unix-socket server that splices each connection to a fresh MCP server process."""
-
-    daemon_threads = True
 
     def __init__(
         self,
@@ -63,32 +59,30 @@ class Broker(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         command: Sequence[str] = DEFAULT_COMMAND,
         *,
         allowed_uid: int | None = None,
+        container_id: str | None = None,
         paranoia_floor: str = "off",
         max_frame_bytes: int = MAX_FRAME_BYTES,
         partial_timeout_s: float = PARTIAL_TIMEOUT_S,
         max_connections: int = MAX_CONNECTIONS,
     ) -> None:
         self.command = list(command)
-        self.allowed_uid = os.getuid() if allowed_uid is None else allowed_uid
         self.paranoia_floor = paranoia_floor
-        self.max_frame_bytes = max_frame_bytes
-        self.partial_timeout_s = partial_timeout_s
-        self.slots = threading.BoundedSemaphore(max_connections)
         self._feeds: set[int] = set()  # write ends of the children's human-message pipes
         self._feed_lock = threading.Lock()
         self._last_line: bytes | None = None
         self.socket_path = Path(socket_path)
-        old_umask = os.umask(0o177)  # the socket file is created 0600
-        try:
-            super().__init__(str(self.socket_path), _Handler)
-        finally:
-            os.umask(old_umask)
+        self._server = LineServer(
+            self.socket_path,
+            self._serve,
+            peer=PeerRule(os.getuid() if allowed_uid is None else allowed_uid, container_id),
+            max_message_bytes=max_frame_bytes,
+            max_connections=max_connections,
+            partial_timeout_s=partial_timeout_s,
+        )
 
-    def start(self) -> threading.Thread:
-        """Serves in a background thread and returns it."""
-        self._thread = threading.Thread(target=self.serve_forever, name="hub-broker", daemon=True)
-        self._thread.start()
-        return self._thread
+    def start(self) -> None:
+        """Binds the socket and serves in background threads."""
+        self._server.start()
 
     def on_human_message(self, text: str, surface: str) -> None:
         """Tells every hub child what the person said, before the agent sees it (REQ-SEC-93).
@@ -112,69 +106,16 @@ class Broker(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
             log.warning("human message not delivered to a hub child: %s", exc)
 
     def stop(self) -> None:
-        """Stops serving and removes the socket file."""
-        if getattr(self, "_thread", None) is not None:  # shutdown() blocks unless serving
-            self.shutdown()
-        self.server_close()
-        self.socket_path.unlink(missing_ok=True)
+        """Stops serving, closes every connection and removes the socket file."""
+        self._server.close()
 
-
-class _Handler(socketserver.BaseRequestHandler):
-    server: Broker
-
-    def handle(self) -> None:
-        if not self._peer_allowed():
-            return
-        if not self.server.slots.acquire(blocking=False):
-            log.warning("broker: too many connections, dropping one")
-            return
-        try:
-            self._serve()
-        finally:
-            self.server.slots.release()
-
-    def _peer_allowed(self) -> bool:
-        raw = self.request.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, _PEERCRED.size)
-        _, uid, _ = _PEERCRED.unpack(raw)
-        if uid != self.server.allowed_uid:
-            log.warning("broker: dropped a connection from uid %d", uid)
-            return False
-        return True
-
-    def _frames(self) -> Iterator[bytes]:
-        """Yields complete newline-terminated frames; stops on EOF, an oversize frame or a stalled one."""
-        buf = bytearray()
-        deadline: float | None = None
-        while True:
-            wait = None if deadline is None else max(0.0, deadline - time.monotonic())
-            if not select.select([self.request], [], [], wait)[0]:
-                log.warning(
-                    "broker: partial frame not finished in %.0fs, closing", self.server.partial_timeout_s
-                )
-                return
-            data = self.request.recv(CHUNK_BYTES)
-            if not data:
-                return
-            buf += data
-            while (end := buf.find(b"\n")) >= 0:
-                if end + 1 > self.server.max_frame_bytes:
-                    log.warning("broker: frame over %d bytes, closing", self.server.max_frame_bytes)
-                    return
-                yield bytes(buf[: end + 1])
-                del buf[: end + 1]
-            if len(buf) > self.server.max_frame_bytes:
-                log.warning("broker: frame over %d bytes, closing", self.server.max_frame_bytes)
-                return
-            deadline = time.monotonic() + self.server.partial_timeout_s if buf else None
-
-    def _serve(self) -> None:
-        server = self.server
+    def _serve(self, conn: LineConnection) -> None:
         feed_r, feed_w = os.pipe()
         os.set_blocking(feed_w, False)  # a stuck child must not stall the host's prompt
-        env = {**os.environ, HUMAN_FD_ENV: str(feed_r), PARANOIA_FLOOR_ENV: server.paranoia_floor}
+        env = {**os.environ, HUMAN_FD_ENV: str(feed_r), PARANOIA_FLOOR_ENV: self.paranoia_floor}
         try:
             proc = subprocess.Popen(
-                server.command,
+                self.command,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=None,
@@ -186,22 +127,22 @@ class _Handler(socketserver.BaseRequestHandler):
             raise
         finally:
             os.close(feed_r)
-        with server._feed_lock:
-            server._feeds.add(feed_w)
-            if server._last_line is not None:
-                server._write_feed(feed_w, server._last_line)
+        with self._feed_lock:
+            self._feeds.add(feed_w)
+            if self._last_line is not None:
+                self._write_feed(feed_w, self._last_line)
         assert proc.stdin is not None and proc.stdout is not None
-        out = threading.Thread(target=self._pump_out, args=(proc,), daemon=True)
+        out = threading.Thread(target=self._pump_out, args=(conn, proc), daemon=True)
         out.start()
         try:
-            for frame in self._frames():
-                proc.stdin.write(frame)
+            while (msg := conn.read_message()) is not None:
+                proc.stdin.write(msg + b"\n")
                 proc.stdin.flush()
         except OSError as exc:
             log.debug("broker connection ended: %s", exc)
         finally:
-            with server._feed_lock:
-                server._feeds.discard(feed_w)
+            with self._feed_lock:
+                self._feeds.discard(feed_w)
             os.close(feed_w)
             try:
                 proc.stdin.close()
@@ -214,15 +155,15 @@ class _Handler(socketserver.BaseRequestHandler):
                 proc.wait()
             out.join(timeout=EXIT_WAIT_S)
 
-    def _pump_out(self, proc: subprocess.Popen[bytes]) -> None:
+    def _pump_out(self, conn: LineConnection, proc: subprocess.Popen[bytes]) -> None:
         assert proc.stdout is not None
         try:
-            while data := proc.stdout.read1(CHUNK_BYTES):
-                self.request.sendall(data)
-        except OSError as exc:
+            # one extra byte so a reply over the cap is seen as over, not silently cut
+            while line := proc.stdout.readline(conn.max_message_bytes + 2):
+                conn.write_message(line.rstrip(b"\n"))
+        except MessageTooLarge as exc:
+            log.warning("broker: dropping a connection, child reply too large: %s", exc)
+        except (OSError, ValueError) as exc:
             log.debug("broker reply ended: %s", exc)
         finally:
-            try:
-                self.request.shutdown(2)
-            except OSError:
-                pass
+            conn.close()
