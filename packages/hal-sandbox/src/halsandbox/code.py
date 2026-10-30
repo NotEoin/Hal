@@ -17,17 +17,18 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from halkit import paths
-
 from . import config as sbconfig
-from . import detect, isolated, projects
+from . import detect, gitlayout, isolated, projects
 from . import scratch as scratch_dir
+from .backends.docker import LaunchSpec, docker_argv
 from .broker import Broker
+from .env import box_env
 from .errors import SandboxError
 from .forwarder import ModelForwarder
 from .limits import Limits
 from .lockdown import Policy
 from .mask import find_masked, resolve_patterns
+from .runtime import RuntimeDir, pidstart, utc_now
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ def docker_runtimes(docker: str = "docker") -> set[str]:
 
 def docker_args(
     workdir: Path,
-    sockdir: Path,
+    rd: RuntimeDir,
     *,
     image: str = DEFAULT_IMAGE,
     runtime: str = "runc",
@@ -66,50 +67,42 @@ def docker_args(
     scratch: Path | None = None,
     limits: Limits | None = None,
     masked: Sequence[str] = (),
-    empty_file: Path | None = None,
     agent_args: Sequence[str] = (),
 ) -> list[str]:
-    """The `docker run` argv for one boxed hal-agent session."""
-    limits = limits or Limits.from_config()
+    """The `docker run` argv for one boxed hal-agent session (see `backends.docker`)."""
     uid = os.getuid() if uid is None else uid
     gid = os.getgid() if gid is None else gid
-    args = [
-        "docker",
-        "run",
-        "--rm",
-        "-i",
-        *(["-t"] if tty else []),
-        "--runtime",
-        runtime,
-        "--network",
-        "none",
-        "--read-only",
-        "--cap-drop",
-        "ALL",
-        "--security-opt",
-        "no-new-privileges",
-        "--user",
-        f"{uid}:{gid}",
-        "--tmpfs",
-        f"/tmp:rw,nosuid,nodev,size={limits.tmp_bytes}",
-        *limits.docker_flags(),
-        "-e",
-        "HOME=/tmp",
-        "-v",
-        f"{workdir}:/work:rw",
-    ]
-    if (workdir / ".git").exists():
-        args += ["-v", f"{workdir / '.git'}:/work/.git:ro"]
-    if masked:
-        if empty_file is None:
-            raise SandboxError("masked paths need an empty file to bind over them")
-        for rel in masked:  # REQ-BOX-69: reads give nothing, writes fail with EROFS
-            args += ["-v", f"{empty_file}:/work/{rel}:ro"]
-    if scratch is not None:
-        args += ["-v", f"{scratch}:/scratch:rw"]
-    args += ["-v", f"{sockdir}:/run/hal:ro", "-w", "/work", image]
-    args += ["-C", "/work", "--endpoint", "/run/hal/model.sock", "--broker", "/run/hal/hub.sock"]
-    return args + list(agent_args)
+    pid = os.getpid()
+    spec = LaunchSpec(
+        kind="code",
+        sid=rd.sid,
+        image=image,
+        runtime=runtime,
+        work=workdir,
+        session_root=rd.root,
+        uid=uid,
+        gid=gid,
+        limits=limits or Limits.from_config(),
+        env=box_env("code", rd.sid, "docker", os.environ),
+        child=[
+            "-C",
+            "/work",
+            "--endpoint",
+            "/run/hal/model.sock",
+            "--broker",
+            "/run/hal/broker.sock",
+            *agent_args,
+        ],
+        pid=pid,
+        pidstart=pidstart(pid),
+        started=utc_now(),
+        tty=tty,
+        git_mounts=gitlayout.discover(workdir),
+        masked=masked,
+        scratch=scratch,
+        entrypoint=None,  # the image's own `hal-agent` until hal-box-entry exists
+    )
+    return docker_argv(spec)
 
 
 def build_image(repo_root: Path, image: str = DEFAULT_IMAGE) -> None:
@@ -175,21 +168,16 @@ def run_code(
     scratch = scratch_dir.prepare(workdir, int(cfg["scratch_max_bytes"]))
     iso = None if direct else isolated.create(workdir, int(allcfg["isolated"]["max_copy_bytes"]))
     mount = workdir if iso is None else iso.work
-    base = paths.ensure_private_dir(paths.runtime_dir())
-    sockdir = paths.ensure_private_dir(Path(tempfile.mkdtemp(prefix="code-", dir=base)))
-    sockdir.chmod(0o700)
+    rd = RuntimeDir.create()
     forwarder = broker = None
     try:
-        forwarder = ModelForwarder(paths.check_socket_path(sockdir / "model.sock"), upstream)
-        broker = Broker(paths.check_socket_path(sockdir / "hub.sock"), paranoia_floor=policy.paranoia_floor)
+        forwarder = ModelForwarder(rd.socket("model.sock"), upstream)
+        broker = Broker(rd.socket("broker.sock"), paranoia_floor=policy.paranoia_floor)
         forwarder.start()
         broker.start()
         masked: tuple[str, ...] = ()
         if not projects.is_set(workdir, "unmask"):
             masked = find_masked(mount, resolve_patterns(cfg["mask"]))
-        empty = sockdir / "empty"
-        empty.write_bytes(b"")
-        empty.chmod(0o444)
         if masked:
             log.warning(
                 "hal code: %d files masked: %s (unmask with hal-sandbox)", len(masked), ", ".join(masked)
@@ -197,14 +185,13 @@ def run_code(
         log.info("hal code: %s in %s, model at %s", runtime, workdir, upstream)
         argv = docker_args(
             mount,
-            sockdir,
+            rd,
             image=image,
             runtime=runtime,
             tty=os.isatty(0) and os.isatty(1),
             scratch=scratch,
             limits=Limits.from_config(allcfg["limits"]),
             masked=masked,
-            empty_file=empty,
             agent_args=agent_args,
         )
         status = subprocess.run(argv, timeout=SESSION_MAX_S).returncode
@@ -219,4 +206,4 @@ def run_code(
         for server in (forwarder, broker):
             if server is not None:
                 server.stop()
-        shutil.rmtree(sockdir, ignore_errors=True)
+        rd.remove()
