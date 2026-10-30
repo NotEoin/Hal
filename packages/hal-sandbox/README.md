@@ -18,7 +18,7 @@ uv run pytest packages/hal-sandbox
 `hal code [DIR]` runs `hal-agent` in a docker container on DIR (default: current directory).
 
 - Container: `--network none`, read-only root, `--cap-drop ALL`, `no-new-privileges`, host uid,
-  runtime `runsc` when docker has it else `runc`. DIR is `/work` (rw) with `/work/.git` read-only.
+  runtime `runsc` when docker has it, else `runc` with a warning (`[sandbox].lockdown = "strict"` refuses `runc`). DIR is `/work` (rw) with `/work/.git` read-only.
 - Sockets: a private directory under `$XDG_RUNTIME_DIR/hal/` is mounted read-only at `/run/hal`.
   `model.sock` forwards only `POST /v1/chat/completions` and `GET /v1/models` to the local model
   server (`--upstream URL`, env `HAL_CODE_UPSTREAM`, default `http://127.0.0.1:8080`).
@@ -29,3 +29,15 @@ uv run pytest packages/hal-sandbox
 - Docker tests: `pytest -m docker packages/hal-sandbox`.
 
 `hal claude` starts Claude Code as before. It is not private and not sandboxed.
+
+## Lockdown
+
+`[sandbox].lockdown` is `strict`, `standard` (default), `relaxed` or `off`. Only the user sets it, in the
+config file on the host; there is no flag or environment variable for it.
+
+| Level | Runtime | `--direct` and egress prep | Backend none | Host MCP upstreams |
+| --- | --- | --- | --- | --- |
+| strict | runsc required | no | no | `hal-hub` only |
+| standard | runsc if installed, else runc plus a warning | no | no | per policy |
+| relaxed | as standard | yes | no | per policy |
+| off | as standard | yes | yes, after per-project consent | per policy |

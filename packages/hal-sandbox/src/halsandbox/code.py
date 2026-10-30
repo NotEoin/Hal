@@ -19,8 +19,11 @@ from pathlib import Path
 
 from halkit import paths
 
+from . import config as sbconfig
 from .broker import Broker
+from .errors import SandboxError
 from .forwarder import ModelForwarder
+from .lockdown import Policy
 
 log = logging.getLogger(__name__)
 
@@ -33,12 +36,8 @@ TMP_SIZE = "256m"
 PACKAGES = ("hal-kit", "hal-agent")
 
 
-class SandboxError(RuntimeError):
-    """The secure path cannot start; the message says what to fix."""
-
-
-def pick_runtime(docker: str = "docker") -> str:
-    """Returns `runsc` when docker has it registered, else `runc`."""
+def docker_runtimes(docker: str = "docker") -> set[str]:
+    """The runtimes the docker daemon has registered."""
     try:
         out = subprocess.run(
             [docker, "info", "--format", "{{json .Runtimes}}"],
@@ -47,7 +46,7 @@ def pick_runtime(docker: str = "docker") -> str:
             timeout=DOCKER_QUICK_S,
             check=True,
         ).stdout
-        return "runsc" if "runsc" in json.loads(out) else "runc"
+        return set(json.loads(out))
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
         raise SandboxError(f"cannot query docker: {exc}") from exc
 
@@ -142,7 +141,10 @@ def run_code(
         raise SandboxError(f"cannot query docker: {exc}") from exc
     if not have:
         raise SandboxError(f"image {image} not found; run `hal code --build`")
-    runtime = runtime or pick_runtime()
+    policy = Policy.for_level(str(sbconfig.load()["lockdown"]))
+    runtime, warnings = policy.choose_runtime(docker_runtimes(), runtime)
+    for warning in warnings:
+        log.warning("hal code: %s", warning)
     base = paths.ensure_private_dir(paths.runtime_dir())
     sockdir = paths.ensure_private_dir(Path(tempfile.mkdtemp(prefix="code-", dir=base)))
     sockdir.chmod(0o700)
