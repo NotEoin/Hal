@@ -39,9 +39,10 @@ uv run --offline pytest -q -m "docker and network" packages/hal-sandbox/tests/te
 
 The `tests/e2e` cases run under `runc` and under `runsc` when docker has it registered (with
 `"runtimeArgs": ["--host-uds=open"]`, see docs/howto/install-gvisor.md). Verified 2026-10-30 on
-this machine: 36 docker cases pass under both runtimes. Not yet covered (RESOLUTIONS I6): audit
-checks on each broker attempt, forged approvals over the approval surfaces, self-raised lockdown or
-paranoia through a tool call, and smuggled instructions in tool results.
+this machine: 36 docker cases pass under both runtimes. `test_containment_audit.py` covers hostile `tools/call` frames (unknown tool, config, lockdown and
+paranoia setters, an approval tool, injection text in the arguments): each is refused, the host config
+is untouched, and every tool name appears in the audit log. Not yet covered (RESOLUTIONS I6): forged
+approvals over the real approval surfaces and smuggled instructions in tool results.
 
 Regenerate a golden file only after reading the diff: it is the reviewed list of flags.
 
@@ -96,4 +97,4 @@ and `deps`. Not built yet:
   REQ-BOX-26 because the npm packages and the Node runtime dominate; trimming the base images is still
   open. All six start offline (`--version`) under runc and runsc (`tests/e2e/test_box_live.py`). No CLI
   has done a model round trip yet (REQ-BOX-61).
-- The open RESOLUTIONS I6 containment cases listed above.
+- The two open RESOLUTIONS I6 cases listed above.
