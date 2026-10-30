@@ -123,6 +123,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(200, HEALTH_BODY)
                 return
             principal = auth.principal_for(kind, self.peer, self.headers, gateway.owner_token)
+            self.principal = principal
             self.rec["principal"] = (
                 f"{principal.kind}:{kind}" if principal.kind == "owner" else principal.kind
             )
@@ -205,7 +206,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             doc = {"input_tokens": estimate_input_tokens(body)}
             self._send(200, json.dumps(doc).encode("ascii"), extra=[ESTIMATE_HEADER])
             return
-        model = self._apply_policies(gateway, route, target, body) or upstream_model
+        with gateway.gpu.request(target, self.principal):
+            self._forward(gateway, route, target, body)
+
+    def _forward(self, gateway, route: Route, target, body: dict) -> None:  # type: ignore[no-untyped-def,type-arg]
+        """Applies policies, waits for the swap scheduler, then relays; the GPU gate is held."""
+        backend = target.backend
+        model = self._apply_policies(gateway, route, target, body) or target.model
         scheduler = self._scheduler(backend, route)
         ticket = self._admit(scheduler, backend, model, body) if scheduler else None
         body["model"] = ticket.model if ticket else model
@@ -282,12 +289,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise Forbidden("admin routes serve the owner on the unix socket only")
         router = gateway.router()
         name = route.path.removeprefix("/hal/v1/")
+        if name == "gpu/release":
+            body = self._read_json(ADMIN_BODY_LIMIT)
+            flags = {k: body.get(k, False) for k in ("force", "stop_router", "reclaim")}
+            if not all(isinstance(v, bool) for v in flags.values()):
+                raise BadRequest("force, stop_router and reclaim must be booleans")
+            result = gateway.gpu.release(**flags)
+            self._send(200, json.dumps(result.as_json()).encode("ascii"))
+            return
         if name == "status":
             backends = {
                 n: (b.status() if hasattr(b, "status") else {"type": b.type})
                 for n, b in gateway.backends.items()
             }
-            doc = {"backends": backends, "in_flight": router.in_flight() if router else 0}
+            doc = {
+                "backends": backends,
+                "in_flight": router.in_flight() if router else 0,
+                "gpu": gateway.gpu.status(),
+            }
             self._send(200, json.dumps(doc).encode("ascii"))
             return
         if router is None or name not in ("mode", "router/stop", "models/load", "models/unload"):

@@ -10,6 +10,8 @@ Ported from `halcore/power.py`. Decisions:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from .. import relay
 from ..errors import BadGatewayError, BadRequest
 from .openai import OpenAIBackend
@@ -101,6 +103,26 @@ class OllamaBackend(OpenAIBackend):
             for m in doc.get("models", [])
             if isinstance(m, dict) and "name" in m and m.get("size_vram", 0) > 0
         ]
+
+    def free_vram(self, served: Iterable[str]) -> list[str]:
+        """Unloads the models in `served` that hold VRAM; returns their names (REQ-GW-53)."""
+        wanted = set(served)
+        freed = []
+        for model in self.in_vram():
+            if model in wanted or model.removesuffix(":latest") in wanted:
+                self.unload(model)
+                freed.append(model)
+        return freed
+
+    def unload_offloaded(self) -> list[str]:
+        """Unloads models that sit partly in system RAM (`size_vram < size`, REQ-GW-57)."""
+        doc = relay.call_json(self, "GET", "/api/ps")
+        freed = []
+        for m in doc.get("models", []):
+            if isinstance(m, dict) and "name" in m and 0 < m.get("size_vram", 0) < m.get("size", 0):
+                self.unload(str(m["name"]))
+                freed.append(str(m["name"]))
+        return freed
 
     def unload(self, model: str) -> None:
         """Asks Ollama to free `model` now."""

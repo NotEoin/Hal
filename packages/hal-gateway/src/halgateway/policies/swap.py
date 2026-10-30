@@ -111,6 +111,11 @@ class SwapScheduler:
             return model
         return None
 
+    def forget(self) -> None:
+        """Drops the cached active model, e.g. after a reclaim emptied the router."""
+        with self.cond:
+            self._known = False
+
     def loaded_model(self) -> str | None:
         """Which of the two models the router reports as loaded."""
         try:

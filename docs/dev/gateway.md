@@ -212,3 +212,26 @@ alongside `options` is 400. Every other backend, and a streaming request, gets t
 stripped. The mapping is tested against a fake Ollama only; a run against a real Ollama with
 `num_gpu: 0` is unverified (check with `ollama ps`, where the processor column should read
 `100% CPU`).
+
+## GPU coordination (`gpu/`)
+
+`GpuManager` (`gpu/manager.py`) wraps every request to a `gpu = true` backend in
+`request(target, principal)`: it refuses with 503 while `<state>/off` exists (leased sessions
+pass), takes a claim for the principal's class when none is held, then unloads Ollama models
+that sit partly in RAM. The claim class comes from the principal, else from the listener
+(`owner_unix_class` / `owner_tcp_class`). The request counts as in flight from the gate until
+the reply ends, so a swap wait counts and a reclaim answers `busy` during it.
+
+Only gpu-light v1 exists so far (`gpu/lightv1.py`): one gateway-wide `claims/<name>.json`
+bound to the gateway pid, written atomically, plus a wait on `light.json` (a missing, stale or
+other-boot light ends the wait at once). With `coordinator = "gpu-light-v2"` the gateway logs a
+warning and runs without coordination until v2 lands. A 10 s timer thread calls
+`GpuManager.tick`: after `idle_unload_s` with nothing in flight, each GPU backend's
+`free_vram(served)` runs and the claim is released. The router unloads every loaded preset and
+calls `SwapScheduler.forget()`, so the next request sees an empty router and loads the main
+model. `POST /hal/v1/gpu/release` and `hal-gateway release-gpu [--force] [--stop-router]
+[--reclaim]` (exit 6 when `--reclaim` finds the gateway busy) call `GpuManager.release`.
+
+Verified with fakes only (a fake coordinator, a fake Ollama, a temporary gpu-light directory);
+no real GPU, `gpu-light` watcher or Ollama was used. The peer guard (REQ-GW-56) and lease
+registration come with later steps; `add_lease` / `drop_lease` are the hooks.

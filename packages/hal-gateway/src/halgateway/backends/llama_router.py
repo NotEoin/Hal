@@ -484,6 +484,17 @@ class LlamaRouter(OpenAIBackend):
         self.ensure()
         relay.call_json(self, "POST", "/models/unload", {"model": preset}, timeout_s=ADMIN_TIMEOUT_S)
 
+    def free_vram(self, served: object = ()) -> list[str]:  # noqa: ARG002 - the router knows its own presets
+        """Unloads every loaded preset and forgets the scheduler's view; returns the names (REQ-GW-53)."""
+        if not self.running():
+            return []
+        freed = [name for name, state in self.statuses().items() if state == "loaded"]
+        for name in freed:
+            relay.call_json(self, "POST", "/models/unload", {"model": name}, timeout_s=ADMIN_TIMEOUT_S)
+        if freed and self._swap is not None:
+            self._swap.forget()  # the next request sees nothing loaded and loads the main model
+        return freed
+
     def status(self) -> dict[str, object]:
         """The `backends.<name>` object of `GET /hal/v1/status`."""
         base: dict[str, object] = {

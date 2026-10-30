@@ -31,6 +31,7 @@ from .aliases import Resolver
 from .backends import LlamaRouter, make_backend
 from .config import GatewayConfig
 from .errors import GatewayError, ModelUnverified, Unavailable, error_body
+from .gpu.manager import GpuManager, make_coordinator
 from .handler import Handler
 from .models.manifest import ManifestError, ModelEntry, Verifier, load_manifest
 from .reqlog import RequestLog
@@ -39,6 +40,7 @@ log = logging.getLogger(__name__)
 
 SOCKET_NAME = "gateway.sock"
 VERIFIED_NAME = "verified.json"
+GPU_TICK_S = 10.0  # REQ-GW design: the idle timers run every 10 s
 DIGEST_TTL_S = 30.0  # REQ-GW-77: how long a digest read from /api/tags is trusted
 SOCKET_MODE = 0o600
 BIND_UMASK = 0o177  # the socket is created 0600 even before the chmod
@@ -145,6 +147,9 @@ class Gateway:
         for backend in self.backends.values():
             if isinstance(backend, LlamaRouter):
                 backend.configure(self.state_dir, self.models_dir(), self.verifier, self._ollama_backends)
+        self.gpu = GpuManager(cfg.gpu, self.backends, make_coordinator(cfg.gpu), state_dir=self.state_dir)
+        self.gpu.router_stop = self._stop_router
+        self._stopping = threading.Event()
         self.unix: UnixHTTPServer | None = None
         self.tcp: LoopbackHTTPServer | None = None
         self._threads: list[threading.Thread] = []
@@ -259,6 +264,9 @@ class Gateway:
             )
             thread.start()
             self._threads.append(thread)
+        ticker = threading.Thread(target=self._gpu_ticker, name="hal-gpu-timer", daemon=True)
+        ticker.start()
+        self._threads.append(ticker)
         log.info("gateway listening on %s", path)
         router = self.router()
         if router is not None:
@@ -269,6 +277,19 @@ class Gateway:
                 threading.Thread(
                     target=self._autostart, args=(router,), name="hal-router-start", daemon=True
                 ).start()
+
+    def _stop_router(self) -> None:
+        router = self.router()
+        if router is not None:
+            router.stop()
+
+    def _gpu_ticker(self) -> None:
+        """Runs the GPU idle timers until the gateway stops."""
+        while not self._stopping.wait(GPU_TICK_S):
+            try:
+                self.gpu.tick(time.monotonic())
+            except Exception:  # noqa: BLE001 - a timer failure is logged and the next tick retries
+                log.exception("GPU idle timer failed")
 
     def _set_mode_aliases(self, hal) -> None:  # type: ignore[no-untyped-def]
         """Points `hal/main` and `hal/agent` at the models the active mode names."""
@@ -308,6 +329,8 @@ class Gateway:
 
     def stop(self) -> None:
         """Stops the listeners and removes the socket file."""
+        self._stopping.set()
+        self.gpu.close()
         for server in (self.unix, self.tcp):
             if server is not None:
                 server.shutdown()

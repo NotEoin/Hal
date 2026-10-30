@@ -47,6 +47,8 @@ class Principal:
 
     kind: Literal["owner", "client", "session", "anonymous"]
     listener: Listener
+    lease: bool = False  # a leased session passes the off flag (REQ-GW-54)
+    cls: str = ""  # GPU claim class; empty = derived from the listener
 
 
 def peer_uid(sock: socket.socket) -> int:
