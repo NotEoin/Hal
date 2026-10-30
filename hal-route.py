@@ -42,7 +42,7 @@ EXIT_1 = re.compile(r"^Exit code 1$", re.M)
 SEARCH_COMMAND = re.compile(r"^\s*(grep|egrep|fgrep|rg|ag|git grep|diff|cmp|test|\[)\b")
 # Tools whose result is a subagent's report
 AGENT_TOOLS = {"Agent", "Task"}
-# Wording of the xhigh effort in modes/qwen3.8-chat.jinja
+# Wording of the xhigh effort in packages/hal-gateway/src/halgateway/modes/qwen3.8-chat.jinja
 XHIGH_NOTE = ("Reasoning effort is set to xhigh. Please think carefully through the task, "
               "validate key assumptions, consider plausible alternatives, and prioritize "
               "correctness, consistency, and clarity in the final answer.")

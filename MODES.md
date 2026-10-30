@@ -108,7 +108,7 @@ the model server and handles each request as follows:
    and holds for every request of that turn.
 2. A fast turn goes to the 27B with all of Claude Code's tools.
 3. A strong turn goes to the 177B with its shell and file-editing tools removed and
-   `modes/combined-prompt.txt` added to its system prompt. It plans and decides, and has
+   `packages/hal-gateway/src/halgateway/modes/combined-prompt.txt` added to its system prompt. It plans and decides, and has
    to start subagents for every command and edit.
 4. Subagents, and Claude Code's small side requests such as titles and permission
    checks, always run on the 27B.
@@ -170,7 +170,7 @@ each model taking the whole GPU in turn. `hal-route.py` (policy `swap`) handles 
 follows:
 
 1. The main conversation goes to the 177B (`hal-hybrid`) with its shell and file-editing
-   tools removed and `modes/orchestrate-prompt.txt` added, so it delegates commands and
+   tools removed and `packages/hal-gateway/src/halgateway/modes/orchestrate-prompt.txt` added, so it delegates commands and
    edits to subagents.
 2. Subagents go to the 27B (`hal-agent`). Side requests such as titles go to whichever
    model is loaded, so they never cause a swap.
@@ -196,7 +196,7 @@ experts, so the 177B decodes 20 to 25% slower, as in `hybrid-auto-256k`.
 ## How it works
 
 `hal-serve` runs llama.cpp's `llama-server` in router mode on port 8080. Each mode is an
-INI file of presets in `modes/`, one section per model, holding the same flags you would
+INI file of presets in `packages/hal-gateway/src/halgateway/modes/`, one section per model, holding the same flags you would
 pass to `llama-server`. The router loads every model in the file at startup, except presets
 with `load-on-startup = false`, and routes each request by its `model` field. In the
 `combined`, `hybrid-auto*` and `orchestrate*` modes `hal-serve` also starts `hal-route.py` on
@@ -214,7 +214,7 @@ The launcher points Claude Code at the server and names the models:
 Two compatibility details matter. Claude Code doesn't know these models, so without
 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` it assumes a 200K window and compacts too late. And it
 sends system messages in the middle of a conversation, which the stock Qwen3.8 chat
-template rejects; `modes/qwen3.8-chat.jinja` is that template with the check replaced by a
+template rejects; `packages/hal-gateway/src/halgateway/modes/qwen3.8-chat.jinja` is that template with the check replaced by a
 system turn.
 
 Ollama keeps serving the embedding model for `hal ask` and `hal index`. Before loading a
@@ -290,7 +290,7 @@ not, all decode at 4.4 to 5.1 tokens/s on Laguna-S-2.1.
 
 ## Change a model
 
-Edit the mode's file in `modes/`, then restart the server with `hal stop`. Keys are
+Edit the mode's file in `packages/hal-gateway/src/halgateway/modes/`, then restart the server with `hal stop`. Keys are
 `llama-server` flags without the leading dashes; `@MODELS@` stands for `HAL_MODELS_DIR`
 and `@HAL@` for this repository. Download other GGUFs into `HAL_MODELS_DIR` with
 `hf download`, for example:

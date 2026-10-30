@@ -44,9 +44,11 @@ FAKE_ROUTER = """#!/bin/sh
 echo "router start" >> "$FAKE_GPU_LIGHT_LOG"
 exec sleep 60
 """
-# Every preset name in modes/, so the fake server reports each mode's models as loaded
-PRESETS = sorted({name for ini in (ROOT / "modes").glob("*.ini")
-                  for name in re.findall(r"^\[([^]*][^]]*)\]$", ini.read_text(), re.M)})
+# Every preset name in the bundled modes, so the fake server reports each mode's models as loaded;
+# `[hal]` is the gateway's own section, not a preset
+MODES_DIR = ROOT / "packages" / "hal-gateway" / "src" / "halgateway" / "modes"
+PRESETS = sorted({name for ini in MODES_DIR.glob("*.ini")
+                  for name in re.findall(r"^\[([^]*][^]]*)\]$", ini.read_text(), re.M) if name != "hal"})
 
 
 class FakeModelServer(BaseHTTPRequestHandler):

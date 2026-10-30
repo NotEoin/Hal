@@ -140,7 +140,7 @@ esac
 
 # ---- Export the env Claude Code and the Python tools need -------------------
 if [ "$BACKEND" = "llamacpp" ]; then
-  # Names match the preset sections in modes/<mode>.ini. In combined mode the slow CPU
+  # Names match the preset sections in the mode file (packages/hal-gateway/src/halgateway/modes/<mode>.ini). In combined mode the slow CPU
   # model orchestrates and every subagent runs on the fast GPU model.
   case "$SERVE_MODE" in
     gpu|gpu-112k)
@@ -182,7 +182,7 @@ if [ "$BACKEND" = "llamacpp" ]; then
   case "$SERVE_MODE" in orchestrate*) SKIP_AGENT=1 ;; esac
   CONTEXT_TOKENS="$(awk -v skip_agent="$SKIP_AGENT" '/^\[/ {
     skip = ($0 == "[hal-router]") || (skip_agent && $0 == "[hal-agent]") }
-    !skip && /^ctx-size *=/ { print $3 }' "$HAL_ROOT/modes/$SERVE_MODE.ini" | sort -n | head -n1)"
+    !skip && /^ctx-size *=/ { print $3 }' "$HAL_ROOT/packages/hal-gateway/src/halgateway/modes/$SERVE_MODE.ini" | sort -n | head -n1)"
   export CLAUDE_CODE_MAX_CONTEXT_TOKENS="${CONTEXT_TOKENS:-32768}"
   export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1"
   export DISABLE_TELEMETRY="1"

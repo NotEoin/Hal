@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Runs the llama.cpp router that serves the models of one mode (see modes/*.ini).
+# Runs the llama.cpp router that serves the models of one mode (see packages/hal-gateway/src/halgateway/modes/*.ini).
 #
-#   hal-serve start <mode>   start a mode from modes/, or reuse it if already serving
+#   hal-serve start <mode>   start a mode from the preset directory, or reuse it if already serving
 #   hal-serve stop | status
 #
 # With gpu-light installed, start claims the GPU light as hal-serve and waits for background
@@ -10,6 +10,9 @@
 set -euo pipefail
 
 HAL_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# the presets ship inside the hal-gateway package; @HAL@ in them is this directory's parent
+GATEWAY_PKG="$HAL_ROOT/packages/hal-gateway/src/halgateway"
+MODES_DIR="$GATEWAY_PKG/modes"
 CONF_FILE="${HAL_CONF:-$HAL_ROOT/hal.conf}"
 if [ -f "$CONF_FILE" ]; then
   # shellcheck disable=SC1090
@@ -118,8 +121,8 @@ stop_router() {
 
 start_router() {
   local mode="$1" template rendered name status waited seen_loading pid
-  template="$HAL_ROOT/modes/$mode.ini"
-  [ -f "$template" ] || die "unknown mode '$mode' (see the files in $HAL_ROOT/modes)"
+  template="$MODES_DIR/$mode.ini"
+  [ -f "$template" ] || die "unknown mode '$mode' (see the files in $MODES_DIR)"
   [ -n "$LLAMA_SERVER" ] && [ -x "$LLAMA_SERVER" ] \
     || die "llama-server not found; run ./setup.sh --profile max"
   [ -n "$MODELS_DIR" ] && [ -d "$MODELS_DIR" ] \
@@ -136,7 +139,7 @@ start_router() {
     mkdir -p "$STATE_DIR"
     mkdir -p "$STATE_DIR/slots"
     rendered="$STATE_DIR/$mode.ini"
-    sed -e "s|@MODELS@|$MODELS_DIR|g" -e "s|@HAL@|$HAL_ROOT|g" -e "s|@STATE@|$STATE_DIR|g" \
+    sed -e "s|@MODELS@|$MODELS_DIR|g" -e "s|@HAL@|$GATEWAY_PKG|g" -e "s|@STATE@|$STATE_DIR|g" \
       "$template" > "$rendered"
     # The swap modes hold one model at a time, and only hal-route.py may load the other
     router_args=(--models-max 3)
@@ -182,12 +185,12 @@ start_router() {
   case "$mode" in
     combined)
       route_args=(--policy route --fast hal-agent --strong hal-orchestrator --classifier hal-router
-                  --prompt "$HAL_ROOT/modes/combined-prompt.txt") ;;
+                  --prompt "$MODES_DIR/combined-prompt.txt") ;;
     hybrid-auto*)
       route_args=(--policy effort) ;;
     orchestrate*)
       route_args=(--policy swap --fast hal-agent --strong hal-hybrid
-                  --prompt "$HAL_ROOT/modes/orchestrate-prompt.txt") ;;
+                  --prompt "$MODES_DIR/orchestrate-prompt.txt") ;;
   esac
   if [ "${#route_args[@]}" -gt 0 ] && ! kill -0 "$(cat "$ROUTE_PID_FILE" 2>/dev/null)" 2>/dev/null; then
     nohup python3 "$HAL_ROOT/hal-route.py" --listen "${ROUTE_URL#http://}" --upstream "$LLAMA_URL" \

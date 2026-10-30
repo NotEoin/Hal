@@ -54,7 +54,7 @@ if [ -z "$MODELS_DIR" ] && [ -f "$CONF_FILE" ]; then
   MODELS_DIR="$(. "$CONF_FILE" 2>/dev/null; printf %s "${HAL_MODELS_DIR:-}")"
 fi
 MODELS_DIR="${MODELS_DIR:-$HAL_ROOT/models}"
-# Pinned so the mode presets in modes/ always match the server's flags
+# Pinned so the mode presets in the gateway package always match the server's flags
 LLAMA_CPP_BUILD="b11512"
 LLAMA_CPP_DIR="$HOME/.local/share/hal/llama.cpp/llama-$LLAMA_CPP_BUILD"
 
@@ -101,7 +101,7 @@ profile_for_hardware() {
 pick_profile() {
   case "$1" in
     max)
-      # Claude Code talks to the llama.cpp router; see modes/ for the models
+      # Claude Code talks to the llama.cpp router; see the gateway package modes for the models
       MAIN_BASE=""; MAIN_MODEL="hal-gpu"; FAST_MODEL="hal-gpu"; BRAIN_MODEL="gemma4:12b-it-qat" ;;
     24gb)
       MAIN_BASE="qwen3.8:27b";     MAIN_MODEL="qwen3.8-hal"
@@ -225,7 +225,7 @@ ollama pull "$BRAIN_MODEL" && ok "Pulled $BRAIN_MODEL" || warn "Failed to pull $
 
 # --- 3b. llama.cpp and the max profile's models -----------------------------
 # One release build of llama-server (CUDA 12.8, which any 12.8+ driver runs) plus the
-# GGUFs named in modes/*.ini. curl -C - resumes a partial download on re-run.
+# GGUFs named in the gateway package modes/*.ini. curl -C - resumes a partial download on re-run.
 MAX_MODEL_FILES=(
   "unsloth/Qwen3.8-27B-GGUF qwen3.8-27b/Qwen3.8-27B-UD-Q4_K_XL.gguf Qwen3.8-27B-UD-Q4_K_XL.gguf"
   "unsloth/Qwen3.8-27B-GGUF qwen3.8-27b/MTP/mtp-Qwen3.8-27B-Q4_0.gguf MTP/mtp-Qwen3.8-27B-Q4_0.gguf"
