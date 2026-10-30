@@ -32,6 +32,7 @@ from pathlib import Path
 from .. import launchers, llamacmd, modes, relay
 from ..errors import BadRequest, GatewayError, ModelUnverified, RouterBusy, Unavailable
 from ..models.manifest import ManifestError, Verifier
+from ..policies import route
 from .openai import OpenAIBackend, UpstreamAddress, parse_address
 
 log = logging.getLogger(__name__)
@@ -88,6 +89,7 @@ class LlamaRouter(OpenAIBackend):
         self._verifier: Verifier | None = None
         self._ollama: Callable[[], list] = list  # type: ignore[type-arg]
         self.hal: modes.HalSettings | None = None  # the `[hal]` section of the active (or configured) mode
+        self.turns = route.TurnMemory()  # the route policy's held choice per conversation
         self.on_mode: Callable[[modes.HalSettings | None], None] = lambda hal: None
 
     def configure(
@@ -390,6 +392,12 @@ class LlamaRouter(OpenAIBackend):
             self._crashes.append(now)
             log.warning("llama-server exited unexpectedly; restarting in mode %s", mode)
             self.start(mode)
+
+    def classify(self, classifier: str, text: str) -> tuple[str, float]:
+        """Asks preset `classifier` through `/v1/systemone` which model should take `text` (REQ-GW-42)."""
+        body = {"model": classifier, "state": text, "questions": route.ROUTE_QUESTION}
+        doc = relay.call_json(self, "POST", "/v1/systemone", body, timeout_s=route.CLASSIFIER_TIMEOUT_S)
+        return route.parse_answer(doc)
 
     # --- requests in flight, mode switch, load, unload --------------------------------------
 

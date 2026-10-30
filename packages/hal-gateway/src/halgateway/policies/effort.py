@@ -10,13 +10,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from .. import modes
+from ..modes import HalSettings
 from . import RequestContext
 from .text import append_system, decision_point
 
 
-def load_note(hal: object | None) -> str:
+def load_note(hal: HalSettings | None) -> str:
     """The effort note of mode settings `hal`, or the bundled one; raises `OSError` if unreadable."""
-    path = getattr(hal, "effort_note", None) or modes.EFFORT_NOTE
+    path = (hal.effort_note if hal else None) or modes.EFFORT_NOTE
     return Path(path).read_text(encoding="utf-8").strip()
 
 

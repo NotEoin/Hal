@@ -177,3 +177,13 @@ Policies apply to `llama-router` backends on `/v1/messages` and `/v1/chat/comple
   are handled; an OpenAI `tool` message has no `is_error`, so only the failure patterns apply.
   The alias key `effort = true`, or the mode's `[hal] effort`, turns it on. The per-alias
   `shell_tools` and `agent_tools` keys of the design are not read yet (the defaults apply).
+- **Route** (`policies/route.py`, REQ-GW-42..44): applies to requests for the mode's `main`
+  model when the mode sets `route`. New user text is classified once through the router's
+  `POST /v1/systemone` (30 s timeout) and the choice is held per conversation (key: the first
+  message) in an LRU of 1024 until the next user text. Requests without tools go to `agent`.
+  A failing classifier means the default, `strong`, and a log line. The `force` and `default`
+  keys of `hal-route.py` are not ported: the default is fixed.
+- **Delegate** (`policies/delegate.py`, REQ-GW-45): on a request that still targets `main`
+  and has tools, the tools in `strip-tools` are removed and the `delegate-note` file is added
+  to the system prompt (Anthropic `system`, OpenAI first system message). It runs after route,
+  so a turn routed to the fast model keeps its tools.

@@ -12,6 +12,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from ..modes import HalSettings
+
 log = logging.getLogger(__name__)
 
 MODE_ALIASES = ("hal/main", "hal/agent")  # the aliases that follow the active mode's `[hal]` section
@@ -19,11 +21,16 @@ MODE_ALIASES = ("hal/main", "hal/agent")  # the aliases that follow the active m
 
 @dataclass
 class RequestContext:
-    """What a policy sees of one request; `decisions` goes to the `policy` field of the log record."""
+    """What a policy sees of one request.
+
+    `model` is the upstream model name and policies may change it; `decisions` goes to the
+    `policy` field of the log record.
+    """
 
     fmt: str  # `anthropic` or `openai`
     body: dict  # type: ignore[type-arg]
     alias: str
+    model: str = ""
     decisions: dict[str, object] = field(default_factory=dict)
 
 
@@ -46,23 +53,42 @@ def run_rewrites(policies: list[Policy], ctx: RequestContext) -> None:
             ctx.decisions[policy.name] = f"error: {type(exc).__name__}"
 
 
+@dataclass
+class Services:
+    """What the policies need from the backend and the mode files."""
+
+    load_note: Callable[[HalSettings | None], str]
+    load_delegate_note: Callable[[HalSettings | None], str]
+    classify: Callable[[str, str], tuple[str, float]]  # (classifier model, user text) -> (choice, p_strong)
+    memory: object  # a `route.TurnMemory`
+
+
 def select(
     alias: str,
     alias_entry: Mapping[str, object] | None,
-    mode_hal: object | None,
-    load_note: Callable[[object | None], str],
+    hal: HalSettings | None,
+    model: str,
+    services: Services,
 ) -> list[Policy]:
-    """The policies that apply to a request for `alias`.
+    """The policies that apply to a request for `alias`, in pipeline order (route, delegate, effort).
 
     `alias_entry` is the `[gateway.aliases.NAME]` table when the name is a configured alias;
-    `mode_hal` is the active mode's `HalSettings` when the target is the managed router.
+    `hal` is the active mode's `HalSettings` when the target is the managed router; `model` is
+    the upstream model name. Route and delegate apply to the mode's main model (the strong one).
     """
-    from .effort import EffortPolicy  # imported here: effort needs this module's types
+    from .delegate import DelegatePolicy  # imported here: these modules need this module's types
+    from .effort import EffortPolicy
+    from .route import RoutePolicy
 
     chosen: list[Policy] = []
-    from_mode = mode_hal is not None and alias in MODE_ALIASES
-    if (alias_entry is not None and alias_entry.get("effort")) or (
-        from_mode and getattr(mode_hal, "effort", False)
-    ):
-        chosen.append(EffortPolicy(load_note(mode_hal)))
+    strong = hal is not None and model == hal.main
+    if hal is not None and strong and hal.route:
+        chosen.append(RoutePolicy(hal, services.classify, services.memory))  # type: ignore[arg-type]
+    if hal is not None and strong and hal.delegate_note:
+        chosen.append(DelegatePolicy(hal.strip_tools, services.load_delegate_note(hal), hal.main))
+    effort_on = (alias_entry is not None and alias_entry.get("effort")) or (
+        hal is not None and alias in MODE_ALIASES and hal.effort
+    )
+    if effort_on:
+        chosen.append(EffortPolicy(services.load_note(hal)))
     return chosen

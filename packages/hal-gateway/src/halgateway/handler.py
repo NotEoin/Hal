@@ -30,7 +30,7 @@ from .errors import (
     error_body,
 )
 from .estimate import ESTIMATE_HEADER, estimate_input_tokens
-from .policies import effort, overflow
+from .policies import delegate, effort, overflow
 from .routes import Api, Route
 
 log = logging.getLogger(__name__)
@@ -201,22 +201,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
             doc = {"input_tokens": estimate_input_tokens(body)}
             self._send(200, json.dumps(doc).encode("ascii"), extra=[ESTIMATE_HEADER])
             return
-        self._apply_policies(gateway, route, target, body)
-        body["model"] = upstream_model
+        body["model"] = self._apply_policies(gateway, route, target, body) or upstream_model
         self._relay(gateway, backend, json.dumps(body).encode("utf-8"))
 
-    def _apply_policies(self, gateway, route: Route, target, body: dict) -> None:  # type: ignore[no-untyped-def,type-arg]
-        """Runs the request policies of a router backend (messages and chat only, decision 6)."""
+    def _apply_policies(self, gateway, route: Route, target, body: dict) -> str | None:  # type: ignore[no-untyped-def,type-arg]
+        """Runs the policies of a router backend (messages and chat only, decision 6); returns the model."""
         backend = target.backend
         if route.api not in (Api.MESSAGES, Api.CHAT) or not isinstance(backend, LlamaRouter):
-            return
-        chosen = policies.select(
-            target.alias, gateway.cfg.aliases.get(target.alias), backend.hal, effort.load_note
+            return None
+        services = policies.Services(
+            effort.load_note, delegate.load_delegate_note, backend.classify, backend.turns
         )
-        ctx = policies.RequestContext(route.fmt, body, target.alias)
+        chosen = policies.select(
+            target.alias, gateway.cfg.aliases.get(target.alias), backend.hal, target.model, services
+        )
+        ctx = policies.RequestContext(route.fmt, body, target.alias, target.model)
         policies.run_rewrites(chosen, ctx)
+        if ctx.model != target.model:
+            self.rec["upstream_model"] = ctx.model
         if ctx.decisions:
             self.rec["policy"] = ctx.decisions
+        return ctx.model
 
     def _admin(self, gateway, route: Route) -> None:  # type: ignore[no-untyped-def]
         """Serves the router admin routes; only the owner on the unix socket may change anything."""
