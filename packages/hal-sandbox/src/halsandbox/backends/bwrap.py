@@ -86,7 +86,8 @@ def bwrap_launch(
     argv += ["--proc", "/proc", "--dev", "/dev"]
     argv += ["--size", str(lim.tmp_bytes), "--tmpfs", "/tmp"]
     argv += ["--size", str(lim.home_bytes), "--perms", "0700", "--tmpfs", "/home/hal"]
-    argv += ["--bind", str(spec.work), "/work"]
+    if spec.work is not None:
+        argv += ["--bind", str(spec.work), "/work"]
     for gm in spec.git_mounts:
         argv += ["--ro-bind", str(gm.src), gm.dst]
     argv += ["--ro-bind", str(root / "run"), "/run/hal"]
@@ -94,7 +95,7 @@ def bwrap_launch(
         argv += ["--ro-bind", str(root / "empty"), f"/work/{rel}"]
     if spec.scratch is not None:
         argv += ["--bind", str(spec.scratch), "/scratch"]
-    argv += ["--chdir", "/work", "--", f"{venv_bin}/{BOX_ENTRY}"]
+    argv += ["--chdir", "/work" if spec.work is not None else "/scratch", "--", f"{venv_bin}/{BOX_ENTRY}"]
     if spec.relay_port is not None:
         argv += ["--relay-port", str(spec.relay_port)]
     return Launch([*argv, "--", *spec.child])

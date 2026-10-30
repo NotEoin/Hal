@@ -86,15 +86,27 @@ def test_unknown_kind_is_refused(project):
         Session.start(project, kind="weird")
 
 
-def test_chat_session_uses_the_assistant_dir_and_refuses_a_project(tmp_path):
-    s = Session.start(None, kind="chat", checkpoints=False)
+def test_chat_session_has_scratch_and_no_work_tree_and_refuses_a_project(tmp_path):
+    s = Session.start(None, kind="chat", checkpoints=True)
     try:
-        assert s.work.name == "assistant" and s.iso is None and s.container.startswith("hal-chat-")
-        assert s.capabilities()["work"] is None
+        assert s.work is None and s.iso is None and s.checkpoints is None
+        assert s.container.startswith("hal-chat-") and s.capabilities()["work"] is None
+        argv = s.launch.argv
+        dsts = [a for a in argv if a.startswith("type=bind")]
+        assert not any('"dst=/work"' in d for d in dsts) and any("dst=/scratch" in d for d in dsts)
+        assert argv[argv.index("--workdir") + 1] == "/scratch"
     finally:
         s.close()
-    with pytest.raises(SandboxError, match="chat session runs in"):
+    with pytest.raises(SandboxError, match="chat session has no project"):
         Session.start(tmp_path, kind="chat", checkpoints=False)
+
+
+def test_job_with_a_project_works_on_an_isolated_copy_by_default(project):
+    s = Session.start(project, kind="job", checkpoints=False)
+    try:
+        assert s.iso is not None and s.work == s.iso.work
+    finally:
+        s.close()
 
 
 def test_run_files_callable_gets_the_session_id(project):

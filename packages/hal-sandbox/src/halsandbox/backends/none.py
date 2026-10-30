@@ -21,11 +21,11 @@ SANDBOX_NAME = "none"
 HOST_BIN_PATH = "/usr/local/bin:/usr/bin:/bin"
 
 
-def _host_path(arg: str, run: Path, work: Path) -> str:
+def _host_path(arg: str, run: Path, work: Path | None) -> str:
     """Maps a box path in a child argument to the host path; other arguments are unchanged."""
     if arg.startswith(BOX_RUN + "/"):
         return str(run / arg[len(BOX_RUN) + 1 :])
-    return str(work) if arg == "/work" else arg
+    return str(work) if arg == "/work" and work is not None else arg
 
 
 def none_launch(spec: LaunchSpec, host_env: dict[str, str] | None = None) -> Launch:
@@ -40,13 +40,17 @@ def none_launch(spec: LaunchSpec, host_env: dict[str, str] | None = None) -> Lau
         k: v for k, v in spec.env.items() if k.startswith(("HAL_", "LC_", "LANG")) or k in ("NO_COLOR", "TZ")
     }
     venv_bin = str(Path(sys.executable).parent)
+    workspace = (
+        spec.work if spec.work is not None else spec.scratch
+    )  # a session without a project works in /scratch
+    assert workspace is not None  # LaunchSpec checks this
     env.update(
         {
             "HOME": str(home),
             "TMPDIR": str(tmp),
             "PATH": f"{venv_bin}:{host.get('PATH', HOST_BIN_PATH)}",
             "HAL_SANDBOX": SANDBOX_NAME,
-            "HAL_WORKSPACE": str(spec.work),
+            "HAL_WORKSPACE": str(workspace),
             "HAL_BROKER_SOCKET": str(run / "broker.sock"),
             "HAL_MODEL_SOCKET": str(run / "model.sock"),
         }
@@ -57,4 +61,4 @@ def none_launch(spec: LaunchSpec, host_env: dict[str, str] | None = None) -> Lau
     exe = Path(venv_bin) / argv[0]
     if exe.is_file():
         argv[0] = str(exe)
-    return Launch(argv, env, str(spec.work), new_session=True)
+    return Launch(argv, env, str(workspace), new_session=True)

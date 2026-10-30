@@ -63,3 +63,12 @@ def test_session_with_backend_none_says_run_false_and_paths_confined(tmp_path, s
         assert s.launch.env["HAL_SANDBOX"] == "none" and s.launch.new_session
     finally:
         s.close()
+
+
+def test_a_session_without_a_work_tree_works_in_scratch(tmp_path):
+    scratch = tmp_path / "scratch"
+    launch = none_launch(
+        spec(tmp_path, kind="chat", work=None, scratch=scratch), host_env={"PATH": "/usr/bin"}
+    )
+    assert launch.cwd == str(scratch)
+    assert launch.env["HAL_WORKSPACE"] == str(scratch) and launch.env["HAL_SCRATCH"] == str(scratch)

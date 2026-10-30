@@ -35,7 +35,7 @@ class LaunchSpec:
     sid: str
     image: str
     runtime: str
-    work: Path
+    work: Path | None  # None for a session without a project: /scratch only (RESOLUTIONS I3)
     session_root: Path  # `$R/s/<sid>`: holds run/, etc/, empty, cid
     uid: int
     gid: int
@@ -79,6 +79,8 @@ def _check(spec: LaunchSpec) -> None:
         raise SandboxError(f"unknown docker runtime {spec.runtime!r}; use one of {RUNTIMES}")
     if spec.image.startswith("-"):
         raise SandboxError(f"image {spec.image!r} looks like a flag")
+    if spec.work is None and (spec.scratch is None or spec.git_mounts or spec.masked):
+        raise SandboxError("a session without a work tree needs a scratchpad and has no git mounts or masks")
     for rel in spec.masked:
         if rel.startswith("/") or ".." in rel.split("/"):
             raise SandboxError(f"masked path {rel!r} must be relative and inside the work tree")
@@ -119,7 +121,8 @@ def docker_argv(spec: LaunchSpec) -> list[str]:
     argv += ["--tmpfs", f"/tmp:rw,nosuid,nodev,size={lim.tmp_bytes}"]
     home = f"/home/hal:rw,nosuid,nodev,size={lim.home_bytes},uid={spec.uid},gid={spec.gid},mode=0700"
     argv += ["--tmpfs", home]
-    argv += ["--mount", _mount(spec.work, "/work")]
+    if spec.work is not None:
+        argv += ["--mount", _mount(spec.work, "/work")]
     for gm in spec.git_mounts:
         argv += ["--mount", _mount(gm.src, gm.dst, readonly=True)]
     argv += ["--mount", _mount(root / "run", "/run/hal", readonly=True)]
@@ -131,7 +134,7 @@ def docker_argv(spec: LaunchSpec) -> list[str]:
         argv += ["--mount", _mount(spec.scratch, "/scratch")]
     if spec.uv_cache is not None:
         argv += ["--mount", _mount(spec.uv_cache, "/home/hal/.cache/uv", readonly=True)]
-    argv += ["--workdir", "/work"]
+    argv += ["--workdir", "/work" if spec.work is not None else "/scratch"]
     for key, value in spec.env.items():
         argv += ["--env", f"{key}={value}"]
     if spec.entrypoint is not None:

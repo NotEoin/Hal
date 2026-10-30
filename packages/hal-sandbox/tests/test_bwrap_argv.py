@@ -110,3 +110,12 @@ def test_box_has_no_network_and_a_read_only_usr(tmp_path):
     if probe.returncode != 0 and "rw ok" not in probe.stdout:
         pytest.skip(f"bwrap cannot run here: {probe.stderr.strip()[:200]}")
     assert "nonet" in probe.stdout and "ro\n" in probe.stdout and (work / "ok").exists()
+
+
+def test_a_session_without_a_work_tree_binds_only_scratch_and_runs_there():
+    argv = list(
+        bwrap_launch(make(kind="chat", work=None, git_mounts=(), masked=(), scratch=Path("/st/s")), **KW).argv
+    )
+    assert "/work" not in argv
+    assert argv[argv.index("--chdir") + 1] == "/scratch"
+    assert argv[argv.index("/st/s") - 1] == "--bind"

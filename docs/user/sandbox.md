@@ -25,7 +25,7 @@ to the project. It is never chosen automatically.
 | Path | What it is |
 | --- | --- |
 | `/work` | An isolated copy of the project (default for `hal code`), or the real project with `--direct`. Files that match the mask list (`.env`, keys) are empty and read-only in the box. |
-| `/scratch` | A per-project directory that persists between sessions (`hal scratch clean` empties it). |
+| `/scratch` | A per-project directory that persists between sessions (`hal scratch clean` empties it). Chat and voice sessions, and jobs without a project, get only this: there is no `/work`, and the agent starts in `/scratch`. |
 | `.git` | Mounted read-only with `--direct`; the isolated copy has none. |
 | `/run/hal` | The sockets, read-only. |
 

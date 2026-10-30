@@ -44,7 +44,8 @@ log = logging.getLogger(__name__)
 KINDS = ("code", "chat", "job")  # `box`, `shell` and `deps` belong to `hal box` (steps 28 and 32)
 DEFAULT_CHILD = ("hal-agent", "--acp", "--config", "/run/hal/agent.json")
 DEFAULT_IMAGE = "hal-agent:local"
-ASSISTANT_DIR = "assistant"  # `$STATE/assistant/`: the only work tree a `chat` session may use
+ASSISTANT_DIR = "assistant"  # `$STATE/assistant/`: the scratchpad key of a session without a project
+WORK_KINDS = ("code", "job")  # kinds that may mount a project; the others get /scratch only
 DOCKER_RM_TIMEOUT_S = 30.0
 RUN_FILES_MODE = 0o644
 RunFiles = Mapping[str, bytes] | Callable[[str], Mapping[str, bytes]]
@@ -87,7 +88,7 @@ class Session:
     backend: str
     runtime: str | None
     project: Path | None
-    work: Path
+    work: Path | None  # None for chat and job sessions without a project: /scratch only
     model_socket: Path
     broker_socket: Path
     broker: Broker
@@ -133,7 +134,7 @@ class Session:
     ) -> Session:
         """Prepares a session and returns it; raises `SandboxError` (with the fix) when it cannot.
 
-        `isolated_copy=None` means the default: an isolated copy for `code`, no project for the
+        `isolated_copy=None` means the default: an isolated copy for `code` and `job`, no project for the
         other kinds. `False` mounts the real project and needs lockdown `relaxed` or lower.
         """
         if kind not in KINDS:
@@ -143,8 +144,8 @@ class Session:
         policy = Policy.for_level(str(cfg["lockdown"]))
         if kind == "code" and project is None:
             raise SandboxError("a code session needs a project directory")
-        use_copy = (kind == "code") if isolated_copy is None else isolated_copy
-        if kind == "code" and not use_copy:
+        use_copy = (kind in WORK_KINDS) if isolated_copy is None else isolated_copy
+        if kind in WORK_KINDS and not use_copy:
             policy.check_direct()
         probe = detect.detect(
             {**cfg, "runtime": runtime or cfg["runtime"]},
@@ -157,22 +158,21 @@ class Session:
         project = project.resolve() if project else None
         docker_path = detect.docker_binary(cfg) or "docker"
         iso = None
-        if kind == "chat":
-            work = paths.ensure_private_dir(paths.state_dir() / ASSISTANT_DIR)
-        elif kind == "job" and project is None:
-            work = paths.ensure_private_dir(paths.state_dir() / ASSISTANT_DIR)
+        work: Path | None
+        if kind == "chat" or (kind == "job" and project is None):
+            work = None  # RESOLUTIONS I3: non-coding sessions get /scratch only, no /work
         else:
             assert project is not None
             iso = isolated.create(project, int(allcfg["isolated"]["max_copy_bytes"])) if use_copy else None
             work = iso.work if iso else project
-        if kind == "chat" and project is not None and project != work:
-            raise SandboxError(f"a chat session runs in {work}, not in {project}")
-        key_dir = project or work
+        if kind == "chat" and project is not None:
+            raise SandboxError("a chat session has no project directory: it gets /scratch only")
+        key_dir = project or paths.ensure_private_dir(paths.state_dir() / ASSISTANT_DIR)
         masked: tuple[str, ...] = ()
         try:
             do_mask = (not projects.is_set(key_dir, "unmask")) if mask is None else mask
             if do_mask:
-                masked = find_masked(work, resolve_patterns(cfg["mask"]))
+                masked = find_masked(work, resolve_patterns(cfg["mask"])) if work is not None else ()
             rd = RuntimeDir.create()
         except BaseException:
             if iso is not None:
@@ -185,7 +185,7 @@ class Session:
             if home_seed:
                 _write_files(rd.run / "home-seed", home_seed, [s.encode() for s in forbidden_secrets])
             ckpt = None
-            if checkpoints:
+            if checkpoints and work is not None:
                 ckpt = open_checkpoints(work, rd.sid, CheckpointConfig(mask=resolve_patterns(cfg["mask"])))
                 ckpt.take("session start")
             command = list(DEFAULT_COMMAND) + (["--profile", policy_profile] if policy_profile else [])
@@ -221,21 +221,24 @@ class Session:
             if builder is None:
                 raise SandboxError(f"backend {probe.backend} cannot launch a {kind} session yet")
             pid = os.getpid()
+            mounts = gitlayout.discover(work) if work is not None and not use_copy else ()
             spec = LaunchSpec(
                 kind=kind, sid=rd.sid, image=image or DEFAULT_IMAGE, runtime=probe.runtime or "runc",
                 work=work, session_root=rd.root, uid=os.getuid(), gid=os.getgid(), limits=limits,
                 env=box_env(kind, rd.sid, probe.backend, os.environ, extra=extra_env),
                 child=list(child_argv), pid=pid, pidstart=pidstart(pid), started=utc_now(), tty=tty,
-                git_mounts=gitlayout.discover(work) if not use_copy else (), masked=masked,
+                git_mounts=mounts, masked=masked,
                 docker=docker_path,
                 bwrap=detect.bwrap_binary(cfg) or "bwrap",
                 scope=probe.backend == "bwrap" and user_manager_running(),
-                scratch=scratch.prepare(project or work, int(cfg["scratch_max_bytes"])),
+                scratch=scratch.prepare(key_dir, int(cfg["scratch_max_bytes"])),
             )  # fmt: skip
             session.scoped = spec.scope
             session.launch = builder(spec)
             session.agent_argv = list(session.launch.argv)
-            rd.write_owner(kind=kind, backend=probe.backend, container=session.container, work=str(work))
+            rd.write_owner(
+                kind=kind, backend=probe.backend, container=session.container, work=str(work or "")
+            )
             rd.write_session_json(session.capabilities(), kind=kind)
             broker.start()
             lifeline.start()
@@ -259,7 +262,7 @@ class Session:
             "paths": "confined" if none else "box",
             "isolated": self.iso is not None,
             "masked": list(self.masked),
-            "work": "/work" if self.kind == "code" else None,
+            "work": "/work" if self.work is not None else None,
             "scratch": "/scratch",
             **({"limits": "scope" if self.scoped else "none"} if self.backend == "bwrap" else {}),
         }

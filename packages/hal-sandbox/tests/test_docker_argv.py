@@ -99,3 +99,29 @@ def test_session_env_is_passed_as_env_flags_in_order():
 def test_unsafe_spec_is_refused(over):
     with pytest.raises(SandboxError):
         docker_argv(make(**over))
+
+
+def make_chat(**over) -> LaunchSpec:
+    return make(kind="chat", work=None, git_mounts=(), masked=(), **over)
+
+
+def test_chat_argv_matches_the_golden_file():
+    got = "\n".join(docker_argv(make_chat())) + "\n"
+    assert got == (GOLDEN / "docker_chat.txt").read_text()
+
+
+def test_job_with_a_project_argv_matches_the_golden_file():
+    got = "\n".join(docker_argv(make(kind="job"))) + "\n"
+    assert got == (GOLDEN / "docker_job.txt").read_text()
+
+
+def test_a_session_without_a_work_tree_mounts_only_scratch_and_runs_there():
+    argv = docker_argv(make_chat())
+    dsts = [re.search(r'"dst=([^"]*)"', a).group(1) for a in argv if a.startswith("type=bind")]
+    assert dsts == ["/run/hal", "/etc/passwd", "/etc/group", "/scratch"]
+    assert argv[argv.index("--workdir") + 1] == "/scratch"
+
+
+def test_no_work_tree_without_a_scratchpad_is_refused():
+    with pytest.raises(SandboxError, match="scratchpad"):
+        docker_argv(make_chat(scratch=None))
