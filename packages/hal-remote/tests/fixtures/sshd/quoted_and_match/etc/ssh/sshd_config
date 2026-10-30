@@ -1,0 +1,8 @@
+Port=2222
+authorizedkeysfile ".ssh/authorized_keys" "/srv/keys/%u"
+PasswordAuthentication no
+Match User backup
+    PasswordAuthentication yes
+    X11Forwarding yes
+Match all
+PermitRootLogin no
