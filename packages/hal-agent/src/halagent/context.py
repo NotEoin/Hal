@@ -20,6 +20,7 @@ log = logging.getLogger("halagent.context")
 
 CHARS_PER_TOKEN = 4
 MESSAGE_OVERHEAD_TOKENS = 8
+IMAGE_TOKENS = 1_000  # flat guess per image: base64 length says nothing about vision tokens
 SAFETY_TOKENS = 512
 MASK_AT, MASK_TO, SUMMARIZE_AT = 0.6, 0.4, 0.8
 KEEP_RECENT = 3
@@ -37,8 +38,9 @@ def estimate_tokens(
     messages: list[dict], extra_chars: int = 0, chars_per_token: float = CHARS_PER_TOKEN
 ) -> int:
     """A rough token count: characters over `chars_per_token` plus a per-message overhead."""
-    chars = extra_chars + sum(len(json.dumps(m, ensure_ascii=False)) for m in messages)
-    return int(chars / chars_per_token) + MESSAGE_OVERHEAD_TOKENS * len(messages)
+    chars = extra_chars + sum(len(json.dumps({**m, "images": None}, ensure_ascii=False)) for m in messages)
+    images = sum(len(m.get("images") or []) for m in messages)
+    return int(chars / chars_per_token) + MESSAGE_OVERHEAD_TOKENS * len(messages) + IMAGE_TOKENS * images
 
 
 @dataclass
@@ -266,7 +268,7 @@ def render_for_summary(messages: list[dict]) -> str:
     """The old messages as plain text for the summary request, capped."""
     parts = []
     for m in messages:
-        body = str(m.get("content") or "")
+        body = str(m.get("content") or "") + " [image]" * len(m.get("images") or [])
         for call in m.get("tool_calls") or []:
             fn = call.get("function", {})
             body += f"\n[call {fn.get('name')} {fn.get('arguments')}]"

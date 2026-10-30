@@ -287,3 +287,44 @@ def test_set_model_switches_the_provider_between_turns_and_rejects_a_bad_name(se
     msgs = c.finish()
     assert reply_to(msgs, ok)["result"] == {}
     assert reply_to(msgs, bad)["error"]["code"] == -32602
+
+
+def test_prompt_with_an_image_sends_it_to_the_model_as_a_data_url(server, tmp_path):
+    server.script("a red square")
+    c = Client(server.url, tmp_path)
+    c.call("session/new", {"cwd": str(tmp_path)})
+    sid = c.sid()
+    prompt = c.call(
+        "session/prompt",
+        {
+            "sessionId": sid,
+            "prompt": [
+                {"type": "text", "text": "what is this"},
+                {"type": "image", "data": "QUJD", "mimeType": "image/png"},
+            ],
+        },
+    )
+    msgs = c.finish()
+    assert reply_to(msgs, prompt)["result"] == {"stopReason": "end_turn"}
+    last_user = [m for m in server.requests[-1]["body"]["messages"] if m["role"] == "user"][-1]
+    assert last_user["content"][1] == {
+        "type": "image_url",
+        "image_url": {"url": "data:image/png;base64,QUJD"},
+    }
+
+
+def test_initialize_advertises_image_input(server, tmp_path):
+    c = Client(server.url, tmp_path)
+    rid = c.call("initialize", {"protocolVersion": 1})
+    caps = reply_to(c.finish(), rid)["result"]["agentCapabilities"]
+    assert caps["promptCapabilities"]["image"] is True
+
+
+def test_estimate_counts_an_image_as_a_flat_cost_not_its_base64_length():
+    from halagent.context import IMAGE_TOKENS, estimate_tokens
+
+    plain = estimate_tokens([{"role": "user", "content": "x"}])
+    with_image = estimate_tokens(
+        [{"role": "user", "content": "x", "images": [{"mimeType": "image/png", "data": "A" * 10**6}]}]
+    )
+    assert with_image - plain < IMAGE_TOKENS + 10

@@ -222,7 +222,7 @@ class AcpServer:
             "protocolVersion": PROTOCOL_VERSION,
             "agentCapabilities": {
                 "loadSession": True,
-                "promptCapabilities": {"image": False, "audio": False, "embeddedContext": True},
+                "promptCapabilities": {"image": True, "audio": False, "embeddedContext": True},
                 "mcpCapabilities": {"http": False, "sse": False},
                 "_meta": {"hal": {"records": records, "version": __version__}},
             },
@@ -407,6 +407,20 @@ class AcpServer:
             for b in params.get("prompt") or []
             if isinstance(b, dict) and b.get("type") == "text"
         )
+        images = [
+            {"mimeType": str(b.get("mimeType")), "data": str(b.get("data"))}
+            for b in params.get("prompt") or []
+            if isinstance(b, dict) and b.get("type") == "image" and b.get("data") and b.get("mimeType")
+        ]
+        if images and not agent.accepts_images:
+            self._send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": rid,
+                    "error": {"code": ERR_PARAMS, "message": "this model does not take image input"},
+                }
+            )
+            return
         if not text.strip():
             self._send(
                 {
@@ -425,14 +439,14 @@ class AcpServer:
                 }
             )
             return
-        worker = threading.Thread(target=self._run_prompt, args=(rid, sid, agent, text), daemon=True)
+        worker = threading.Thread(target=self._run_prompt, args=(rid, sid, agent, text, images), daemon=True)
         self._running[sid] = worker
         self._workers.append(worker)
         worker.start()
 
-    def _run_prompt(self, rid: object, sid: str, agent: Agent, text: str) -> None:
+    def _run_prompt(self, rid: object, sid: str, agent: Agent, text: str, images: list[dict]) -> None:
         try:
-            result: RunResult = agent.run(text)
+            result: RunResult = agent.run(text, images)
         except ProviderError as exc:
             data = {"hal": {"stopReason": "error", "message": str(exc)}}
             self._send(

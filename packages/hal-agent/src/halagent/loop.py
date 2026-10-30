@@ -229,15 +229,42 @@ class Agent:
             self._next_i += 1
         return self.messages
 
+    @property
+    def accepts_images(self) -> bool:
+        """True when the provider speaks chat completions and the profile does not turn vision off."""
+        return getattr(self.provider, "route", "") == "/v1/chat/completions" and bool(
+            self.profile.values.get("vision", True)
+        )
+
+    @staticmethod
+    def _with_image_parts(m: dict) -> dict:
+        """Turns a user message's `images` into chat-completions content parts."""
+        images = m.get("images")
+        if not images:
+            return m
+        parts: list[dict] = [{"type": "text", "text": str(m.get("content") or "")}]
+        parts += [
+            {"type": "image_url", "image_url": {"url": f"data:{i['mimeType']};base64,{i['data']}"}}
+            for i in images
+        ]
+        return {**{k: v for k, v in m.items() if k != "images"}, "content": parts}
+
     def _wire(self, history: list[dict]) -> list[dict]:
         """Applies the profile's `system_role` and `strict_alternation` to the outgoing copy."""
+        history = [self._with_image_parts(m) for m in history]
         role = str(self.profile.values.get("system_role", "system"))
         out = [{**m, "role": role} if m is history[0] and role != "system" else m for m in history]
         if self.profile.values.get("strict_alternation"):
             merged: list[dict] = []
             for m in out:
                 prev = merged[-1] if merged else None
-                if prev and m["role"] == prev["role"] == "user" and "tool_calls" not in m:
+                if (
+                    prev
+                    and m["role"] == prev["role"] == "user"
+                    and "tool_calls" not in m
+                    and isinstance(m["content"], str)
+                    and isinstance(prev["content"], str)
+                ):
                     merged[-1] = {**prev, "content": f"{prev['content']}\n\n{m['content']}"}
                 else:
                     merged.append(m)
@@ -413,16 +440,18 @@ class Agent:
             out = out[:head] + f"\n[... {len(out) - cap} characters cut ...]\n" + out[-(cap - head) :]
         return out + "".join(f"\n{n}" for n in fixed.notes)
 
-    def run(self, prompt: str) -> RunResult:
-        """Runs one user prompt to completion or until a limit is hit."""
-        result = self._run(prompt)
+    def run(self, prompt: str, images: list[dict] | None = None) -> RunResult:
+        """Runs one user prompt (with optional `{mimeType, data}` images) until it ends or a limit hits."""
+        if images and not self.accepts_images:
+            raise ValueError("this model or endpoint does not take image input")
+        result = self._run(prompt, images or [])
         if self.session:
             stats = {"model_requests": result.turns, "tool_calls": result.tool_calls, **self.counters}
             self.session.write({"type": "turn_end", "turn": self.turn, "stop_reason": result.stopped,
                                 "final_text": result.text, "stats": stats})  # fmt: skip
         return result
 
-    def _run(self, prompt: str) -> RunResult:
+    def _run(self, prompt: str, images: list[dict]) -> RunResult:
         s = self.settings
         native = s.tool_format == "native"
         self.cancel.clear()
@@ -430,7 +459,7 @@ class Agent:
         self.note.task = prompt
         if self.assistant and self.backend:
             self._select_for_turn(prompt)
-        self._add({"role": "user", "content": prompt})
+        self._add({"role": "user", "content": prompt, **({"images": images} if images else {})})
         budget = self._budget()
         clock, dog = BudgetClock(budget), Watchdog(budget)
         turns = nudges = 0

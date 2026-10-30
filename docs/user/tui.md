@@ -24,7 +24,7 @@ with a scripted agent; not yet run against a live model.
 | `/todo` | Show the agent's todo list |
 | `/diff [N]`, `/rewind [N]` | Show changes since checkpoint N; list checkpoints, or restore one (files that cannot come back are listed) |
 | `/apply [--allow-flags]` | Apply the isolated copy to your real project after the risk report |
-| `/image PATH` | Attach a png, jpg, gif or webp (up to 8 MiB) to the next prompt; the agent must accept images |
+| `/image PATH` | Attach a png, jpg, gif or webp (up to 5 MiB) to the next prompt; the model must take images (chat completions endpoint, profile `vision` not false) |
 | `/model [NAME]` | Show the model, or switch to NAME from the next turn (the model server must serve it) |
 | `/NAME ARGS` | Run `.hal/commands/NAME.md` from the project, with `$ARGUMENTS` replaced |
 
@@ -37,7 +37,7 @@ always has a point to return to.
 | --- | --- |
 | `hal code` prints the agent's own prompt, not this UI | You passed `-- ARGS` or stdin is not a terminal; the UI needs a terminal |
 | `/rewind` says no checkpoints | `hal chat` boxes have no work tree; use `hal code` |
-| `/image` is accepted but the agent ignores it | The agent build does not advertise image input yet |
+| `/image` fails with "does not take image input" | The model profile sets `vision = false` or the endpoint is not chat completions |
 
 ## Headless: `hal -p`
 

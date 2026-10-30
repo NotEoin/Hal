@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 COMMANDS_DIR = Path(".hal") / "commands"
 MAX_COMMAND_BYTES = 64 * 1024  # a prompt template, not a document
-MAX_IMAGE_BYTES = 8 * 2**20  # the ACP line cap is 8 MiB; base64 adds a third, so keep well below it
+MAX_IMAGE_BYTES = 5 * 2**20  # the ACP line cap is 8 MiB and base64 adds a third
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
 MAX_DIFF_CHARS = 20_000
 MODES = {"default": "review", "auto-edit": "auto", "plan": "plan"}  # TUI mode name -> hal-agent mode id
