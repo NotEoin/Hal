@@ -141,5 +141,7 @@ def docker_argv(spec: LaunchSpec) -> list[str]:
         argv += ["--entrypoint", spec.entrypoint]
     argv.append(spec.image)
     if spec.relay_port is not None:
-        argv += ["--relay-port", str(spec.relay_port), "--"]
+        argv += ["--relay-port", str(spec.relay_port)]
+    if spec.entrypoint is not None and spec.child:
+        argv.append("--")  # hal-box-entry rejects a child command without it (found by the end-to-end test)
     return argv + list(spec.child)

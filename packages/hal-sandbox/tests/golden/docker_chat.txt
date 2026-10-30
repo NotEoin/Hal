@@ -79,5 +79,6 @@ HAL_SANDBOX=docker
 --entrypoint
 /opt/hal/bin/hal-box-entry
 hal-agent:test
+--
 hal-agent
 --acp

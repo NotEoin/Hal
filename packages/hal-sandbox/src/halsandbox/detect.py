@@ -168,6 +168,12 @@ def _cache_write(key: str, probe: Probe, now: float) -> None:
     files.write_atomic(_cache_path(), json.dumps({"key": key, "at": now, "probe": asdict(probe)}))
 
 
+def _probe_image(cfg: Mapping[str, Any]) -> str:
+    """The image the runsc probe runs: the configured one, or the default when it is "auto"."""
+    image = str(cfg.get("image") or "auto")
+    return PROBE_IMAGE if image == "auto" else image
+
+
 def _probe_docker(
     cfg: Mapping[str, Any], docker: str, refresh: bool, runsc_probe: RunscProbe, now: float
 ) -> Probe:
@@ -182,7 +188,7 @@ def _probe_docker(
         runtime, ok, uid = "runsc", False, None
         detail = "runtime runsc is not registered with docker; see docs/howto/install-gvisor.md"
     elif "runsc" in runtimes:
-        passed, why, uid = runsc_probe(docker, str(cfg.get("image") or PROBE_IMAGE))
+        passed, why, uid = runsc_probe(docker, _probe_image(cfg))
         if passed:
             runtime, ok, detail = "runsc", True, why
         elif want == "runsc":

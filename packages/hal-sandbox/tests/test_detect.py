@@ -166,3 +166,12 @@ def test_state_files_are_private(tmp_path, monkeypatch):
     dt.detect(CFG, STANDARD, runsc_probe=probe_ok)
     mode = os.stat(tmp_path / "state" / "sandbox" / "probe.json").st_mode & 0o777
     assert mode == 0o600
+
+
+def test_probe_image_is_never_the_literal_auto():
+    """Regression: `[sandbox].image = "auto"` was passed to docker as an image named `auto`."""
+    from halsandbox.detect import PROBE_IMAGE, _probe_image
+
+    assert _probe_image({"image": "auto"}) == PROBE_IMAGE
+    assert _probe_image({}) == PROBE_IMAGE
+    assert _probe_image({"image": "x@sha256:abc"}) == "x@sha256:abc"

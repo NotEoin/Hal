@@ -148,7 +148,7 @@ class Session:
         if kind in WORK_KINDS and not use_copy:
             policy.check_direct()
         probe = detect.detect(
-            {**cfg, "runtime": runtime or cfg["runtime"]},
+            {**cfg, "runtime": runtime or cfg["runtime"], **({"image": image} if image else {})},
             policy,
             backend=None if backend == "auto" else backend,
         )
