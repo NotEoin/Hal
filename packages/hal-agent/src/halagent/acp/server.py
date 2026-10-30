@@ -4,8 +4,10 @@ Messages are one JSON object per line. The reader thread stays free while a prom
 worker thread, so `session/cancel` is seen at once. The server never calls `fs/*` or `terminal/*`
 client methods: that would let an in-box agent act on the host outside the box (design 03-agent,
 3.14.6). A session's `cwd` must lie inside the workspace root. Modes are `auto` and `review`;
-review mode asks the client with `session/request_permission` before an edit or a command;
-`session/load` and `_hal/record` are not built yet.
+review mode asks the client with `session/request_permission` before an edit or a command.
+A client that advertises `clientCapabilities._meta.hal.records` gets every transcript record as a
+`_hal/record` notification and the agent writes no file (REQ-AGT-66). `session/load` rebuilds a
+session from the records the client sends, else from the local store, and replays it as updates.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from typing import IO, Any
 from halagent import __version__
 from halagent.loop import Agent, RunResult
 from halagent.provider import ProviderError
-from halagent.sessions import SessionError, check_session_id, new_session_id
+from halagent.sessions import SessionError, check_session_id, finalize_record, new_session_id, replay, utc_now
 
 log = logging.getLogger("halagent.acp")
 
@@ -57,11 +59,34 @@ PERMISSION_POLL_S = 0.2  # how often a waiting call checks for a cancel
 PERMISSION_TIMEOUT_S = 3600.0  # an unattended review prompt is treated as cancelled after an hour
 
 
+def _chunk(kind: str, text: str) -> dict:
+    return {"sessionUpdate": kind, "content": {"type": "text", "text": text}}
+
+
 def _modes(current: str) -> dict:
     return {"currentModeId": current, "availableModes": MODE_LIST}
 
 
-AgentFactory = Callable[[Path, str, Callable[[dict], None]], Agent]
+AgentFactory = Callable[..., Agent]  # (cwd, sid, on_update) and, with host records, `session=sink`
+RecordLoader = Callable[[str], list[dict]]
+
+
+class RecordSink:
+    """A transcript sink that sends each record to the host as `_hal/record` instead of writing a file."""
+
+    def __init__(self, send: Callable[[dict], None], sid: str, header: dict | None) -> None:
+        self._send, self._sid, self._header = send, sid, header
+
+    def write(self, record: dict) -> None:
+        """Sends one record; the `session` header goes first, once, for a new session."""
+        if self._header is not None:
+            header, self._header = self._header, None
+            self.write({"type": "session", "v": 1, "created": utc_now(), **header})
+        self._send({"jsonrpc": "2.0", "method": "_hal/record",
+                    "params": {"sessionId": self._sid, "record": finalize_record(record)}})  # fmt: skip
+
+    def close(self) -> None:
+        """Nothing to close: the host owns the file."""
 
 
 class RpcError(Exception):
@@ -75,9 +100,19 @@ class RpcError(Exception):
 class AcpServer:
     """Serves one client on a pair of text streams until the input closes."""
 
-    def __init__(self, root: Path, factory: AgentFactory, rfile: IO[str], wfile: IO[str]) -> None:
+    def __init__(
+        self,
+        root: Path,
+        factory: AgentFactory,
+        rfile: IO[str],
+        wfile: IO[str],
+        *,
+        load_records: RecordLoader | None = None,
+    ) -> None:
         self.root = root.resolve()
         self.factory = factory
+        self.load_records = load_records
+        self.records = False  # the client takes transcript records (set by `initialize`)
         self.rfile, self.wfile = rfile, wfile
         self.sessions: dict[str, Agent] = {}
         self._running: dict[str, threading.Thread] = {}
@@ -140,9 +175,13 @@ class AcpServer:
 
     def _dispatch(self, method: str, params: dict) -> dict:
         if method == "initialize":
-            return self._initialize()
+            caps = ((params.get("clientCapabilities") or {}).get("_meta") or {}).get("hal") or {}
+            self.records = caps.get("records") is True
+            return self._initialize(self.records)
         if method == "session/new":
             return self._new_session(params)
+        if method == "session/load":
+            return self._load_session(params)
         if method == "session/cancel":
             agent = self.sessions.get(str(params.get("sessionId")))
             if agent:
@@ -158,23 +197,41 @@ class AcpServer:
         raise RpcError(ERR_NOT_FOUND, f"method not found: {method}")
 
     @staticmethod
-    def _initialize() -> dict:
+    def _initialize(records: bool) -> dict:
         return {
             "protocolVersion": PROTOCOL_VERSION,
             "agentCapabilities": {
-                "loadSession": False,
+                "loadSession": True,
                 "promptCapabilities": {"image": False, "audio": False, "embeddedContext": True},
                 "mcpCapabilities": {"http": False, "sse": False},
-                "_meta": {"hal": {"records": False, "version": __version__}},
+                "_meta": {"hal": {"records": records, "version": __version__}},
             },
             "agentInfo": {"name": "hal-agent", "title": "Hal", "version": __version__},
             "authMethods": [],
         }
 
-    def _new_session(self, params: dict) -> dict:
+    def _cwd(self, params: dict) -> Path:
         cwd = Path(str(params.get("cwd") or self.root)).resolve()
         if cwd != self.root and self.root not in cwd.parents:
             raise RpcError(ERR_PARAMS, f"cwd {cwd} is outside the workspace {self.root}")
+        return cwd
+
+    def _make(self, cwd: Path, sid: str, *, new: bool) -> Agent:
+        """Builds the agent of session `sid`; with host records it gets a `_hal/record` sink."""
+        update = lambda u: self._map_update(sid, u)  # noqa: E731 - a one-line closure over `sid`
+        if self.records:
+            header = {"id": sid, "agent": f"halagent {__version__}", "mode": "code", "toolset": "coding",
+                      "cwd": str(cwd)} if new else None  # fmt: skip
+            sink = RecordSink(self._send, sid, header)
+            agent = self.factory(cwd, sid, update, session=sink)
+        else:
+            agent = self.factory(cwd, sid, update)
+        agent.permission = lambda cid, name, kind, args: self._ask(sid, agent, cid, name, kind, args)
+        self.sessions[sid] = agent
+        return agent
+
+    def _new_session(self, params: dict) -> dict:
+        cwd = self._cwd(params)
         hint = ((params.get("_meta") or {}).get("hal") or {}).get("sessionId")
         try:
             sid = check_session_id(hint) if hint else new_session_id()
@@ -182,10 +239,63 @@ class AcpServer:
             raise RpcError(ERR_PARAMS, str(exc)) from exc
         if sid in self.sessions:
             raise RpcError(ERR_PARAMS, f"session {sid} already exists")
-        self.sessions[sid] = self.factory(cwd, sid, lambda update: self._map_update(sid, update))
-        agent = self.sessions[sid]
-        agent.permission = lambda cid, name, kind, args: self._ask(sid, agent, cid, name, kind, args)
+        agent = self._make(cwd, sid, new=True)
         return {"sessionId": sid, "modes": _modes(agent.mode)}
+
+    def _load_session(self, params: dict) -> dict:
+        """`session/load`: rebuild from the client's records, else the local store; replay as updates."""
+        cwd = self._cwd(params)
+        try:
+            sid = check_session_id(str(params.get("sessionId") or ""))
+        except SessionError as exc:
+            raise RpcError(ERR_PARAMS, str(exc)) from exc
+        if sid in self.sessions:
+            raise RpcError(ERR_PARAMS, f"session {sid} is already loaded")
+        sent = ((params.get("_meta") or {}).get("hal") or {}).get("records")
+        records = sent if isinstance(sent, list) else (self.load_records(sid) if self.load_records else [])
+        if not records:
+            raise RpcError(ERR_PARAMS, f"unknown session {sid}")
+        try:
+            history = replay(records)
+            agent = self._make(cwd, sid, new=False)
+            agent.resume(records)
+        except (KeyError, TypeError, ValueError) as exc:
+            self.sessions.pop(sid, None)
+            raise RpcError(ERR_PARAMS, f"session {sid} cannot be replayed: {exc}") from exc
+        self._replay_updates(sid, history)
+        return {}
+
+    def _replay_updates(self, sid: str, history: list[dict]) -> None:
+        """Sends the stored conversation as updates: text chunks and finished tool calls."""
+        results = {
+            m.get("tool_call_id"): str(m.get("content", "")) for m in history if m.get("role") == "tool"
+        }
+        for msg in history:
+            role, text = msg.get("role"), msg.get("content")
+            if role == "user" and text:
+                self._notify_update(sid, _chunk("user_message_chunk", str(text)))
+            elif role == "assistant":
+                if text:
+                    self._notify_update(sid, _chunk("agent_message_chunk", str(text)))
+                for call in msg.get("tool_calls") or []:
+                    self._replay_call(sid, call, results)
+
+    def _replay_call(self, sid: str, call: dict, results: dict) -> None:
+        fn, cid = call.get("function") or {}, str(call.get("id"))
+        name = str(fn.get("name", ""))
+        try:
+            raw_input = json.loads(fn.get("arguments") or "{}")
+        except ValueError:
+            raw_input = {"raw": fn.get("arguments")}
+        failed = '"status": "error"' in results.get(cid, "")
+        self._notify_update(sid, {"sessionUpdate": "tool_call", "toolCallId": cid, "title": name,
+                                  "kind": KIND_OF.get(name, "other"), "rawInput": raw_input,
+                                  "status": "failed" if failed else "completed"})  # fmt: skip
+        if cid in results:
+            body = {"type": "content", "content": {"type": "text", "text": results[cid]}}
+            status = "failed" if failed else "completed"
+            update = {"sessionUpdate": "tool_call_update", "toolCallId": cid, "status": status}
+            self._notify_update(sid, {**update, "content": [body]})
 
     def _reply(self, msg: dict) -> None:
         """Hands the client's answer to the call that waits for it."""

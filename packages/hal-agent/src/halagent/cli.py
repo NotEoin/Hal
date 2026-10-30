@@ -10,21 +10,17 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
-from halagent import __version__, headless
-from halagent.acp.server import AcpServer
+from halagent import acp, boot, headless
 from halagent.agentfile import AgentFileError, load_agent_file
-from halagent.instructions import load_instructions
 from halagent.loop import Agent
 from halagent.mcp.lite import McpError
 from halagent.profiles import SHIPPED, Profile, ProfileError, load_catalogue, resolve_profile
 from halagent.provider import ProviderError
-from halagent.sessions import SessionError, SessionStore, SessionWriter, check_session_id, new_session_id
+from halagent.sessions import SessionError, SessionStore, check_session_id, new_session_id
 from halagent.settings import AgentSettings, load_settings
-from halagent.skills import discover_skills, render_skills
 from halagent.tools import Toolset, Workspace
 from halkit import config, log, paths
 
@@ -103,13 +99,13 @@ def main(argv: list[str] | None = None) -> int:
         resumed = _pick_session(args, store, root)
         user_skills = tuple(d for d in (paths.config_dir() / "skills",) if d.is_dir())
         if args.acp:
-            return _serve_acp(args, settings, store, root, user_skills, profile)
-        writer = None if args.no_session else _open_writer(store, resumed, root, settings, first_sid)
+            return _serve_acp(args, settings, store, root, profile, run_file.extra_prompt if run_file else "")
+        writer = None if args.no_session else boot.open_writer(store, resumed, root, settings, first_sid)
         agent = Agent(
             settings,
             Toolset(Workspace(root, readonly=user_skills), task_mode=bool(args.prompt)),
             session=writer,
-            system_extra=_join(_prompt_extras(root), run_file.extra_prompt if run_file else ""),
+            system_extra=boot.join(boot.prompt_extras(root), run_file.extra_prompt if run_file else ""),
             profile=profile,
             on_event=lambda kind, text: (
                 print(f"[{kind}] {text[:200]}", file=sys.stderr) if kind == "tool" else None
@@ -140,39 +136,15 @@ def _serve_acp(
     settings: AgentSettings,
     store: SessionStore,
     root: Path,
-    user_skills: tuple[Path, ...],
-    profile: Profile | None = None,
+    profile: Profile | None,
+    extra: str,
 ) -> int:
     """Serves ACP on stdin and stdout (stdout carries only protocol messages)."""
-
-    def factory(cwd: Path, sid: str, on_update: Callable[[dict], None]) -> Agent:
-        writer = None if args.no_session else _open_writer(store, "", cwd, settings, sid)
-        return Agent(
-            settings,
-            Toolset(Workspace(cwd, readonly=user_skills)),
-            session=writer,
-            system_extra=_prompt_extras(cwd),
-            on_update=on_update,
-            profile=profile,
-        )
-
-    AcpServer(root, factory, sys.stdin, sys.stdout).serve()
+    acp.serve(
+        settings, root, sys.stdin, sys.stdout,
+        store=store, no_session=args.no_session, profile=profile, extra=extra,
+    )  # fmt: skip
     return EXIT_OK
-
-
-def _join(*parts: str) -> str:
-    return "\n\n".join(p for p in parts if p)
-
-
-def _prompt_extras(root: Path) -> str:
-    """The "Project instructions" and "Skills" sections of the system prompt."""
-    instructions = load_instructions(root, root, paths.config_dir() / "AGENTS.md")
-    skills, _ = discover_skills(root, (paths.config_dir() / "skills",))
-    parts = [
-        f"## Project instructions\n\n{instructions.text}" if instructions.text else "",
-        render_skills(skills),
-    ]
-    return "\n\n".join(p for p in parts if p)
 
 
 def _pick_session(args: argparse.Namespace, store: SessionStore, root: Path) -> str:
@@ -185,15 +157,6 @@ def _pick_session(args: argparse.Namespace, store: SessionStore, root: Path) -> 
             raise SessionError(f"no earlier session in {root}")
         return latest.id
     return ""
-
-
-def _open_writer(
-    store: SessionStore, resumed: str, root: Path, settings: AgentSettings, sid: str = ""
-) -> SessionWriter:
-    sid = resumed or sid or new_session_id()
-    header = {"id": sid, "agent": f"halagent {__version__}", "mode": "headless", "toolset": "coding",
-              "cwd": str(root), "model": settings.model, "api": "openai"}  # fmt: skip
-    return SessionWriter(store.path(sid), header)
 
 
 def _session_command(args: argparse.Namespace, store: SessionStore) -> int:

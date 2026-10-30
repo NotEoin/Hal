@@ -77,6 +77,17 @@ def _mask_message(msg: dict) -> dict:
     return out
 
 
+def finalize_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Validates the record type, adds a UTC timestamp and masks secrets in a `message` record."""
+    if record.get("type") not in RECORD_TYPES:
+        raise SessionError(f"unknown record type {record.get('type')!r}")
+    rec = dict(record)
+    rec.setdefault("ts", utc_now())
+    if rec["type"] == "message":
+        rec["msg"] = _mask_message(rec["msg"])
+    return rec
+
+
 class SessionWriter:
     """Appends records to `path`, one line each; `turn_end` records are fsync'd."""
 
@@ -90,12 +101,7 @@ class SessionWriter:
 
     def write(self, record: dict[str, Any]) -> None:
         """Appends one record; `message` records get secret masking."""
-        if record.get("type") not in RECORD_TYPES:
-            raise SessionError(f"unknown record type {record.get('type')!r}")
-        rec = dict(record)
-        rec.setdefault("ts", utc_now())
-        if rec["type"] == "message":
-            rec["msg"] = _mask_message(rec["msg"])
+        rec = finalize_record(record)
         self._fh.write(json.dumps(rec, ensure_ascii=True) + "\n")
         self._fh.flush()
         if rec["type"] == "turn_end":

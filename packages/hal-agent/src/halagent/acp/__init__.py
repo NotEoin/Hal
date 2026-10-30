@@ -1,1 +1,5 @@
-"""The Agent Client Protocol server of hal-agent (newline-delimited JSON-RPC over stdio)."""
+"""The ACP agent server and its in-process entry point."""
+
+from halagent.acp.entry import serve
+
+__all__ = ["serve"]
