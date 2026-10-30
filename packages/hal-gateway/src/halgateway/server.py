@@ -20,6 +20,7 @@ import os
 import socket
 import socketserver
 import threading
+import time
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -29,13 +30,16 @@ from . import auth, relay
 from .aliases import Resolver
 from .backends import make_backend
 from .config import GatewayConfig
-from .errors import Unavailable, error_body
+from .errors import GatewayError, ModelUnverified, Unavailable, error_body
 from .handler import Handler
+from .models.manifest import ManifestError, ModelEntry, Verifier, load_manifest
 from .reqlog import RequestLog
 
 log = logging.getLogger(__name__)
 
 SOCKET_NAME = "gateway.sock"
+VERIFIED_NAME = "verified.json"
+DIGEST_TTL_S = 30.0  # REQ-GW-77: how long a digest read from /api/tags is trusted
 SOCKET_MODE = 0o600
 BIND_UMASK = 0o177  # the socket is created 0600 even before the chmod
 LISTEN_BACKLOG = 64
@@ -133,11 +137,63 @@ class Gateway:
         self.owner_token = ""
         self.state_dir = Path(state_dir) if state_dir is not None else paths.state_dir() / "gateway"
         self.reqlog = RequestLog(self.state_dir, cfg.log)
+        self.manifest: dict[str, ModelEntry] = {}
+        self.verifier = Verifier(self.manifest, self.state_dir / VERIFIED_NAME)
+        self._digests: dict[str, tuple[float, dict[str, str]]] = {}  # backend -> (time, name -> digest)
         self.backends = {n: make_backend(n, e, cfg.ollama_url) for n, e in cfg.backends.items()}
-        self.resolver = Resolver(cfg, self.backends, relay.fetch_model_ids)
+        self.resolver = Resolver(cfg, self.backends, relay.fetch_model_ids, profile_of=self.profile_of)
         self.unix: UnixHTTPServer | None = None
         self.tcp: LoopbackHTTPServer | None = None
         self._threads: list[threading.Thread] = []
+
+    def load_models(self) -> None:
+        """Reads `models.toml`; a missing file is an empty manifest, an invalid one raises `StartError`."""
+        configured = str(self.config["models_file"])
+        path = Path(configured).expanduser() if configured else paths.config_dir() / "models.toml"
+        routers = [str(e["models_dir"]) for e in self.cfg.backends.values() if e.get("models_dir")]
+        models_dir = Path(routers[0]).expanduser() if routers else Path()
+        if not path.exists():
+            log.warning("no model manifest at %s; Ollama requests answer 503 model_unverified", path)
+            return
+        try:
+            entries = load_manifest(path, models_dir)
+        except ManifestError as exc:
+            raise StartError(f"invalid model manifest: {exc}") from exc
+        self.manifest.clear()
+        self.manifest.update(entries)
+
+    def profile_of(self, model: str) -> str | None:
+        """The manifest `profile` of an upstream model name (for `meta.hal_profile`)."""
+        entry = self.manifest.get(model)
+        return entry.profile if entry else None
+
+    def check_model(self, backend, model: str) -> None:  # type: ignore[no-untyped-def]
+        """Refuses an Ollama model that is unpinned or whose tag moved (REQ-GW-77); other backends pass."""
+        if backend.type != "ollama":
+            return
+        name = model if model in self.manifest or ":" in model else f"{model}:latest"
+        reported = self._ollama_digests(backend).get(name)
+        if reported is None:
+            raise ModelUnverified(f"Ollama does not report a digest for {model!r}; check `hal models`")
+        try:
+            self.verifier.check_ollama(name, reported)
+        except ManifestError as exc:
+            raise ModelUnverified(f"{exc}; run `hal models` to review and pin it") from exc
+
+    def _ollama_digests(self, backend) -> dict[str, str]:  # type: ignore[no-untyped-def]
+        hit = self._digests.get(backend.name)
+        if hit and time.monotonic() - hit[0] < DIGEST_TTL_S:
+            return hit[1]
+        try:
+            tags = backend.tags()
+        except GatewayError as exc:
+            raise Unavailable(f"cannot read the Ollama model digests: {exc.message}") from exc
+        digests = {}
+        for tag in tags:
+            digest = str(tag.get("digest", ""))
+            digests[str(tag.get("name", ""))] = digest if digest.startswith("sha256:") else f"sha256:{digest}"
+        self._digests[backend.name] = (time.monotonic(), digests)
+        return digests
 
     def listener_kind(self, server: object) -> str:
         """Returns `unix` or `tcp` for one of this gateway's servers."""
@@ -158,6 +214,7 @@ class Gateway:
     def start(self) -> None:
         """Binds the listeners and serves them on background threads; raises `StartError`."""
         path = self.socket_path()
+        self.load_models()
         try:
             paths.ensure_private_dir(path.parent)
         except paths.UnsafePathError as exc:

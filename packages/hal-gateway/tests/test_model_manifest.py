@@ -1,11 +1,11 @@
-"""Tests for `halgateway.manifest`: sha256 verification of model files (REQ-SEC-79, REQ-GW-75)."""
+"""Tests for `halgateway.models.manifest`: sha256 verification of model files (REQ-SEC-79, REQ-GW-75)."""
 
 import hashlib
 import os
 
 import pytest
 
-from halgateway.manifest import ManifestError, Verifier, load_manifest
+from halgateway.models.manifest import ManifestError, Verifier, load_manifest
 
 BODY = b"synthetic weights"
 SIZE = len(BODY)

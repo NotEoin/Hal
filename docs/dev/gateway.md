@@ -86,3 +86,15 @@ Each `GatewayError` subclass owns one HTTP status. `error_body(err, fmt)` render
   write logs one ERROR a minute and never fails the request.
 - Overhead check: `python3 scripts/bench_relay.py [N]` (fake upstream, no models); 0.67 ms median on
   2026-10-30, including the log write.
+
+## Model manifest and the Ollama gate (`models/manifest`, `server`)
+
+- `models.toml` (`[gateway].models_file`, default `config_dir()/models.toml`) is read at start;
+  a missing file is an empty manifest (a warning is logged), an invalid one stops the start.
+  The gateway never writes it. Verification state is in `<state>/gateway/verified.json`.
+- Before relaying a request that names a model to an Ollama backend, `Gateway.check_model`
+  compares the digest `/api/tags` reports (cached 30 s) with the pinned `ollama:` entry. An
+  unpinned model or a moved tag answers 503 `model_unverified` (REQ-GW-77).
+- The manifest `profile` of a model appears as `meta.hal_profile` in `/v1/models` (OpenAI shape).
+- Weight-file verification (`Verifier.verify_path`) is for the llama.cpp router; it is wired in
+  with the mode renderer (plan step 10).

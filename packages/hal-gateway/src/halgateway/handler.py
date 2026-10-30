@@ -52,6 +52,8 @@ def _openai_entry(entry) -> dict:  # type: ignore[no-untyped-def,type-arg]
     doc: dict = {"id": entry.id, "object": "model", "created": 0, "owned_by": entry.owned_by}
     if entry.context_length:
         doc["context_length"] = entry.context_length
+    if entry.profile:
+        doc["meta"] = {"hal_profile": entry.profile}
     return doc
 
 
@@ -182,6 +184,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         target = gateway.resolver.resolve(model)
         backend, upstream_model = target.backend, target.model
         self._note_target(model, target, body)
+        gateway.check_model(backend, upstream_model)
         if not backend.supports(route.api):
             raise NotFound(
                 f"backend {backend.name} does not serve {route.api.value}; it serves: "
@@ -217,6 +220,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 + ", ".join(target.backend.api_names())
             )
         self._note_target(requested, target, body)
+        gateway.check_model(target.backend, target.model)
         body["model"] = target.model
         self._relay(gateway, target.backend, json.dumps(body).encode("utf-8"))
 

@@ -37,6 +37,7 @@ class Target:
     model: str
     remote: bool
     context_length: int | None
+    profile: str | None = None  # the manifest `profile` of the upstream model (`meta.hal_profile`)
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,7 @@ class ModelEntry:
     id: str
     owned_by: str
     context_length: int | None
+    profile: str | None = None  # the manifest `profile` of the upstream model (`meta.hal_profile`)
 
 
 class Resolver:
@@ -57,10 +59,12 @@ class Resolver:
         backends: Mapping[str, OpenAIBackend],
         list_models: ListModels,
         mode_aliases: Mapping[str, tuple[str, str]] | None = None,
+        profile_of: Callable[[str], str | None] = lambda model: None,
     ) -> None:
         self.cfg = cfg
         self.backends = backends
         self._list_models = list_models
+        self._profile_of = profile_of
         self.mode_aliases = dict(mode_aliases or {})  # name -> (backend name, upstream model)
         self._cache: dict[str, tuple[float, list[str]]] = {}
 
@@ -146,23 +150,28 @@ class Resolver:
         """Every name a caller may use, without duplicates (aliases, roles, `backend/model`)."""
         entries: dict[str, ModelEntry] = {}
 
-        def add(entry_id: str, backend: OpenAIBackend, window: int | None) -> None:
+        def add(entry_id: str, backend: OpenAIBackend, window: int | None, upstream: str) -> None:
             if entry_id in entries:
                 return
             owner = f"remote:{backend.address().host}" if backend.remote else backend.name
-            entries[entry_id] = ModelEntry(entry_id, owner, window)
+            entries[entry_id] = ModelEntry(entry_id, owner, window, self._profile_of(upstream))
 
         for name, alias in self.cfg.aliases.items():
-            add(name, self.backends[str(alias["backend"])], alias["context_window"] or None)  # type: ignore[arg-type]
+            add(
+                name,
+                self.backends[str(alias["backend"])],
+                alias["context_window"] or None,
+                str(alias["model"]),
+            )  # type: ignore[arg-type]
         for role in ROLE_ALIASES:
             try:
                 target = self._by_name(role)
             except Conflict:
                 continue
             if target is not None:
-                add(role, target.backend, target.context_length)
+                add(role, target.backend, target.context_length, target.model)
         for backend in self.backends.values():
             if backend.expose_models:
                 for model in self.models_of(backend):
-                    add(f"{backend.name}/{model}", backend, None)
+                    add(f"{backend.name}/{model}", backend, None, model)
         return list(entries.values())

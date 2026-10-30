@@ -57,8 +57,19 @@ def fake():
     server.server_close()
 
 
+def pin(tmp_path, name="gemma:1", digest="d" * 64, profile=None):
+    """Writes the user's models.toml with one pinned Ollama model."""
+    manifest = tmp_path / "userconfig" / "models.toml"
+    manifest.parent.mkdir(exist_ok=True)
+    extra = f'profile = "{profile}"\n' if profile else ""
+    manifest.write_text(
+        f'schema = 1\n[[model]]\nname = "{name}"\nsource = "ollama:{name}@sha256:{digest}"\n{extra}'
+    )
+
+
 @pytest.fixture
 def gateway(tmp_path, fake):
+    pin(tmp_path, profile="gemma4")
     token = tmp_path / "t"
     token.write_text("hal-gw-t\n")
     token.chmod(0o600)
@@ -148,3 +159,56 @@ def test_native_route_on_a_backend_without_it_is_404(tmp_path, fake):
         assert call(gw, "GET", "/api/tags")[0].status == 404
     finally:
         gw.stop()
+
+
+def test_unpinned_ollama_model_is_refused(tmp_path, fake):
+    gw = make_gateway(tmp_path, fake, pinned=False)
+    resp, raw = call(gw, "POST", "/v1/chat/completions", {"model": "ollama/gemma:1"})
+    assert resp.status == 503 and json.loads(raw)["error"]["code"] == "model_unverified"
+    assert not [s for s in FakeOllama.seen if s[0] == "POST"]
+
+
+def test_moved_ollama_tag_is_refused(tmp_path, fake):
+    gw = make_gateway(tmp_path, fake, pinned=True, digest="e" * 64)
+    resp, raw = call(gw, "POST", "/api/chat", {"model": "gemma:1"})
+    assert resp.status == 503 and "moved" in json.loads(raw)["error"]
+
+
+def test_pinned_ollama_digest_is_read_once_per_30_seconds(gateway):
+    for _ in range(3):
+        assert call(gateway, "POST", "/api/chat", {"model": "gemma:1"})[0].status == 200
+    assert [s for s in FakeOllama.seen if s[1] == "/api/tags"].__len__() == 1
+
+
+def test_manifest_profile_is_listed_as_meta_hal_profile(gateway):
+    resp, raw = call(gateway, "GET", "/v1/models")
+    entries = {m["id"]: m for m in json.loads(raw)["data"]}
+    assert entries["ollama/gemma:1"]["meta"] == {"hal_profile": "gemma4"}
+    assert "meta" not in entries["ollama/q:2"]
+
+
+def make_gateway(tmp_path, fake, *, pinned, digest="d" * 64):
+    if pinned:
+        pin(tmp_path, digest=digest)
+    token = tmp_path / "t"
+    token.write_text("hal-gw-t\n")
+    token.chmod(0o600)
+    cfg = tmp_path / "c.toml"
+    cfg.write_text(
+        f'[hal]\nollama_url = "http://127.0.0.1:{fake}"\nchat_model = "gemma:1"\n'
+        f'[gateway]\nunix_path = "{tmp_path}/run/g.sock"\ntoken_file = "{token}"\n'
+    )
+    gw = Gateway(load_config(cfg))
+    gw.start()
+    built.append(gw)
+    return gw
+
+
+built: list = []
+
+
+@pytest.fixture(autouse=True)
+def _stop_built():
+    yield
+    while built:
+        built.pop().stop()

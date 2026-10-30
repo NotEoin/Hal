@@ -90,6 +90,12 @@ class Unavailable(GatewayError):
     code = "unavailable"
 
 
+class ModelUnverified(Unavailable):
+    """The model is not pinned in `models.toml`, or its file or digest changed (REQ-GW-77)."""
+
+    code = "model_unverified"
+
+
 def error_body(err: GatewayError, fmt: str = "openai") -> bytes:
     """Returns the JSON error body of `err` in API format `fmt` (`openai`, `anthropic`, `ollama`)."""
     if fmt not in FORMATS:
