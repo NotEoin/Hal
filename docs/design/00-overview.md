@@ -684,7 +684,9 @@ The notification router moved from `halnotify/tools.py` so every daemon shares o
 reads the `[notify]` table (keys defined by 08-packs-and-flagships): desktop through
 `notify-send` via `halkit.proc.run`, push through `halkit.netguard.fetch` to
 `[notify].ntfy_server` (https only), speech through `[notify].say_command`. It is host-side
-pack code: a model reaches it only through the `notify_send` tool under policy.
+pack code: a model reaches it only through the `notify_send` tool under policy. Channels are
+`desktop`, `phone` and `voice`; Telegram stays with the hal-telegram pack. A failed channel is
+logged and left out of `reached`, never raised. Tested in `hal-kit/tests/test_notify.py`.
 
 #### `halkit.harness`
 
