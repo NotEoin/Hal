@@ -11,14 +11,16 @@ import argparse
 import json
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 from halagent import __version__, headless
 from halagent.acp.server import AcpServer
+from halagent.agentfile import AgentFileError, load_agent_file
 from halagent.instructions import load_instructions
 from halagent.loop import Agent
 from halagent.mcp.lite import McpError
-from halagent.profiles import SHIPPED, ProfileError, load_catalogue, resolve_profile
+from halagent.profiles import SHIPPED, Profile, ProfileError, load_catalogue, resolve_profile
 from halagent.provider import ProviderError
 from halagent.sessions import SessionError, SessionStore, SessionWriter, check_session_id, new_session_id
 from halagent.settings import AgentSettings, load_settings
@@ -47,6 +49,9 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--max-turns", type=int)
     p.add_argument("--max-tool-calls", type=int)
     p.add_argument("--broker", help="hub MCP socket path")
+    p.add_argument(
+        "--config", metavar="FILE", help="agent.json run file written by the host (03-agent 3.16.3)"
+    )
     p.add_argument("--acp", action="store_true", help="serve the Agent Client Protocol on stdio")
     p.add_argument("--resume", metavar="ID", help="continue a stored session")
     p.add_argument("--continue", dest="cont", action="store_true", help="continue the latest session here")
@@ -88,23 +93,29 @@ def main(argv: list[str] | None = None) -> int:
         if v is not None
     }
     try:
+        run_file = load_agent_file(Path(args.config)) if args.config else None
         settings = load_settings(cli=cli)
+        if run_file:  # the host's resolved values win over config files; explicit flags win over both
+            settings = replace(run_file.to_settings(task=bool(args.prompt)), **{k: v for k, v in cli.items()})
+        profile = run_file.profile() if run_file else None
+        first_sid = run_file.session_id if run_file else ""
         root = Path(args.workspace).resolve()
         resumed = _pick_session(args, store, root)
         user_skills = tuple(d for d in (paths.config_dir() / "skills",) if d.is_dir())
         if args.acp:
-            return _serve_acp(args, settings, store, root, user_skills)
-        writer = None if args.no_session else _open_writer(store, resumed, root, settings)
+            return _serve_acp(args, settings, store, root, user_skills, profile)
+        writer = None if args.no_session else _open_writer(store, resumed, root, settings, first_sid)
         agent = Agent(
             settings,
             Toolset(Workspace(root, readonly=user_skills), task_mode=bool(args.prompt)),
             session=writer,
-            system_extra=_prompt_extras(root),
+            system_extra=_join(_prompt_extras(root), run_file.extra_prompt if run_file else ""),
+            profile=profile,
             on_event=lambda kind, text: (
                 print(f"[{kind}] {text[:200]}", file=sys.stderr) if kind == "tool" else None
             ),
         )
-    except (config.ConfigError, ValueError, McpError, SessionError) as exc:
+    except (config.ConfigError, ValueError, McpError, SessionError, AgentFileError) as exc:
         print(f"hal-agent: {exc}", file=sys.stderr)
         return EXIT_CONFIG
     try:
@@ -130,6 +141,7 @@ def _serve_acp(
     store: SessionStore,
     root: Path,
     user_skills: tuple[Path, ...],
+    profile: Profile | None = None,
 ) -> int:
     """Serves ACP on stdin and stdout (stdout carries only protocol messages)."""
 
@@ -141,10 +153,15 @@ def _serve_acp(
             session=writer,
             system_extra=_prompt_extras(cwd),
             on_update=on_update,
+            profile=profile,
         )
 
     AcpServer(root, factory, sys.stdin, sys.stdout).serve()
     return EXIT_OK
+
+
+def _join(*parts: str) -> str:
+    return "\n\n".join(p for p in parts if p)
 
 
 def _prompt_extras(root: Path) -> str:
