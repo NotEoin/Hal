@@ -87,6 +87,8 @@ class LlamaRouter(OpenAIBackend):
         self._models_dir = Path()
         self._verifier: Verifier | None = None
         self._ollama: Callable[[], list] = list  # type: ignore[type-arg]
+        self.hal: modes.HalSettings | None = None  # the `[hal]` section of the active (or configured) mode
+        self.on_mode: Callable[[modes.HalSettings | None], None] = lambda hal: None
 
     def configure(
         self,
@@ -152,6 +154,17 @@ class LlamaRouter(OpenAIBackend):
         pid, started = self._record.get("pid"), self._record.get("pid_start")
         return isinstance(pid, int) and isinstance(started, int) and self.launcher.alive(pid, started)
 
+    def _set_hal(self, hal: modes.HalSettings | None) -> None:
+        self.hal = hal
+        self.on_mode(hal)
+
+    def peek(self) -> None:
+        """Reads the configured mode's `[hal]` section without starting anything (for mode aliases)."""
+        try:
+            self._set_hal(self._render(self._entry_mode()).hal)
+        except RouterError as exc:
+            log.warning("cannot read mode %s: %s", self._entry_mode(), exc.message)
+
     def log_path(self) -> Path:
         """Where the router writes its output."""
         return self._state / LOG_NAME
@@ -204,6 +217,7 @@ class LlamaRouter(OpenAIBackend):
                 and record.get("mode") == self._entry_mode()
             ):
                 self._record = record
+                self._set_hal(current.hal)
                 log.info("adopted llama-server %d in mode %s", pid, record["mode"])
                 return "adopted"
             log.info("stopping llama-server %d: its mode or render changed", pid)
@@ -276,6 +290,7 @@ class LlamaRouter(OpenAIBackend):
             "started": _now(),
         }
         self._write_record(self._record)
+        self._set_hal(rendered.hal)
         log.info("started llama-server %d in mode %s", pid, rendered.name)
 
     def model_status(self, name: str) -> str:

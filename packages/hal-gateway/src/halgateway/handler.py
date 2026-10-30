@@ -18,7 +18,7 @@ import json
 import logging
 import time
 
-from . import auth, relay, reqlog, routes
+from . import auth, policies, relay, reqlog, routes
 from .backends import LlamaRouter
 from .errors import (
     BadRequest,
@@ -30,7 +30,7 @@ from .errors import (
     error_body,
 )
 from .estimate import ESTIMATE_HEADER, estimate_input_tokens
-from .policies import overflow
+from .policies import effort, overflow
 from .routes import Api, Route
 
 log = logging.getLogger(__name__)
@@ -161,6 +161,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             "duration_ms": 0.0,
             "usage": None,
             "error": None,
+            "policy": None,
         }
 
     def _finish(self, gateway) -> None:  # type: ignore[no-untyped-def]
@@ -200,8 +201,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             doc = {"input_tokens": estimate_input_tokens(body)}
             self._send(200, json.dumps(doc).encode("ascii"), extra=[ESTIMATE_HEADER])
             return
+        self._apply_policies(gateway, route, target, body)
         body["model"] = upstream_model
         self._relay(gateway, backend, json.dumps(body).encode("utf-8"))
+
+    def _apply_policies(self, gateway, route: Route, target, body: dict) -> None:  # type: ignore[no-untyped-def,type-arg]
+        """Runs the request policies of a router backend (messages and chat only, decision 6)."""
+        backend = target.backend
+        if route.api not in (Api.MESSAGES, Api.CHAT) or not isinstance(backend, LlamaRouter):
+            return
+        chosen = policies.select(
+            target.alias, gateway.cfg.aliases.get(target.alias), backend.hal, effort.load_note
+        )
+        ctx = policies.RequestContext(route.fmt, body, target.alias)
+        policies.run_rewrites(chosen, ctx)
+        if ctx.decisions:
+            self.rec["policy"] = ctx.decisions
 
     def _admin(self, gateway, route: Route) -> None:  # type: ignore[no-untyped-def]
         """Serves the router admin routes; only the owner on the unix socket may change anything."""

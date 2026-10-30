@@ -262,11 +262,22 @@ class Gateway:
         log.info("gateway listening on %s", path)
         router = self.router()
         if router is not None:
-            router.adopt()
+            router.on_mode = self._set_mode_aliases
+            if router.adopt() != "adopted":
+                router.peek()
             if router.entry["autostart"] == "with-gateway":
                 threading.Thread(
                     target=self._autostart, args=(router,), name="hal-router-start", daemon=True
                 ).start()
+
+    def _set_mode_aliases(self, hal) -> None:  # type: ignore[no-untyped-def]
+        """Points `hal/main` and `hal/agent` at the models the active mode names."""
+        router = self.router()
+        aliases = {}
+        if hal is not None and router is not None:
+            aliases = {"hal/main": (router.name, hal.main), "hal/agent": (router.name, hal.agent)}
+        self.resolver.mode_aliases.clear()
+        self.resolver.mode_aliases.update(aliases)
 
     @staticmethod
     def _autostart(router: LlamaRouter) -> None:

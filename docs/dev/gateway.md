@@ -166,3 +166,14 @@ Policies apply to `llama-router` backends on `/v1/messages` and `/v1/chat/comple
   (OpenAI). The relay reads a 400 body whole, up to 1 MiB, and recomputes `Content-Length`.
   Any other body passes unchanged. Which OpenAI clients act on the code is unverified; check
   by overflowing a small `ctx-size` from a Codex or opencode session.
+- **Pipeline** (`policies/__init__.py`): `select` picks the policies for the alias, `run_rewrites`
+  applies them in order and is fail-open (a policy that raises is logged and recorded as
+  `error: <type>`). Decisions go to the `policy` field of the request log (REQ-GW-49).
+  `hal/main` and `hal/agent` are pointed at the models of the active mode's `[hal]` section
+  when the router starts, is adopted, or at gateway start (read from the configured mode).
+- **Effort** (`policies/effort.py`, `policies/text.py`, REQ-GW-41): on a request with tools, if
+  the last non-system message is a decision point (user text, subagent report, failing shell
+  command, tool error), the effort note is appended as a final system message. Both formats
+  are handled; an OpenAI `tool` message has no `is_error`, so only the failure patterns apply.
+  The alias key `effort = true`, or the mode's `[hal] effort`, turns it on. The per-alias
+  `shell_tools` and `agent_tools` keys of the design are not read yet (the defaults apply).
