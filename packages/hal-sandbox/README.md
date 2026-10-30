@@ -61,3 +61,9 @@ checkpoint of the project in `$STATE/checkpoints/<project>`, then runs `git appl
 
 Review with `hal code ls`, `hal code accept SID [--allow-flags]`, `hal code export SID FILE [--bundle]`
 and `hal code reject SID`. `hal scratch clean [DIR]` empties scratchpads.
+
+## Broker limits
+
+The hub socket accepts only the broker's own uid (`SO_PEERCRED`), newline-framed messages of at most
+4 MiB, a partial message for at most 30 s, and 8 connections at a time. Anything else is dropped and
+logged; an unterminated last message is never forwarded.
