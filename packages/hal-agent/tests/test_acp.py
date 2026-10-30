@@ -166,3 +166,99 @@ def test_cli_acp_mode_serves_over_stdio(server, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(req) + "\n"))
     assert cli.main(["--acp", "-C", str(tmp_path), "--endpoint", server.url]) == 0
     assert json.loads(capsys.readouterr().out)["result"]["agentInfo"]["name"] == "hal-agent"
+
+
+def wait_for_request(c, method):
+    """The first server-to-client request with `method`, once it has been written."""
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        for line in c.out.getvalue().splitlines():
+            msg = json.loads(line)
+            if msg.get("method") == method:
+                return msg
+        time.sleep(0.01)
+    raise AssertionError(f"no {method} request arrived")
+
+
+def start_review(server, tmp_path, script):
+    server.script(*script)
+    c = Client(server.url, tmp_path)
+    c.call("session/new", {"cwd": str(tmp_path), "_meta": {"hal": {"sessionId": "3f9a1c0b7e2d"}}})
+    sid = c.sid()
+    c.call("session/set_mode", {"sessionId": sid, "modeId": "review"})
+    prompt = c.call("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": "write"}]})
+    return c, sid, prompt
+
+
+def test_review_mode_asks_before_a_write_and_runs_it_when_allowed(server, tmp_path):
+    write = Reply(tool_calls=[("write", {"path": "n.txt", "content": "x"})])
+    c, _, prompt = start_review(server, tmp_path, [write, "done"])
+    ask = wait_for_request(c, "session/request_permission")
+    assert ask["params"]["toolCall"]["kind"] == "edit" and len(ask["params"]["options"]) == 4
+    c.inp.put(
+        {
+            "jsonrpc": "2.0",
+            "id": ask["id"],
+            "result": {"outcome": {"outcome": "selected", "optionId": "allow_once"}},
+        }
+    )
+    msgs = c.finish()
+    assert reply_to(msgs, prompt)["result"] == {"stopReason": "end_turn"}
+    assert (tmp_path / "n.txt").read_text() == "x"
+
+
+def test_review_mode_rejection_denies_the_call_and_the_file_is_not_written(server, tmp_path):
+    write = Reply(tool_calls=[("write", {"path": "n.txt", "content": "x"})])
+    c, _, prompt = start_review(server, tmp_path, [write, "ok, not writing"])
+    ask = wait_for_request(c, "session/request_permission")
+    c.inp.put(
+        {
+            "jsonrpc": "2.0",
+            "id": ask["id"],
+            "result": {"outcome": {"outcome": "selected", "optionId": "reject_once"}},
+        }
+    )
+    msgs = c.finish()
+    assert not (tmp_path / "n.txt").exists() and reply_to(msgs, prompt)["result"]["stopReason"] == "end_turn"
+    tool = [m for m in server.requests[1]["body"]["messages"] if m["role"] == "tool"][0]["content"]
+    assert json.loads(tool)["error_type"] == "denied"
+
+
+def test_review_mode_allow_always_is_remembered_for_the_tool(server, tmp_path):
+    calls = [Reply(tool_calls=[("write", {"path": f"{n}.txt", "content": "x"})]) for n in range(2)]
+    c, _, _ = start_review(server, tmp_path, [*calls, "done"])
+    ask = wait_for_request(c, "session/request_permission")
+    c.inp.put(
+        {
+            "jsonrpc": "2.0",
+            "id": ask["id"],
+            "result": {"outcome": {"outcome": "selected", "optionId": "allow_always"}},
+        }
+    )
+    msgs = c.finish()
+    assert sum(m.get("method") == "session/request_permission" for m in msgs) == 1
+    assert (tmp_path / "1.txt").exists()
+
+
+def test_review_mode_cancel_during_the_question_ends_the_turn_cancelled(server, tmp_path):
+    write = Reply(tool_calls=[("write", {"path": "n.txt", "content": "x"})])
+    c, sid, prompt = start_review(server, tmp_path, [write])
+    wait_for_request(c, "session/request_permission")
+    c.call("session/cancel", {"sessionId": sid})
+    msgs = c.finish()
+    assert reply_to(msgs, prompt)["result"]["stopReason"] == "cancelled" and not (tmp_path / "n.txt").exists()
+
+
+def test_reads_are_not_gated_in_review_mode(server, tmp_path):
+    (tmp_path / "a.txt").write_text("hi")
+    c, _, prompt = start_review(server, tmp_path, [Reply(tool_calls=[("read", {"path": "a.txt"})]), "done"])
+    msgs = c.finish()
+    assert reply_to(msgs, prompt)["result"] == {"stopReason": "end_turn"}
+    assert not any(m.get("method") == "session/request_permission" for m in msgs)
+
+
+def test_unknown_mode_is_an_invalid_params_error(server, tmp_path):
+    c = Client(server.url, tmp_path)
+    c.call("session/new", {"cwd": str(tmp_path)})
+    bad = c.call("session/set_mode", {"sessionId": c.sid(), "modeId": "yolo"})
+    assert reply_to(c.finish(), bad)["error"]["code"] == -32602

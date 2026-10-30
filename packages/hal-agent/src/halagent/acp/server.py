@@ -3,8 +3,9 @@
 Messages are one JSON object per line. The reader thread stays free while a prompt runs on a
 worker thread, so `session/cancel` is seen at once. The server never calls `fs/*` or `terminal/*`
 client methods: that would let an in-box agent act on the host outside the box (design 03-agent,
-3.14.6). A session's `cwd` must lie inside the workspace root. Only mode `auto` exists here;
-review mode, `session/load` and `_hal/record` are not built yet.
+3.14.6). A session's `cwd` must lie inside the workspace root. Modes are `auto` and `review`;
+review mode asks the client with `session/request_permission` before an edit or a command;
+`session/load` and `_hal/record` are not built yet.
 """
 
 from __future__ import annotations
@@ -41,8 +42,24 @@ KIND_OF = {
     "read": "read", "grep": "search", "glob": "search", "edit": "edit", "write": "edit",
     "run": "execute", "todo": "think",
 }  # fmt: skip
-MODES = {"currentModeId": "auto", "availableModes": [
-    {"id": "auto", "name": "Auto", "description": "Work freely inside the sandbox"}]}  # fmt: skip
+MODE_LIST = [
+    {"id": "auto", "name": "Auto", "description": "Work freely inside the sandbox"},
+    {"id": "review", "name": "Review", "description": "Ask before every edit and command"},
+]
+PERMISSION_OPTIONS = [
+    {"optionId": oid, "name": name, "kind": oid}
+    for oid, name in (
+        ("allow_once", "Allow"), ("allow_always", "Always allow"),
+        ("reject_once", "Reject"), ("reject_always", "Always reject"),
+    )
+]  # fmt: skip
+PERMISSION_POLL_S = 0.2  # how often a waiting call checks for a cancel
+PERMISSION_TIMEOUT_S = 3600.0  # an unattended review prompt is treated as cancelled after an hour
+
+
+def _modes(current: str) -> dict:
+    return {"currentModeId": current, "availableModes": MODE_LIST}
+
 
 AgentFactory = Callable[[Path, str, Callable[[dict], None]], Agent]
 
@@ -66,6 +83,8 @@ class AcpServer:
         self._running: dict[str, threading.Thread] = {}
         self._lock = threading.Lock()
         self._workers: list[threading.Thread] = []
+        self._pending: dict[str, tuple[threading.Event, list[dict]]] = {}
+        self._next_request = 0
 
     def _send(self, obj: dict) -> None:
         line = json.dumps(obj, ensure_ascii=True)
@@ -96,7 +115,8 @@ class AcpServer:
             msg = json.loads(raw)
             if not isinstance(msg, dict) or not isinstance(msg.get("method"), str):
                 if isinstance(msg, dict) and ("result" in msg or "error" in msg):
-                    return  # a reply to a request we never send
+                    self._reply(msg)
+                    return
                 raise RpcError(ERR_INVALID, "not a JSON-RPC request")
         except ValueError:
             self._send({"jsonrpc": "2.0", "id": None, "error": {"code": ERR_PARSE, "message": "parse error"}})
@@ -129,8 +149,11 @@ class AcpServer:
                 agent.cancel.set()
             return {}
         if method == "session/set_mode":
-            if params.get("modeId") != "auto":
-                raise RpcError(ERR_PARAMS, f"unknown mode {params.get('modeId')!r}; only 'auto' exists")
+            agent = self.sessions.get(str(params.get("sessionId")))
+            mode = params.get("modeId")
+            if agent is None or mode not in ("auto", "review"):
+                raise RpcError(ERR_PARAMS, f"unknown session or mode {mode!r}; modes: auto, review")
+            agent.mode = mode
             return {}
         raise RpcError(ERR_NOT_FOUND, f"method not found: {method}")
 
@@ -160,7 +183,40 @@ class AcpServer:
         if sid in self.sessions:
             raise RpcError(ERR_PARAMS, f"session {sid} already exists")
         self.sessions[sid] = self.factory(cwd, sid, lambda update: self._map_update(sid, update))
-        return {"sessionId": sid, "modes": MODES}
+        agent = self.sessions[sid]
+        agent.permission = lambda cid, name, kind, args: self._ask(sid, agent, cid, name, kind, args)
+        return {"sessionId": sid, "modes": _modes(agent.mode)}
+
+    def _reply(self, msg: dict) -> None:
+        """Hands the client's answer to the call that waits for it."""
+        slot = self._pending.get(str(msg.get("id")))
+        if slot:
+            slot[1].append(msg)
+            slot[0].set()
+
+    def _ask(self, sid: str, agent: Agent, cid: str, name: str, kind: str, args: dict) -> str:
+        """Sends `session/request_permission` and waits for the choice; cancelled on cancel or timeout."""
+        with self._lock:
+            self._next_request += 1
+            rid = f"perm{self._next_request}"
+        done: tuple[threading.Event, list[dict]] = (threading.Event(), [])
+        self._pending[rid] = done
+        call = {"toolCallId": cid, "title": name, "kind": KIND_OF.get(name, "other"), "rawInput": args}
+        params = {"sessionId": sid, "toolCall": call, "options": PERMISSION_OPTIONS}
+        self._send({"jsonrpc": "2.0", "id": rid, "method": "session/request_permission", "params": params})
+        waited = 0.0
+        try:
+            while not done[0].wait(PERMISSION_POLL_S):
+                waited += PERMISSION_POLL_S
+                if agent.cancel.is_set() or waited >= PERMISSION_TIMEOUT_S:
+                    return "cancelled"
+        finally:
+            self._pending.pop(rid, None)
+        outcome = (done[1][0].get("result") or {}).get("outcome") or {}
+        chosen = outcome.get("optionId")
+        if outcome.get("outcome") == "selected" and chosen in {o["optionId"] for o in PERMISSION_OPTIONS}:
+            return str(chosen)
+        return "cancelled" if outcome.get("outcome") == "cancelled" else "reject_once"
 
     def _map_update(self, sid: str, u: dict) -> None:
         kind = u["kind"]

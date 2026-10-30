@@ -43,6 +43,10 @@ from halkit import paths
 
 log = logging.getLogger("halagent.loop")
 
+GATED_KINDS = frozenset({"edit", "delete", "move", "execute"})  # review mode asks before these
+ALLOW, REJECT, CANCELLED = ("allow_once", "allow_always"), ("reject_once", "reject_always"), "cancelled"
+PermissionFn = Callable[[str, str, str, dict], str]  # (call id, tool name, kind, arguments) -> choice
+
 MAX_RESULT_CHARS = 12_000
 HEAD_KEEP = 4_000
 TAIL_KEEP = 8_000
@@ -83,8 +87,12 @@ class Agent:
         system_extra: str = "",
         on_update: Callable[[dict], None] | None = None,
         profile: Profile | None = None,
+        permission: PermissionFn | None = None,
     ) -> None:
         self.settings = settings
+        self.mode = "auto"  # or "review": gated tools call `permission` first
+        self.permission = permission
+        self._remembered: dict[str, str] = {}  # tool name -> allow_always or reject_always
         self.profile = profile or resolve_profile(
             settings.model, user_file=paths.config_dir() / "model-profiles.toml"
         )
@@ -314,7 +322,7 @@ class Agent:
         Every call gets a result, also the ones that do not run, so the history stays paired.
         """
         for n, (cid, name, raw) in enumerate(calls):
-            reason = self._pre_check(n, name, raw, clock, dog)
+            reason = self._pre_check(n, cid, name, raw, clock, dog)
             if isinstance(reason, tuple):  # (stop, error JSON): refuse this call, end the turn
                 self._skip(calls[n:], native, reason[1])
                 return reason[0], ""
@@ -335,7 +343,7 @@ class Agent:
                 return "tool_errors", ""
         return None
 
-    def _pre_check(self, n: int, name: str, raw: str, clock: BudgetClock, dog: Watchdog):
+    def _pre_check(self, n: int, cid: str, name: str, raw: str, clock: BudgetClock, dog: Watchdog):
         """None to run the call, an error JSON to refuse it, or (stop reason, error JSON) to stop."""
         free = self._is_free(name)
         if self.cancel.is_set():
@@ -344,12 +352,30 @@ class Agent:
             return _error("too_many_calls", f"at most {clock.budget.max_calls_per_response} calls per reply")
         if not free and clock.calls_left <= 0:
             return "max_tool_calls", _error("budget", "the tool-call budget is used up")
+        denied = self._review(cid, name, raw)
+        if denied:
+            return denied
         verdict = dog.observe(canonical(name, raw))
         if verdict == "stop":
             return "loop", _error("loop", "the turn was stopped: the same call keeps repeating")
         if verdict == "refuse":
             return loop_message(name, parse_args(raw) or raw, dog.repeats)
         return None
+
+    def _review(self, cid: str, name: str, raw: str) -> str | tuple[str, str] | None:
+        """In review mode asks before a gated tool; returns an error JSON when it is refused."""
+        tool = self.toolset.tools.get(name)
+        if self.mode != "review" or not self.permission or not tool or tool.kind not in GATED_KINDS:
+            return None
+        choice = self._remembered.get(name) or self.permission(cid, name, tool.kind, parse_args(raw) or {})
+        if choice in ("allow_always", "reject_always"):
+            self._remembered[name] = choice
+        if choice == CANCELLED:
+            self.cancel.set()
+            return "cancelled", _error("cancelled", "the turn was cancelled")
+        if choice in ALLOW:
+            return None
+        return _error("denied", f"the user did not allow this {name} call. Do not retry it unchanged.")
 
     def _is_free(self, name: str) -> bool:
         """True for tools that do not count toward the tool-call budget."""
