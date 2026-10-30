@@ -26,15 +26,17 @@ from pathlib import Path
 
 from halkit import paths
 
-from . import auth, relay
+from . import auth, relay, reqlog
 from .aliases import Resolver
 from .backends import LlamaRouter, make_backend
 from .config import GatewayConfig
 from .errors import GatewayError, ModelUnverified, Unavailable, error_body
+from .gpu import LeaseInfo
 from .gpu.manager import GpuManager, make_coordinator
 from .handler import Handler
 from .models.manifest import ManifestError, ModelEntry, Verifier, load_manifest
 from .reqlog import RequestLog
+from .sessions import SessionRegistry
 
 log = logging.getLogger(__name__)
 
@@ -149,6 +151,11 @@ class Gateway:
                 backend.configure(self.state_dir, self.models_dir(), self.verifier, self._ollama_backends)
         self.gpu = GpuManager(cfg.gpu, self.backends, make_coordinator(cfg.gpu), state_dir=self.state_dir)
         self.gpu.router_stop = self._stop_router
+        self.sessions = SessionRegistry(
+            cfg.sessions,
+            on_lease=lambda s: self.gpu.add_lease(LeaseInfo(s.id, s.label, reqlog.utc_now())),
+            on_lease_end=self.gpu.drop_lease,
+        )
         self._stopping = threading.Event()
         self.unix: UnixHTTPServer | None = None
         self.tcp: LoopbackHTTPServer | None = None
@@ -287,6 +294,7 @@ class Gateway:
         """Runs the GPU idle timers until the gateway stops."""
         while not self._stopping.wait(GPU_TICK_S):
             try:
+                self.sessions.reap()
                 self.gpu.tick(time.monotonic())
             except Exception:  # noqa: BLE001 - a timer failure is logged and the next tick retries
                 log.exception("GPU idle timer failed")

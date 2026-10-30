@@ -261,3 +261,20 @@ proceeds or fails per `on_busy`.
 Tests use a fake daemon on a temporary socket. `tests/conftest.py` points `GPU_LIGHT_SOCKET`
 and `GPU_LIGHT_DIR` at nothing: a machine that runs a real gpu-light daemon must never see a
 test claim or reclaimer.
+
+## Sessions and leases (`sessions`, `auth`, `handler`)
+
+`SessionRegistry` mints `hal-sess-<id>.<secret>` tokens (in memory only, SHA-256 of the secret
+kept, `hmac.compare_digest`). A session token narrows its caller on every listener, the unix
+socket included (REQ-GW-62). For a session principal the handler refuses every route whose
+`session` flag is false with 403 (admin, `/api/*`, `/v1/models/{id}`), counts requests against
+`max_concurrent` (429), caps the body at `max_request_bytes` (413), checks the alias glob and
+the remote opt-in after resolving, and filters `GET /v1/models`. A session minted with
+`lease = true` registers a `LeaseInfo` with the `GpuManager` until it is revoked or expires
+(the 10 s timer reaps expired sessions); a leased session passes the off flag. Admin routes
+(owner on the unix socket): `POST/GET /hal/v1/sessions`, `DELETE /hal/v1/sessions/<id>` (204),
+`GET /hal/v1/leases`, `GET /hal/v1/aliases`.
+
+Not built yet: the forwarder-side limits `max_requests_per_min`, `max_output_tokens` and
+`max_tokens_per_hour` (REQ-GW-69, step 20), client tokens (step 21), the full
+`GET /hal/v1/status` document.

@@ -34,6 +34,7 @@ from .estimate import ESTIMATE_HEADER, estimate_input_tokens
 from .policies import delegate, effort, overflow, swap
 from .policies.text import conversation_key
 from .routes import Api, Route
+from .sessions import SessionRegistry
 
 log = logging.getLogger(__name__)
 
@@ -122,16 +123,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if route is not None and route.api is Api.HEALTH:
                 self._send(200, HEALTH_BODY)
                 return
-            principal = auth.principal_for(kind, self.peer, self.headers, gateway.owner_token)
+            principal = auth.principal_for(
+                kind, self.peer, self.headers, gateway.owner_token, sessions=gateway.sessions
+            )
             self.principal = principal
             self.rec["principal"] = (
-                f"{principal.kind}:{kind}" if principal.kind == "owner" else principal.kind
+                f"{principal.kind}:{kind}"
+                if principal.kind == "owner"
+                else f"session:{principal.session.id}"  # type: ignore[attr-defined]
+                if principal.session
+                else principal.kind
             )
             if principal.kind == "anonymous":
                 raise Unauthorized("missing API key")
             if route is None:
                 raise NotFound(f"no route for {self.command} {self.path.split('?', 1)[0]}")
-            self._dispatch(gateway, route)
+            session = principal.session
+            if session is not None and not route.session:
+                raise Forbidden("session tokens may call the model routes only")  # ATK-33
+            if session is not None:
+                gateway.sessions.enter(session)
+            try:
+                self._dispatch(gateway, route)
+            finally:
+                if session is not None:
+                    gateway.sessions.leave(session)
         except GatewayError as exc:
             self.rec["error"] = exc.code
             retry = getattr(exc, "retry_after", None)
@@ -189,13 +205,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         if route.api not in RELAYED:
             raise NotFound(f"{route.api.value} routes are not available yet")
-        body = self._read_json(int(gateway.config["max_request_bytes"]))
+        limit = int(gateway.config["max_request_bytes"])
+        if self.principal.session is not None:
+            limit = min(limit, self.principal.session.max_request_bytes)  # type: ignore[attr-defined]
+        body = self._read_json(limit)
         model = body.get("model")
         if model is not None and not isinstance(model, str):
             raise BadRequest("model must be a string")
         target = gateway.resolver.resolve(model)
         backend, upstream_model = target.backend, target.model
         self._note_target(model, target, body)
+        if self.principal.session is not None:
+            SessionRegistry.check_scope(self.principal.session, target.alias, bool(target.remote))  # type: ignore[arg-type]
         gateway.check_model(backend, upstream_model)
         if not backend.supports(route.api):
             raise NotFound(
@@ -288,7 +309,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not principal.startswith("owner") or (route.owner_unix_only and principal != "owner:unix"):
             raise Forbidden("admin routes serve the owner on the unix socket only")
         router = gateway.router()
-        name = route.path.removeprefix("/hal/v1/")
+        name = self.path.split("?", 1)[0].removeprefix("/hal/v1/")
+        if name == "sessions" and route.path == "/hal/v1/sessions" and self.command == "POST":
+            session, token = gateway.sessions.mint(self._read_json(ADMIN_BODY_LIMIT))
+            doc = {**session.public(), "token": token}
+            self._send(201, json.dumps(doc).encode("ascii"))
+            return
+        if name == "sessions" and self.command == "GET":
+            self._send(200, json.dumps({"sessions": gateway.sessions.listing()}).encode("ascii"))
+            return
+        if name.startswith("sessions/"):
+            if not gateway.sessions.revoke(name.removeprefix("sessions/")):
+                raise NotFound("no such session")
+            self._send(204, b"")
+            return
+        if name == "leases":
+            leases = [
+                {"session_id": x.session_id, "label": x.label, "since": x.since} for x in gateway.gpu.leases()
+            ]
+            self._send(200, json.dumps({"leases": leases}).encode("ascii"))
+            return
+        if name == "aliases":
+            self._send(200, json.dumps(self._alias_document(gateway)).encode("ascii"))
+            return
         if name == "gpu/release":
             body = self._read_json(ADMIN_BODY_LIMIT)
             flags = {k: body.get(k, False) for k in ("force", "stop_router", "reclaim")}
@@ -329,6 +372,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise BadRequest("model must be a non-empty string")
             (router.load if name == "models/load" else router.unload)(preset)
         self._send(200, json.dumps({"backends": {router.name: router.status()}}).encode("ascii"))
+
+    @staticmethod
+    def _alias_document(gateway) -> dict:  # type: ignore[no-untyped-def,type-arg]
+        """`GET /hal/v1/aliases`: every listed name with its backend and upstream model."""
+        rows = []
+        for entry in gateway.resolver.listing():
+            try:
+                target = gateway.resolver.resolve(entry.id)
+            except GatewayError:
+                continue
+            rows.append(
+                {
+                    "name": entry.id, "backend": target.backend.name, "model": target.model,
+                    "remote": bool(target.remote), "context_window": entry.context_length,
+                }
+            )  # fmt: skip
+        return {"aliases": rows}
 
     def _native(self, gateway, route: Route) -> None:  # type: ignore[no-untyped-def]
         """Serves the limited Ollama native routes (REQ-GW-24)."""
@@ -377,10 +437,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 entries.append({**upstream, "name": name, "model": name})
         return entries
 
+    @staticmethod
+    def _visible(session, entry) -> bool:  # type: ignore[no-untyped-def]
+        """True when a session may list `entry` (alias scope and the remote opt-in)."""
+        remote = entry.owned_by.startswith("remote:")
+        return session.alias_allowed(entry.id) and (session.allow_remote or not remote)
+
     def _models(self, gateway, route: Route) -> None:  # type: ignore[no-untyped-def]
         """Answers `GET /v1/models` and `/v1/models/{id}` in the OpenAI or Anthropic shape."""
         anthropic = "anthropic-version" in self.headers
         entries = gateway.resolver.listing()
+        session = self.principal.session
+        if session is not None:
+            entries = [e for e in entries if self._visible(session, e)]
         if route.path.endswith("{id}"):
             wanted = self.path.split("?", 1)[0][len("/v1/models/") :]
             entries = [e for e in entries if e.id == wanted]

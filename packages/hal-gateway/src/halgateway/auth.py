@@ -26,11 +26,12 @@ from typing import Literal
 from halkit import files
 
 from .errors import Forbidden, Unauthorized
+from .sessions import PREFIX as SESSION_PREFIX
+from .sessions import SessionRegistry
 
 log = logging.getLogger(__name__)
 
 OWNER_PREFIX = "hal-gw-"
-SESSION_PREFIX = "hal-sess-"
 CLIENT_PREFIX = "hal-gwc-"
 TOKEN_BYTES = 32  # secrets.token_urlsafe argument: 256 bits
 TOKEN_FILE_MODE = 0o600
@@ -47,6 +48,7 @@ class Principal:
 
     kind: Literal["owner", "client", "session", "anonymous"]
     listener: Listener
+    session: object | None = None  # the `sessions.Session` of a session principal
     lease: bool = False  # a leased session passes the off flag (REQ-GW-54)
     cls: str = ""  # GPU claim class; empty = derived from the listener
 
@@ -89,6 +91,7 @@ def principal_for(
     owner_token: str | None,
     *,
     own_uid: int | None = None,
+    sessions: SessionRegistry | None = None,
 ) -> Principal:
     """Returns the caller's principal; raises `Unauthorized` for a token that does not match.
 
@@ -96,13 +99,18 @@ def principal_for(
     """
     own = os.getuid() if own_uid is None else own_uid
     token = bearer_token(headers)
+    if token.startswith(SESSION_PREFIX):  # rule 1: a session token narrows whoever sends it (REQ-GW-62)
+        if sessions is None:
+            raise Unauthorized("this token is not known to the gateway")
+        found = sessions.find(token)
+        return Principal("session", listener, session=found, lease=found.lease, cls=found.cls)
     if listener == "unix":
         if peer == own:
             return Principal("owner", listener)
         return Principal("anonymous", listener)
     if not token:
         return Principal("anonymous", listener)
-    if token.startswith((SESSION_PREFIX, CLIENT_PREFIX)):
+    if token.startswith(CLIENT_PREFIX):
         raise Unauthorized("this token is not known to the gateway")
     if owner_token and hmac.compare_digest(token.encode(), owner_token.encode()):
         return Principal("owner", listener)
