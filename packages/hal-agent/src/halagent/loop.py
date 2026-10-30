@@ -56,8 +56,10 @@ class Agent:
         provider: ChatProvider | None = None,
         on_event: Callable[[str, str], None] | None = None,
         session: SessionWriter | None = None,
+        system_extra: str = "",
     ) -> None:
         self.settings = settings
+        self.system_extra = system_extra
         self.toolset = toolset
         self.provider = provider or ChatProvider(
             settings.endpoint, settings.model, api_key=settings.api_key, stream=settings.stream
@@ -110,14 +112,15 @@ class Agent:
         return offered
 
     def _system_prompt(self) -> str:
+        base = SYSTEM + (f"\n\n{self.system_extra}" if self.system_extra else "")
         if self.settings.tool_format != "prompt":
-            return SYSTEM
+            return base
         lines = [
             f"- {s['function']['name']}: {s['function']['description']} "
             f"arguments: {json.dumps(s['function']['parameters'].get('properties', {}))}"
             for s in self._specs()
         ]
-        return SYSTEM + PROMPT_FORMAT + "\n".join(lines)
+        return base + PROMPT_FORMAT + "\n".join(lines)
 
     def close(self) -> None:
         """Closes the hub connection, if any."""

@@ -11,12 +11,14 @@ import sys
 from pathlib import Path
 
 from halagent import __version__
+from halagent.instructions import load_instructions
 from halagent.loop import Agent
 from halagent.mcp.lite import McpError
 from halagent.provider import ProviderError
 from halagent.sessions import SessionError, SessionStore, SessionWriter, check_session_id, new_session_id
 from halagent.settings import AgentSettings, load_settings
-from halagent.tools import Toolset
+from halagent.skills import discover_skills, render_skills
+from halagent.tools import Toolset, Workspace
 from halkit import config, log, paths
 
 EXIT_OK, EXIT_LIMIT, EXIT_CONFIG = 0, 1, 2
@@ -71,11 +73,13 @@ def main(argv: list[str] | None = None) -> int:
         settings = load_settings(cli=cli)
         root = Path(args.workspace).resolve()
         resumed = _pick_session(args, store, root)
+        user_skills = tuple(d for d in (paths.config_dir() / "skills",) if d.is_dir())
         writer = None if args.no_session else _open_writer(store, resumed, root, settings)
         agent = Agent(
             settings,
-            Toolset(root, task_mode=bool(args.prompt)),
+            Toolset(Workspace(root, readonly=user_skills), task_mode=bool(args.prompt)),
             session=writer,
+            system_extra=_prompt_extras(root),
             on_event=lambda kind, text: (
                 print(f"[{kind}] {text[:200]}", file=sys.stderr) if kind == "tool" else None
             ),
@@ -93,6 +97,17 @@ def main(argv: list[str] | None = None) -> int:
         agent.close()
         if writer:
             writer.close()
+
+
+def _prompt_extras(root: Path) -> str:
+    """The "Project instructions" and "Skills" sections of the system prompt."""
+    instructions = load_instructions(root, root, paths.config_dir() / "AGENTS.md")
+    skills, _ = discover_skills(root, (paths.config_dir() / "skills",))
+    parts = [
+        f"## Project instructions\n\n{instructions.text}" if instructions.text else "",
+        render_skills(skills),
+    ]
+    return "\n\n".join(p for p in parts if p)
 
 
 def _pick_session(args: argparse.Namespace, store: SessionStore, root: Path) -> str:

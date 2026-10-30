@@ -8,7 +8,9 @@ turn and tool-call limits, and
 an MCP client for the hub socket. Tool-call repair (leaked-call parsers, name and argument aliases, coercion) is in
 `halagent.repair`. Sessions are JSONL transcripts under `state_dir()/sessions/<id>/` (`--resume ID`, `--continue`,
 `--no-session`, `hal-agent sessions`, `hal-agent export ID [--format md|jsonl]`); argument values
-named like secrets are written as `***`. Not implemented: compaction, ACP, profiles.
+named like secrets are written as `***`. `AGENTS.md` (else `CLAUDE.md`) files from the workspace root to the working directory, the
+user file `~/.config/hal/AGENTS.md` and Agent Skills (`.agents/skills`, `.claude/skills`,
+`~/.config/hal/skills`) go into the system prompt. Not implemented: compaction, ACP, profiles.
 
 ## Usage
 
