@@ -43,6 +43,15 @@ class OllamaBackend(OpenAIBackend):
         doc = relay.call_json(self, "GET", "/api/ps")
         return [str(m["name"]) for m in doc.get("models", []) if isinstance(m, dict) and "name" in m]
 
+    def in_vram(self) -> list[str]:
+        """Names of the models that hold VRAM now (`size_vram > 0` in `GET /api/ps`)."""
+        doc = relay.call_json(self, "GET", "/api/ps")
+        return [
+            str(m["name"])
+            for m in doc.get("models", [])
+            if isinstance(m, dict) and "name" in m and m.get("size_vram", 0) > 0
+        ]
+
     def unload(self, model: str) -> None:
         """Asks Ollama to free `model` now."""
         relay.call_json(

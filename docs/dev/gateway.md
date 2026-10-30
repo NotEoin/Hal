@@ -128,3 +128,30 @@ Each `GatewayError` subclass owns one HTTP status. `error_body(err, fmt)` render
 - `hal-gateway modes` lists modes; `hal-gateway render MODE` prints the path, the sha256 and the
   context window (exit 4 when refused).
 - Tokens: `@MODELS@`, `@HAL@` (the `halgateway` directory), `@MODES@`, `@STATE@`.
+
+## Managed router (`backends/llama_router`, `launchers`, `llamacmd`)
+
+`LlamaRouter` is the `llama-router` backend. A managed entry owns one `llama-server` process.
+It replaces `hal-serve start|stop|status`.
+
+- **Start** (`start(mode)`): refuse while the legacy `hal-serve` router lives
+  (`<state>/router.pid` names a `llama-server`), render the mode (which verifies weights),
+  unload Ollama models that hold VRAM (`unload_ollama`), spawn, then poll `GET /models` every
+  second until every startup preset is `loaded`. A `failed` preset, `unloaded` after `loading`,
+  a process exit or `load_timeout_s` stops the router and raises 503 `router_failed` with the
+  log path.
+- **State**: `<state>/gateway/router.json` (0600) holds pid, `pid_start`, boot id, mode,
+  render sha256, address and start time. A signal goes out only when `pid_start` still
+  matches (pids are reused). The router key is `<state>/gateway/router.key` (0600), passed as
+  `--api-key-file`, never in argv. The log is `router.log`.
+- **Adopt**: at gateway start a router with the same mode and render hash is kept; any other
+  is stopped. The gateway never stops the router when it exits.
+- **Crash**: the next request restarts it, at most `max_restarts` in 600 s, then 503 naming the
+  log. After `router/stop` requests get 503 until a mode switch.
+- **Switch**: `POST /hal/v1/mode` waits `[gateway].drain_s` for in-flight requests, then 409
+  `router_busy` unless `force`. `models/load` verifies the preset's weights again before it
+  posts `/models/load`. All four admin POST routes need the owner on the unix socket.
+- Not built yet: the docker launcher (plan step 30), the `swap` and effort policies, gpu-light
+  claims. `listen = "unix"` is implemented but untested against a real server.
+
+Tests use a fake `llama-server` script (`tests/test_llama_router.py`); no real model is loaded.

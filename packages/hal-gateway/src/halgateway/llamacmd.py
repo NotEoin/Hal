@@ -57,12 +57,14 @@ def llama_server_command(
     state: Path,
     llama_dir: Path | None = None,
     models_max: int = 1,
+    autoload: bool = True,
     environ: Mapping[str, str] | None = None,
 ) -> tuple[list[str], dict[str, str]]:
     """The argv and environment for the managed router.
 
     `listen` is `127.0.0.1:PORT` or an absolute unix socket path below `state/gateway/run/`.
-    TCP needs `api_key_file`. `llama_dir` is the only directory added to `LD_LIBRARY_PATH`.
+    TCP needs `api_key_file`. `autoload=False` adds `--no-models-autoload`. `llama_dir` is the
+    only directory added to `LD_LIBRARY_PATH`.
     Raises `CommandRefused` for any other listen address or a missing key.
     """
     argv = [str(llama_dir / "llama-server") if llama_dir else "llama-server"]
@@ -81,6 +83,8 @@ def llama_server_command(
     if api_key_file is not None:
         argv += ["--api-key-file", str(api_key_file)]
     argv += ["--models-preset", str(preset.path), "--models-max", str(models_max), "--no-webui"]
+    if not autoload:
+        argv.append("--no-models-autoload")  # swap modes: only the gateway loads a model
     source = os.environ if environ is None else environ
     env = {name: source[name] for name in ENV_ALLOWLIST if name in source}
     env["GPU_LIGHT_SERVICE"] = RECLAIMER_NAME

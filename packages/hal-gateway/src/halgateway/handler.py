@@ -19,6 +19,7 @@ import logging
 import time
 
 from . import auth, relay, reqlog, routes
+from .backends import LlamaRouter
 from .errors import (
     BadRequest,
     Forbidden,
@@ -37,6 +38,7 @@ HEALTH_BODY = json.dumps({"status": "ok"}).encode("ascii")
 RELAYED = frozenset(
     {Api.CHAT, Api.RESPONSES, Api.RESPONSES_COUNT, Api.MESSAGES, Api.COUNT_TOKENS, Api.EMBEDDINGS}
 )
+ADMIN_BODY_LIMIT = 65536  # admin bodies are a few keys
 STATUS_LENGTH_REQUIRED = 411
 EPOCH_UTC = "1970-01-01T00:00:00Z"  # the backends report no creation time
 
@@ -175,6 +177,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route.api is Api.OLLAMA_NATIVE:
             self._native(gateway, route)
             return
+        if route.api is Api.ADMIN:
+            self._admin(gateway, route)
+            return
         if route.api not in RELAYED:
             raise NotFound(f"{route.api.value} routes are not available yet")
         body = self._read_json(int(gateway.config["max_request_bytes"]))
@@ -196,6 +201,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         body["model"] = upstream_model
         self._relay(gateway, backend, json.dumps(body).encode("utf-8"))
+
+    def _admin(self, gateway, route: Route) -> None:  # type: ignore[no-untyped-def]
+        """Serves the router admin routes; only the owner on the unix socket may change anything."""
+        principal = str(self.rec.get("principal", ""))
+        if not principal.startswith("owner") or (route.owner_unix_only and principal != "owner:unix"):
+            raise Forbidden("admin routes serve the owner on the unix socket only")
+        router = gateway.router()
+        name = route.path.removeprefix("/hal/v1/")
+        if name == "status":
+            backends = {
+                n: (b.status() if hasattr(b, "status") else {"type": b.type})
+                for n, b in gateway.backends.items()
+            }
+            doc = {"backends": backends, "in_flight": router.in_flight() if router else 0}
+            self._send(200, json.dumps(doc).encode("ascii"))
+            return
+        if router is None or name not in ("mode", "router/stop", "models/load", "models/unload"):
+            raise NotFound(
+                f"{route.path} is not available" + ("" if router else ": no managed llama-router backend")
+            )
+        body = {} if name == "router/stop" else self._read_json(ADMIN_BODY_LIMIT)
+        if name == "router/stop":
+            router.stop()
+        elif name == "mode":
+            mode = body.get("mode")
+            if not isinstance(mode, str) or not mode:
+                raise BadRequest("mode must be a non-empty string")
+            router.switch(mode, drain_s=float(gateway.config["drain_s"]), force=bool(body.get("force")))
+        else:
+            preset = body.get("model")
+            if not isinstance(preset, str) or not preset:
+                raise BadRequest("model must be a non-empty string")
+            (router.load if name == "models/load" else router.unload)(preset)
+        self._send(200, json.dumps({"backends": {router.name: router.status()}}).encode("ascii"))
 
     def _native(self, gateway, route: Route) -> None:  # type: ignore[no-untyped-def]
         """Serves the limited Ollama native routes (REQ-GW-24)."""
@@ -290,6 +329,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return doc
 
     def _relay(self, gateway, backend, body: bytes | None) -> None:  # type: ignore[no-untyped-def]
+        if isinstance(backend, LlamaRouter):
+            backend.ensure()
+            with backend.request():
+                self._relay_once(gateway, backend, body)
+        else:
+            self._relay_once(gateway, backend, body)
+
+    def _relay_once(self, gateway, backend, body: bytes | None) -> None:  # type: ignore[no-untyped-def]
         cfg = gateway.config
         conn = relay.connect(
             backend.address(), cfg["upstream_connect_timeout_s"], cfg["upstream_read_timeout_s"]

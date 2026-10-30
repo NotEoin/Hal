@@ -122,3 +122,9 @@ class Conflict(GatewayError):
 
     status = 409
     code = "ambiguous_model"
+
+
+class RouterBusy(Conflict):
+    """A mode switch found requests still running on the router and `force` was not set."""
+
+    code = "router_busy"

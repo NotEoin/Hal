@@ -28,7 +28,7 @@ from halkit import paths
 
 from . import auth, relay
 from .aliases import Resolver
-from .backends import make_backend
+from .backends import LlamaRouter, make_backend
 from .config import GatewayConfig
 from .errors import GatewayError, ModelUnverified, Unavailable, error_body
 from .handler import Handler
@@ -142,6 +142,9 @@ class Gateway:
         self._digests: dict[str, tuple[float, dict[str, str]]] = {}  # backend -> (time, name -> digest)
         self.backends = {n: make_backend(n, e, cfg.ollama_url) for n, e in cfg.backends.items()}
         self.resolver = Resolver(cfg, self.backends, relay.fetch_model_ids, profile_of=self.profile_of)
+        for backend in self.backends.values():
+            if isinstance(backend, LlamaRouter):
+                backend.configure(self.state_dir, self.models_dir(), self.verifier, self._ollama_backends)
         self.unix: UnixHTTPServer | None = None
         self.tcp: LoopbackHTTPServer | None = None
         self._threads: list[threading.Thread] = []
@@ -149,6 +152,16 @@ class Gateway:
     def router_entry(self) -> Mapping[str, object]:
         """The first `llama-router` backend entry, or an empty mapping."""
         return next((e for e in self.cfg.backends.values() if e.get("type") == "llama-router"), {})
+
+    def router(self) -> LlamaRouter | None:
+        """The first managed `llama-router` backend, or None."""
+        return next((b for b in self.backends.values() if isinstance(b, LlamaRouter) and b.managed), None)
+
+    def _ollama_backends(self) -> list:  # type: ignore[type-arg]
+        """The Ollama backends the router empties before a load (`unload_ollama`)."""
+        router = self.router()
+        names = router.entry["unload_ollama"] if router else []
+        return [self.backends[n] for n in names if n in self.backends and self.backends[n].type == "ollama"]  # type: ignore[attr-defined]
 
     def models_dir(self) -> Path:
         """The router's model directory (`@MODELS@`); the current directory when unset."""
@@ -247,6 +260,20 @@ class Gateway:
             thread.start()
             self._threads.append(thread)
         log.info("gateway listening on %s", path)
+        router = self.router()
+        if router is not None:
+            router.adopt()
+            if router.entry["autostart"] == "with-gateway":
+                threading.Thread(
+                    target=self._autostart, args=(router,), name="hal-router-start", daemon=True
+                ).start()
+
+    @staticmethod
+    def _autostart(router: LlamaRouter) -> None:
+        try:
+            router.ensure()
+        except GatewayError as exc:
+            log.error("router autostart failed: %s", exc.message)
 
     @staticmethod
     def _clear_stale_socket(path: Path) -> None:
