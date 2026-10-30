@@ -25,7 +25,7 @@ with a scripted agent; not yet run against a live model.
 | `/diff [N]`, `/rewind [N]` | Show changes since checkpoint N; list checkpoints, or restore one (files that cannot come back are listed) |
 | `/apply [--allow-flags]` | Apply the isolated copy to your real project after the risk report |
 | `/image PATH` | Attach a png, jpg, gif or webp (up to 8 MiB) to the next prompt; the agent must accept images |
-| `/model` | Show the model; change it with `hal code --model NAME` |
+| `/model [NAME]` | Show the model, or switch to NAME from the next turn (the model server must serve it) |
 | `/NAME ARGS` | Run `.hal/commands/NAME.md` from the project, with `$ARGUMENTS` replaced |
 
 Ctrl-C during a turn cancels the turn. A checkpoint is taken before every prompt, so `/rewind`

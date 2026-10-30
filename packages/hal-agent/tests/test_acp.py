@@ -276,3 +276,14 @@ def test_plan_mode_refuses_a_write_without_asking_and_leaves_the_file_alone(serv
     assert reply_to(msgs, prompt)["result"] == {"stopReason": "end_turn"}
     assert not any(m.get("method") == "session/request_permission" for m in msgs)
     assert not (tmp_path / "n.txt").exists() and "plan_mode" in str(msgs)
+
+
+def test_set_model_switches_the_provider_between_turns_and_rejects_a_bad_name(server, tmp_path):
+    c = Client(server.url, tmp_path)
+    c.call("session/new", {"cwd": str(tmp_path)})
+    sid = c.sid()
+    ok = c.call("session/set_model", {"sessionId": sid, "modelId": "other-model"})
+    bad = c.call("session/set_model", {"sessionId": sid, "modelId": "has space"})
+    msgs = c.finish()
+    assert reply_to(msgs, ok)["result"] == {}
+    assert reply_to(msgs, bad)["error"]["code"] == -32602

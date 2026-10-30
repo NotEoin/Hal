@@ -53,6 +53,7 @@ log = logging.getLogger("halagent.loop")
 
 GATED_KINDS = frozenset({"edit", "delete", "move", "execute"})  # review mode asks before these
 ALLOW, REJECT, CANCELLED = ("allow_once", "allow_always"), ("reject_once", "reject_always"), "cancelled"
+MAX_MODEL_NAME = 200  # model ids are short; a longer name is a mistake or an attack
 PermissionFn = Callable[[str, str, str, dict], str]  # (call id, tool name, kind, arguments) -> choice
 
 FIND_NAME = "hal_find_tools"
@@ -148,6 +149,8 @@ class Agent:
         self.permission = permission
         self._remembered: dict[str, str] = {}  # tool name -> allow_always or reject_always
         built = provider is None
+        self._requested = settings  # what the person asked for, before the model's own limits
+        self._built = built
         self.provider = provider or make_provider(settings)
         info = self.provider.model_info() if hasattr(self.provider, "model_info") else ModelInfo()
         self.profile = profile or resolve_profile(
@@ -582,6 +585,28 @@ class Agent:
             self.counters["loop_refusals"] += 1
             return loop_message(name, parse_args(raw) or raw, dog.repeats)
         return None
+
+    def switch_model(self, name: str) -> None:
+        """Uses `name` from the next model call on: provider, profile and limits are re-resolved.
+
+        Raises `ValueError` for an empty or oversized name; do not call it during a turn. The name
+        only reaches the model socket, which forwards to the one configured model server.
+        """
+        if not name.strip() or len(name) > MAX_MODEL_NAME or any(c.isspace() or ord(c) < 32 for c in name):
+            raise ValueError(f"not a model name: {name[:40]!r}")
+        requested = replace(self._requested, model=name)
+        if hasattr(self.provider, "model"):
+            self.provider.model = name
+        info = self.provider.model_info() if hasattr(self.provider, "model_info") else ModelInfo()
+        self.profile = resolve_profile(
+            name, user_file=paths.config_dir() / "model-profiles.toml", hal_profile=info.hal_profile
+        )
+        if self._built:
+            self.provider.extra = self.profile.request_extras()
+        self._requested = requested
+        self.settings = effective_settings(requested, self.profile, info)
+        if self._built and hasattr(self.provider, "max_output"):
+            self.provider.max_output = self.settings.max_output
 
     def _review(self, cid: str, name: str, raw: str) -> str | tuple[str, str] | None:
         """In review mode asks before a gated tool; returns an error JSON when it is refused."""

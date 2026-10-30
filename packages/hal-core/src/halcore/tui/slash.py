@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from halsandbox import isolated
 from halsandbox.errors import SandboxError
 
+from ..acp.client import AcpError
 from .render import Renderer, clip, safe
 
 if TYPE_CHECKING:
@@ -129,7 +130,12 @@ async def _todo(state: TuiState, args: str) -> Result:
 
 async def _model(state: TuiState, args: str) -> Result:
     if args:
-        return Result(message="switching models needs a restart: run `hal code --model NAME`")
+        try:
+            await state.client.set_model(state.sid, args)
+        except AcpError as exc:
+            return Result(message=f"/model: {safe(str(exc))}")
+        state.model = args
+        return Result(message=f"model: {safe(args)} from the next turn")
     return Result(message=f"model: {safe(state.model) or '(default)'}")
 
 

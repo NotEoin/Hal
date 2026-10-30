@@ -95,9 +95,13 @@ class FakeSession:
 class NullClient:
     def __init__(self):
         self.modes = []
+        self.models = []
 
     async def set_mode(self, sid, mode):
         self.modes.append(mode)
+
+    async def set_model(self, sid, model):
+        self.models.append(model)
 
 
 def make_state(session=None, project=None):
@@ -192,3 +196,11 @@ def test_turn_loop_tells_the_broker_checkpoints_streams_and_quits(tmp_path, monk
     assert status == 0 and "hi" in text and "[end_turn]" in text and "(no todo list)" in text
     assert session.heard == [("hello there", "tui")]
     assert session.taken == ["before: hello there"]
+
+
+def test_model_with_a_name_switches_through_acp_and_without_shows_the_current_one():
+    state = make_state()
+    state.model = "small"
+    assert "small" in run(slash.dispatch("/model", state, {})).message
+    run(slash.dispatch("/model big", state, {}))
+    assert state.client.models == ["big"] and state.model == "big"

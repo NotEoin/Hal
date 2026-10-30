@@ -133,6 +133,12 @@ class AcpClient:
             "session/set_mode", {"sessionId": session_id, "modeId": mode_id}, timeout=self._timeout
         )
 
+    async def set_model(self, session_id: str, model_id: str) -> None:
+        """Switches the model used from the next turn on."""
+        await self._call(
+            "session/set_model", {"sessionId": session_id, "modelId": model_id}, timeout=self._timeout
+        )
+
     async def close(self) -> None:
         """Stops the reader and the transport."""
         if self._reader is not None:
