@@ -47,6 +47,7 @@ from halagent.repair import has_open_marker, repair_call, repair_text
 from halagent.repair.aliases import parse_args
 from halagent.sessions import SessionWriter, replay_indexed
 from halagent.settings import DEFAULT_MAX_OUTPUT, DEFAULT_WINDOW, AgentSettings
+from halagent.subagents import run_subagents
 from halagent.tokens import ESTIMATE_FACTOR, TokenCounter
 from halagent.tools import ToolError, Toolset, render_error
 from halkit import paths
@@ -183,6 +184,9 @@ class Agent:
             self._offer_listed(listed)  # the assistant offers none up front: tools are chosen per turn
             if assistant and any(t.name == "memory_profile" for t in listed):
                 self._profile_text = self._fetch_profile()
+        if "subagent" in self.toolset.tools:
+            sub = self.toolset.tools["subagent"]
+            self.toolset.tools["subagent"] = replace(sub, fn=lambda a: run_subagents(self, a))
         self.session = session
         self.tokens = TokenCounter("openai", settings.context_window)
         self.counters: Counter[str] = Counter()  # per-run quality counters for the eval (REQ-AGT-95)

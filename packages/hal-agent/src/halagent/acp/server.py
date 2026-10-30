@@ -43,7 +43,7 @@ STOP_REASONS = {
 }
 KIND_OF = {
     "read": "read", "grep": "search", "glob": "search", "edit": "edit", "write": "edit",
-    "run": "execute", "todo": "think",
+    "run": "execute", "todo": "think", "subagent": "think",
 }  # fmt: skip
 MODE_LIST = [
     {"id": "auto", "name": "Auto", "description": "Work freely inside the sandbox"},

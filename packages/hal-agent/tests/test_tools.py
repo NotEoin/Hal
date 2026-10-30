@@ -183,7 +183,16 @@ def test_todo_normalises_items_and_rejects_long_plans():
 
 
 def test_toolset_offers_spec_order_and_finish_only_in_task_mode(tmp_path):
-    assert list(Toolset(tmp_path).tools) == ["read", "grep", "glob", "edit", "write", "run", "todo"]
+    assert list(Toolset(tmp_path).tools) == [
+        "read",
+        "grep",
+        "glob",
+        "edit",
+        "write",
+        "run",
+        "todo",
+        "subagent",
+    ]
     assert list(Toolset(tmp_path, task_mode=True).tools)[-1] == "finish"
     assert "run" not in Toolset(tmp_path, with_run=False).tools
 

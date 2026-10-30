@@ -54,6 +54,13 @@ are found with `hal_find_tools`; a found tool can be called by name for the rest
 (at most 16 at once). Approvals are decided by the host, never by the agent or the model. A
 denied or failed call comes back to the model with a note that it did not happen.
 
+## Subagents
+
+The agent has a `subagent` tool. A subagent starts with an empty context, does one task and returns a
+short report, so a big search does not fill the main conversation. Tasks separated by a line of three
+dashes run in parallel (at most 4). A subagent is read-only unless the call sets `tools = "all"`, which
+works only in auto-edit mode. A subagent gets no host tools and cannot start subagents.
+
 ## Hooks
 
 Hooks are commands that run inside the box around tool calls. Put them in `~/.config/hal/hooks.toml`

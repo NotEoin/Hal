@@ -144,6 +144,25 @@
   "free": true
  },
  {
+  "name": "subagent",
+  "kind": "think",
+  "description": "Hand a side task to a subagent with its own fresh context and get back its short report. Use it for searches or reviews that would fill your context. Several tasks separated by a line of three dashes run in parallel (at most 4). Read-only unless tools is 'all'.",
+  "properties": {
+   "prompt": {
+    "type": "string",
+    "description": "The task, complete in itself: the subagent sees nothing of this conversation"
+   },
+   "tools": {
+    "type": "string",
+    "description": "'read-only' (default) or 'all' (may edit and run; only in auto-edit mode)"
+   }
+  },
+  "required": [
+   "prompt"
+  ],
+  "free": false
+ },
+ {
   "name": "finish",
   "kind": "other",
   "description": "End the task. Give a two-sentence summary of what you changed and how you checked it. Free: does not use a tool call.",

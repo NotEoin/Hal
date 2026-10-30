@@ -1,8 +1,9 @@
-"""The coding toolset: `read`, `grep`, `glob`, `edit`, `write`, `run`, `todo`, `finish`.
+"""The coding toolset: `read`, `grep`, `glob`, `edit`, `write`, `run`, `todo`, `subagent`, `finish`.
 
 `Toolset` binds the tools to a `Workspace`. Schemas are flat (string and integer properties only)
 and offered in a fixed order. `finish` is offered in task mode only; `run` is left out when the
-caller has no sandbox for it. Tools raise `ToolError`; the loop renders it for the model.
+caller has no sandbox for it. `Agent.__init__` binds `subagent` to its agent.
+Tools raise `ToolError`; the loop renders it for the model.
 """
 
 from __future__ import annotations
@@ -40,6 +41,10 @@ class Tool:
         }
 
 
+def _unbound_subagent(args: dict) -> str:
+    raise ToolError("unavailable", "subagents are not available here")
+
+
 def render_error(exc: ToolError) -> str:
     """The error as the JSON the model reads."""
     return json.dumps({"status": "error", "error_type": exc.error_type, "message": exc.message})
@@ -61,6 +66,7 @@ class Toolset:
             "edit": lambda a: files.edit(ws, a, syntax_guard=syntax_guard),
             "write": lambda a: files.write(ws, a),
             "run": lambda a: run.run(ws, a),
+            "subagent": _unbound_subagent,
             "todo": plan.todo,
             "finish": plan.finish,
         }
