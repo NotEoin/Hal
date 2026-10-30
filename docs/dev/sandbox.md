@@ -32,7 +32,16 @@ Requirements: [../design/02-sandbox.md](../design/02-sandbox.md).
 uv run --offline pytest -q packages/hal-sandbox   # hermetic: fake docker scripts, injected probes
 uv run --offline pytest -q -m bwrap packages/hal-sandbox   # needs unprivileged bubblewrap
 uv run --offline pytest -q -m docker packages/hal-sandbox  # needs a daemon and the image
+uv run --offline hal code --build                          # builds hal-sandbox:full-<hash>, tags hal-agent:local
+uv run --offline pytest -q -m docker tests/e2e             # containment suite and `hal code` end to end
+uv run --offline pytest -q -m "docker and network" packages/hal-sandbox/tests/test_deps_live.py
 ```
+
+The `tests/e2e` cases run under `runc` and under `runsc` when docker has it registered (with
+`"runtimeArgs": ["--host-uds=open"]`, see docs/howto/install-gvisor.md). Verified 2026-10-30 on
+this machine: 36 docker cases pass under both runtimes. Not yet covered (RESOLUTIONS I6): audit
+checks on each broker attempt, forged approvals over the approval surfaces, self-raised lockdown or
+paranoia through a tool call, and smuggled instructions in tool results.
 
 Regenerate a golden file only after reading the diff: it is the reviewed list of flags.
 
