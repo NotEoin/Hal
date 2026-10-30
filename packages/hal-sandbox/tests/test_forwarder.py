@@ -98,3 +98,71 @@ def test_socket_file_is_private_and_removed_on_stop(sockdir, upstream):
     mode = fw.socket_path.stat().st_mode & 0o777
     fw.stop()
     assert mode == 0o600 and not fw.socket_path.exists()
+
+
+def _raw(fw):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(10)
+    s.connect(str(fw.socket_path))
+    return s
+
+
+def _read_all(s):
+    data = b""
+    try:
+        while chunk := s.recv(4096):
+            data += chunk
+    except OSError:
+        pass  # reset by the forwarder: same as a hang-up
+    return data
+
+
+def test_a_peer_with_another_uid_never_reaches_the_upstream(sockdir, upstream):
+    import os
+
+    fw = ModelForwarder(sockdir / "m.sock", upstream.url, allowed_uid=os.getuid() + 1)
+    fw.start()
+    try:
+        s = _raw(fw)
+        try:
+            s.sendall(b"GET /v1/models HTTP/1.0\r\n\r\n")
+        except OSError:
+            pass
+        assert _read_all(s) == b""
+    finally:
+        fw.stop()
+    assert upstream.seen == []
+
+
+def test_a_client_that_stalls_mid_request_is_cut_off(sockdir, upstream, monkeypatch):
+    from halsandbox import forwarder
+
+    monkeypatch.setattr(forwarder._Handler, "timeout", 0.3)
+    fw = make(sockdir, upstream)
+    try:
+        s = _raw(fw)
+        s.sendall(b"POST /v1/chat/completions HTTP/1.0\r\nContent-Length: 100\r\n\r\n{")
+        assert _read_all(s) == b""  # the forwarder hangs up; the body never completes
+    finally:
+        fw.stop()
+    assert upstream.seen == []
+
+
+def test_connections_over_the_limit_are_dropped(sockdir, upstream):
+    fw = ModelForwarder(sockdir / "m.sock", upstream.url, max_connections=1)
+    fw.start()
+    try:
+        first = _raw(fw)
+        first.sendall(b"GET /v1/mod")  # holds the only slot
+        import time
+
+        time.sleep(0.2)
+        second = _raw(fw)
+        try:
+            second.sendall(b"GET /v1/models HTTP/1.0\r\n\r\n")
+        except OSError:
+            pass
+        assert _read_all(second) == b""
+        first.close()
+    finally:
+        fw.stop()

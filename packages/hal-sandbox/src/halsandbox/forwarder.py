@@ -4,7 +4,9 @@ Only `POST /v1/chat/completions` and `GET /v1/models` are forwarded; every other
 gets 404 or 405 and never reaches the upstream, so a boxed agent cannot use the model server for
 anything else (admin routes of llama-server or Ollama stay unreachable). Headers from the box are
 dropped except `Content-Type`; the box never sees or sends upstream credentials. Bodies are capped
-at `MAX_BODY_BYTES`. Design: 02-sandbox.md (the full gateway forwarder is 05-gateway's).
+at `MAX_BODY_BYTES`. The box is hostile, so a connection must come from the forwarder's own uid
+(`SO_PEERCRED`), a client that stalls mid-request is dropped after `CLIENT_TIMEOUT_S`, and at most
+`MAX_CONNECTIONS` requests run at once. Design: 02-sandbox.md (the full gateway forwarder is 05-gateway's).
 """
 
 from __future__ import annotations
@@ -12,7 +14,9 @@ from __future__ import annotations
 import http.client
 import logging
 import os
+import socket
 import socketserver
+import struct
 import threading
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -23,6 +27,9 @@ log = logging.getLogger(__name__)
 MAX_BODY_BYTES = 4 * 1024 * 1024  # same cap as the broker socket messages (REQ-BOX-29)
 UPSTREAM_TIMEOUT_S = 600.0  # a local model can think for minutes before the first byte
 CHUNK_BYTES = 8192
+CLIENT_TIMEOUT_S = 30.0  # a client that sends or reads nothing for this long is cut off
+MAX_CONNECTIONS = 8  # concurrent requests per session
+_PEERCRED = struct.Struct("3i")  # pid, uid, gid
 ALLOWED: dict[tuple[str, str], str] = {
     ("POST", "/v1/chat/completions"): "/v1/chat/completions",
     ("GET", "/v1/models"): "/v1/models",
@@ -34,12 +41,22 @@ class ModelForwarder(socketserver.ThreadingMixIn, socketserver.UnixStreamServer)
 
     daemon_threads = True
 
-    def __init__(self, socket_path: Path, upstream: str, timeout_s: float = UPSTREAM_TIMEOUT_S) -> None:
+    def __init__(
+        self,
+        socket_path: Path,
+        upstream: str,
+        timeout_s: float = UPSTREAM_TIMEOUT_S,
+        *,
+        allowed_uid: int | None = None,
+        max_connections: int = MAX_CONNECTIONS,
+    ) -> None:
         parts = urlsplit(upstream)
         if parts.scheme not in ("http", "https") or not parts.hostname:
             raise ValueError(f"upstream must be an http(s) URL: {upstream!r}")
         self.upstream = parts
         self.timeout_s = timeout_s
+        self.allowed_uid = os.getuid() if allowed_uid is None else allowed_uid
+        self.slots = threading.BoundedSemaphore(max_connections)
         prefix = parts.path.rstrip("/")
         self.prefix = prefix[:-3] if prefix.endswith("/v1") else prefix
         self.socket_path = Path(socket_path)
@@ -62,6 +79,26 @@ class ModelForwarder(socketserver.ThreadingMixIn, socketserver.UnixStreamServer)
         self.server_close()
         self.socket_path.unlink(missing_ok=True)
 
+    def verify_request(self, request: socket.socket, client_address: object) -> bool:
+        """Accepts only a peer with the allowed uid, and only while a connection slot is free."""
+        _, uid, _ = _PEERCRED.unpack(
+            request.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, _PEERCRED.size)
+        )
+        if uid != self.allowed_uid:
+            log.warning("forwarder: dropped a connection from uid %d", uid)
+            return False
+        if not self.slots.acquire(blocking=False):
+            log.warning("forwarder: too many connections, dropping one")
+            return False
+        return True
+
+    def process_request_thread(self, request: socket.socket, client_address: object) -> None:
+        """Handles one connection, then frees its slot."""
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.slots.release()
+
     def connect(self) -> http.client.HTTPConnection:
         """Opens a connection to the upstream."""
         cls = http.client.HTTPSConnection if self.upstream.scheme == "https" else http.client.HTTPConnection
@@ -70,6 +107,7 @@ class ModelForwarder(socketserver.ThreadingMixIn, socketserver.UnixStreamServer)
 
 class _Handler(BaseHTTPRequestHandler):
     server: ModelForwarder
+    timeout = CLIENT_TIMEOUT_S  # StreamRequestHandler applies this to the client socket
 
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002 - base class signature
         log.debug("forwarder: " + format, *args)

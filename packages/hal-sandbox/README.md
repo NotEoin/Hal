@@ -67,3 +67,6 @@ and `hal code reject SID`. `hal scratch clean [DIR]` empties scratchpads.
 The hub socket accepts only the broker's own uid (`SO_PEERCRED`), newline-framed messages of at most
 4 MiB, a partial message for at most 30 s, and 8 connections at a time. Anything else is dropped and
 logged; an unterminated last message is never forwarded.
+
+The model socket has the same guards: own uid only, 8 concurrent requests, a client that stalls for
+30 s is cut off, and only the two allowed routes reach the upstream.
