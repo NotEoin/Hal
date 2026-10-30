@@ -77,12 +77,12 @@ class ChatProvider:
         api_key: str = "",
         stream: bool = False,
         max_retries: int = MAX_RETRIES,
-        sleep: Callable[[float], None] = time.sleep,
+        sleep: Callable[[float], None] | None = None,
         extra: dict | None = None,
     ) -> None:
         self.model = model
         self.max_retries = max_retries
-        self._sleep = sleep
+        self._sleep = sleep or time.sleep
         self.extra = dict(extra or {})  # sampling and other body keys from the model profile
         self.stream = stream
         self._api_key = api_key

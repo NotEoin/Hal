@@ -1,21 +1,24 @@
 """The `hal-agent` entry point: an interactive REPL, or one prompt with `-p`.
 
-This is the only module that prints. Exit codes: 0 done, 1 a limit was hit, 2 bad
-configuration or an unreachable endpoint.
+This is the only module that prints. `-p` exit codes follow `halagent.headless` (0 done, 1
+error, 3 model unreachable, 4 a limit or loop, 5 refusal, 124 timeout, 130 cancelled); 2 is bad
+configuration or usage. The REPL exits 0.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from halagent import __version__
+from halagent import __version__, headless
 from halagent.acp.server import AcpServer
 from halagent.instructions import load_instructions
 from halagent.loop import Agent
 from halagent.mcp.lite import McpError
+from halagent.profiles import SHIPPED, ProfileError, load_catalogue, resolve_profile
 from halagent.provider import ProviderError
 from halagent.sessions import SessionError, SessionStore, SessionWriter, check_session_id, new_session_id
 from halagent.settings import AgentSettings, load_settings
@@ -29,7 +32,14 @@ EXIT_OK, EXIT_LIMIT, EXIT_CONFIG = 0, 1, 2
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="hal-agent", description="Hal coding agent")
     p.add_argument("-p", "--prompt", help="run one prompt and exit")
-    p.add_argument("-C", "--workspace", default=".", help="workspace root (default: current directory)")
+    p.add_argument(
+        "-C", "--workspace", "--dir", default=".", help="workspace root (default: current directory)"
+    )
+    fmt = p.add_mutually_exclusive_group()
+    fmt.add_argument("--json", dest="fmt", action="store_const", const="json", help="print one result object")
+    fmt.add_argument("--stream-json", dest="fmt", action="store_const", const="stream-json",
+                     help="print one JSON object per line")  # fmt: skip
+    p.add_argument("--timeout", type=float, help="cancel the task after this many seconds (exit 124)")
     p.add_argument("--endpoint", help="base URL or unix socket path of the model server")
     p.add_argument("--model")
     p.add_argument("--stream", action="store_true", default=None)
@@ -49,6 +59,9 @@ def _parser() -> argparse.ArgumentParser:
     ex.add_argument("id")
     ex.add_argument("--format", choices=("md", "jsonl"), default="md")
     ex.add_argument("--reasoning", action="store_true", help="include the model's reasoning")
+    pr = sub.add_parser("profiles", help="show model profiles")
+    pr.add_argument("action", choices=("list", "show"))
+    pr.add_argument("model", nargs="?", help="model id for `show`")
     return p
 
 
@@ -57,6 +70,8 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     log.setup("halagent")
     store = SessionStore(Path(args.sessions_dir) if args.sessions_dir else paths.state_dir() / "sessions")
+    if args.command == "profiles":
+        return _profiles_command(args)
     if args.command:
         return _session_command(args, store)
     cli = {
@@ -96,7 +111,12 @@ def main(argv: list[str] | None = None) -> int:
         if resumed:
             agent.resume(store.load(resumed))
         if args.prompt is not None:
-            return _run_once(agent, args.prompt)
+            prompt = sys.stdin.read() if args.prompt == "-" else args.prompt
+            sid = writer.path.parent.name if writer else new_session_id()
+            return headless.run_headless(
+                agent, prompt, fmt=args.fmt or "text", out=sys.stdout, session_id=sid,
+                cwd=str(root), timeout=args.timeout,
+            )  # fmt: skip
         return _repl(agent)
     finally:
         agent.close()
@@ -173,16 +193,24 @@ def _session_command(args: argparse.Namespace, store: SessionStore) -> int:
         return EXIT_CONFIG
 
 
-def _run_once(agent: Agent, prompt: str) -> int:
+def _profiles_command(args: argparse.Namespace) -> int:
+    """`profiles list` prints the families; `profiles show MODEL` the resolved values and sources."""
     try:
-        result = agent.run(prompt)
-    except ProviderError as exc:
+        if args.action == "list":
+            _, entries = load_catalogue(SHIPPED)
+            for e in entries:
+                print(f"{e['family']}  {', '.join(e['match'])}")
+            return EXIT_OK
+        if not args.model:
+            print("hal-agent: profiles show needs a model id", file=sys.stderr)
+            return EXIT_CONFIG
+        profile = resolve_profile(args.model, user_file=paths.config_dir() / "model-profiles.toml")
+    except ProfileError as exc:
         print(f"hal-agent: {exc}", file=sys.stderr)
         return EXIT_CONFIG
-    print(result.text)
-    if result.stopped not in ("done", "finished"):
-        print(f"hal-agent: stopped at {result.stopped}", file=sys.stderr)
-        return EXIT_LIMIT
+    print(f"model {profile.model}  family {profile.family}")
+    for key, value in profile.values.items():
+        print(f"{key} = {json.dumps(value)}  # {profile.sources[key]}")
     return EXIT_OK
 
 

@@ -20,6 +20,8 @@ Not implemented: ACP `session/load`, review mode and `_hal/record`; model profil
 ```sh
 hal-agent -p "add a test for foo" -C ~/proj --endpoint http://127.0.0.1:8741 --model qwen   # one shot
 hal-agent -C ~/proj          # REPL; /exit quits
+hal-agent -p - --json < task.txt        # task from stdin, one JSON result (or --stream-json)
+hal-agent profiles show gemma4:12b      # resolved model profile with the source of each value
 ```
 
 Settings come from flags, then `HAL_AGENT_*` environment variables, then the `[agent]` table:
@@ -34,3 +36,9 @@ Run the tests from the repository root:
 uv sync --all-packages
 uv run pytest packages/hal-agent
 ```
+
+## Headless exit codes
+
+`-p` exits 0 on success, 1 on a model or internal error, 2 on bad usage or configuration, 3 when
+the model endpoint is unreachable, 4 when a limit, loop or nudge limit ends the turn, 5 on a
+refusal, 124 on `--timeout` and 130 on SIGINT or SIGTERM. Verified by `tests/test_headless.py`.
