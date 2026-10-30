@@ -101,3 +101,10 @@ def error_body(err: GatewayError, fmt: str = "openai") -> bytes:
     else:
         doc = {"error": {"message": err.message, "type": err.code, "code": err.code}}
     return json.dumps(doc).encode("ascii")
+
+
+class UpstreamTimeout(GatewayError):
+    """The backend did not connect or answer in time, before any byte of the reply."""
+
+    status = 504
+    code = "upstream_timeout"

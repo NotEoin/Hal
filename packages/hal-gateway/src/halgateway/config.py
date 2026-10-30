@@ -228,6 +228,7 @@ class GatewayConfig:
     gpu: Mapping[str, object]
     backends: Mapping[str, Mapping[str, object]]
     aliases: Mapping[str, Mapping[str, object]]
+    ollama_url: str = ""  # `[hal].ollama_url`, the default of an Ollama backend
 
 
 def _entry(
@@ -312,4 +313,5 @@ def load_config(path: Path | None = None) -> GatewayConfig:
         gpu=config.load(GPU_TABLE, path=path),
         backends=backends,
         aliases=aliases,
+        ollama_url=str(config.load(config.HAL_TABLE, path=path)["ollama_url"]),
     )

@@ -32,3 +32,19 @@ Each `GatewayError` subclass owns one HTTP status. `error_body(err, fmt)` render
 - Connections beyond `max_connections` get 503 with `Retry-After: 1`.
 - Session and client tokens (`hal-sess-`, `hal-gwc-`) are refused with 401 until their registries
   are built (plan steps 19 and 21). The handler serves `/health` only; routes come with step 3.
+
+## Routes and relay (`routes`, `relay`, `backends`)
+
+- `routes.ROUTES` is the route table of the design; anything else is 404 (llama-server's
+  `/props`, `/slots`, `/metrics` are not routes). The query string is ignored for matching and
+  forwarded unchanged.
+- A model route needs a JSON object body with `Content-Length` (411 without, 400 for chunked,
+  413 over `max_request_bytes` with the body unread). `model` is rewritten to the upstream name
+  by `Gateway.resolve`; every other field is kept.
+- The relay streams each `read1(65536)` chunk and flushes it. It forwards the client's headers
+  except hop-by-hop ones, `Host`, `Authorization`, `X-Api-Key`, `Cookie` and `X-Hal-*`, and adds
+  the backend's key (`api_key_file` or `api_key_env`).
+- A backend that lacks the API gets 404 naming the APIs it serves. Connect or response timeouts
+  give 504, other failures before the reply 502; after the reply starts the connection is closed.
+- Not built yet: model listing, aliases (step 4), Ollama native routes and `count_tokens`
+  estimates (step 5), the request log (step 6). Those routes answer 404 "not available yet".

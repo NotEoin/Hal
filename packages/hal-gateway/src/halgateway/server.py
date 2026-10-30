@@ -26,6 +26,7 @@ from pathlib import Path
 from halkit import paths
 
 from . import auth
+from .backends import make_backend
 from .config import GatewayConfig
 from .errors import Unavailable, error_body
 from .handler import Handler
@@ -38,6 +39,7 @@ BIND_UMASK = 0o177  # the socket is created 0600 even before the chmod
 LISTEN_BACKLOG = 64
 RETRY_AFTER_S = 1
 PROBE_TIMEOUT_S = 1.0
+POLL_INTERVAL_S = 0.05  # how often serve_forever checks for shutdown; keeps stop() quick
 
 
 class StartError(Exception):
@@ -67,6 +69,10 @@ class _CappedMixin:
             self.shutdown_request(request)
             return
         super().process_request(request, client_address)  # type: ignore[misc]
+
+    def handle_error(self, request, client_address):  # type: ignore[no-untyped-def]  # socketserver API
+        """Logs a failed connection through `logging` instead of printing a traceback."""
+        log.warning("connection from %s failed", client_address or "unix", exc_info=True)
 
     def process_request_thread(self, request, client_address):  # type: ignore[no-untyped-def]  # socketserver API
         """Runs the handler, then frees the connection slot."""
@@ -122,9 +128,14 @@ class Gateway:
         self.own_uid = os.getuid() if own_uid is None else own_uid
         self.slots = threading.BoundedSemaphore(int(self.config["max_connections"]))  # type: ignore[call-overload]
         self.owner_token = ""
+        self.backends = {n: make_backend(n, e, cfg.ollama_url) for n, e in cfg.backends.items()}
         self.unix: UnixHTTPServer | None = None
         self.tcp: LoopbackHTTPServer | None = None
         self._threads: list[threading.Thread] = []
+
+    def resolve(self, model: str):  # type: ignore[no-untyped-def]  # returns (backend, upstream model)
+        """Maps a requested model name to a backend and upstream name (aliases arrive in step 4)."""
+        return next(iter(self.backends.values())), model
 
     def listener_kind(self, server: object) -> str:
         """Returns `unix` or `tcp` for one of this gateway's servers."""
@@ -163,7 +174,9 @@ class Gateway:
             self.tcp.gateway = self
             servers.append(self.tcp)
         for server in servers:
-            thread = threading.Thread(target=server.serve_forever, name="hal-gateway", daemon=True)
+            thread = threading.Thread(
+                target=lambda srv=server: srv.serve_forever(POLL_INTERVAL_S), name="hal-gateway", daemon=True
+            )
             thread.start()
             self._threads.append(thread)
         log.info("gateway listening on %s", path)
