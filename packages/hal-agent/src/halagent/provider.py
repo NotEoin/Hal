@@ -55,6 +55,14 @@ class Completion:
     completion_tokens: int = 0
 
 
+@dataclass(frozen=True)
+class ModelInfo:
+    """What the gateway's `GET /v1/models` says about one model; zero or empty when unknown."""
+
+    context_length: int = 0
+    hal_profile: str = ""
+
+
 class _UnixConnection(http.client.HTTPConnection):
     def __init__(self, path: str, timeout: float) -> None:
         super().__init__("localhost", timeout=timeout)
@@ -108,6 +116,32 @@ class ChatProvider:
         if self._tls:
             return http.client.HTTPSConnection(self._host, self._port, timeout=READ_TIMEOUT_S)
         return http.client.HTTPConnection(self._host, self._port, timeout=READ_TIMEOUT_S)
+
+    def model_info(self) -> ModelInfo:
+        """Reads `context_length` and `meta.hal_profile` of the model; empty if the server has none."""
+        headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
+        path = self._prefix + ("/models" if self._prefix.endswith("/v1") else "/v1/models")
+        conn = self._connect()
+        try:
+            conn.request("GET", path, headers=headers)
+            resp = conn.getresponse()
+            if resp.status != 200:
+                return ModelInfo()
+            rows = json.loads(resp.read()).get("data") or []
+        except (OSError, http.client.HTTPException, ValueError, AttributeError) as exc:
+            log.info("model list unavailable (%s); using configured limits", exc)
+            return ModelInfo()
+        finally:
+            conn.close()
+        row = next((r for r in rows if isinstance(r, dict) and r.get("id") == self.model), None)
+        if row is None:
+            return ModelInfo()
+        meta = row.get("meta") if isinstance(row.get("meta"), dict) else {}
+        length = row.get("context_length")
+        return ModelInfo(
+            context_length=length if isinstance(length, int) and length > 0 else 0,
+            hal_profile=str(meta.get("hal_profile") or ""),
+        )
 
     def complete(self, messages: list[dict], tools: list[dict] | None = None) -> Completion:
         """Sends `messages` (and native `tools` if given) and returns the assistant reply."""

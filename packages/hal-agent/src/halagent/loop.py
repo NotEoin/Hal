@@ -12,7 +12,7 @@ import json
 import logging
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from halagent.budget import (
     FREE_TOOLS,
@@ -33,11 +33,11 @@ from halagent.context import (
 from halagent.mcp.lite import LiteMcpClient, McpError
 from halagent.profiles import Profile, resolve_profile
 from halagent.prompts import render_code_prompt
-from halagent.provider import ChatProvider, Completion
+from halagent.provider import ChatProvider, Completion, ModelInfo, ProviderError
 from halagent.repair import has_open_marker, repair_call, repair_text
 from halagent.repair.aliases import parse_args
 from halagent.sessions import SessionWriter, replay_indexed
-from halagent.settings import AgentSettings
+from halagent.settings import DEFAULT_MAX_OUTPUT, DEFAULT_WINDOW, AgentSettings
 from halagent.tools import ToolError, Toolset, render_error
 from halkit import paths
 
@@ -47,6 +47,8 @@ GATED_KINDS = frozenset({"edit", "delete", "move", "execute"})  # review mode as
 ALLOW, REJECT, CANCELLED = ("allow_once", "allow_always"), ("reject_once", "reject_always"), "cancelled"
 PermissionFn = Callable[[str, str, str, dict], str]  # (call id, tool name, kind, arguments) -> choice
 
+MAX_OUTPUT_SHARE = 4  # a reply may take at most a quarter of the window
+OVERFLOW_SHRINK = 0.75  # after a context_length_exceeded answer, plan for 25% less input
 MAX_RESULT_CHARS = 12_000
 HEAD_KEEP = 4_000
 TAIL_KEEP = 8_000
@@ -74,6 +76,24 @@ class RunResult:
     tool_calls: int
 
 
+def effective_settings(settings: AgentSettings, profile: Profile, info: ModelInfo) -> AgentSettings:
+    """Fills the limits the user left at their defaults from the gateway, then the profile.
+
+    Precedence per key: an explicit setting, the gateway (window only), the profile, the default.
+    """
+    window = settings.context_window
+    if window == DEFAULT_WINDOW:
+        window = info.context_length or int(profile.values.get("context", window))
+    out = settings.max_output
+    if out == DEFAULT_MAX_OUTPUT:
+        out = int(profile.values.get("max_output", out))
+    out = min(out, max(1, window // MAX_OUTPUT_SHARE))
+    fmt = settings.tool_format
+    if fmt == "native" and profile.values.get("tool_format") == "prompt":
+        fmt = "prompt"
+    return replace(settings, context_window=window, max_output=out, tool_format=fmt)
+
+
 class Agent:
     """A conversation with tools. `run` may be called repeatedly; history persists."""
 
@@ -89,24 +109,25 @@ class Agent:
         profile: Profile | None = None,
         permission: PermissionFn | None = None,
     ) -> None:
-        self.settings = settings
         self.mode = "auto"  # or "review": gated tools call `permission` first
         self.permission = permission
         self._remembered: dict[str, str] = {}  # tool name -> allow_always or reject_always
-        self.profile = profile or resolve_profile(
-            settings.model, user_file=paths.config_dir() / "model-profiles.toml"
+        built = provider is None
+        self.provider = provider or ChatProvider(
+            settings.endpoint, settings.model, api_key=settings.api_key, stream=settings.stream
         )
+        info = self.provider.model_info() if hasattr(self.provider, "model_info") else ModelInfo()
+        self.profile = profile or resolve_profile(
+            settings.model, user_file=paths.config_dir() / "model-profiles.toml", hal_profile=info.hal_profile
+        )
+        if built:
+            self.provider.extra = self.profile.request_extras()
+        self.settings = effective_settings(settings, self.profile, info)
+        settings = self.settings
         self.system_extra = system_extra
         self.on_update = on_update or (lambda update: None)
         self.cancel = threading.Event()
         self.toolset = toolset
-        self.provider = provider or ChatProvider(
-            settings.endpoint,
-            settings.model,
-            api_key=settings.api_key,
-            stream=settings.stream,
-            extra=self.profile.request_extras(),
-        )
         self.on_event = on_event or (lambda kind, text: None)
         self.mcp: LiteMcpClient | None = None
         self._mcp_tools: dict[str, dict] = {}
@@ -157,6 +178,21 @@ class Agent:
                 self.session.write({"type": "message", "turn": self.turn, "i": self._next_i, "msg": msg})
             self._next_i += 1
         return self.messages
+
+    def _wire(self, history: list[dict]) -> list[dict]:
+        """Applies the profile's `system_role` and `strict_alternation` to the outgoing copy."""
+        role = str(self.profile.values.get("system_role", "system"))
+        out = [{**m, "role": role} if m is history[0] and role != "system" else m for m in history]
+        if self.profile.values.get("strict_alternation"):
+            merged: list[dict] = []
+            for m in out:
+                prev = merged[-1] if merged else None
+                if prev and m["role"] == prev["role"] == "user" and "tool_calls" not in m:
+                    merged[-1] = {**prev, "content": f"{prev['content']}\n\n{m['content']}"}
+                else:
+                    merged.append(m)
+            out = merged
+        return out
 
     def resume(self, records: list[dict]) -> None:
         """Continues a stored session: replaces the history with the replayed messages."""
@@ -266,7 +302,22 @@ class Agent:
             except ContextOverflow as exc:
                 log.error("%s", exc)
                 return RunResult(text, "context_overflow", turns, clock.calls_used)
-            reply = self.provider.complete(history, self._specs() if native else None)
+            try:
+                reply = self.provider.complete(self._wire(history), self._specs() if native else None)
+            except ProviderError as exc:
+                if exc.status != 400 or "context_length_exceeded" not in str(exc):
+                    raise
+                # the gateway's overflow rewrite (05-gateway): our estimate was too low, plan for less
+                self.context.input_budget = int(self.context.input_budget * OVERFLOW_SHRINK)
+                log.warning(
+                    "context overflow reported by the server; input budget now %d", self.context.input_budget
+                )
+                try:
+                    history = self._fit()
+                    reply = self.provider.complete(self._wire(history), self._specs() if native else None)
+                except (ContextOverflow, ProviderError) as again:
+                    log.error("%s", again)
+                    return RunResult(text, "context_overflow", turns, clock.calls_used)
             self._report_usage(reply)
             text = reply.text
             calls = list(reply.tool_calls)

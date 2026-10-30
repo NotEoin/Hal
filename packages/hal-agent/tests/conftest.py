@@ -11,6 +11,16 @@ from halkit.testing.model_server import FakeModelServer
 def server() -> Iterator[FakeModelServer]:
     """A started fake model server; queue replies with `server.script(...)`."""
     with FakeModelServer() as srv:
+        srv.model_list_requests = []  # the agent asks for the model list once per start-up
+        record = srv._record
+
+        def skip_model_list(handler, body) -> None:
+            if handler.path == "/v1/models":
+                srv.model_list_requests.append(handler.path)
+            else:
+                record(handler, body)
+
+        srv._record = skip_model_list
         yield srv
 
 
