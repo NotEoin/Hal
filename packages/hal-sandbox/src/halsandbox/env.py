@@ -26,7 +26,7 @@ PASSTHROUGH = (
 )
 BOX_PATH = "/opt/hal/venv/bin:/opt/hal/bin:/usr/local/bin:/usr/bin:/bin"
 RELAY_HOST = "127.0.0.1"
-KINDS = ("box", "shell", "code", "deps")
+KINDS = ("box", "shell", "code", "chat", "job", "deps")
 _RELAY_KINDS = ("box", "shell")  # only these run an in-box model relay
 _FIXED = {
     "HOME": "/home/hal",

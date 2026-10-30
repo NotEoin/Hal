@@ -21,7 +21,7 @@ from ..limits import Limits
 
 DEFAULT_ENTRYPOINT = "/opt/hal/bin/hal-box-entry"
 RUNTIMES = ("runc", "runsc")
-KINDS = ("box", "shell", "code", "deps")
+KINDS = ("box", "shell", "code", "chat", "job", "deps")
 BOX_HOSTNAME = "hal-box"
 NAME_PREFIX = "hal"
 CORE_LIMIT = "core=0"  # a core dump would land in /work
