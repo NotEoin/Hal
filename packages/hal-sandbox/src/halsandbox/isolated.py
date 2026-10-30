@@ -27,13 +27,15 @@ import re
 import secrets
 import shutil
 import stat
+import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
 from halkit import fsafe, paths, proc, timeutil
 
-from . import scratch
+from . import shadow
+from .checkpoints import Checkpoint, CheckpointError
 from .diffreport import HIGH, MODE_SYMLINK, Flag, flags_for
 from .errors import SandboxError
 from .gitops import HARDEN_ARGS, GitRunner
@@ -312,20 +314,18 @@ def patch_bytes(iso: Isolated) -> bytes:
     )
 
 
-def _checkpoint(iso: Isolated) -> str:
-    """Snapshots the real project into `$STATE/checkpoints/<project-key>`, which outlives the session."""
-    gitdir = paths.ensure_private_dir(paths.state_dir() / "checkpoints") / scratch.project_key(iso.project)
-    if not gitdir.is_dir():
-        _git(gitdir, None, "init", "-q", "--bare", str(gitdir), cwd=gitdir.parent)
-    index = gitdir / "index"
-    _git(
-        gitdir, iso.project, "add", "-A", cwd=iso.project, index=index
-    )  # the project's .gitignore keeps caches out
-    tree = _git(gitdir, iso.project, "write-tree", cwd=iso.project, index=index).decode().strip()
-    msg = f"checkpoint before accept {iso.sid}"
-    commit = _git(gitdir, None, *_IDENT, "commit-tree", tree, "-m", msg, cwd=gitdir).decode().strip()
-    _git(gitdir, None, "update-ref", f"refs/checkpoints/{iso.sid}", commit, cwd=gitdir)
-    return commit
+def _checkpoint(iso: Isolated) -> Checkpoint:
+    """Checkpoints the real project before `accept` writes to it; `Checkpoints.restore` undoes the apply.
+
+    A git project keeps the refs in its own repository (`refs/hal/checkpoints`), any other folder in
+    a shadow repository under the state dir. The size limit for non-git folders is lifted here: the
+    copy was already capped by `max_copy_bytes`.
+    """
+    try:
+        ckpt = shadow.open_checkpoints(iso.project, iso.sid, nongit_max_total_bytes=sys.maxsize)
+        return ckpt.take(f"before accept {iso.sid}")
+    except CheckpointError as exc:
+        raise AcceptRefused(f"cannot checkpoint the project, so nothing was applied: {exc}") from exc
 
 
 def accept(iso: Isolated, *, allow_flags: bool = False) -> list[Change]:

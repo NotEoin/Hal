@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from halsandbox import isolated
+from halsandbox import isolated, shadow
 from halsandbox.errors import SandboxError
 
 CAP = 10**7
@@ -71,8 +71,12 @@ def test_accept_applies_edits_adds_and_deletes_and_checkpoints(repo):
     assert (repo / "app.py").read_text() == "print('changed')\n" and (repo / "new.txt").exists()
     assert not (repo / "untracked.txt").exists() and (repo / ".env").exists()
     assert not iso.root.exists()
-    cp = next((isolated.paths.state_dir() / "checkpoints").iterdir())
-    assert "checkpoint before accept" in _git(cp, "log", "--all", "--format=%s")
+    ck = shadow.open_checkpoints(repo, iso.sid)
+    (last,) = ck.list()
+    assert last.label == f"before accept {iso.sid}"
+    assert (repo / "untracked.txt").exists() is False
+    assert ck.restore(last).deleted == ("new.txt",)
+    assert (repo / "app.py").read_text() != "print('changed')\n" and (repo / "untracked.txt").exists()
 
 
 def test_high_risk_changes_block_accept_unless_allowed(repo):
