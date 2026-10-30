@@ -71,7 +71,7 @@ async def run(args: argparse.Namespace, prompt: str, out: TextIO | None = None) 
     try:
         await client.initialize()
         sid = await client.new_session(cwd, [])
-        box.session.broker.on_human_message(prompt, sessions.SURFACE_TUI)
+        box.session.broker.on_human_message(prompt, sessions.SURFACE_HEADLESS)
         reason = await client.prompt(sid, [{"type": "text", "text": prompt}])
         iso = getattr(box.session, "iso", None)
         result = {

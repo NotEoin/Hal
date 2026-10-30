@@ -10,8 +10,8 @@
 
 The old `[brain].deep_work` still works when `[agent].deep_work` is unset: `claude` stays
 `claude`, `off` stays `off`, and `hal` means `queue`. This module only decides and records: the
-runner that starts queued jobs under gpu-light class `batch` is not built yet, so a job stays
-`queued` until it is.
+runner that starts queued jobs lives in `halcore.jobrunner`; a job stays `queued` until
+`hal jobs run` starts it.
 """
 
 from __future__ import annotations
@@ -68,6 +68,11 @@ class Job:
     state: str = "queued"
     created: str = field(default_factory=iso_z)
     note: str = ""
+    pid: int | None = None  # the worker process while the job runs
+    started: str = ""
+    finished: str = ""
+    isolated_session: str | None = None  # the copy `hal code accept` or `export` takes
+    result: str = ""  # tail of the agent's last reply
 
 
 def jobs_dir() -> Path:
@@ -100,11 +105,16 @@ def listing() -> list[Job]:
 
 
 def cancel(job_id: str) -> Job:
-    """Cancels a queued job; a running job is stopped by its runner, so it is refused here."""
+    """Cancels a queued or running job; a running job's worker gets SIGTERM and closes its box."""
     job = load(job_id)
-    if job.state != "queued":
-        raise ValueError(f"job {job_id} is {job.state}; only a queued job can be cancelled here")
+    if job.state not in ("queued", "running"):
+        raise ValueError(f"job {job_id} is {job.state}; only a queued or running job can be cancelled")
+    if job.state == "running" and job.pid is not None:
+        from .jobrunner import stop_worker
+
+        stop_worker(job.pid)
     job.state = "cancelled"
+    job.finished = iso_z()
     save(job)
     return job
 
@@ -153,6 +163,10 @@ def main(argv: list[str]) -> int:
                 print(f"{job.id}  {job.state:9} {job.created}  {job.task[:60]!r}")
             if not rows:
                 print("(no jobs)")
+        elif cmd in ("run", "follow", "accept", "export", "worker"):
+            from .jobrunner import command
+
+            return command(cmd, rest)
         elif cmd == "show" and rest:
             print(json.dumps(asdict(load(rest[0])), indent=2))
         elif cmd == "cancel" and rest:
@@ -163,10 +177,10 @@ def main(argv: list[str]) -> int:
                 Path.cwd(),
                 confirm=lambda q: os.isatty(0) and input(q + " [y/N] ").strip().lower() == "y",
             )
-            print(f"queued {routed.job.id}" if routed.job else routed.reason)
+            print(f"queued {routed.job.id}; `hal jobs run` starts it" if routed.job else routed.reason)
             return 0 if routed.action == "queued" else 3
         else:
-            print("usage: hal jobs [list | show ID | cancel ID | add TASK...]")
+            print("usage: hal jobs [list | show ID | cancel ID | add TASK... | run [--wait] | follow ID | accept ID | export ID FILE]")
             return 2
     except ValueError as exc:
         print(f"hal jobs: {exc}")

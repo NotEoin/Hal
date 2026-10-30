@@ -179,7 +179,7 @@ def test_headless_json_prints_one_result_object_and_tells_the_broker(tmp_path, m
     status, out, broker, log = _headless_run("json", tmp_path, monkeypatch)
     result = json.loads(out)
     assert status == 0 and result["reply"] == "hi" and result["stop_reason"] == "end_turn"
-    assert broker.heard == [("hello", "tui")] and log[0]["kind"] == "chat"
+    assert broker.heard == [("hello", "headless")] and log[0]["kind"] == "chat"
 
 
 def test_headless_stream_json_emits_updates_then_a_result_line(tmp_path, monkeypatch):

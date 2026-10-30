@@ -36,6 +36,7 @@ BOX_SCRATCH = "/scratch"
 STDERR_LOG = "agent-stderr.log"
 SURFACE_ACP = "acp"  # REQ-SEC-93 surface name for editor and channel prompts
 SURFACE_TUI = "tui"
+SURFACE_HEADLESS = "headless"  # `hal -p`
 
 
 @dataclass
@@ -64,7 +65,7 @@ class BoxedAgent:
         shared = config.shared()
         upstream = upstream or os.environ.get("HAL_CODE_UPSTREAM") or shared["ollama_url"]
         model = model or os.environ.get("HAL_AGENT_MODEL") or shared["chat_model"]
-        coding = kind == "code"
+        coding = kind in ("code", "job") and project is not None
         child = [
             "hal-agent", "--acp", "-C", BOX_WORK if coding else BOX_SCRATCH,
             "--endpoint", sandbox.MODEL_SOCKET, "--broker", sandbox.BROKER_SOCKET,

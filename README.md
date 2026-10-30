@@ -197,6 +197,9 @@ rendered with its own path, so it works wherever it is cloned; a unit marked `X-
 - **Long jobs** (`[agent].deep_work`) are `queue` by default: they wait in `hal jobs` for Hal's own boxed
   agent. `off` refuses them and `ask` confirms first. Only `claude`, which you must set yourself, hands a
   job to Claude Code (not private, not sandboxed). The older `[brain].deep_work` still maps onto these.
+  `hal jobs run` starts the oldest queued job in a box on an isolated copy (as gpu-light class `batch`
+  when gpu-light is installed); `hal jobs follow ID` shows it live, a restart requeues a job whose
+  worker is gone, and `hal jobs accept ID` or `hal jobs export ID FILE` is how its changes leave.
 - Extensions that reach the internet (web search, weather, iCloud sync, ntfy) say so in their READMEs.
 
 ## 🧭 Limitations
