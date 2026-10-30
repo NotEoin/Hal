@@ -95,3 +95,8 @@ def test_embed_returns_one_vector_per_text_in_order(home):
     with FakeModelServer(home.runtime / "gateway.sock"):
         vectors = llm.embed(["a", "b"], timeout=5)
     assert vectors == [fake_embedding("a"), fake_embedding("b")]
+
+
+def test_ping_lists_the_gateway_models(home):
+    with FakeModelServer(home.runtime / "gateway.sock"):
+        assert llm.ping(timeout=5) == ["fake-model"]

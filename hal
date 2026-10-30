@@ -11,6 +11,7 @@
 #   hal here [args...]   open Claude Code in the current directory (for coding projects)
 #   hal on | off         start Hal's services, or stop the ones using the GPU and free it
 #   hal toggle           on if off, off if on (the desktop launcher runs this)
+#   hal doctor           lockdown, runtime and classifier checks (exit 1 on a problem)
 #   hal status           what is running, and on the max profile what the model server serves
 #   hal ext [list|add|remove|enable|disable|update|doctor]   manage extensions
 #   hal console          the test console: try Hal and grade answers, http://127.0.0.1:8740
@@ -119,8 +120,11 @@ case "${1:-}" in
     exec "$HAL_ROOT/hal-serve" stop ;;
   status)
     PYTHONPATH="$HALCORE_SRC" python3 -m halcore power status
+    PYTHONPATH="$HALCORE_SRC" python3 -m halcore security status
     [ "$BACKEND" = "llamacpp" ] && exec "$HAL_ROOT/hal-serve" status
     exit 0 ;;
+  doctor)
+    PYTHONPATH="$HALCORE_SRC" exec python3 -m halcore security doctor ;;
   here)
     shift; TARGET="$PWD" ;;
   claude)

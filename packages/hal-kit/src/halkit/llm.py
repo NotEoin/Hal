@@ -112,15 +112,20 @@ def _connect(endpoint: _Endpoint, timeout: float) -> http.client.HTTPConnection:
     return cls(host, int(port), timeout=timeout)
 
 
-def _post(path: str, body: Mapping[str, object], timeout: float) -> http.client.HTTPResponse:
-    """Sends one JSON POST; returns the response with status 200, else raises."""
+def _post(path: str, body: Mapping[str, object] | None, timeout: float) -> http.client.HTTPResponse:
+    """Sends one JSON request (a GET when `body` is None); returns a 200 response, else raises."""
     endpoint = _endpoint()
     headers = {"Content-Type": "application/json"}
     if endpoint.token:
         headers["Authorization"] = f"Bearer {endpoint.token}"
     conn = _connect(endpoint, timeout)
     try:
-        conn.request("POST", endpoint.prefix + path, json.dumps(body), headers)
+        conn.request(
+            "GET" if body is None else "POST",
+            endpoint.prefix + path,
+            None if body is None else json.dumps(body),
+            headers,
+        )
         resp = conn.getresponse()
     except (OSError, http.client.HTTPException) as exc:
         conn.close()
@@ -215,3 +220,12 @@ def embed(texts: Sequence[str], *, model: str = "hal-embed", timeout: float) -> 
     if len(vectors) != len(texts):
         raise GatewayError(f"gateway returned {len(vectors)} vectors for {len(texts)} texts", 200)
     return vectors
+
+
+def ping(*, timeout: float) -> list[str]:
+    """Returns the model aliases the gateway lists; raises when it cannot be reached."""
+    data = _json(_post("/v1/models", None, timeout))
+    rows = data.get("data")
+    if not isinstance(rows, list):
+        raise GatewayError("gateway reply has no model list", 200)
+    return [str(row["id"]) for row in rows if isinstance(row, dict) and "id" in row]
