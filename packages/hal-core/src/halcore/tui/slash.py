@@ -18,7 +18,9 @@ from typing import TYPE_CHECKING
 from halsandbox import isolated
 from halsandbox.errors import SandboxError
 
+from .. import sessionscmd
 from ..acp.client import AcpError
+from ..acp.records import RecordStore
 from .render import Renderer, clip, safe
 
 if TYPE_CHECKING:
@@ -29,6 +31,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 COMMANDS_DIR = Path(".hal") / "commands"
+RESUME_LIST_LIMIT = 10
 MAX_COMMAND_BYTES = 64 * 1024  # a prompt template, not a document
 MAX_IMAGE_BYTES = 5 * 2**20  # the ACP line cap is 8 MiB and base64 adds a third
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
@@ -61,6 +64,7 @@ class TuiState:
     mode: str = "default"
     attachments: list[Block] = field(default_factory=list)
     new_conversation: Callable[[], Awaitable[str]] | None = None
+    records: RecordStore | None = None
 
 
 def image_block(path: Path) -> Block:
@@ -112,6 +116,39 @@ async def _clear(state: TuiState, args: str) -> Result:
     state.sid = await state.new_conversation()
     state.renderer.todo = []
     return Result(message="(new conversation in the same box)")
+
+
+async def _resume(state: TuiState, args: str) -> Result:
+    if state.records is None:
+        return Result(message="/resume is not available here")
+    if not args:
+        rows = sessionscmd.list_sessions(state.records, state.project, RESUME_LIST_LIMIT)
+        if not rows:
+            return Result(message="no stored sessions for this project")
+        return Result(
+            message="sessions (use /resume ID):\n"
+            + "\n".join(f"{m['id']}  {m.get('updated', '')}  {safe(m.get('title', ''))}" for m in rows)
+        )
+    try:
+        _, records = sessionscmd.load_for_resume(state.records, args, state.project)
+        await state.client.load_session(args, state.cwd, records)
+    except (sessionscmd.SessionsError, AcpError) as exc:
+        return Result(message=f"/resume: {safe(str(exc))}")
+    state.sid = args
+    return Result(message=f"resumed {args}")
+
+
+async def _fork(state: TuiState, args: str) -> Result:
+    if state.records is None:
+        return Result(message="/fork is not available here")
+    try:
+        new = sessionscmd.fork(state.records, state.sid)
+        _, records = sessionscmd.load_for_resume(state.records, new)
+        await state.client.load_session(new, state.cwd, records)
+    except (sessionscmd.SessionsError, AcpError) as exc:
+        return Result(message=f"/fork: {safe(str(exc))}")
+    state.sid = new
+    return Result(message=f"forked into {new}; the original session is unchanged")
 
 
 async def _mode(state: TuiState, args: str) -> Result:
@@ -198,9 +235,9 @@ async def _apply(state: TuiState, args: str) -> Result:
     return Result(message=print_report + f"\napplied {len(applied)} changed paths")
 
 
-HELP = """/help  /quit  /clear  /mode [default|auto-edit|plan]  /todo  /model  /compact  /image PATH
+HELP = """/help  /quit  /clear  /mode [default|auto-edit|plan]  /todo  /model  /compact  /resume [ID]  /fork  /image PATH
 /diff [N]  /rewind [N]  /apply [--allow-flags]  and your commands in .hal/commands/NAME.md"""
 BUILTINS = {
-    "help": _help, "clear": _clear, "mode": _mode, "todo": _todo, "model": _model, "compact": _compact,
+    "help": _help, "clear": _clear, "mode": _mode, "todo": _todo, "model": _model, "compact": _compact, "resume": _resume, "fork": _fork,
     "image": _image, "diff": _diff, "rewind": _rewind, "apply": _apply,
 }  # fmt: skip

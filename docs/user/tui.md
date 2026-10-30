@@ -25,6 +25,7 @@ with a scripted agent; not yet run against a live model.
 | `/diff [N]`, `/rewind [N]` | Show changes since checkpoint N; list checkpoints, or restore one (files that cannot come back are listed) |
 | `/apply [--allow-flags]` | Apply the isolated copy to your real project after the risk report |
 | `/compact` | Summarise the session so far to free context; the transcript keeps the full history |
+| `/resume [ID]`, `/fork` | List this project's stored sessions, or load one into this box; `/fork` continues in a copy of the current session and leaves the original unchanged |
 | `/image PATH` | Attach a png, jpg, gif or webp (up to 5 MiB) to the next prompt; the model must take images (chat completions endpoint, profile `vision` not false) |
 | `/model [NAME]` | Show the model, or switch to NAME from the next turn (the model server must serve it) |
 | `/NAME ARGS` | Run `.hal/commands/NAME.md` from the project, with `$ARGUMENTS` replaced |
@@ -55,3 +56,11 @@ A coding turn works on an isolated copy, so `isolated_session` names what to giv
 `hal code accept` or `hal code export`. Exit status: 0 for a finished turn, 1 for another stop
 reason or an agent failure, 2 for no prompt, 3 for a refused start (docker down, lockdown, no
 consent). Verified by `packages/hal-core/tests/test_boxed_channels.py` with a fake agent.
+
+## Sessions from the shell
+
+| Command | What it does |
+| --- | --- |
+| `hal sessions list [--project DIR] [--limit N] [--json]` | Stored sessions, newest first, with project and title |
+| `hal sessions export SID [--format md\|jsonl] [-o FILE] [--with-tool-output]` | Write a transcript with secrets redacted; tool output is left out unless asked for |
+| `hal sessions resume SID`, `hal code --resume SID` | Reopen a session in its project (needs a terminal); refused when the project folder is gone |

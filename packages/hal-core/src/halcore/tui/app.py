@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import TextIO
 
-from .. import sessions, unboxed
+from .. import sessions, sessionscmd, unboxed
 from ..acp.client import AcpClient, AcpError
 from ..acp.permissions import PermissionBridge, socket_owned_by_us
 from ..acp.records import RecordRefused, RecordStore
@@ -61,6 +61,8 @@ async def run_tui(
     cwd: str,
     project: Path | None = None,
     model: str = "",
+    resume: str = "",
+    store: RecordStore | None = None,
     out: TextIO | None = None,
     stdin_line=None,  # noqa: ANN001 - an async callable returning one line; tests inject a script
 ) -> int:
@@ -68,17 +70,34 @@ async def run_tui(
     out = out or sys.stdout
     loop = asyncio.get_running_loop()
     renderer = Renderer(out)
-    client = AcpClient(box.transport, TuiHandler(renderer))
+    store = store or RecordStore()
+    client = AcpClient(box.transport, TuiHandler(renderer, store))
 
     async def read_line(prompt: str = "") -> str:
         return await loop.run_in_executor(None, input, prompt)
 
     read = stdin_line or read_line
     await client.initialize()
-    sid = await client.new_session(cwd, [])
+    if resume:
+        try:
+            _, records = sessionscmd.load_for_resume(store, resume, project)
+        except sessionscmd.SessionsError as exc:
+            print(f"hal code: {exc}", file=out)
+            return 1
+        await client.load_session(resume, cwd, records)
+        sid = resume
+    else:
+        sid = await client.new_session(cwd, [])
+    sessionscmd.write_meta(store, sid, project=str(project or ""), model=model, mode="code")
+
+    async def fresh() -> str:
+        new = await client.new_session(cwd, [])
+        sessionscmd.write_meta(store, new, project=str(project or ""), model=model, mode="code")
+        return new
+
     state = TuiState(
         client, sid, cwd, renderer, session=box.session, project=project, model=model,
-        new_conversation=lambda: client.new_session(cwd, []),
+        new_conversation=fresh, records=store,
     )  # fmt: skip
     bridge = PermissionBridge(socket_owned_by_us, lambda: state.sid)
     approvals = asyncio.ensure_future(bridge.run(make_asker(bridge, lambda: read(""), out)))
@@ -126,6 +145,8 @@ async def _turn(state: TuiState, box: sessions.BoxedAgent, text: str, out: TextI
     except ValueError as exc:
         print(f"cannot start the turn: {exc}", file=out)
         return
+    if state.records is not None:
+        sessionscmd.write_meta(state.records, state.sid, title=sessionscmd.title_of(text))
     task = asyncio.ensure_future(state.client.prompt(state.sid, blocks))
     loop = asyncio.get_running_loop()
     with contextlib.suppress(NotImplementedError, RuntimeError):  # not on a non-main thread or Windows

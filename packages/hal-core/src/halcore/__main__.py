@@ -16,6 +16,8 @@ def main() -> int:
         return run([cmd, *rest])
     elif cmd == "jobs":
         from .deepwork import main as run
+    elif cmd == "sessions":
+        from .sessionscmd import main as run
     elif cmd == "ext":
         from .ext import main as run
     elif cmd == "eval":

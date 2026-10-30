@@ -84,7 +84,7 @@ async def _tui(opts: argparse.Namespace) -> int:
         image=opts.image, runtime=opts.runtime, direct=opts.direct,
     )  # fmt: skip
     try:
-        return await run_tui(box, cwd=sessions.BOX_WORK, project=project, model=opts.model)
+        return await run_tui(box, cwd=sessions.BOX_WORK, project=project, model=opts.model, resume=opts.resume)
     finally:
         await box.close()
         if box.session.iso is not None:
@@ -111,11 +111,15 @@ def main(argv: list[str]) -> int:
     p.add_argument("--image", default=sandbox.DEFAULT_IMAGE)
     p.add_argument("--runtime", choices=("runc", "runsc"))
     p.add_argument("--direct", action="store_true", help="mount DIR itself (lockdown relaxed or lower)")
+    p.add_argument("--resume", metavar="SID", default="", help="reopen stored session SID (see hal sessions)")
     opts = p.parse_args(argv)
     if "--model" not in agent_args:
         agent_args = ["--model", opts.model, *agent_args]
     interactive = os.isatty(0) and os.isatty(1)
     try:
+        if opts.resume and not interactive:
+            print("hal code: --resume needs a terminal", file=sys.stderr)
+            return EXIT_REFUSED
         if not opts.build and interactive and "--" not in sys.argv:
             return asyncio.run(_tui(opts))
         if opts.build:
