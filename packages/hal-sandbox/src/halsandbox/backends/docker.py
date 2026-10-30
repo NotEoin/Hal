@@ -53,6 +53,7 @@ class LaunchSpec:
     userns_host: bool = False
     entrypoint: str | None = DEFAULT_ENTRYPOINT  # None keeps the image's own entrypoint
     relay_port: int | None = None
+    relay_socket: str | None = None  # the socket hal-relay forwards to; the entry's default is model.sock
     extra_labels: Mapping[str, str] = field(default_factory=dict)
     docker: str = "docker"  # the docker CLI, from detection (`HAL_DOCKER` or `[sandbox].docker`)
     bwrap: str = "bwrap"  # bwrap backend only
@@ -142,6 +143,8 @@ def docker_argv(spec: LaunchSpec) -> list[str]:
     argv.append(spec.image)
     if spec.relay_port is not None:
         argv += ["--relay-port", str(spec.relay_port)]
+        if spec.relay_socket is not None:
+            argv += ["--relay-socket", spec.relay_socket]
     if spec.entrypoint is not None and spec.child:
         argv.append("--")  # hal-box-entry rejects a child command without it (found by the end-to-end test)
     return argv + list(spec.child)

@@ -39,8 +39,13 @@ Regenerate a golden file only after reading the diff: it is the reviewed list of
 ## What is not built
 
 - `Session` accepts an `approver` and does not use it; approvals still come from the `halhub mcp` child.
-- Sanitised git config (REQ-BOX-15), the terminal filter, the dependency-prep box (`egress.py`
-  exists, `deps.py` does not), box images for agent CLIs and `hal box` are later steps of the plan.
+- Sanitised git config (REQ-BOX-15), the terminal filter, box images for agent CLIs and `hal box`
+  are later steps of the plan.
+- Dependency prep: `deps.prepare(work, approve=...)` works and is tested against docker (runc and runsc,
+  `test_deps_live.py`, needs network). `approve` is a callable, not `halhub`'s `Approver`; halcore builds
+  the `sandbox_deps_prep` request. There is no `hal code --deps` flag or `hal-sandbox deps` command yet,
+  and the "done" record is `deps.json`, not a key of `projects.json`. Only `uv` is proven live; `npm`
+  needs `[sandbox].node = true` and `cargo` needs it in `extra_apt_packages`, both unverified.
 - Images: `images.build` makes `sandbox` and `sandbox-slim` (optional node); `hal code --build` calls it.
   There is no `hal box image build` command yet (step 32), no per-CLI image and no custom-image check.
   `images/requirements-box.txt` is `uv export --no-dev --package hal-agent --no-emit-workspace`; regenerate
