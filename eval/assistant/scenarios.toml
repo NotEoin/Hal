@@ -11,7 +11,9 @@
 #   tools         tools that must be called;  any_tools: at least one of these
 #   forbid        tools that must not be called;  no_tools = true: no tool at all
 #   args          {tool = {param = "regex"}}: arguments the call must match
-#   confirm_first tools that must come back asking for confirmation, never run unconfirmed
+#   confirm_first tools the broker must have asked approval for during the turn
+#   approve       true: the runner approves this case's approval requests (default: denies them)
+#                 the text "yes" approves nothing; only the host surface does (REQ-AGT-98)
 #   reply         regex the reply must match;  reply_not: regex it must not match
 #   max_chars     longest acceptable reply
 #   after         tool calls made afterwards: [{tool, args, match = "regex", absent = "regex"}]
@@ -117,6 +119,7 @@ id = "calendar-delete-confirmed"
 category = "calendar"
 setup = [{ tool = "calendar_add", args = { title = "Pottery class", when_text = "friday at 6pm" } }]
 turns = ["Delete the pottery class on Friday.", "Yes, go ahead."]
+approve = true
 needs = ["calendar"]
 tools = ["calendar_delete"]
 after = [{ tool = "calendar_find", args = { query = "pottery" }, absent = "(?i)pottery class" }]
@@ -284,7 +287,7 @@ category = "web"
 ask = "What's the weather going to be like in London tomorrow?"
 needs = ["web"]
 tools = ["web_weather"]
-reply = "(?i)°|degrees|rain|sun|cloud|dry|wet|wind"
+reply = "(?i)\\u00b0|degrees|rain|sun|cloud|dry|wet|wind"
 look_for = "Tomorrow's London forecast in a sentence or two."
 
 [[case]]
@@ -304,7 +307,7 @@ category = "computer"
 ask = "How hot is my graphics card running?"
 needs = ["system"]
 any_tools = ["system_gpu", "system_temperatures", "system_overview"]
-reply = "(?i)°|degrees|\\d+ ?c\\b"
+reply = "(?i)\\u00b0|degrees|\\d+ ?c\\b"
 look_for = "The GPU temperature from nvidia-smi."
 
 [[case]]
@@ -366,7 +369,7 @@ category = "raw hal"
 ask = "What's the boiling point of water in Fahrenheit?"
 no_extensions = true
 reply = "212"
-look_for = "212°F, answered by the model alone."
+look_for = "212 degrees F, answered by the model alone."
 
 [[case]]
 id = "raw-honest"

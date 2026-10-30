@@ -1,6 +1,6 @@
 """`hal console`: a local web page for trying Hal and grading the answers.
 
-Lists every case in eval/scenarios.toml (the live ones too) with what to look for. Each
+Lists every case in eval/assistant/scenarios.toml (the live ones too) with what to look for. Each
 can be sent to Hal as text from the page, or said aloud to hal-voice and then pulled in
 with "use my last voice turn". The page runs the automatic checks it can against the real
 setup, and you mark each answer pass or fail with a note. Grades are kept in

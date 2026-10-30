@@ -203,7 +203,7 @@ extensions load?) and `hal chat --json "..."`, which shows the tools offered and
 that is too small for tool calling shows up in `hal eval` as many failures.
 
 **Hal says something was done but it wasn't.** Run that request through `hal console` or
-`hal chat --json`: the tools list shows whether a call failed. Add it to `eval/scenarios.toml`
+`hal chat --json`: the tools list shows whether a call failed. Add it to `eval/assistant/scenarios.toml`
 so it stays fixed.
 
 **Change the model later.** Pull anything from Ollama and launch with it:

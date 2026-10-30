@@ -77,7 +77,7 @@ Two settings are yours alone; no tool call can change either. `hal status` and `
 |---|---|
 | `hal` | The launcher: chat, coding, on/off, extensions, eval and console |
 | `packages/hal-core/` | The brain (agent loop), extension management, services, eval and console |
-| `eval/scenarios.toml` | The requests Hal is tested against, and how each answer is checked |
+| `eval/assistant/scenarios.toml` | The requests Hal is tested against, and how each answer is checked |
 | `setup.sh` | Installs Ollama, the models for your GPU, Claude Code, and writes the config |
 | `hal-serve`, `hal-route.py`, `packages/hal-gateway/.../modes/` | The max profile's llama.cpp server and its five modes |
 | `models/` | The model catalogue and the role models (`hal-coder`, `hal-writer`, `hal-fast`) |

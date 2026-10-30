@@ -1,4 +1,4 @@
-"""`hal eval`: asks Hal the cases in eval/scenarios.toml and checks every answer.
+"""`hal eval`: asks Hal the cases in eval/assistant/scenarios.toml and checks every answer.
 
 Runs in a sandbox: a temporary config, calendar, task list, vault and state, built from
 your real config's models and persona, so nothing real changes. Extensions that act on
@@ -29,7 +29,7 @@ from pathlib import Path
 
 from . import config
 
-SCENARIOS = config.ROOT / "eval" / "scenarios.toml"
+SCENARIOS = config.ROOT / "eval" / "assistant" / "scenarios.toml"
 # Extensions with effects outside the sandbox: never run unattended.
 UNSAFE = ["notify", "power", "desktop", "media", "rgb", "mail", "phone", "routines", "packages", "shell",
           "devices", "screen", "transcribe", "telegram", "voice", "jobs", "dev", "models", "feeds", "network"]

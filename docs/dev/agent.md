@@ -13,6 +13,7 @@ How `packages/hal-agent` is put together and how to change it. The requirements 
 | `mcp/lite.py` | Stdlib MCP client for the broker (4 MiB line cap) |
 | `profiles/` | Shipped `model-profiles.toml` and the strict resolver |
 | `assistant/` | Assistant toolset: `build_assistant()`, ported prompts, `ClaimsCheck` (REQ-AGT-51), per-turn broker tool choice (REQ-AGT-52) |
+| `eval/` | `stats.py` (Wilson, McNemar, bootstrap, pass@k, promotion rule), `scenarios.py` (case file, checks, `AssistantRunner`), `report.py` (runs, reports, `compare`) |
 | `agentfile.py` | Strict `agent.json` (schema 1) loader and its mapping to `AgentSettings` |
 | `settings.py` | `[agent]` table, `AgentSettings`, `map_brain()` |
 | `context.py`, `budget.py`, `repair/` | Masking and compaction, budgets and watchdog, leaked-call parsers and argument repair |
@@ -52,7 +53,7 @@ Unverified items and gaps against the design, so a reader does not assume them:
   mapping between host and box, the `notice` sent when a boxed agent has no transcript path.
 - Assistant: the claims check runs on whole completions, not on a token stream, so a voice client
   hears the reply only after the round ends; `history_turns` is not applied (the context manager
-  trims instead). Evaluation (steps 37 to 40) is not built.
+  trims instead). The scenario library has no runner here: halcore implements `AssistantRunner` (and `probe`, which the design leaves implicit). The coding task set and runner (steps 39 and 40) are not built; `hal eval` in halcore still uses `Brain`.
 - Directive I1 (always boxed): the box and its `/scratch` come from 02-sandbox and halcore; this
   package only runs inside one when `hal` starts it so.
 - Nothing has run against a real llama-server, Ollama, gateway or docker.
