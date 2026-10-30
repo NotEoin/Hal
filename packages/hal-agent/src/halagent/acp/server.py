@@ -28,10 +28,15 @@ MAX_LINE_BYTES = 8 * 1024 * 1024
 ERR_PARSE, ERR_INVALID, ERR_NOT_FOUND, ERR_PARAMS, ERR_INTERNAL = -32700, -32600, -32601, -32602, -32603
 ERR_BUSY = -32002
 STOP_REASONS = {
-    "done": "end_turn", "finished": "end_turn", "turn_limit": "max_turn_requests",
-    "tool_limit": "max_turn_requests", "context_overflow": "max_tokens", "truncated": "max_tokens",
+    "done": "end_turn",
+    "finished": "end_turn",
+    "context_overflow": "max_tokens",
     "cancelled": "cancelled",
-}  # fmt: skip
+    **dict.fromkeys(
+        ("max_model_requests", "max_tool_calls", "max_time", "loop", "tool_errors", "nudge_limit"),
+        "max_turn_requests",
+    ),
+}
 KIND_OF = {
     "read": "read", "grep": "search", "glob": "search", "edit": "edit", "write": "edit",
     "run": "execute", "todo": "think",

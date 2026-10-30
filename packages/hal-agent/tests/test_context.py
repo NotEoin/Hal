@@ -106,8 +106,9 @@ def test_agent_compacts_a_long_session_and_a_resume_replays_it(server, tmp_path)
         "cwd": "/w",
         "model": "m",
     }
-    (tmp_path / "big.txt").write_text("\n".join(f"line {n:03d} {'y' * 70}" for n in range(60)))
-    steps = [Reply(tool_calls=[("read", {"path": "big.txt"})]) for _ in range(6)]
+    for k in range(6):  # distinct paths, or the repeat-call watchdog would stop the run
+        (tmp_path / f"big{k}.txt").write_text("\n".join(f"line {n:03d} {'y' * 70}" for n in range(60)))
+    steps = [Reply(tool_calls=[("read", {"path": f"big{k}.txt"})]) for k in range(6)]
     server.script(*steps, "summary text", "all done")
     w = SessionWriter(path, header)
     settings = AgentSettings(endpoint=server.url, context_window=8_000, max_output=300, max_turns=20)

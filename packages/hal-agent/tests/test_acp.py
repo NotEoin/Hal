@@ -101,7 +101,7 @@ def test_prompt_streams_tool_calls_and_replies_with_end_turn(server, tmp_path):
     assert (call["title"], call["kind"], call["status"]) == ("read", "read", "pending")
 
 
-def test_turn_limit_maps_to_max_turn_requests_with_hal_meta(server, tmp_path):
+def test_max_model_requests_maps_to_max_turn_requests_with_hal_meta(server, tmp_path):
     server.script(*[Reply(tool_calls=[("glob", {"pattern": "*"})]) for _ in range(40)])
     c = Client(server.url, tmp_path)
     c.call("session/new", {"cwd": str(tmp_path)})
@@ -109,7 +109,7 @@ def test_turn_limit_maps_to_max_turn_requests_with_hal_meta(server, tmp_path):
     c.srv.sessions[sid].settings = AgentSettings(endpoint=server.url, max_turns=2)
     rid = c.call("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": "x"}]})
     res = reply_to(c.finish(), rid)["result"]
-    assert res == {"stopReason": "max_turn_requests", "_meta": {"hal": {"stopReason": "turn_limit"}}}
+    assert res == {"stopReason": "max_turn_requests", "_meta": {"hal": {"stopReason": "max_model_requests"}}}
 
 
 def test_cancel_stops_a_running_prompt(server, tmp_path):

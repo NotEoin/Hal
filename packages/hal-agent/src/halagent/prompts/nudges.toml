@@ -1,0 +1,4 @@
+# Fixed nudge texts, sent as a user message (docs/design/03-agent.md section 3.5.5).
+empty = "[hal] Your last reply had no text and no tool call. Continue: call one of your tools, or give your answer."
+truncated = "[hal] Your last tool call was cut off at the output limit and did not run. Make it smaller: change one small part at a time with edit, and write a long new file in parts."
+finish = "[hal] You replied without a tool call. If the task is done, call finish with a summary. Otherwise continue with a tool call."

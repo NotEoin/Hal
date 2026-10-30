@@ -119,7 +119,9 @@ def test_agent_writes_a_transcript_and_resume_continues_it(server, tmp_path):
 
 def test_cli_continue_reuses_the_latest_session_and_export_prints_it(server, tmp_path, capsys, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
-    server.script("one", "two")
+    server.script(
+        Reply(tool_calls=[("finish", {"summary": "one"})]), Reply(tool_calls=[("finish", {"summary": "two"})])
+    )
     base = ["-C", str(tmp_path), "--endpoint", server.url]
     assert cli.main(["-p", "first", *base]) == 0
     assert cli.main(["-p", "second", "--continue", *base]) == 0

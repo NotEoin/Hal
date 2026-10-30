@@ -14,6 +14,15 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from halagent.budget import (
+    FREE_TOOLS,
+    Budget,
+    BudgetClock,
+    Watchdog,
+    canonical,
+    loop_message,
+    nudge_text,
+)
 from halagent.context import (
     ContextManager,
     ContextOverflow,
@@ -23,7 +32,7 @@ from halagent.context import (
 )
 from halagent.mcp.lite import LiteMcpClient, McpError
 from halagent.profiles import Profile, resolve_profile
-from halagent.provider import ChatProvider
+from halagent.provider import ChatProvider, Completion
 from halagent.repair import has_open_marker, repair_call, repair_text
 from halagent.repair.aliases import parse_args
 from halagent.sessions import SessionWriter, replay_indexed
@@ -36,11 +45,6 @@ log = logging.getLogger("halagent.loop")
 MAX_RESULT_CHARS = 12_000
 HEAD_KEEP = 4_000
 TAIL_KEEP = 8_000
-MAX_TRUNCATION_NUDGES = 2  # in a row; a model that keeps overrunning its cap will not stop by itself
-TRUNCATION_NUDGE = (
-    "Your last reply was cut off by the output limit before the tool call was complete, so it "
-    "was not run. Do a smaller step: one short call, and write big files in several parts."
-)
 SYSTEM = (
     "You are a coding agent. Work inside the workspace using the tools. Read before you edit, "
     "check your work by running tests, and answer briefly when the task is done."
@@ -52,12 +56,17 @@ PROMPT_FORMAT = (
 )
 
 
+def _error(error_type: str, message: str) -> str:
+    """The JSON error envelope for a call that did not run."""
+    return json.dumps({"status": "error", "error_type": error_type, "message": message})
+
+
 @dataclass
 class RunResult:
     """Outcome of one prompt: final text, why it stopped, and counts."""
 
     text: str
-    stopped: str  # done, finished, turn_limit, tool_limit, context_overflow, cancelled, truncated
+    stopped: str  # end reason: done, finished, max_tool_calls, max_model_requests, max_time, loop, ...
     turns: int
     tool_calls: int
 
@@ -230,60 +239,139 @@ class Agent:
         self.turn += 1
         self.note.task = prompt
         self._add({"role": "user", "content": prompt})
-        turns = calls_made = nudges = 0
+        budget = Budget(s.max_tool_calls, s.max_turns, float(s.max_wall_s))
+        clock, dog = BudgetClock(budget), Watchdog(budget)
+        turns = nudges = 0
         text = ""
-        while turns < s.max_turns:
+        task_mode = "finish" in self.toolset.tools
+        while True:
             if self.cancel.is_set():
-                return RunResult(text, "cancelled", turns, calls_made)
+                return RunResult(text, "cancelled", turns, clock.calls_used)
+            if turns >= budget.max_model_requests:
+                return RunResult(text, "max_model_requests", turns, clock.calls_used)
+            if clock.seconds_left <= 0:
+                return RunResult(text, "max_time", turns, clock.calls_used)
             turns += 1
             try:
                 history = self._fit()
             except ContextOverflow as exc:
                 log.error("%s", exc)
-                return RunResult(text, "context_overflow", turns, calls_made)
+                return RunResult(text, "context_overflow", turns, clock.calls_used)
             reply = self.provider.complete(history, self._specs() if native else None)
+            self._report_usage(reply)
             text = reply.text
             calls = list(reply.tool_calls)
             if not calls:
                 calls, text = self._leaked_calls(text, turns)
-            if not calls and reply.finish == "length" and has_open_marker(reply.text):
-                nudges += 1
-                if nudges > MAX_TRUNCATION_NUDGES:
-                    return RunResult(text, "truncated", turns, calls_made)
-                log.warning("reply cut off inside a tool call; nudging (%d)", nudges)
-                self._add({"role": "assistant", "content": reply.text})
-                self._add({"role": "user", "content": TRUNCATION_NUDGE})
-                continue
-            nudges = 0
             if text and native:
                 self.on_event("text", text)
                 self.on_update({"kind": "text", "text": text})
             if not calls:
-                self._add({"role": "assistant", "content": text})
-                return RunResult(text, "done", turns, calls_made)
+                case = self._nudge_case(reply, text, task_mode)
+                if not case:
+                    self._add({"role": "assistant", "content": text})
+                    return RunResult(text, "done", turns, clock.calls_used)
+                nudges += 1
+                if nudges >= budget.max_consecutive_nudges:
+                    return RunResult(text, "nudge_limit", turns, clock.calls_used)
+                log.warning("nudging after a %s reply (%d)", case, nudges)
+                self._add({"role": "assistant", "content": reply.text or "(no reply)"})
+                self._add({"role": "user", "content": nudge_text(case)})
+                continue
+            nudges = 0
             self._add(self._assistant_message(text if native else reply.text, calls, native))
-            for cid, name, raw in calls:
-                tool = self.toolset.tools.get(name)
-                free = bool(tool and tool.free)
-                if not free and calls_made >= s.max_tool_calls:
-                    return RunResult(text, "tool_limit", turns, calls_made)
-                calls_made += 0 if free else 1
-                if self.cancel.is_set():
-                    return RunResult(text, "cancelled", turns, calls_made)
-                self.on_event("tool", f"{name} {raw}")
-                self.on_update({"kind": "tool_call", "id": cid, "name": name, "raw": raw})
-                result = self._execute(name, raw)
-                failed = result.startswith('{"status": "error"')
-                self.on_update(
-                    {"kind": "tool_result", "id": cid, "name": name, "text": result, "failed": failed}
-                )
-                if name == "todo" and not failed:
-                    self.on_update({"kind": "plan", "text": result})
-                self.note.observe(name, parse_args(raw) or {}, result)
-                self._add(self._result_message(cid, name, result, native))
-                if name == "finish" and not result.startswith('{"status": "error"'):
-                    return RunResult(result, "finished", turns, calls_made)
-        return RunResult(text, "turn_limit", turns, calls_made)
+            stop = self._run_calls(calls, native, clock, dog)
+            if stop:
+                return RunResult(stop[1], stop[0], turns, clock.calls_used)
+
+    def _report_usage(self, reply: Completion) -> None:
+        """Emits a `usage` update when the server reported token counts."""
+        if reply.prompt_tokens or reply.completion_tokens:
+            self.on_update(
+                {
+                    "kind": "usage",
+                    "prompt_tokens": reply.prompt_tokens,
+                    "completion_tokens": reply.completion_tokens,
+                    "window": self.settings.context_window,
+                }
+            )
+
+    @staticmethod
+    def _nudge_case(reply: Completion, text: str, task_mode: bool) -> str:
+        """Which nudge a call-less reply earns, or an empty string when it is a final answer."""
+        if reply.finish == "length" and has_open_marker(reply.text):
+            return "truncated"
+        if not text.strip():
+            return "empty"
+        return "finish" if task_mode else ""
+
+    def _run_calls(
+        self, calls: list[tuple[str, str, str]], native: bool, clock: BudgetClock, dog: Watchdog
+    ) -> tuple[str, str] | None:
+        """Runs one response's calls; returns (stop reason, text) to end the turn, else None.
+
+        Every call gets a result, also the ones that do not run, so the history stays paired.
+        """
+        for n, (cid, name, raw) in enumerate(calls):
+            reason = self._pre_check(n, name, raw, clock, dog)
+            if isinstance(reason, tuple):  # (stop, error JSON): refuse this call, end the turn
+                self._skip(calls[n:], native, reason[1])
+                return reason[0], ""
+            if reason:  # an error JSON: the call does not run but the turn goes on
+                self._record(cid, name, raw, reason, native, run=False)
+                continue
+            out = self._execute(name, raw)
+            if name != "finish":
+                out += clock.warning_line()
+            result = self._record(cid, name, raw, out, native, run=True)
+            if not self._is_free(name):
+                clock.calls_used += 1
+            if name == "finish" and not result.startswith('{"status": "error"'):
+                self._skip(calls[n + 1 :], native, _error("skipped", "the task is finished"))
+                return "finished", result
+            if dog.result(result.startswith('{"status": "error"')):
+                self._skip(calls[n + 1 :], native, _error("skipped", "the turn was stopped"))
+                return "tool_errors", ""
+        return None
+
+    def _pre_check(self, n: int, name: str, raw: str, clock: BudgetClock, dog: Watchdog):
+        """None to run the call, an error JSON to refuse it, or (stop reason, error JSON) to stop."""
+        free = self._is_free(name)
+        if self.cancel.is_set():
+            return "cancelled", _error("cancelled", "the turn was cancelled")
+        if n >= clock.budget.max_calls_per_response:
+            return _error("too_many_calls", f"at most {clock.budget.max_calls_per_response} calls per reply")
+        if not free and clock.calls_left <= 0:
+            return "max_tool_calls", _error("budget", "the tool-call budget is used up")
+        verdict = dog.observe(canonical(name, raw))
+        if verdict == "stop":
+            return "loop", _error("loop", "the turn was stopped: the same call keeps repeating")
+        if verdict == "refuse":
+            return loop_message(name, parse_args(raw) or raw, dog.repeats)
+        return None
+
+    def _is_free(self, name: str) -> bool:
+        """True for tools that do not count toward the tool-call budget."""
+        tool = self.toolset.tools.get(name)
+        return bool(tool and tool.free) or name in FREE_TOOLS
+
+    def _skip(self, calls: list[tuple[str, str, str]], native: bool, error: str) -> None:
+        """Adds a synthetic result for each call that will not run."""
+        for cid, name, _ in calls:
+            self._add(self._result_message(cid, name, error, native))
+
+    def _record(self, cid: str, name: str, raw: str, result: str, native: bool, *, run: bool) -> str:
+        """Announces a call and its result to the listeners and the history; returns the result."""
+        self.on_event("tool", f"{name} {raw}")
+        self.on_update({"kind": "tool_call", "id": cid, "name": name, "raw": raw})
+        failed = result.startswith('{"status": "error"')
+        self.on_update({"kind": "tool_result", "id": cid, "name": name, "text": result, "failed": failed})
+        if run and name == "todo" and not failed:
+            self.on_update({"kind": "plan", "text": result})
+        if run:
+            self.note.observe(name, parse_args(raw) or {}, result)
+        self._add(self._result_message(cid, name, result, native))
+        return result
 
     def _leak_order(self) -> tuple[str, ...] | None:
         """The profile's parser order, or None for the built-in default."""

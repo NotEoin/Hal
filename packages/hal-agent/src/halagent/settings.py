@@ -17,6 +17,7 @@ DEFAULT_MAX_TOOL_CALLS = 100
 DEFAULT_MODEL = "default"
 DEFAULT_WINDOW = 32_768
 DEFAULT_MAX_OUTPUT = 4_096
+DEFAULT_MAX_WALL_S = 1_800  # interactive turn cap, 03-agent 3.5.4; users can cancel earlier
 
 
 def _positive(value: object) -> str | None:
@@ -46,6 +47,9 @@ AGENT_TABLE = config.register(
             config.Key(
                 "max_tool_calls", int, DEFAULT_MAX_TOOL_CALLS, check=_positive, doc="Tool calls per prompt"
             ),
+            config.Key(
+                "max_wall_s", int, DEFAULT_MAX_WALL_S, check=_positive, doc="Wall-clock seconds per prompt"
+            ),
             config.Key("context_window", int, DEFAULT_WINDOW, check=_positive, doc="Model context in tokens"),
             config.Key(
                 "max_output", int, DEFAULT_MAX_OUTPUT, check=_positive, doc="Tokens kept free for a reply"
@@ -70,6 +74,7 @@ class AgentSettings:
     broker: str = ""
     context_window: int = DEFAULT_WINDOW
     max_output: int = DEFAULT_MAX_OUTPUT
+    max_wall_s: int = DEFAULT_MAX_WALL_S
 
 
 def load_settings(
@@ -91,5 +96,6 @@ def load_settings(
         max_tool_calls=int(values["max_tool_calls"]),  # type: ignore[call-overload]  # validated
         broker=str(values["broker"]),
         context_window=int(values["context_window"]),  # type: ignore[call-overload]  # validated
+        max_wall_s=int(values["max_wall_s"]),  # type: ignore[call-overload]  # validated
         max_output=int(values["max_output"]),  # type: ignore[call-overload]  # validated
     )

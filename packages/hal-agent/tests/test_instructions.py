@@ -7,6 +7,7 @@ from halagent.loop import Agent
 from halagent.settings import AgentSettings
 from halagent.skills import discover_skills, parse_frontmatter, render_skills
 from halagent.tools import Toolset
+from halkit.testing.model_server import Reply
 
 
 def test_agents_md_files_load_root_first_and_later_wins_note_is_added(tmp_path):
@@ -102,7 +103,7 @@ def test_cli_sends_agents_md_and_skills_to_the_model(server, tmp_path, monkeypat
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
     (tmp_path / "AGENTS.md").write_text("use tabs")
     skill(tmp_path, "pdf-tools")
-    server.script("ok")
+    server.script(Reply(tool_calls=[("finish", {"summary": "ok"})]))
     assert cli.main(["-p", "x", "-C", str(tmp_path), "--endpoint", server.url, "--no-session"]) == 0
     system = server.requests[0]["body"]["messages"][0]["content"]
     assert "use tabs" in system and "- pdf-tools: Does a thing." in system

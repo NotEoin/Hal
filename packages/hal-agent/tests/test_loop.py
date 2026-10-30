@@ -48,13 +48,13 @@ def test_text_format_fallback_parses_tool_calls(server, tmp_path):
 def test_turn_limit_stops_the_loop(server, tmp_path):
     server.script(*[Reply(tool_calls=[("glob", {"pattern": "*"})]) for _ in range(5)])
     r = make(server, tmp_path, max_turns=3).run("loop")
-    assert r.stopped == "turn_limit" and r.turns == 3
+    assert r.stopped == "max_model_requests" and r.turns == 3
 
 
 def test_tool_call_limit_stops_the_loop(server, tmp_path):
     server.script(Reply(tool_calls=[("glob", {"pattern": "*"})] * 4))
     r = make(server, tmp_path, max_tool_calls=2).run("many")
-    assert r.stopped == "tool_limit" and r.tool_calls == 2
+    assert r.stopped == "max_tool_calls" and r.tool_calls == 2
 
 
 def test_hub_tool_is_offered_and_called(server, tmp_path):
@@ -121,7 +121,7 @@ def test_truncated_tool_call_gets_a_nudge_then_the_turn_continues(server, tmp_pa
 def test_repeated_truncation_stops_the_turn(server, tmp_path):
     cut = '<tool_call>{"name": "write", "arguments": {"path": "t'
     server.script(*[Reply(text=cut, finish_reason="length")] * 5)
-    assert make(server, tmp_path).run("go").stopped == "truncated"
+    assert make(server, tmp_path).run("go").stopped == "nudge_limit"
 
 
 def test_profile_sampling_reaches_the_request(server, tmp_path):
