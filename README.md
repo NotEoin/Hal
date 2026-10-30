@@ -52,6 +52,16 @@ Two settings are yours alone; no tool call can change either. `hal status` and `
 | `high` | policy | ask | deny | deny |
 | `max` | ask | ask | deny | deny |
 
+## No telemetry
+
+No Hal package sends usage data, crash reports, update checks or analytics, and the box has no
+network to send them anyway. The only traffic Hal starts on its own goes to the model server you
+configured and to tools you installed, through the tool broker. Opt-in features that name a host
+(model downloads from Hugging Face, the `ntfy` phone channel) do nothing until you ask for them.
+`tests/test_no_telemetry.py` fails when a module outside a short reviewed list opens a network
+client, imports a telemetry or analytics SDK, or names an unlisted host. Run it with
+`uv run pytest -q tests/test_no_telemetry.py`.
+
 
 ## 🌟 Highlights
 
