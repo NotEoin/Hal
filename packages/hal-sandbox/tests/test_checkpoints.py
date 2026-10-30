@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import time
 
 import pytest
 
@@ -141,3 +142,65 @@ def test_deleted_file_is_absent_from_the_next_checkpoint(repo):
     (repo / "app.py").unlink()
     cp = c.take("b")
     assert "app.py" not in _files(repo, cp.commit)
+
+
+def test_restore_round_trip(repo):
+    c = Checkpoints.for_work(repo, SID)
+    (repo / "keep.py").write_text("k1\n")
+    (repo / "gone.py").write_text("g\n")
+    (repo / "sub").mkdir()
+    (repo / "sub" / "x.py").write_text("x\n")
+    cp = c.take("start")
+    index_before = (repo / ".git" / "index").read_bytes()
+    (repo / "keep.py").write_text("changed\n")
+    (repo / "gone.py").unlink()
+    (repo / "added.py").write_text("a\n")
+    (repo / "newdir").mkdir()
+    (repo / "newdir" / "y.py").write_text("y")
+    (repo / "run.log").write_text("ignored stays")
+    (repo / ".env").write_text("masked stays")
+    result = c.restore(cp)
+    assert (repo / "keep.py").read_text() == "k1\n" and (repo / "gone.py").read_text() == "g\n"
+    assert not (repo / "added.py").exists() and not (repo / "newdir").exists()
+    assert set(result.restored) == {"keep.py", "gone.py"}
+    assert set(result.deleted) == {"added.py", "newdir/y.py"}
+    assert (repo / "run.log").read_text() == "ignored stays" and (repo / ".env").exists()
+    assert (repo / ".git" / "index").read_bytes() == index_before
+    assert result.safety.label == "before restore to 0"
+
+
+def test_restore_is_undoable_through_the_safety_checkpoint(repo):
+    c = Checkpoints.for_work(repo, SID)
+    first = c.take("a")
+    (repo / "app.py").write_text("later\n")
+    result = c.restore(first)
+    assert (repo / "app.py").read_text() == "x = 1\n"
+    c.restore(result.safety)
+    assert (repo / "app.py").read_text() == "later\n"
+
+
+def test_deleted_ignored_file_is_reported_not_restorable(repo):
+    (repo / "run.log").write_text("l")
+    (repo / ".env").write_text("A")
+    (repo / "big.bin").write_bytes(b"x" * 2048)
+    c = Checkpoints.for_work(repo, SID, CheckpointConfig(max_file_bytes=1024))
+    cp = c.take("a")
+    for name in ("run.log", ".env", "big.bin"):
+        (repo / name).unlink()
+    result = c.restore(cp)
+    assert set(result.not_restorable) == {("run.log", "ignored"), (".env", "masked"), ("big.bin", "skipped")}
+
+
+def test_prune_retention(repo):
+    now = time.time()
+    sids = ("aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc")
+    for sid in sids:
+        (repo / f"{sid}.txt").write_text(sid)
+        Checkpoints.for_work(repo, sid).take("t")
+    me = Checkpoints.for_work(repo, SID)
+    assert me.prune(keep_sessions=1, max_age_days=14, now=now) == 0  # all are recent
+    assert me.prune(keep_sessions=1, max_age_days=14, now=now + 30 * 86400) == 2  # old, beyond the newest 1
+    left = {
+        line.split("/")[3] for line in me.git.out("for-each-ref", "--format=%(refname)", "refs/hal/").split()
+    }
+    assert len(left) == 1 and left < set(sids)

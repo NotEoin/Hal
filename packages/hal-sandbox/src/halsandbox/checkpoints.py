@@ -22,9 +22,11 @@ import logging
 import os
 import stat
 import tempfile
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from halkit import timeutil
 
@@ -70,6 +72,19 @@ class Checkpoint:
     skipped: tuple[str, ...] = ()
     masked: tuple[str, ...] = ()
     ignored: tuple[str, ...] = field(default=(), compare=False)
+
+
+@dataclass(frozen=True)
+class RestoreResult:
+    """What a restore did; `not_restorable` lists recorded paths that are gone and cannot come back."""
+
+    restored: tuple[str, ...]
+    deleted: tuple[str, ...]
+    not_restorable: tuple[tuple[str, Literal["ignored", "skipped", "masked"]], ...]
+    safety: Checkpoint
+
+
+SECONDS_PER_DAY = 86400
 
 
 def is_masked(rel: str, patterns: Sequence[str]) -> bool:
@@ -247,6 +262,63 @@ class Checkpoints:
             self.sid, n, ref, commit, tree, created, label,
             tuple(str(s["path"]) for s in skipped), tuple(masked), tuple(ignored),
         )  # fmt: skip
+
+    def restore(self, target: Checkpoint) -> RestoreResult:
+        """Makes every non-ignored path equal to `target` after taking a safety checkpoint.
+
+        Ignored, skipped and masked files and the user's index are not touched (REQ-BOX-47).
+        """
+        safety = self.take(f"before restore to {target.n}")
+        idx = self._temp_index()
+        try:
+            self.tree_of_work(idx)  # the index of the tree as it is now, so restore sees what to delete
+            changes = self.git.out(
+                "diff-tree", "-r", "--name-status", "--no-renames", "-z", safety.tree, target.tree
+            )
+            self.git.run("restore", f"--source={target.commit}", "--worktree", "--", ":/", index=idx)
+        except SandboxError as exc:
+            raise CheckpointError(f"restore failed: {exc}") from exc
+        finally:
+            idx.unlink(missing_ok=True)
+        restored: list[str] = []
+        deleted: list[str] = []
+        parts = changes.split("\0")
+        for status, path in zip(parts[0::2], parts[1::2], strict=False):
+            (deleted if status == "D" else restored).append(path)
+        return RestoreResult(tuple(restored), tuple(deleted), self._not_restorable(target), safety)
+
+    def _not_restorable(
+        self, target: Checkpoint
+    ) -> tuple[tuple[str, Literal["ignored", "skipped", "masked"]], ...]:
+        missing = []
+        for reason, names in (
+            ("ignored", target.ignored),
+            ("skipped", target.skipped),
+            ("masked", target.masked),
+        ):
+            missing += [(n, reason) for n in names if not os.path.lexists(self.work / n)]
+        return tuple(missing)  # type: ignore[arg-type]  # reason is one of the three literals
+
+    def prune(self, *, keep_sessions: int, max_age_days: int, now: float | None = None) -> int:
+        """Deletes sessions older than `max_age_days` beyond the newest `keep_sessions`; returns the count.
+
+        The running session is never pruned.
+        """
+        out = self.git.out("for-each-ref", "--format=%(refname) %(committerdate:unix)", f"{CKPT_PREFIX}/")
+        newest: dict[str, int] = {}
+        for line in out.splitlines():
+            ref, stamp = line.split()
+            sid = ref.split("/")[3]
+            newest[sid] = max(newest.get(sid, 0), int(stamp))
+        cutoff = (time.time() if now is None else now) - max_age_days * SECONDS_PER_DAY
+        by_age = sorted(newest, key=lambda s: newest[s], reverse=True)
+        doomed = [s for s in by_age[keep_sessions:] if newest[s] < cutoff and s != self.sid]
+        for sid in doomed:
+            for prefix in (CKPT_PREFIX, META_PREFIX):
+                refs = self.git.out("for-each-ref", "--format=%(refname)", f"{prefix}/{sid}/").split()
+                for ref in refs:
+                    self.git.run("update-ref", "-d", ref)
+        return len(doomed)
 
     def _head(self) -> str | None:
         done = self.git.run("rev-parse", "--verify", "-q", "HEAD", check=False)
