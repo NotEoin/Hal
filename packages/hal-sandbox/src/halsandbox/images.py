@@ -150,11 +150,11 @@ def build_wheels(repo_root: Path, dest: Path, *, uv: str = "uv") -> None:
 
 
 def stage_bin(dest: Path) -> None:
-    """Copies the three box-side scripts with the isolated-python shebang."""
+    """Copies the three box-side scripts, keeping their module names, with the isolated-python shebang."""
     dest.mkdir(parents=True, exist_ok=True)
-    for src_name, out_name in BOX_SCRIPTS.items():
-        lines = (BOXSIDE_DIR / src_name).read_text(encoding="utf-8").splitlines(keepends=True)
-        (dest / out_name).write_text(BOX_SHEBANG + "".join(lines[1:]), encoding="utf-8")
+    for name in BOX_SCRIPTS:
+        lines = (BOXSIDE_DIR / name).read_text(encoding="utf-8").splitlines(keepends=True)
+        (dest / name).write_text(BOX_SHEBANG + "".join(lines[1:]), encoding="utf-8")
 
 
 def context_hash(ctx_dir: Path) -> str:

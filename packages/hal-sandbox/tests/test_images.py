@@ -74,10 +74,15 @@ def test_context_hash_is_stable_and_changes_with_content(tmp_path):
     assert images.context_hash(tmp_path) != first
 
 
-def test_stage_bin_rewrites_the_shebang_and_names_the_scripts(tmp_path):
+def test_stage_bin_rewrites_the_shebang_and_keeps_module_names(tmp_path):
+    """Regression: hal-box-entry loads hal_relay.py by name, so the staged files must keep it."""
     images.stage_bin(tmp_path)
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["hal-box-entry", "hal-mcp-bridge", "hal-relay"]
-    assert (tmp_path / "hal-relay").read_text().startswith(images.BOX_SHEBANG)
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted(images.BOX_SCRIPTS)
+    assert (tmp_path / "hal_relay.py").read_text().startswith(images.BOX_SHEBANG)
+    assert (
+        "ln -s hal_relay.py /opt/hal/bin/hal-relay"
+        in (images.IMAGES_DIR / "Dockerfile.sandbox.in").read_text()
+    )
 
 
 def test_build_is_the_only_networked_step(tmp_path):

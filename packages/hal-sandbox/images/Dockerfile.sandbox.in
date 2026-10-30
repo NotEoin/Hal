@@ -16,6 +16,8 @@ RUN python3 -m venv /opt/hal/venv \
  && rm -rf /opt/hal/wheels
 COPY bin/ /opt/hal/bin/
 RUN chmod 0755 /opt/hal/bin/* \
+ && ln -s hal_box_entry.py /opt/hal/bin/hal-box-entry && ln -s hal_relay.py /opt/hal/bin/hal-relay \
+ && ln -s hal_mcp_bridge.py /opt/hal/bin/hal-mcp-bridge \
  && dpkg-query -W -f '$${Package} $${Version}\n' > /opt/hal/packages.txt
 LABEL org.opencontainers.image.title="hal-sandbox" hal.image.context="${CTX}" \
       hal.image.flavor="${FLAVOR}" hal.version="${VERSION}"
