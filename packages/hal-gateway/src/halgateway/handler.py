@@ -353,13 +353,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         if name == "status":
             backends = {
-                n: (b.status() if hasattr(b, "status") else {"type": b.type})
+                n: (b.status() if hasattr(b, "status") else {"type": b.type}) | self._remote_fields(b)
                 for n, b in gateway.backends.items()
             }
             doc = {
                 "backends": backends,
                 "in_flight": router.in_flight() if router else 0,
                 "gpu": gateway.gpu.status(),
+                "warnings": gateway.remote_warnings(),
             }
             self._send(200, json.dumps(doc).encode("ascii"))
             return
@@ -383,6 +384,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise BadRequest("model must be a non-empty string")
             (router.load if name == "models/load" else router.unload)(preset)
         self._send(200, json.dumps({"backends": {router.name: router.status()}}).encode("ascii"))
+
+    @staticmethod
+    def _remote_fields(backend) -> dict:  # type: ignore[no-untyped-def,type-arg]
+        """`remote` for every backend, plus its `host` when it is remote (REQ-GW-22)."""
+        remote = bool(getattr(backend, "remote", False))
+        return {"remote": remote, **({"host": backend.address().host} if remote else {})}
 
     @staticmethod
     def _alias_document(gateway) -> dict:  # type: ignore[no-untyped-def,type-arg]

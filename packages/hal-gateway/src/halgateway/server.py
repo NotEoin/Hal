@@ -248,6 +248,14 @@ class Gateway:
         """Returns `unix` or `tcp` for one of this gateway's servers."""
         return "unix" if server is self.unix else "tcp"
 
+    def remote_warnings(self) -> list[str]:
+        """One warning per remote backend, for the start-up log and `status` (REQ-GW-22)."""
+        return [
+            f"backend {name!r} is remote ({b.address().host}): prompts leave this machine"
+            for name, b in self.backends.items()
+            if getattr(b, "remote", False)
+        ]
+
     def socket_path(self) -> Path:
         """The unix socket path from config or the runtime directory (REQ-GW-03)."""
         configured = str(self.config["unix_path"])
@@ -292,6 +300,8 @@ class Gateway:
         ticker = threading.Thread(target=self._gpu_ticker, name="hal-gpu-timer", daemon=True)
         ticker.start()
         self._threads.append(ticker)
+        for warning in self.remote_warnings():
+            log.warning("%s", warning)
         log.info("gateway listening on %s", path)
         router = self.router()
         if router is not None:
