@@ -657,9 +657,10 @@ class When:
     end: datetime | None
     all_day: bool
     rrule: str | None
+    rest: str                     # the text left after the date, time and repeat are taken out
 
-def parse(text: str, *, now: datetime | None = None,
-          default_time: time | None = time(9, 0)) -> When: ...
+def parse(text: str, now: datetime | None = None, default_time: time | None = None,
+          prefer_pm: bool = True) -> When: ...
 def next_occurrence(at: datetime, rrule: str) -> datetime: ...
 ```
 
