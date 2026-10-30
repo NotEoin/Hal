@@ -3,6 +3,9 @@
 Hal runs a local model that this project treats as untrusted, and gives it tools. Security
 reports are welcome and taken seriously.
 
+See the [user security guide](docs/user/security.md) for what Hal protects you from and the
+lockdown and paranoia settings.
+
 ## Supported versions
 
 | Version | Supported |
