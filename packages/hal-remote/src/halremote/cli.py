@@ -13,13 +13,13 @@ import json
 import sys
 from collections.abc import Sequence
 
-from . import __version__, servercheck
+from . import __version__, serve, servercheck
 from . import config as _config  # noqa: F401 - import registers the [remote] tables
 
 EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_USAGE = 2
-IMPLEMENTED = frozenset({"server-check"})
+IMPLEMENTED = frozenset({"server-check", "serve"})
 
 HARNESSES = ("claude", "qwen", "opencode", "codex", "crush", "goose", "cline", "openai", "mcp")
 COMMANDS = (
@@ -39,6 +39,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--sshd-t", action="store_true", help="read the effective config with `sudo -n sshd -T`"
     )
     check.add_argument("--fix", action="store_true", help="delete token deliveries past their TTL")
+    # serve is the forced command: it parses its own arguments and must not print argparse help.
+    sub.add_parser("serve", add_help=False).add_argument("args", nargs=argparse.REMAINDER)
     for name in COMMANDS:
         if name in IMPLEMENTED:
             continue
@@ -72,6 +74,8 @@ def _server_check(args: argparse.Namespace) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     """Runs `hal-remote`; returns the process exit code."""
     args = build_parser().parse_args(argv)
+    if args.command == "serve":
+        return serve.main(args.args)
     if args.command == "server-check":
         return _server_check(args)
     sys.stderr.write(f"hal-remote {args.command}: not implemented\n")

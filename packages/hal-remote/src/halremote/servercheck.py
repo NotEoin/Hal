@@ -2,18 +2,21 @@
 
 The checks never write, except SC22 with `fix=True` (it deletes delivery files past their TTL).
 `sudo` is called only with `sshd_t=True`, and then only as `sudo -n`. Every subprocess has a
-timeout. SC14 (the forced command starts cleanly) is added with `serve.py`. A check whose input
-is unreadable or unknowable reports `unknown`, never `pass`: the sshd_config reader returns
-`None` for a keyword it cannot settle and the checks pass that on.
+timeout. SC14 emulates sshd's launch of the forced command (REQ-RMT-17) through a small Python
+launcher, so stdin is a real socket. A check whose input is unreadable or unknowable reports
+`unknown`, never `pass`: the sshd_config reader returns `None` for a keyword it cannot settle and
+the checks pass that on.
 """
 
 from __future__ import annotations
 
 import fnmatch
+import json
 import logging
 import os
 import shlex
 import stat
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -146,10 +149,12 @@ def _http_status(url: str, timeout_s: float) -> int | None:
         return None
 
 
-def _run(runner: Runner, argv: list[str], timeout: float) -> tuple[int, str] | None:
+def _run(
+    runner: Runner, argv: list[str], timeout: float, env: dict[str, str] | None = None
+) -> tuple[int, str] | None:
     """Runs `argv` without raising on a non-zero exit; `None` when the program is missing."""
     try:
-        proc = runner(argv, timeout=timeout, check=False)
+        proc = runner(argv, timeout=timeout, check=False, **({"env": env} if env is not None else {}))
     except FileNotFoundError:
         return None
     return proc.returncode, proc.stdout.decode("utf-8", "replace")
@@ -216,6 +221,54 @@ def _command_paths(line: authkeys.HalKeyLine) -> list[str]:
     return []
 
 
+# Starts the shell the way sshd does: a socket as stdin makes bash read `.bashrc`, which is what
+# the check must catch (REQ-RMT-17). A pipe or /dev/null would hide a noisy rc file.
+_SOCKET_LAUNCHER = (
+    "import os, socket, sys\n"
+    "a, b = socket.socketpair()\n"
+    "os.dup2(a.fileno(), 0)\n"
+    "os.execv(sys.argv[1], [sys.argv[1], '-c', sys.argv[2]])\n"
+)
+SC14_TIMEOUT_S = 20
+SC14_DETAIL_CHARS = 120
+FAKE_PEER = "127.0.0.1 50000"
+
+
+def _command_value(line: authkeys.HalKeyLine) -> str | None:
+    for opt in line.options:
+        if opt.startswith('command="') and line.role == "mcp":
+            return opt[len('command="') : -1]
+    return None
+
+
+def _forced_command_problem(
+    runner: Runner, shell: str, command: str, client: str, home: Path, user: str
+) -> str | None:
+    """Runs `command` with verb `check` like sshd; returns a problem text, `None` when it passed."""
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "HOME": str(home),
+        "USER": user,
+        "LOGNAME": user,
+        "SHELL": shell,
+        "SSH_ORIGINAL_COMMAND": "check",
+        "SSH_CLIENT": f"{FAKE_PEER} 22",
+        "SSH_CONNECTION": f"{FAKE_PEER} 127.0.0.1 22",
+    }
+    argv = [sys.executable, "-c", _SOCKET_LAUNCHER, shell, command]
+    res = _run(runner, argv, SC14_TIMEOUT_S, env)
+    if res is None:
+        return f"{client}: cannot start {shell}"
+    first = res[1].split("\n", 1)[0]
+    try:
+        msg = json.loads(first)
+    except ValueError:
+        return f"{client}: first output line is not JSON: {first[:SC14_DETAIL_CHARS]!r}"
+    if not isinstance(msg, dict) or msg.get("ok") is not True:
+        return f"{client}: check reported {str(msg)[:SC14_DETAIL_CHARS]}"
+    return None
+
+
 def run_checks(
     *,
     home: Path,
@@ -232,8 +285,9 @@ def run_checks(
     delivery_ttl_s: int = 86400,
     now: float | None = None,
     http_status: HttpStatus = _http_status,
+    login_shell: str | None = None,
 ) -> list[CheckResult]:
-    """Runs SC01 to SC22 except SC14 and returns one result each, in id order.
+    """Runs SC01 to SC22 and returns one result each, in id order.
 
     `registry_clients` is the set of registered client names (`None`: no registry yet, SC19 is
     skipped). `now` is a Unix time, injectable for tests.
@@ -415,6 +469,29 @@ def run_checks(
         "reinstall hal-remote and hal-hub, then authorize again",
     )
 
+    mcp_lines = [(ln, _command_value(ln)) for ln in owned if ln.role == "mcp"]
+    if not mcp_lines:
+        out.append(
+            CheckResult(
+                "SC14", "forced command starts cleanly", "critical", "skip", "no mcp key is authorized", ""
+            )
+        )
+    else:
+        login = login_shell or _login_shell(uid)
+        found = [
+            p
+            for ln, cmd in mcp_lines
+            if cmd and (p := _forced_command_problem(runner, login, cmd, ln.client, home, user))
+        ]
+        add(
+            "SC14",
+            "forced command starts cleanly",
+            "critical",
+            not found,
+            "; ".join(found) or "check answered ok",
+            "make ~/.bashrc print nothing before its interactive check",
+        )
+
     sshrc = etc_ssh / "sshrc"
     add(
         "SC15",
@@ -532,6 +609,15 @@ def run_checks(
         "run server-check --fix",
     )
     return sorted(out, key=lambda r: r.id)
+
+
+def _login_shell(uid: int) -> str:
+    try:
+        import pwd
+
+        return pwd.getpwuid(uid).pw_shell or "/bin/sh"
+    except (ImportError, KeyError):
+        return "/bin/sh"
 
 
 def _stale_deliveries(directory: Path | None, ttl_s: int, now: float) -> list[Path]:

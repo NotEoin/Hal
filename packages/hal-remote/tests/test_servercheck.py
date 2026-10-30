@@ -62,12 +62,12 @@ def run(desk, **over):
 
 def test_a_hardened_desktop_passes_every_critical_check(desk):
     res = run(desk)
-    assert not [r.id for r in res.values() if r.severity == "critical" and r.status != "pass"]
+    assert not [r.id for r in res.values() if r.severity == "critical" and r.status not in ("pass", "skip")]
     assert servercheck.has_critical_failure(res.values()) is False
 
 
-def test_results_cover_every_id_except_sc14(desk):
-    assert sorted(run(desk)) == [f"SC{n:02d}" for n in range(1, 23) if n != 14]
+def test_results_cover_every_id(desk):
+    assert sorted(run(desk)) == [f"SC{n:02d}" for n in range(1, 23)]
 
 
 def test_missing_sshd_fails_sc01(desk, tmp_path):
@@ -281,3 +281,42 @@ def test_accepted_risk_lifts_a_critical_failure():
     bad = servercheck.CheckResult("SC03", "t", "critical", "fail", "", "")
     assert servercheck.has_critical_failure([bad]) is True
     assert servercheck.has_critical_failure([bad], accepted={"SC03"}) is False
+
+
+def _fake_shell(tmp_path, body):
+    shell = tmp_path / "fakesh"
+    shell.write_text(f"#!/bin/sh\n{body}\n")
+    shell.chmod(0o755)
+    return str(shell)
+
+
+def _sc14(desk, tmp_path, body):
+    _write_keys(desk, _line("mcp", tmp_path))
+    from halkit import proc
+
+    return run(desk, runner=proc.run, login_shell=_fake_shell(tmp_path, body), http_status=lambda u, t: 401)[
+        "SC14"
+    ]
+
+
+def test_forced_command_answering_check_ok_passes_sc14(desk, tmp_path):
+    body = "test -S /proc/self/fd/0 || [ -S /dev/stdin ] || exit 9; echo '{\"ok\": true}'"
+    assert _sc14(desk, tmp_path, body).status == "pass"
+
+
+def test_noisy_rc_output_before_the_check_fails_sc14(desk, tmp_path):
+    assert _sc14(desk, tmp_path, 'echo "Welcome"; echo \'{"ok": true}\'').status == "fail"
+
+
+def test_check_reporting_not_ok_fails_sc14(desk, tmp_path):
+    assert _sc14(desk, tmp_path, "echo '{\"ok\": false}'").status == "fail"
+
+
+def test_forced_command_env_is_minimal_for_sc14(desk, tmp_path):
+    cond = '[ "$PATH" = /usr/bin:/bin ] && [ "$SSH_ORIGINAL_COMMAND" = check ]'
+    body = f'echo "{{\\"ok\\": $( {cond} && echo true || echo false )}}"'
+    assert _sc14(desk, tmp_path, body).status == "pass"
+
+
+def test_sc14_is_skipped_without_an_mcp_key(desk):
+    assert run(desk)["SC14"].status == "skip"
