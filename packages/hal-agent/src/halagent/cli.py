@@ -14,7 +14,7 @@ from halagent.loop import Agent
 from halagent.mcp.lite import McpError
 from halagent.provider import ProviderError
 from halagent.settings import load_settings
-from halagent.tools import Workspace
+from halagent.tools import Toolset
 from halkit import config, log
 
 EXIT_OK, EXIT_LIMIT, EXIT_CONFIG = 0, 1, 2
@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
         settings = load_settings(cli=cli)
         agent = Agent(
             settings,
-            Workspace(Path(args.workspace)),
+            Toolset(Path(args.workspace), task_mode=bool(args.prompt)),
             on_event=lambda kind, text: (
                 print(f"[{kind}] {text[:200]}", file=sys.stderr) if kind == "tool" else None
             ),

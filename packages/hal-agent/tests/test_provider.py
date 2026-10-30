@@ -14,9 +14,9 @@ def test_plain_reply_is_returned(server):
 
 
 def test_native_tool_call_is_parsed(server):
-    server.script(Reply(tool_calls=[("read_file", {"path": "a"})]))
+    server.script(Reply(tool_calls=[("read", {"path": "a"})]))
     out = ChatProvider(server.url, "m").complete([{"role": "user", "content": "x"}], tools=[{}])
-    assert out.tool_calls[0][1] == "read_file" and '"a"' in out.tool_calls[0][2]
+    assert out.tool_calls[0][1] == "read" and '"a"' in out.tool_calls[0][2]
 
 
 def test_streamed_reply_is_assembled(server):

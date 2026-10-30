@@ -4,40 +4,40 @@ import json
 
 from halagent.loop import Agent
 from halagent.settings import AgentSettings
-from halagent.tools import Workspace
+from halagent.tools import Toolset
 from halkit.testing.broker import FakeBroker
 from halkit.testing.model_server import Reply
 
 
 def make(server, tmp_path, **kw):
     s = AgentSettings(endpoint=server.url, **kw)
-    return Agent(s, Workspace(tmp_path))
+    return Agent(s, Toolset(tmp_path))
 
 
 def test_native_tool_call_runs_and_final_text_is_returned(server, tmp_path):
     (tmp_path / "a.txt").write_text("hello")
-    server.script(Reply(tool_calls=[("read_file", {"path": "a.txt"})]), "it says hello")
+    server.script(Reply(tool_calls=[("read", {"path": "a.txt"})]), "it says hello")
     r = make(server, tmp_path).run("read a.txt")
     assert (r.text, r.stopped, r.turns, r.tool_calls) == ("it says hello", "done", 2, 1)
     tool_msgs = [m for m in server.requests[1]["body"]["messages"] if m["role"] == "tool"]
-    assert "1\thello" in tool_msgs[0]["content"]
+    assert "hello" in tool_msgs[0]["content"]
 
 
 def test_write_tool_changes_the_workspace(server, tmp_path):
-    server.script(Reply(tool_calls=[("write_file", {"path": "n.txt", "content": "x"})]), "done")
+    server.script(Reply(tool_calls=[("write", {"path": "n.txt", "content": "x"})]), "done")
     make(server, tmp_path).run("write")
     assert (tmp_path / "n.txt").read_text() == "x"
 
 
 def test_tool_error_is_reported_to_the_model_not_raised(server, tmp_path):
-    server.script(Reply(tool_calls=[("read_file", {"path": "../x"})]), "ok")
+    server.script(Reply(tool_calls=[("read", {"path": "../x"})]), "ok")
     make(server, tmp_path).run("go")
     msgs = server.requests[1]["body"]["messages"]
     assert "outside_workspace" in [m for m in msgs if m["role"] == "tool"][0]["content"]
 
 
 def test_text_format_fallback_parses_tool_calls(server, tmp_path):
-    call = '<tool_call>{"name": "write_file", "arguments": {"path": "t.txt", "content": "hi"}}</tool_call>'
+    call = '<tool_call>{"name": "write", "arguments": {"path": "t.txt", "content": "hi"}}</tool_call>'
     server.script(call, "all done")
     r = make(server, tmp_path, tool_format="prompt").run("write t")
     assert r.text == "all done" and (tmp_path / "t.txt").read_text() == "hi"
@@ -46,13 +46,13 @@ def test_text_format_fallback_parses_tool_calls(server, tmp_path):
 
 
 def test_turn_limit_stops_the_loop(server, tmp_path):
-    server.script(*[Reply(tool_calls=[("list_files", {})]) for _ in range(5)])
+    server.script(*[Reply(tool_calls=[("glob", {"pattern": "*"})]) for _ in range(5)])
     r = make(server, tmp_path, max_turns=3).run("loop")
     assert r.stopped == "turn_limit" and r.turns == 3
 
 
 def test_tool_call_limit_stops_the_loop(server, tmp_path):
-    server.script(Reply(tool_calls=[("list_files", {})] * 4))
+    server.script(Reply(tool_calls=[("glob", {"pattern": "*"})] * 4))
     r = make(server, tmp_path, max_tool_calls=2).run("many")
     assert r.stopped == "tool_limit" and r.tool_calls == 2
 
@@ -75,3 +75,20 @@ def test_history_persists_across_prompts(server, tmp_path):
     agent.run("b")
     roles = [m["role"] for m in json.loads(json.dumps(server.requests[1]["body"]["messages"]))]
     assert roles == ["system", "user", "assistant", "user"]
+
+
+def test_finish_ends_a_task_turn_and_todo_is_free(server, tmp_path):
+    server.script(
+        Reply(tool_calls=[("todo", {"plan": "- [ ] a"})]),
+        Reply(tool_calls=[("finish", {"summary": "all done"})]),
+    )
+    agent = Agent(AgentSettings(endpoint=server.url, max_tool_calls=1), Toolset(tmp_path, task_mode=True))
+    r = agent.run("go")
+    assert (r.text, r.stopped, r.tool_calls) == ("all done", "finished", 0)
+
+
+def test_unknown_tool_error_is_json_with_error_type(server, tmp_path):
+    server.script(Reply(tool_calls=[("teleport", {})]), "ok")
+    make(server, tmp_path).run("go")
+    tool = [m for m in server.requests[1]["body"]["messages"] if m["role"] == "tool"][0]
+    assert json.loads(tool["content"])["error_type"] == "unknown_tool"

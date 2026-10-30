@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from halagent.mcp.lite import LiteMcpClient, McpError
 from halagent.provider import ChatProvider
 from halagent.settings import AgentSettings
-from halagent.tools import ToolError, Workspace
+from halagent.tools import ToolError, Toolset, render_error
 
 log = logging.getLogger("halagent.loop")
 
@@ -39,7 +39,7 @@ class RunResult:
     """Outcome of one prompt: final text, why it stopped, and counts."""
 
     text: str
-    stopped: str  # "done", "turn_limit" or "tool_limit"
+    stopped: str  # "done", "finished", "turn_limit" or "tool_limit"
     turns: int
     tool_calls: int
 
@@ -50,12 +50,12 @@ class Agent:
     def __init__(
         self,
         settings: AgentSettings,
-        workspace: Workspace,
+        toolset: Toolset,
         provider: ChatProvider | None = None,
         on_event: Callable[[str, str], None] | None = None,
     ) -> None:
         self.settings = settings
-        self.workspace = workspace
+        self.toolset = toolset
         self.provider = provider or ChatProvider(
             settings.endpoint, settings.model, api_key=settings.api_key, stream=settings.stream
         )
@@ -65,13 +65,11 @@ class Agent:
         if settings.broker:
             self.mcp = LiteMcpClient(settings.broker)
             self.mcp.initialize()
-            self._mcp_tools = {
-                t["name"]: t for t in self.mcp.list_tools() if t["name"] not in workspace.tools
-            }
+            self._mcp_tools = {t["name"]: t for t in self.mcp.list_tools() if t["name"] not in toolset.tools}
         self.messages: list[dict] = [{"role": "system", "content": self._system_prompt()}]
 
     def _specs(self) -> list[dict]:
-        specs = [t.spec() for t in self.workspace.tools.values()]
+        specs = [t.spec() for t in self.toolset.tools.values()]
         for t in self._mcp_tools.values():
             fn = {"name": t["name"], "description": t.get("description", ""), "parameters": t["inputSchema"]}
             specs.append({"type": "function", "function": fn})
@@ -98,18 +96,21 @@ class Agent:
             if not isinstance(args, dict):
                 raise ValueError("arguments must be a JSON object")
         except ValueError as exc:
-            return f"error: bad arguments: {exc}"
+            return render_error(ToolError("invalid_args", f"arguments must be a JSON object ({exc})"))
         try:
-            if name in self.workspace.tools:
-                out = self.workspace.tools[name].fn(args)
+            if name in self.toolset.tools:
+                out = self.toolset.tools[name].fn(args)
             elif name in self._mcp_tools and self.mcp:
                 text, is_error = self.mcp.call_tool(name, args)
                 out = ("error: " if is_error else "") + text
             else:
-                return f"error: unknown tool {name!r}"
-        except (ToolError, McpError, ValueError, OSError) as exc:
+                return render_error(ToolError("unknown_tool", f"no tool named {name!r}"))
+        except ToolError as exc:
             log.info("tool %s failed: %s", name, exc)
-            return f"error: {exc}"
+            return render_error(exc)
+        except (McpError, ValueError, OSError) as exc:
+            log.info("tool %s failed: %s", name, exc)
+            return render_error(ToolError("internal", str(exc)))
         return out if len(out) <= MAX_RESULT_CHARS else out[:MAX_RESULT_CHARS] + "\n[result truncated]"
 
     def run(self, prompt: str) -> RunResult:
@@ -133,12 +134,16 @@ class Agent:
                 return RunResult(text, "done", turns, calls_made)
             self.messages.append(self._assistant_message(text, calls, native))
             for cid, name, raw in calls:
-                if calls_made >= s.max_tool_calls:
+                tool = self.toolset.tools.get(name)
+                free = bool(tool and tool.free)
+                if not free and calls_made >= s.max_tool_calls:
                     return RunResult(text, "tool_limit", turns, calls_made)
-                calls_made += 1
+                calls_made += 0 if free else 1
                 self.on_event("tool", f"{name} {raw}")
                 result = self._execute(name, raw)
                 self.messages.append(self._result_message(cid, name, result, native))
+                if name == "finish" and not result.startswith('{"status": "error"'):
+                    return RunResult(result, "finished", turns, calls_made)
         return RunResult(text, "turn_limit", turns, calls_made)
 
     @staticmethod

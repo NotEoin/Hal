@@ -1,0 +1,161 @@
+[
+ {
+  "name": "read",
+  "kind": "read",
+  "description": "Read part of a text file. Returns numbered lines, at most 200 lines or 12000 characters per call. Give start_line and end_line to read the part you need.",
+  "properties": {
+   "path": {
+    "type": "string",
+    "description": "File path, relative to the project root"
+   },
+   "start_line": {
+    "type": "integer",
+    "description": "First line to show, from 1 (default 1)"
+   },
+   "end_line": {
+    "type": "integer",
+    "description": "Last line to show (default start_line + 199)"
+   }
+  },
+  "required": [
+   "path"
+  ],
+  "free": false
+ },
+ {
+  "name": "grep",
+  "kind": "search",
+  "description": "Search file contents with a regular expression (ripgrep syntax). Returns path:line: text for each match, at most 100 matches.",
+  "properties": {
+   "pattern": {
+    "type": "string",
+    "description": "Regular expression or exact text to find"
+   },
+   "path": {
+    "type": "string",
+    "description": "File or directory to search (default: the project root)"
+   },
+   "glob": {
+    "type": "string",
+    "description": "Only search files matching this glob, for example *.py"
+   }
+  },
+  "required": [
+   "pattern"
+  ],
+  "free": false
+ },
+ {
+  "name": "glob",
+  "kind": "search",
+  "description": "List files whose path matches a glob pattern, for example src/**/*.py. Returns at most 200 paths.",
+  "properties": {
+   "pattern": {
+    "type": "string",
+    "description": "Glob pattern"
+   },
+   "path": {
+    "type": "string",
+    "description": "Directory to search (default: the project root)"
+   }
+  },
+  "required": [
+   "pattern"
+  ],
+  "free": false
+ },
+ {
+  "name": "edit",
+  "kind": "edit",
+  "description": "Replace one exact piece of text in a file. old_string must appear exactly once; copy it from read output without the line numbers. Returns a short diff.",
+  "properties": {
+   "path": {
+    "type": "string",
+    "description": "File to change"
+   },
+   "old_string": {
+    "type": "string",
+    "description": "Exact text to replace, unique in the file"
+   },
+   "new_string": {
+    "type": "string",
+    "description": "Replacement text"
+   }
+  },
+  "required": [
+   "path",
+   "old_string",
+   "new_string"
+  ],
+  "free": false
+ },
+ {
+  "name": "write",
+  "kind": "edit",
+  "description": "Create a file, or replace a whole file, with the given content. Use edit to change part of an existing file.",
+  "properties": {
+   "path": {
+    "type": "string",
+    "description": "File to write"
+   },
+   "content": {
+    "type": "string",
+    "description": "The complete file content"
+   }
+  },
+  "required": [
+   "path",
+   "content"
+  ],
+  "free": false
+ },
+ {
+  "name": "run",
+  "kind": "execute",
+  "description": "Run a bash command in the project directory, offline. Returns the exit code and the output (the first 2000 and the last 6000 characters). Default timeout 120 seconds.",
+  "properties": {
+   "command": {
+    "type": "string",
+    "description": "The bash command to run"
+   },
+   "timeout": {
+    "type": "integer",
+    "description": "Seconds before the command is stopped (default 120, at most 600)"
+   }
+  },
+  "required": [
+   "command"
+  ],
+  "free": false
+ },
+ {
+  "name": "todo",
+  "kind": "think",
+  "description": "Record your plan as a checklist, one step per line: '- [ ] step' to do, '- [~] step' in progress, '- [x] step' done. Send the whole list each time. Free: does not use a tool call.",
+  "properties": {
+   "plan": {
+    "type": "string",
+    "description": "The whole checklist"
+   }
+  },
+  "required": [
+   "plan"
+  ],
+  "free": true
+ },
+ {
+  "name": "finish",
+  "kind": "other",
+  "description": "End the task. Give a two-sentence summary of what you changed and how you checked it. Free: does not use a tool call.",
+  "properties": {
+   "summary": {
+    "type": "string",
+    "description": "What you changed and how you checked it"
+   }
+  },
+  "required": [
+   "summary"
+  ],
+  "free": true
+ }
+]
