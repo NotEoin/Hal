@@ -208,6 +208,7 @@ _ROUTER_KEYS = (
     K("autostart", str, "on-demand", choices=("on-demand", "with-gateway"), doc="When the router starts"),
     K("load_timeout_s", float, 900.0, check=_positive, doc="Wait for a model load"),
     K("stop_timeout_s", float, 60.0, check=_positive, doc="Wait for the router to stop"),
+    K("swap_wait_s", float, 7200.0, check=_positive, doc="Longest wait of a request for a model swap"),
     K("max_restarts", int, 3, check=_non_negative, doc="Crash restarts before giving up"),
     K("unload_ollama", list, ["ollama"], check=_strings, doc="Ollama backends emptied before a load"),
     K("launcher", str, "process", choices=LAUNCHERS, doc="Run llama-server as a process or in docker"),

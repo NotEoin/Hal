@@ -26,11 +26,13 @@ from .errors import (
     GatewayError,
     NotFound,
     PayloadTooLarge,
+    SwapUnavailable,
     Unauthorized,
     error_body,
 )
 from .estimate import ESTIMATE_HEADER, estimate_input_tokens
-from .policies import delegate, effort, overflow
+from .policies import delegate, effort, overflow, swap
+from .policies.text import conversation_key
 from .routes import Api, Route
 
 log = logging.getLogger(__name__)
@@ -131,7 +133,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._dispatch(gateway, route)
         except GatewayError as exc:
             self.rec["error"] = exc.code
-            self._send(exc.status, error_body(exc, fmt))
+            retry = getattr(exc, "retry_after", None)
+            extra = [("Retry-After", str(retry))] if retry else None
+            self._send(exc.status, error_body(exc, fmt), extra=extra)
         finally:
             self._finish(gateway)
 
@@ -201,8 +205,36 @@ class Handler(http.server.BaseHTTPRequestHandler):
             doc = {"input_tokens": estimate_input_tokens(body)}
             self._send(200, json.dumps(doc).encode("ascii"), extra=[ESTIMATE_HEADER])
             return
-        body["model"] = self._apply_policies(gateway, route, target, body) or upstream_model
-        self._relay(gateway, backend, json.dumps(body).encode("utf-8"))
+        model = self._apply_policies(gateway, route, target, body) or upstream_model
+        scheduler = self._scheduler(backend, route)
+        ticket = self._admit(scheduler, backend, model, body) if scheduler else None
+        body["model"] = ticket.model if ticket else model
+        try:
+            self._relay(gateway, backend, json.dumps(body).encode("utf-8"))
+        finally:
+            if scheduler and ticket:
+                scheduler.finish(ticket, swap.last_stop_reason(self.tail))
+
+    @staticmethod
+    def _scheduler(backend, route: Route):  # type: ignore[no-untyped-def]
+        if route.api in (Api.MESSAGES, Api.CHAT) and isinstance(backend, LlamaRouter):
+            return backend.scheduler()
+        return None
+
+    def _admit(self, scheduler, backend, model: str, body: dict):  # type: ignore[no-untyped-def,type-arg]
+        """Waits for the swap scheduler (REQ-GW-46, 47); a timeout or failed swap is 503."""
+        backend.ensure()
+        try:
+            ticket = scheduler.admit(model, body, conversation_key(body.get("messages") or []))
+        except swap.SwapTimeout as exc:
+            raise SwapUnavailable(str(exc)) from exc
+        except swap.SwapError as exc:
+            raise SwapUnavailable(str(exc), retry_after=1) from exc
+        if ticket.model != model:
+            self.rec["upstream_model"] = ticket.model
+        if ticket.swap:
+            self.rec["policy"] = {**(self.rec.get("policy") or {}), "swap": ticket.swap}
+        return ticket
 
     def _apply_policies(self, gateway, route: Route, target, body: dict) -> str | None:  # type: ignore[no-untyped-def,type-arg]
         """Runs the policies of a router backend (messages and chat only, decision 6); returns the model."""

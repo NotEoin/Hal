@@ -187,3 +187,14 @@ Policies apply to `llama-router` backends on `/v1/messages` and `/v1/chat/comple
   and has tools, the tools in `strip-tools` are removed and the `delegate-note` file is added
   to the system prompt (Anthropic `system`, OpenAI first system message). It runs after route,
   so a turn routed to the fast model keeps its tools.
+- **Swap** (`policies/swap.py`, REQ-GW-46..48): one `SwapScheduler` per router and mode, for
+  modes with `[hal] swap = true`. `main` and `agent` take turns: a request that needs the
+  other model waits until nothing is in flight, `quiet_s` (2.0) has passed and no subagent
+  conversation was active within `agent_stale_s` (900). Leaving `main` saves KV slots
+  `0..swap-slots-1` and arriving back restores them. Requests without tools under 50,000
+  characters run on the loaded model, and load `main` when none is. A wait over
+  `swap_wait_s` (7200, `[gateway.backends.NAME]`) or a failed swap is 503 `swap_unavailable`
+  with `Retry-After`. The swap text is the `swap` entry of the log's `policy` field. The
+  subagent key is the conversation key, so a subagent whose conversation grows keeps one key.
+  Not built: the idle `load main` after a gpu-light reclaim (plan step 16) and the
+  gpu-light claim held for the swap (step 18). Stop reasons come from the last 8 KiB of the reply.

@@ -30,9 +30,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .. import launchers, llamacmd, modes, relay
-from ..errors import BadRequest, GatewayError, ModelUnverified, RouterBusy, Unavailable
+from ..errors import BadGatewayError, BadRequest, GatewayError, ModelUnverified, RouterBusy, Unavailable
 from ..models.manifest import ManifestError, Verifier
-from ..policies import route
+from ..policies import route, swap
 from .openai import OpenAIBackend, UpstreamAddress, parse_address
 
 log = logging.getLogger(__name__)
@@ -44,6 +44,7 @@ LEGACY_PID_NAME = "router.pid"
 CRASH_WINDOW_S = 600.0  # REQ-GW-39
 POLL_S = 1.0  # REQ-GW-34
 STATUS_TIMEOUT_S = 5.0
+SWAP_CALL_TIMEOUT_S = 120.0  # hal-route.py: a slot save of a large cache takes a while
 ADMIN_TIMEOUT_S = 120.0  # a load or unload call answers when the model is in or out
 
 
@@ -89,6 +90,7 @@ class LlamaRouter(OpenAIBackend):
         self._verifier: Verifier | None = None
         self._ollama: Callable[[], list] = list  # type: ignore[type-arg]
         self.hal: modes.HalSettings | None = None  # the `[hal]` section of the active (or configured) mode
+        self._swap: swap.SwapScheduler | None = None
         self.turns = route.TurnMemory()  # the route policy's held choice per conversation
         self.on_mode: Callable[[modes.HalSettings | None], None] = lambda hal: None
 
@@ -158,6 +160,7 @@ class LlamaRouter(OpenAIBackend):
 
     def _set_hal(self, hal: modes.HalSettings | None) -> None:
         self.hal = hal
+        self._swap = None  # a new mode means a new pair of models
         self.on_mode(hal)
 
     def peek(self) -> None:
@@ -398,6 +401,30 @@ class LlamaRouter(OpenAIBackend):
         body = {"model": classifier, "state": text, "questions": route.ROUTE_QUESTION}
         doc = relay.call_json(self, "POST", "/v1/systemone", body, timeout_s=route.CLASSIFIER_TIMEOUT_S)
         return route.parse_answer(doc)
+
+    def swap_call(self, path: str, body: dict, check: bool = True) -> dict:  # type: ignore[type-arg]
+        """POSTs to the router for the swap scheduler; with `check`, an HTTP error raises `SwapError`."""
+        try:
+            return relay.call_json(self, "POST", path, body, timeout_s=SWAP_CALL_TIMEOUT_S)
+        except BadGatewayError as exc:
+            if check:
+                raise swap.SwapError(f"{path}: {exc.message}") from exc
+            return {}
+
+    def scheduler(self) -> swap.SwapScheduler | None:
+        """The swap scheduler of the active mode, or None when the mode does not swap."""
+        hal = self.hal
+        if hal is None or not hal.swap:
+            return None
+        if self._swap is None:
+            self._swap = swap.SwapScheduler(
+                self,
+                hal.main,
+                hal.agent,
+                slots=hal.swap_slots,
+                swap_wait_s=float(self.entry["swap_wait_s"]),  # type: ignore[arg-type]
+            )
+        return self._swap
 
     # --- requests in flight, mode switch, load, unload --------------------------------------
 

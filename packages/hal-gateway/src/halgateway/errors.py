@@ -90,6 +90,18 @@ class Unavailable(GatewayError):
     code = "unavailable"
 
 
+class SwapUnavailable(Unavailable):
+    """A model swap timed out or failed; the client may retry."""
+
+    code = "swap_unavailable"
+    retry_after = 30  # seconds; a swap takes 17 to 60 s on the reference machine
+
+    def __init__(self, message: str, retry_after: int | None = None) -> None:
+        super().__init__(message)
+        if retry_after is not None:
+            self.retry_after = retry_after
+
+
 class ModelUnverified(Unavailable):
     """The model is not pinned in `models.toml`, or its file or digest changed (REQ-GW-77)."""
 
