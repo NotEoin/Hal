@@ -1,0 +1,7 @@
+# Pinned llama.cpp release (REQ-SEC-78). The installer downloads only this tag and refuses any
+# archive whose sha256 is missing here or differs. Fill `sha256` from a download you trust:
+#   sha256sum llama-b11512-bin-ubuntu-cuda-12.8-x64.tar.gz
+# Unverified: the digests are not recorded yet, so the installer refuses until they are.
+tag = "b11512"
+
+[assets]

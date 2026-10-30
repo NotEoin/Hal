@@ -247,8 +247,11 @@ install_llama_cpp() {
   tmp="$(mktemp -d)"
   for a in "llama-$LLAMA_CPP_BUILD-bin-ubuntu-cuda-12.8-x64.tar.gz" \
            "cudart-llama-$LLAMA_CPP_BUILD-bin-ubuntu-cuda-12.8-x64.tar.gz"; do
-    curl -fL --progress-bar -o "$tmp/$a" "$base/$a" && tar xzf "$tmp/$a" -C "$tmp" \
-      || { err "Could not download $a"; rm -rf "$tmp"; return 1; }
+    # REQ-SEC-78: extract only an archive whose sha256 is in the repo's lock file
+    curl -fL --progress-bar -o "$tmp/$a" "$base/$a" \
+      && python3 -I "$HAL_ROOT/packages/hal-gateway/src/halgateway/llamacpp.py" verify "$LLAMA_CPP_BUILD" "$tmp/$a" \
+      && tar xzf "$tmp/$a" -C "$tmp" \
+      || { err "Could not download or verify $a"; rm -rf "$tmp"; return 1; }
   done
   mkdir -p "$LLAMA_CPP_DIR"
   # The CUDA runtime goes beside llama-server, where its backend loader looks for it
