@@ -328,6 +328,10 @@ re-reads it on a changed mtime or inode. `[gateway].url` must be `http://127.0.0
   reclaim). The design lists 3 for conflicts and 2 for config errors; the shipped codes differ.
 - `data/hal-gateway.service` is a template with `@BIN@`; `units.render_unit(bin_dir)` fills it.
   Nothing here installs, enables or starts the unit; the launcher (design 06) does that.
-- Not built: `hal.conf` import (plan step 26), the user docs and how-tos (27), the launcher
+- `legacy.import_hal_conf(path)` parses `KEY=value` lines of `hal.conf` without sourcing it and
+  returns a `config.toml`-shaped dict (`[gateway.backends.local]` `server`, `models_dir`, `mode`,
+  `port` from `HAL_LLAMA_URL`, and `[hal].ollama_url`). A non-loopback `HAL_LLAMA_URL` raises
+  `LegacyImportError`. Nothing calls it yet: `hal configure` (design 06) will show and write it.
+- Not built: the user docs and how-tos (plan step 27), the launcher
   switch and removal of `hal-serve` (28, 29), and the docker launcher (30). sha256 values and
   commit pins are left for the maintainer.
