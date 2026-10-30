@@ -7,6 +7,9 @@
 #   hal code [DIR]       private coding agent in a docker box (--build makes the image)
 #   hal code accept|export|reject SID   take or discard what the agent changed in its isolated copy
 #   hal scratch clean [DIR]            empty the /scratch pad of one project or all
+#   hal policy show|check|explain|init|edit|allow   inspect and extend the tool policy
+#   hal approvals | approve ID | deny ID   answer pending tool-call approvals
+#   hal audit tail|verify             read the audit log
 #   hal claude [args...] Claude Code in the current directory (NOT private, not boxed)
 #   hal here [args...]   open Claude Code in the current directory (for coding projects)
 #   hal on | off         start Hal's services, or stop the ones using the GPU and free it
@@ -37,7 +40,7 @@ halcore() { PYTHONPATH="$HALCORE_SRC${PYTHONPATH:+:$PYTHONPATH}" exec "$HAL_PYTH
 
 # ---- Commands that need neither hal.conf nor Claude Code --------------------
 case "${1:-}" in
-  chat|console|eval|ext|units|configure|code|scratch) halcore "$@" ;;
+  chat|console|eval|ext|units|configure|code|scratch|policy|audit|approvals|approve|deny) halcore "$@" ;;
   on|off|toggle) halcore power "$@" ;;
   install) shift; halcore units install --start "$@" ;;
   ask|index|brief|summarize|import|obsidian-key|register-repos)

@@ -24,6 +24,14 @@ def main() -> int:
         from .scratch import main as run
     elif cmd == "security":
         from .security import main as run
+    elif cmd in ("policy", "audit"):
+        from .policycli import main as run
+
+        return run([cmd, *rest])
+    elif cmd in ("approvals", "approve", "deny"):
+        from halhub.cli import main as hub_main
+
+        return hub_main([cmd, *rest]) or 0
     elif cmd == "gpulight":
         from .gpulight import main as run
     else:

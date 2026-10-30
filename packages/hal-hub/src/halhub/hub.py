@@ -578,6 +578,22 @@ class Hub:
         checked against the request it answers (04-hub "Approvals over MCP"). Any failure
         gives None, which matches no request.
         """
+        try:
+            decision = self.explain(name, args, session)
+        except Exception:  # a retry whose key cannot be computed matches nothing: fail closed
+            log.warning("could not recompute the approval key for %s", name, exc_info=True)
+            return None
+        return decision.key if decision is not None else None
+
+    def explain(
+        self, name: str, args: Mapping[str, object] | None, session: HubSession
+    ) -> policy.Decision | None:
+        """The policy decision for a call as it would be made now, or None for an unknown tool.
+
+        Resolves, normalises, prepares and decides like `call`, but writes no audit record and
+        never runs the tool (`hal policy explain`, REQ-CLI-70). Raises `ArgumentError` for
+        arguments the tool's schema refuses.
+        """
         found = self.registry.lookup(name)
         if found is not None:
             target = self._target(found[0], found[1].spec)
@@ -586,25 +602,21 @@ class Hub:
             target = _Target(spec, None, provider_meta(spec), {}, None, provider)
         else:
             return None
-        try:
-            raw = normalise(target.tool, args).args
-            origin, remote_client = parse_origin(session.origin)
-            call = policy.ToolCall(
-                tool=name,
-                args=raw,
-                session=session.id,
-                origin=origin,
-                call_id=new_call_id(),
-                channel=session.channel,
-                remote_client=remote_client,
-                remote_addr=session.remote_addr,
-            )
-            resolved = policy.prepare(call, target.meta, home=self._home)
-            ctx = session.context(self._clock(), resolved, approver=True, meta=target.meta)
-            return policy.decide(call, target.meta, session.policy, ctx).key
-        except Exception:  # a retry whose key cannot be computed matches nothing: fail closed
-            log.warning("could not recompute the approval key for %s", name, exc_info=True)
-            return None
+        raw = normalise(target.tool, args).args
+        origin, remote_client = parse_origin(session.origin)
+        call = policy.ToolCall(
+            tool=name,
+            args=raw,
+            session=session.id,
+            origin=origin,
+            call_id=new_call_id(),
+            channel=session.channel,
+            remote_client=remote_client,
+            remote_addr=session.remote_addr,
+        )
+        resolved = policy.prepare(call, target.meta, home=self._home)
+        ctx = session.context(self._clock(), resolved, approver=True, meta=target.meta)
+        return policy.decide(call, target.meta, session.policy, ctx)
 
     # -- pipeline steps --
 
