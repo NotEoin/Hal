@@ -14,6 +14,7 @@ Requirements: [../design/02-sandbox.md](../design/02-sandbox.md).
 | `boxside/` | Stdlib-only `hal-box-entry`, `hal-relay`, `hal-mcp-bridge`; each also runs as a lone file in the image. |
 | `detect.py`, `lockdown.py` | Backend choice, probe cache, lockdown gates. |
 | `upstreams.py`, `hubchild.py` | Host MCP servers (`[mcp.servers.<name>]` with `host = true`) as hub providers. The broker runs each hub child as `python -m halsandbox.hubchild`, which adds them through `halhub.cli.HUB_HOOKS`. Each connection starts its own upstream processes. Strict lockdown offers none. |
+| `egress.py` | `ConnectProxy`: CONNECT-only unix-socket proxy for the dependency-prep box; listed registries on 443, addresses checked with `halkit.netguard.resolve_checked`. Not wired to a session yet (needs `deps.py`). |
 | `labels.py` | Container labels and the orphan sweep (`sweep`, `sweep_if_due`): dead own boxes, dead runtime dirs, empty isolated copies older than 7 days. |
 | `broker.py`, `transport.py`, `lifeline.py` | Line-framed unix socket server with peer rules, broker over it, box shutdown socket. |
 | `checkpoints.py`, `shadow.py`, `diffreport.py`, `gitlayout.py` | Checkpoints, diff report and flags, read-only git mounts. |

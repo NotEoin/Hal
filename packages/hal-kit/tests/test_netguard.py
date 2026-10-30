@@ -263,3 +263,14 @@ def test_tls_fetch_uses_the_name_for_sni_and_certificate_checks(tls_server):
     assert fetch(f"https://good.example:{port}/tls", context=ctx, **common).body == b"secure"
     with pytest.raises(ssl.SSLCertVerificationError):
         fetch(f"https://other.example:{port}/tls", context=ctx, **common)
+
+
+def test_resolve_checked_returns_a_global_address_and_refuses_private_ones():
+    from halkit.netguard import BlockedURL, FetchError, resolve_checked
+
+    assert resolve_checked("pypi.org", resolve=lambda h: ["93.184.216.34"]) == "93.184.216.34"
+    for bad in ("127.0.0.1", "10.1.2.3", "169.254.169.254", "::1", "::ffff:10.0.0.1"):
+        with pytest.raises(BlockedURL):
+            resolve_checked("pypi.org", resolve=lambda h, bad=bad: ["93.184.216.34", bad])
+    with pytest.raises(FetchError):
+        resolve_checked("bad host!", resolve=lambda h: ["93.184.216.34"])

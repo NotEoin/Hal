@@ -291,6 +291,21 @@ def _checked_address(host: _Host, resolve: Callable[[str], list[str]], allow_pri
     return addresses[0]
 
 
+def resolve_checked(
+    name: str, *, resolve: Callable[[str], list[str]] | None = None, timeout: float = 5.0
+) -> str:
+    """The address to connect to for host `name`; every address it resolves to must be global.
+
+    Raises `BlockedURL` (rule `url:private`) when any address is private, loopback or
+    link-local, and `FetchError` when the lookup fails or `name` is not a host name. The caller
+    connects to the returned address, so DNS cannot change between the check and the connect.
+    """
+    host = _host(name)
+    if host is None:
+        raise FetchError(f"{name!r} is not a host name")
+    return _checked_address(host, resolve or _system_resolver(timeout), allow_private=False)
+
+
 def _request(
     parts: SplitResult,
     name: str,
