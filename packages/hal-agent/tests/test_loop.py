@@ -107,3 +107,25 @@ def test_call_leaked_into_native_text_is_executed(server, tmp_path):
     server.script(leak, "done")
     r = make(server, tmp_path).run("go")
     assert (tmp_path / "l.txt").read_text() == "z" and r.text == "done"
+
+
+def test_truncated_tool_call_gets_a_nudge_then_the_turn_continues(server, tmp_path):
+    cut = '<tool_call>{"name": "write", "arguments": {"path": "t.txt", "content": "ha'
+    server.script(Reply(text=cut, finish_reason="length"), "recovered")
+    r = make(server, tmp_path).run("go")
+    assert r.stopped == "done" and r.text == "recovered"
+    sent = server.requests[1]["body"]["messages"]
+    assert "cut off" in sent[-1]["content"] and sent[-1]["role"] == "user"
+
+
+def test_repeated_truncation_stops_the_turn(server, tmp_path):
+    cut = '<tool_call>{"name": "write", "arguments": {"path": "t'
+    server.script(*[Reply(text=cut, finish_reason="length")] * 5)
+    assert make(server, tmp_path).run("go").stopped == "truncated"
+
+
+def test_profile_sampling_reaches_the_request(server, tmp_path):
+    server.script("ok")
+    make(server, tmp_path, model="gemma4:12b").run("hi")
+    body = server.requests[0]["body"]
+    assert body["temperature"] == 1.0 and body["top_k"] == 64

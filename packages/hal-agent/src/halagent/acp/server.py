@@ -29,7 +29,8 @@ ERR_PARSE, ERR_INVALID, ERR_NOT_FOUND, ERR_PARAMS, ERR_INTERNAL = -32700, -32600
 ERR_BUSY = -32002
 STOP_REASONS = {
     "done": "end_turn", "finished": "end_turn", "turn_limit": "max_turn_requests",
-    "tool_limit": "max_turn_requests", "context_overflow": "max_tokens", "cancelled": "cancelled",
+    "tool_limit": "max_turn_requests", "context_overflow": "max_tokens", "truncated": "max_tokens",
+    "cancelled": "cancelled",
 }  # fmt: skip
 KIND_OF = {
     "read": "read", "grep": "search", "glob": "search", "edit": "edit", "write": "edit",

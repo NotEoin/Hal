@@ -22,18 +22,25 @@ from halagent.context import (
     render_for_summary,
 )
 from halagent.mcp.lite import LiteMcpClient, McpError
+from halagent.profiles import Profile, resolve_profile
 from halagent.provider import ChatProvider
-from halagent.repair import repair_call, repair_text
+from halagent.repair import has_open_marker, repair_call, repair_text
 from halagent.repair.aliases import parse_args
 from halagent.sessions import SessionWriter, replay_indexed
 from halagent.settings import AgentSettings
 from halagent.tools import ToolError, Toolset, render_error
+from halkit import paths
 
 log = logging.getLogger("halagent.loop")
 
 MAX_RESULT_CHARS = 12_000
 HEAD_KEEP = 4_000
 TAIL_KEEP = 8_000
+MAX_TRUNCATION_NUDGES = 2  # in a row; a model that keeps overrunning its cap will not stop by itself
+TRUNCATION_NUDGE = (
+    "Your last reply was cut off by the output limit before the tool call was complete, so it "
+    "was not run. Do a smaller step: one short call, and write big files in several parts."
+)
 SYSTEM = (
     "You are a coding agent. Work inside the workspace using the tools. Read before you edit, "
     "check your work by running tests, and answer briefly when the task is done."
@@ -50,7 +57,7 @@ class RunResult:
     """Outcome of one prompt: final text, why it stopped, and counts."""
 
     text: str
-    stopped: str  # done, finished, turn_limit, tool_limit, context_overflow, cancelled
+    stopped: str  # done, finished, turn_limit, tool_limit, context_overflow, cancelled, truncated
     turns: int
     tool_calls: int
 
@@ -67,14 +74,22 @@ class Agent:
         session: SessionWriter | None = None,
         system_extra: str = "",
         on_update: Callable[[dict], None] | None = None,
+        profile: Profile | None = None,
     ) -> None:
         self.settings = settings
+        self.profile = profile or resolve_profile(
+            settings.model, user_file=paths.config_dir() / "model-profiles.toml"
+        )
         self.system_extra = system_extra
         self.on_update = on_update or (lambda update: None)
         self.cancel = threading.Event()
         self.toolset = toolset
         self.provider = provider or ChatProvider(
-            settings.endpoint, settings.model, api_key=settings.api_key, stream=settings.stream
+            settings.endpoint,
+            settings.model,
+            api_key=settings.api_key,
+            stream=settings.stream,
+            extra=self.profile.request_extras(),
         )
         self.on_event = on_event or (lambda kind, text: None)
         self.mcp: LiteMcpClient | None = None
@@ -215,7 +230,7 @@ class Agent:
         self.turn += 1
         self.note.task = prompt
         self._add({"role": "user", "content": prompt})
-        turns = calls_made = 0
+        turns = calls_made = nudges = 0
         text = ""
         while turns < s.max_turns:
             if self.cancel.is_set():
@@ -231,6 +246,15 @@ class Agent:
             calls = list(reply.tool_calls)
             if not calls:
                 calls, text = self._leaked_calls(text, turns)
+            if not calls and reply.finish == "length" and has_open_marker(reply.text):
+                nudges += 1
+                if nudges > MAX_TRUNCATION_NUDGES:
+                    return RunResult(text, "truncated", turns, calls_made)
+                log.warning("reply cut off inside a tool call; nudging (%d)", nudges)
+                self._add({"role": "assistant", "content": reply.text})
+                self._add({"role": "user", "content": TRUNCATION_NUDGE})
+                continue
+            nudges = 0
             if text and native:
                 self.on_event("text", text)
                 self.on_update({"kind": "text", "text": text})
@@ -261,9 +285,14 @@ class Agent:
                     return RunResult(result, "finished", turns, calls_made)
         return RunResult(text, "turn_limit", turns, calls_made)
 
+    def _leak_order(self) -> tuple[str, ...] | None:
+        """The profile's parser order, or None for the built-in default."""
+        parsers = self.profile.values.get("leak_parsers")
+        return tuple(parsers) if parsers else None
+
     def _leaked_calls(self, text: str, turn: int) -> tuple[list[tuple[str, str, str]], str]:
         """Calls the model wrote into its text; returns them and the text without them."""
-        order = ("hermes",) if self.settings.tool_format == "prompt" else None
+        order = ("hermes",) if self.settings.tool_format == "prompt" else self._leak_order()
         parser, repaired, rest = repair_text(text, self._offered(), order)
         if not repaired:
             return [], text

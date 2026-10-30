@@ -1,0 +1,79 @@
+# Shipped model-profile catalogue (schema 1); see docs/design/03-agent.md section 3.4.
+# Seeded from `ollama list` and `/api/show` on 2026-10-23. Sampling values are the vendor
+# values Ollama publishes; context stays 32k because VRAM, not the model, limits a 24 GB card.
+schema = 1
+
+[defaults]
+context = 32768
+max_output = 8192
+temperature = 0.6
+top_p = 0.95
+thinking = "on"
+reasoning_replay = "tool_turns"
+tool_format = "native"
+leak_parsers = ["hermes", "json", "name_json"]
+parallel_tool_calls = false
+first_token_timeout_s = 600
+system_role = "system"
+max_tools_hint = 12
+
+[[model]]
+match = ["gemma4:*", "gemma-4-*"]
+family = "gemma4"
+temperature = 1.0
+top_k = 64
+top_p = 0.95
+leak_parsers = ["gemma4", "json", "name_json"]
+evidence = "assistant eval 2026-10-10: 12b-it-qat 33/38, 26b-a4b 32/38 (single runs, think off)"
+
+[[model]]
+match = ["qwen3.5:*", "qwen3.6:*", "qwen3.8:*", "*qwen3.8*", "*qwen3.5*"]
+family = "qwen35"
+temperature = 1.0
+top_k = 20
+top_p = 0.95
+presence_penalty = 1.5
+leak_parsers = ["hermes", "qwen_xml", "json"]
+evidence = "9b 33/38, 4b 31/38 (2026-10-10, single runs)"
+
+[[model]]
+match = ["qwen3-coder*"]
+family = "qwen3coder"
+temperature = 0.7
+thinking = "off"
+leak_parsers = ["qwen_xml", "hermes"]
+notes = "temperature is unverified: Ollama publishes none"
+
+[[model]]
+match = ["gpt-oss:*", "gpt-oss-*"]
+family = "gptoss"
+temperature = 1.0
+thinking = "medium"
+leak_parsers = ["harmony", "json"]
+
+[[model]]
+match = ["ministral-3:*", "mistral-small3.2:*", "devstral-small-2:*", "magistral:*"]
+family = "mistral3"
+temperature = 0.15
+thinking = "off"
+leak_parsers = ["mistral", "json"]
+evidence = "ministral-3:14b 28/38, mistral-small3.2:24b 30/38 (2026-10-10)"
+
+[[model]]
+match = ["glm-4.7*"]
+family = "glm47"
+thinking = "on"
+leak_parsers = ["glm", "hermes"]
+
+[[model]]
+match = ["granite4*"]
+family = "granite"
+thinking = "off"
+leak_parsers = ["hermes", "json"]
+
+[[model]]
+match = ["phi4-mini*", "llama3.2*"]
+family = "small"
+thinking = "off"
+context = 8192
+leak_parsers = ["json", "name_json"]
