@@ -10,6 +10,7 @@ written.
 | [design/README.md](design/README.md) | Index of the design specs |
 | [user/agent.md](user/agent.md) | The `hal-agent` commands, limits from the model, host tools and exit codes |
 | [user/security.md](user/security.md) | What Hal protects you from, the lockdown and paranoia tables, and which paths are not private |
+| [user/sandbox.md](user/sandbox.md) | The box: lockdown levels, what it sees, getting changes out, checkpoints |
 | [howto/approve-tool-calls.md](howto/approve-tool-calls.md) | How to see why a call asks, answer it, and make a policy rule last |
 | [howto/check-the-agent-setup.md](howto/check-the-agent-setup.md) | How to run `hal-agent doctor`, read its checks and fix each symptom |
 | [howto/connect-a-harness-to-hal-tools.md](howto/connect-a-harness-to-hal-tools.md) | How to give Claude Code or another MCP client Hal's tools, on stdio or HTTP, and answer approvals |
@@ -20,6 +21,7 @@ written.
 | [dev/agent.md](dev/agent.md) | Agent developer notes: modules, limit precedence, records over ACP, what is not built |
 | [dev/gateway.md](dev/gateway.md) | Gateway developer notes: configuration, listeners, relay, aliases, Ollama backend |
 | [dev/manifest.md](dev/manifest.md) | Tool manifest (`hal-module.toml`) reference: every table and key, placeholders, v1 rules |
+| [dev/sandbox.md](dev/sandbox.md) | Sandbox developer notes: modules, adding a backend, tests, what is not built |
 | [dev/threat-model.md](dev/threat-model.md) | Threat model: assets, adversaries, trust boundaries, threats with their mitigations, residual risks |
 | [dev/worker-protocol.md](dev/worker-protocol.md) | The JSON-lines protocol between the tool hub and a tool worker, and the v1 one-shot protocol |
 | [design/00-overview.md](design/00-overview.md) | System overview: repos, packages, `halkit`, flows, configuration, ports, release plan |
