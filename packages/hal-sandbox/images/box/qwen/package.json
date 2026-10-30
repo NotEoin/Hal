@@ -1,0 +1,8 @@
+{
+  "name": "hal-box-qwen",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "@qwen-code/qwen-code": "0.25.0"
+  }
+}

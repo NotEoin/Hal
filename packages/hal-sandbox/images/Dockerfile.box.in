@@ -1,0 +1,6 @@
+# syntax=docker/dockerfile:1.7
+${NODE_FROM}FROM ${SANDBOX_IMAGE_ID}
+USER 0:0
+${INSTALL}
+LABEL hal.box.cli="${CLI}" hal.box.version="${CLI_VERSION}"
+USER 65534:65534

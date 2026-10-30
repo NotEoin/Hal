@@ -51,3 +51,29 @@ def test_image_sizes_within_budget():
         ).stdout.strip()
         mb = float(out[:-2]) * (1000 if out.endswith("GB") else 1)
         assert mb <= images.SIZE_BUDGET_MB[flavor], f"{tag} is {out}"
+
+
+@needs_full
+def test_goose_box_image_builds_and_runs_the_pinned_binary():
+    from halsandbox import boximages
+
+    tag = boximages.build_box("goose", base_tag=TAGS["full"])
+    out = subprocess.run(
+        ["docker", "run", "--rm", "--pull", "never", "--network", "none",
+         "--entrypoint", "goose", tag, "--version"],
+        capture_output=True, text=True, timeout=60,
+    )  # fmt: skip
+    assert out.returncode == 0 and "1.54.0" in out.stdout
+
+
+@needs_full
+def test_npm_box_image_installs_the_locked_cli():
+    from halsandbox import boximages
+
+    tag = boximages.build_box("crush", base_tag=TAGS["full"])
+    out = subprocess.run(
+        ["docker", "run", "--rm", "--pull", "never", "--network", "none",
+         "--entrypoint", "crush", tag, "--version"],
+        capture_output=True, text=True, timeout=60,
+    )  # fmt: skip
+    assert out.returncode == 0 and "0.98.0" in out.stdout

@@ -8,3 +8,34 @@ node = "node:22-trixie-slim@sha256:8eb619e402eaede1748a3c8173bffab391592812e8513
 [tools.uv]
 version = "0.11.19"
 published = "2026-06-03"
+
+[cli.claude]
+package = "@anthropic-ai/claude-code"
+version = "2.1.295"
+published = "2026-10-08"
+
+[cli.qwen]
+package = "@qwen-code/qwen-code"
+version = "0.25.0"
+published = "2026-10-05"
+
+[cli.opencode]
+package = "opencode-ai"
+version = "1.18.35"
+published = "2026-10-06"
+
+[cli.codex]
+package = "@openai/codex"
+version = "0.162.0"
+published = "2026-10-08"
+
+[cli.crush]
+package = "@charmland/crush"
+version = "0.98.0"
+published = "2026-10-08"
+
+[cli.goose]
+url = "https://github.com/aaif-goose/goose/releases/download/v1.54.0/goose-x86_64-unknown-linux-gnu.tar.gz"
+version = "1.54.0"
+published = "2026-10-08"
+sha256 = "ab396c95aebbd28b4d38c175234be8d4a3ea0c96e7ccb24c307e4618c9be57e1"  # sha256sum of the release asset, 2026-10-30

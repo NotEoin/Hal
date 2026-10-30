@@ -1,0 +1,8 @@
+{
+  "name": "hal-box-crush",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "@charmland/crush": "0.98.0"
+  }
+}

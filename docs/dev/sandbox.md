@@ -65,3 +65,13 @@ Regenerate a golden file only after reading the diff: it is the reviewed list of
   for the connection. `sweep_if_due` is not called at `hal` start yet.
 - Upstream names must match `^[a-z][a-z0-9]{0,31}$` (the hub's rule), so `hal-desktop` is refused.
 - The runsc probe still connects with `python3` in the image, not `hal-box-entry --probe`.
+
+## Box images for agent CLIs
+
+`boximages.py` builds `hal-box-<cli>:<hash>` on the local `hal-sandbox` image. npm CLIs install with
+`npm ci` from `images/box/<cli>/package-lock.json` (integrity hashes, generated with
+`npm install --package-lock-only`); goose is a tarball with a pinned sha256. Versions live in
+`images/pins.toml` under `[cli.*]` and must be 14 days old (REQ-BOX-24). The Dockerfile names the base
+by tag because buildkit cannot `FROM` a bare image ID; the tag hash covers the base image ID.
+Measured 2026-10-30 [verified: `docker images`]: crush 1.25 GB, goose 1.45 GB (budget 1.5 GB). The
+other CLIs were not built here. Tested by `test_boximages.py` and the live tests in `test_images_live.py`.
