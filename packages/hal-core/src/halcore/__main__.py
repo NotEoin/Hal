@@ -8,6 +8,10 @@ def main() -> int:
         from .chat import main as run
     elif cmd == "acp":
         from .acpcmd import main as run
+    elif cmd in ("lockdown", "paranoia"):
+        from .levels import main as run
+
+        return run([cmd, *rest])
     elif cmd == "ext":
         from .ext import main as run
     elif cmd == "eval":

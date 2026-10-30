@@ -54,6 +54,14 @@ With no classifier model reachable, `balanced` and above treat every call as `hi
 asked more often; `hal doctor` and `hal status` print `classifier: UNREACHABLE` when that is so.
 Every verdict is written to the audit log as a `classification` record.
 
+## Changing a level
+
+Run `hal lockdown` or `hal paranoia` to see the current level and what each level means. Add a
+level to change it (`hal lockdown strict`). Only a person at a terminal can do this: the command
+refuses when `HAL_HARNESS` is set or stdin is not a terminal, so a tool call cannot raise its own
+privileges. Lowering a level asks you to type the new level back. Checked by
+`packages/hal-core/tests/test_levels.py`.
+
 ## Paths that are not private or not boxed
 
 | Path | Why |
