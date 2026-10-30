@@ -423,6 +423,7 @@ def _mcp(argv: list[str]) -> int:
             origin=opts.origin or mcp.ORIGIN,
             remote_addr=(os.environ.get(REMOTE_ADDR_ENV) or None) if remote else None,
             approvals="auto" if remote else opts.approvals or hub.config.mcp.approvals,
+            boxed=hub.paranoia_floor is not None,  # only the broker sets the floor, for a box
             packs=opts.packs,
             tools=tools,
         )

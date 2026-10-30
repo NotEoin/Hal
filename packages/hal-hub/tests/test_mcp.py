@@ -479,3 +479,20 @@ def test_callback_mode_needs_an_approver():
         ServeOptions(approvals="callback")
     with pytest.raises(ValueError, match="callback"):
         ServeOptions(approver=object())
+
+
+def test_boxed_server_opens_a_box_session_so_host_code_tools_are_denied(make_hub):
+    """Regression: the broker's hub child opened kind `hub`, so `runs-code@box` never fired."""
+    from halhub.mcp import _open
+
+    conn = _open(make_hub(), ServeOptions(approvals="out-of-band", boxed=True))
+    try:
+        assert (conn.session.kind, conn.session.origin) == ("box", "box_agent")
+    finally:
+        conn.control.close()
+
+
+@pytest.mark.parametrize("approvals", ["auto", "elicit"])
+def test_boxed_server_refuses_in_band_approvals(approvals):
+    with pytest.raises(ValueError, match="boxed"):
+        ServeOptions(approvals=approvals, boxed=True)

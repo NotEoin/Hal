@@ -153,6 +153,8 @@ UNAVAILABLE_ERRORS = frozenset({"unknown_tool", "unavailable"})  # 02's `_meta.h
 ApprovalMode = Literal["auto", "elicit", "out-of-band", "callback", "deny"]
 APPROVAL_MODES: tuple[str, ...] = get_args(ApprovalMode)
 BOX_ORIGINS = frozenset({"box_harness", "box_agent"})  # never elicitation: an in-box client could answer
+BOX_AGENT_ORIGIN = "box_agent"
+BOX_APPROVALS = ("out-of-band", "deny")  # a box must never answer its own approval in-band
 PROGRESS_S = 15.0  # 04-hub REQ-HUB-41: some clients extend their tool timeout on progress
 WAIT_POLL_S = 0.5  # a backstop only: the event wakes the waiter as soon as anything changes
 RESULT_KEEP_S = 300.0  # an answered 2026-07-28 request waits this long for the client's retry
@@ -252,6 +254,12 @@ class ServeOptions:
     packs: frozenset[str] | None = None  # limit to these packs
     tools: frozenset[str] | None = None  # limit to these tools
     server_name: str = "hal-hub"
+    boxed: bool = False  # the broker's child for a box: session kind `box`, origin `box_agent`
+
+    @property
+    def session_origin(self) -> str:
+        """The origin recorded on the session: `box_agent` for a boxed server, else `origin`."""
+        return BOX_AGENT_ORIGIN if self.boxed else self.origin
 
     def __post_init__(self) -> None:
         if self.mode not in ("meta", "flat"):
@@ -272,6 +280,8 @@ class ServeOptions:
             raise ValueError("a remote origin or address needs channel remote")
         if self.channel == REMOTE_CHANNEL and self.approvals != "auto":
             raise ValueError("channel remote always uses approval mode auto (REQ-HUB-71)")
+        if self.boxed and (self.channel is not None or self.approvals not in BOX_APPROVALS):
+            raise ValueError(f"a boxed server has no channel and approvals {' or '.join(BOX_APPROVALS)}")
         for name, limit in (("packs", self.packs), ("tools", self.tools)):
             if limit is not None and not limit:
                 raise ValueError(f"an empty {name} limit would serve nothing; leave it unset instead")
@@ -736,8 +746,9 @@ def render(result: CallResult) -> types.CallToolResult:
 def _open(hub: Hub, opts: ServeOptions) -> _Connection:
     if opts.session is not None:
         return _Connection(opts.session)
-    kind = "remote" if opts.channel == REMOTE_CHANNEL else "hub"
-    where = {"origin": opts.origin, "channel": opts.channel, "remote_addr": opts.remote_addr}
+    # a boxed session must be kind `box`: policy denies host-code tools (REQ-SEC-59) by kind
+    kind = "box" if opts.boxed else "remote" if opts.channel == REMOTE_CHANNEL else "hub"
+    where = {"origin": opts.session_origin, "channel": opts.channel, "remote_addr": opts.remote_addr}
     if opts.approvals == "callback":
         session = hub.open_session(kind=kind, profile=opts.profile, approver=opts.approver, **where)
         return _Connection(session, owned=True)
@@ -746,7 +757,7 @@ def _open(hub: Hub, opts: ServeOptions) -> _Connection:
     server = control.ControlServer(session_id, audit=audit, on_pending=_waiting)
     approver = None
     if opts.approvals != "deny":
-        approver = _ConnectionApprover(opts.approvals, server, opts.origin, audit)
+        approver = _ConnectionApprover(opts.approvals, server, opts.session_origin, audit)
     try:
         session = hub.open_session(
             kind=kind, profile=opts.profile, approver=approver, session_id=session_id, **where
