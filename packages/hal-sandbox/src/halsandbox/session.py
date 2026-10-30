@@ -21,7 +21,7 @@ from pathlib import Path, PurePosixPath
 from halkit import paths
 
 from . import config as sbconfig
-from . import detect, gitlayout, isolated, projects, scratch
+from . import detect, gitlayout, images, isolated, projects, scratch
 from .backends import Launch
 from .backends.bwrap import bwrap_launch, user_manager_running
 from .backends.docker import LaunchSpec, docker_argv
@@ -41,11 +41,11 @@ from .upstreams import parse_upstreams
 
 log = logging.getLogger(__name__)
 
-KINDS = ("code", "chat", "job")  # `box`, `shell` and `deps` belong to `hal box` (steps 28 and 32)
+KINDS = ("code", "chat", "job", "box")  # `shell` and `deps` belong to `hal-sandbox` (steps 28 and 32)
 DEFAULT_CHILD = ("hal-agent", "--acp", "--config", "/run/hal/agent.json")
 DEFAULT_IMAGE = "hal-agent:local"
 ASSISTANT_DIR = "assistant"  # `$STATE/assistant/`: the scratchpad key of a session without a project
-WORK_KINDS = ("code", "job")  # kinds that may mount a project; the others get /scratch only
+WORK_KINDS = ("code", "job", "box")  # kinds that may mount a project; the others get /scratch only
 DOCKER_RM_TIMEOUT_S = 30.0
 RUN_FILES_MODE = 0o644
 RunFiles = Mapping[str, bytes] | Callable[[str], Mapping[str, bytes]]
@@ -131,6 +131,7 @@ class Session:
         forbidden_secrets: Sequence[str] = (),
         mcp_servers: Mapping[str, Mapping[str, object]] | None = None,
         mcp_restart_limit: int = 1,
+        relay_port: int | None = None,
     ) -> Session:
         """Prepares a session and returns it; raises `SandboxError` (with the fix) when it cannot.
 
@@ -225,8 +226,12 @@ class Session:
                 raise SandboxError(f"backend {probe.backend} cannot launch a {kind} session yet")
             pid = os.getpid()
             mounts = gitlayout.discover(work) if work is not None and not use_copy else ()
+            image_ref = image or DEFAULT_IMAGE
+            if probe.backend == "docker":
+                image_ref = images.resolve(image_ref, docker=docker_path)  # REQ-BOX-27: run by image ID
             spec = LaunchSpec(
-                kind=kind, sid=rd.sid, image=image or DEFAULT_IMAGE, runtime=probe.runtime or "runc",
+                kind=kind, sid=rd.sid, image=image_ref, relay_port=relay_port,
+                runtime=probe.runtime or "runc",
                 work=work, session_root=rd.root, uid=os.getuid(), gid=os.getgid(), limits=limits,
                 env=box_env(kind, rd.sid, probe.backend, os.environ, extra=extra_env),
                 child=list(child_argv), pid=pid, pidstart=pidstart(pid), started=utc_now(), tty=tty,

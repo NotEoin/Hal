@@ -188,7 +188,10 @@ def test_run_code_boxes_an_isolated_copy_and_cleans_up(tmp_path, monkeypatch):
     os.chmod(sockdir := Path(__import__("tempfile").mkdtemp(prefix="rc-")), 0o700)
     log = tmp_path / "docker.log"
     fake = tmp_path / "docker"
-    fake.write_text(f'#!/bin/sh\necho "$@" >> {log}\n[ "$1" = run ] && exit 3\nexit 0\n')
+    fake.write_text(
+        f'#!/bin/sh\necho "$@" >> {log}\n[ "$1 $2" = "image inspect" ] && echo "sha256:abc ctx"\n'
+        '[ "$1" = run ] && exit 3\nexit 0\n'
+    )
     fake.chmod(0o755)
     for k, v in (("HAL_DOCKER", fake), ("HAL_RUNTIME_DIR", sockdir), ("HAL_STATE_DIR", tmp_path / "st"),
                  ("HAL_CONFIG", tmp_path / "none.toml")):  # fmt: skip

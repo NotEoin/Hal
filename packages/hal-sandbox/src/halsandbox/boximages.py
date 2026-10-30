@@ -34,14 +34,15 @@ NPM_INSTALL = (
     "COPY box/${CLI}/ /opt/hal/box/${CLI}/\n"
     "RUN cd /opt/hal/box/${CLI} \\\n"
     " && npm ci --omit=dev --no-audit --no-fund \\\n"
-    " && npm cache clean --force\n"
-    "ENV PATH=/opt/hal/box/${CLI}/node_modules/.bin:$${PATH}\n"
+    " && npm cache clean --force \\\n"
+    " && ln -s /opt/hal/box/${CLI}/node_modules/.bin/* /usr/local/bin/\n"
+    # links, not ENV PATH: the box PATH is fixed by env.BOX_PATH
 )
 GOOSE_INSTALL = (
     "ADD --checksum=sha256:${GOOSE_SHA256} ${GOOSE_URL} /tmp/goose.tar.gz\n"
     "RUN mkdir -p /opt/hal/box/goose/bin \\\n"
     " && tar -xzf /tmp/goose.tar.gz -C /opt/hal/box/goose/bin && rm /tmp/goose.tar.gz\n"
-    "ENV PATH=/opt/hal/box/goose/bin:$${PATH}\n"
+    "RUN ln -s /opt/hal/box/goose/bin/goose /usr/local/bin/goose\n"
 )
 
 
@@ -79,9 +80,9 @@ def render_box_dockerfile(pins: dict, cli: str, *, base_id: str) -> str:
     )
 
 
-def box_tag(cli: str, base_id: str, ctx: str) -> str:
-    """The tag `hal-box-<cli>:<hash>`; the hash covers the base image ID and the staged files."""
-    digest = hashlib.sha256(f"{base_id}\0{ctx}".encode()).hexdigest()
+def box_tag(cli: str, base_id: str, ctx: str, dockerfile: str = "") -> str:
+    """The tag `hal-box-<cli>:<hash>`; the hash covers the base image ID, the Dockerfile and the files."""
+    digest = hashlib.sha256(f"{base_id}\0{ctx}\0{dockerfile}".encode()).hexdigest()
     return f"hal-box-{cli}:{digest[: images.CTX_LEN]}"
 
 
@@ -108,9 +109,36 @@ def build_box(cli: str, *, base_tag: str, docker: str = "docker") -> str:
         ctx = stage_box_context(ctx_dir, cli)
         text = render_box_dockerfile(pins, cli, base_id=base_tag)
         (ctx_dir / "Dockerfile").write_text(text, encoding="utf-8")
-        tag = box_tag(cli, base_id, ctx)
+        tag = box_tag(cli, base_id, ctx, text)
         try:
             proc.run(images.build_argv(tag, ctx_dir, docker=docker), timeout=images.BUILD_TIMEOUT_S)
         except (OSError, proc.ProcTimeout, subprocess.CalledProcessError) as exc:
             raise SandboxError(f"docker build of {tag} failed: {exc}") from exc
     return tag
+
+
+def newest(cli: str, *, docker: str = "docker") -> str | None:
+    """The newest local `hal-box-<cli>` tag, or None when none is built."""
+    if cli not in CLIS:
+        raise SandboxError(f"unknown agent CLI {cli!r}; choose one of {', '.join(CLIS)}")
+    try:
+        done = proc.run(
+            [docker, "images", f"hal-box-{cli}", "--format", "{{.Repository}}:{{.Tag}}"],
+            timeout=images.DOCKER_QUICK_S,
+        )
+    except (OSError, proc.ProcTimeout, subprocess.CalledProcessError) as exc:
+        raise SandboxError(f"cannot query docker: {exc}") from exc
+    tags = done.stdout.decode().split()
+    return tags[0] if tags else None  # docker lists the newest first
+
+
+def harnesses(*, docker: str = "docker") -> list[dict[str, object]]:
+    """Each supported CLI with its pinned version, newest image tag and whether it is built."""
+    pins = images.load_pins().get("cli", {})
+    rows = []
+    for cli in CLIS:
+        tag = newest(cli, docker=docker)
+        rows.append(
+            {"name": cli, "version": pins.get(cli, {}).get("version", ""), "image": tag, "built": bool(tag)}
+        )
+    return rows

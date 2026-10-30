@@ -222,6 +222,39 @@ def _inspect(tag: str, docker: str) -> tuple[str, int]:
     return image_id, int(size)
 
 
+CONTEXT_LABEL = "hal.image.context"
+
+
+def resolve(ref: str, *, docker: str = "docker") -> str:
+    """Resolves `ref` to an image ID at session start (REQ-BOX-27) and checks it is a Hal image.
+
+    A missing image names `hal box image build`; an image without the `hal.image.context` label was
+    not built `FROM` a `hal-sandbox` image and is refused.
+    """
+    fmt = '{{.Id}} {{index .Config.Labels "' + CONTEXT_LABEL + '"}}'
+    try:
+        done = proc.run(
+            [docker, "image", "inspect", "--format", fmt, ref], timeout=DOCKER_QUICK_S, check=False
+        )
+    except (OSError, proc.ProcTimeout) as exc:
+        raise SandboxError(f"cannot query docker: {exc}") from exc
+    if done.returncode != 0:
+        raise SandboxError(f"image {ref} not found; run `hal box image build`")
+    parts = done.stdout.decode().split()
+    if len(parts) < 2:
+        raise SandboxError(f"image {ref} was not built FROM a hal-sandbox image (no {CONTEXT_LABEL} label)")
+    return parts[0]
+
+
+def status() -> list[dict]:
+    """The images recorded in `$STATE/sandbox/images.json`, newest first."""
+    try:
+        known = json.loads((paths.state_dir() / "sandbox" / "images.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return sorted(known, key=lambda k: k.get("built", ""), reverse=True)
+
+
 def record(info: ImageInfo) -> None:
     """Writes `info` into `$STATE/sandbox/images.json`, replacing the entry for the same tag."""
     path = paths.state_dir() / "sandbox" / "images.json"

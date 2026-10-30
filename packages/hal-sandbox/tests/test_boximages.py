@@ -58,3 +58,8 @@ def test_box_tag_changes_with_the_base_image(tmp_path):
     ctx = boximages.stage_box_context(tmp_path, "crush")
     assert boximages.box_tag("crush", BASE, ctx) != boximages.box_tag("crush", "sha256:" + "b" * 64, ctx)
     assert boximages.box_tag("crush", BASE, ctx).startswith("hal-box-crush:")
+
+
+def test_box_tag_changes_with_the_dockerfile(tmp_path):
+    ctx = boximages.stage_box_context(tmp_path, "goose")
+    assert boximages.box_tag("goose", BASE, ctx, "a") != boximages.box_tag("goose", BASE, ctx, "b")

@@ -20,7 +20,9 @@ def env(sockdir, tmp_path, monkeypatch):
     monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "none.toml"))
     log = tmp_path / "docker.log"
     fake = tmp_path / "docker"
-    fake.write_text(f'#!/bin/sh\necho "$@" >> {log}\n')
+    fake.write_text(
+        f'#!/bin/sh\necho "$@" >> {log}\n[ "$1 $2" = "image inspect" ] && echo "sha256:abc ctx"\nexit 0\n'
+    )
     fake.chmod(0o755)
     monkeypatch.setenv("HAL_DOCKER", str(fake))
     probe = detect.Probe("docker", True, "runc", "rootful", "ok", "2026-10-30T00:00:00Z", None)

@@ -45,10 +45,29 @@ A session takes checkpoint 0 at start and one before each turn. They are git com
 state dir for a folder without git. They never touch your index or branches. A session started
 without checkpoints cannot undo or diff.
 
+## Running an agent CLI
+
+`hal box -- CLI [ARGS]` runs claude, qwen, opencode, codex, crush or goose in the same box, on an
+isolated copy of the project, with no network. The CLI talks to the model through the relay on
+`127.0.0.1:8741` and to Hal tools through `hal-mcp-bridge`. `--ask` keeps the CLI's own prompts;
+`--direct` mounts the real project (lockdown `relaxed` or lower). Docker is the only backend.
+
+```sh
+hal-sandbox image build            # the base image; then `hal-sandbox image build crush`
+hal-sandbox harnesses              # which CLIs are built
+hal box -- crush --version         # extra arguments after -- reach the CLI unchanged
+```
+
+A box image missing: the error names `hal box image build`. `hal-sandbox deps` installs project
+dependencies in the egress-limited prep box after you approve each lockfile.
+
 ## Status
 
 - Verified by tests with fakes: argv for docker and bubblewrap (golden files), the box entry,
   relay and MCP bridge, the session lifecycle. A bubblewrap run (`pytest -m bwrap`) passed on the
   development host on 2026-10-30.
-- Not verified: a real docker run with the shipped image, runsc with `--host-uds=open`, the
-  lifeline in a real box. Check with `pytest -m docker` once the image is built.
+- Verified against the real docker daemon on 2026-10-30, under runc and runsc (`--host-uds=open`):
+  `hal code` end to end with a fake model server, the containment suite, and `hal box` starting
+  crush and goose (`--version`). Check with `pytest -m docker` once the images are built.
+- Not verified: a model round trip through each CLI (claude, qwen, opencode, codex) and the
+  other four box images.
