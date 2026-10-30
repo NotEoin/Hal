@@ -152,3 +152,51 @@ def test_connections_over_the_limit_are_dropped(sockdir):
         first.close()
     finally:
         b.stop()
+
+
+FEED_ECHO = (
+    sys.executable,
+    "-c",
+    "import os,sys\n"
+    "f=os.fdopen(int(os.environ['HAL_HUMAN_FD']),'rb')\n"
+    "sys.stdin.readline()\n"
+    "sys.stdout.write('feed:'+f.readline().decode()); sys.stdout.flush()",
+)
+
+
+def test_human_message_reaches_a_live_child_on_the_private_pipe(sockdir):
+    b = Broker(sockdir / "h.sock", FEED_ECHO)
+    b.start()
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(10)
+        s.connect(str(b.socket_path))
+        time.sleep(0.3)  # let the child start and register its pipe
+        b.on_human_message("hello", "tui")
+        s.sendall(b"go\n")
+        data = s.recv(4096)
+        s.close()
+        assert data == b'feed:{"text": "hello", "surface": "tui"}\n'
+    finally:
+        b.stop()
+
+
+def test_last_human_message_is_replayed_to_a_later_connection(sockdir):
+    b = Broker(sockdir / "h.sock", FEED_ECHO)
+    b.start()
+    try:
+        b.on_human_message("earlier", "acp")
+        assert b"earlier" in ask(b.socket_path, b"go\n")
+    finally:
+        b.stop()
+
+
+def test_unknown_surface_is_refused(sockdir):
+    import pytest
+
+    b = Broker(sockdir / "h.sock", ECHO)
+    try:
+        with pytest.raises(ValueError, match="unknown surface"):
+            b.on_human_message("x", "carrier-pigeon")
+    finally:
+        b.stop()

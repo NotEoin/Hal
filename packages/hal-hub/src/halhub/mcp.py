@@ -111,7 +111,7 @@ from halkit import paths
 from halkit import secrets as halsecrets
 from halkit.config import ConfigError
 
-from . import policy
+from . import humanfeed, policy
 from .approvals import ApprovalRequest, ApprovalRouter, Approver, Decision, control
 from .audit import AuditLog, AuditUnavailable
 from .hub import CallResult, Hub, new_call_id
@@ -755,6 +755,9 @@ def _open(hub: Hub, opts: ServeOptions) -> _Connection:
         server.close()
         raise
     audit.session = session
+    fd = humanfeed.feed_fd()
+    if fd is not None:
+        humanfeed.serve(session, fd)
     return _Connection(session, opts.approvals, server, owned=True)
 
 

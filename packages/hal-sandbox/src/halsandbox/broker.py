@@ -13,10 +13,15 @@ The box is hostile, so the broker treats the connection as untrusted input:
 - a partial frame that does not finish within `PARTIAL_TIMEOUT_S` closes the connection (an idle
   connection with nothing pending is fine: a call may wait on a human approval);
 - at most `MAX_CONNECTIONS` children run at once.
+
+Human messages reach the children on a private pipe (`HAL_HUMAN_FD`), never on the socket the box
+can write to; see `halhub.humanfeed`. `Broker.on_human_message` is the host's entry point. A new
+child gets the last message replayed, so a connection opened after the prompt still knows it.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import select
@@ -38,6 +43,8 @@ PARTIAL_TIMEOUT_S = 30.0  # a frame that starts must finish within this time
 MAX_CONNECTIONS = 8  # concurrent hub children per session
 _PEERCRED = struct.Struct("3i")  # pid, uid, gid
 EXIT_WAIT_S = 5.0
+HUMAN_FD_ENV = "HAL_HUMAN_FD"  # same name as `halhub.humanfeed.ENV_FD`; the sandbox does not import halhub
+SURFACES = frozenset({"tui", "acp", "telegram", "voice", "console", "headless", "routine"})  # REQ-SEC-93
 DEFAULT_COMMAND = (sys.executable, "-m", "halhub", "mcp", "--approvals", "out-of-band")
 
 
@@ -61,6 +68,9 @@ class Broker(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         self.max_frame_bytes = max_frame_bytes
         self.partial_timeout_s = partial_timeout_s
         self.slots = threading.BoundedSemaphore(max_connections)
+        self._feeds: set[int] = set()  # write ends of the children's human-message pipes
+        self._feed_lock = threading.Lock()
+        self._last_line: bytes | None = None
         self.socket_path = Path(socket_path)
         old_umask = os.umask(0o177)  # the socket file is created 0600
         try:
@@ -73,6 +83,27 @@ class Broker(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         self._thread = threading.Thread(target=self.serve_forever, name="hub-broker", daemon=True)
         self._thread.start()
         return self._thread
+
+    def on_human_message(self, text: str, surface: str) -> None:
+        """Tells every hub child what the person said, before the agent sees it (REQ-SEC-93).
+
+        Raises `ValueError` for an unknown `surface`. A child that cannot take the line (pipe full
+        or closed) is skipped and logged: its session stays at its current taint, which is the
+        safe side.
+        """
+        if surface not in SURFACES:
+            raise ValueError(f"unknown surface {surface!r}; use one of {sorted(SURFACES)}")
+        line = json.dumps({"text": text, "surface": surface}).encode() + b"\n"
+        with self._feed_lock:
+            self._last_line = line
+            for fd in tuple(self._feeds):
+                self._write_feed(fd, line)
+
+    def _write_feed(self, fd: int, line: bytes) -> None:
+        try:
+            os.write(fd, line)
+        except OSError as exc:  # BlockingIOError (full) or EPIPE (child gone)
+            log.warning("human message not delivered to a hub child: %s", exc)
 
     def stop(self) -> None:
         """Stops serving and removes the socket file."""
@@ -131,9 +162,28 @@ class _Handler(socketserver.BaseRequestHandler):
             deadline = time.monotonic() + self.server.partial_timeout_s if buf else None
 
     def _serve(self) -> None:
-        proc = subprocess.Popen(
-            self.server.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None
-        )
+        server = self.server
+        feed_r, feed_w = os.pipe()
+        os.set_blocking(feed_w, False)  # a stuck child must not stall the host's prompt
+        env = {**os.environ, HUMAN_FD_ENV: str(feed_r)}
+        try:
+            proc = subprocess.Popen(
+                server.command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=None,
+                env=env,
+                pass_fds=(feed_r,),
+            )
+        except BaseException:
+            os.close(feed_w)
+            raise
+        finally:
+            os.close(feed_r)
+        with server._feed_lock:
+            server._feeds.add(feed_w)
+            if server._last_line is not None:
+                server._write_feed(feed_w, server._last_line)
         assert proc.stdin is not None and proc.stdout is not None
         out = threading.Thread(target=self._pump_out, args=(proc,), daemon=True)
         out.start()
@@ -144,6 +194,9 @@ class _Handler(socketserver.BaseRequestHandler):
         except OSError as exc:
             log.debug("broker connection ended: %s", exc)
         finally:
+            with server._feed_lock:
+                server._feeds.discard(feed_w)
+            os.close(feed_w)
             try:
                 proc.stdin.close()
             except OSError:
