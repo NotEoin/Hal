@@ -18,9 +18,12 @@ import json
 import logging
 import socket
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
-from .backends.openai import UpstreamAddress
 from .errors import BadGatewayError, GatewayError, UpstreamTimeout
+
+if TYPE_CHECKING:
+    from .backends.openai import UpstreamAddress
 
 log = logging.getLogger(__name__)
 
@@ -128,7 +131,25 @@ def fetch_model_ids(backend) -> list[str]:  # type: ignore[no-untyped-def]  # an
             doc = json.loads(resp.read(MAX_LIST_BYTES))
         finally:
             conn.close()
-        return [str(m["id"]) for m in doc["data"] if isinstance(m, dict) and "id" in m]
+        return backend.clean_ids([str(m["id"]) for m in doc["data"] if isinstance(m, dict) and "id" in m])
     except (GatewayError, OSError, ValueError, KeyError, TypeError) as exc:
         log.warning("cannot list models of backend %s: %s", backend.name, exc)
         return []
+
+
+def call_json(backend, method: str, path: str, body: dict | None = None, timeout_s: float = LIST_TIMEOUT_S):  # type: ignore[no-untyped-def,type-arg]
+    """Calls a backend's JSON route and returns the parsed reply; raises `GatewayError` on failure."""
+    conn = connect(backend.address(), timeout_s, timeout_s)
+    headers = {"Content-Type": "application/json", **backend.auth_headers()}
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    try:
+        resp = open_response(conn, method, path, data, headers)
+        raw = resp.read(MAX_LIST_BYTES)
+        if resp.status >= 400:
+            raise BadGatewayError(f"backend {backend.name} answered {resp.status} for {path}")
+        try:
+            return json.loads(raw)
+        except ValueError as exc:
+            raise BadGatewayError(f"backend {backend.name} sent invalid JSON for {path}") from exc
+    finally:
+        conn.close()

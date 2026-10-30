@@ -86,6 +86,10 @@ class OpenAIBackend:
         """True when the backend serves `api`."""
         return api in self.apis
 
+    def clean_ids(self, ids: list[str]) -> list[str]:
+        """Returns the model ids worth listing; the generic backend keeps all of them."""
+        return ids
+
     def api_names(self) -> list[str]:
         """Sorted names of the APIs served, for 404 messages."""
         return sorted(api.value for api in self.apis)

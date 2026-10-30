@@ -27,6 +27,7 @@ from .errors import (
     Unauthorized,
     error_body,
 )
+from .estimate import ESTIMATE_HEADER, estimate_input_tokens
 from .routes import Api, Route
 
 log = logging.getLogger(__name__)
@@ -125,6 +126,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route.api is Api.MODELS:
             self._models(gateway, route)
             return
+        if route.api is Api.OLLAMA_NATIVE:
+            self._native(gateway, route)
+            return
         if route.api not in RELAYED:
             raise NotFound(f"{route.api.value} routes are not available yet")
         body = self._read_json(int(gateway.config["max_request_bytes"]))
@@ -138,8 +142,48 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 f"backend {backend.name} does not serve {route.api.value}; it serves: "
                 + ", ".join(backend.api_names())
             )
+        if route.api is Api.COUNT_TOKENS and getattr(backend, "estimates_count_tokens", False):
+            doc = {"input_tokens": estimate_input_tokens(body)}
+            self._send(200, json.dumps(doc).encode("ascii"), extra=[ESTIMATE_HEADER])
+            return
         body["model"] = upstream_model
         self._relay(gateway, backend, json.dumps(body).encode("utf-8"))
+
+    def _native(self, gateway, route: Route) -> None:  # type: ignore[no-untyped-def]
+        """Serves the limited Ollama native routes (REQ-GW-24)."""
+        path = self.path.split("?", 1)[0]
+        if self.command == "GET":
+            ollama = [b for b in gateway.backends.values() if b.type == "ollama"]
+            if not ollama:
+                raise NotFound("no Ollama backend is configured")
+            if path == "/api/tags":
+                self._send(200, json.dumps({"models": self._tags(gateway, ollama)}).encode("ascii"))
+            else:
+                self._relay(gateway, ollama[0], None)
+            return
+        body = self._read_json(int(gateway.config["max_request_bytes"]))
+        requested = body.get("model")
+        if requested is not None and not isinstance(requested, str):
+            raise BadRequest("model must be a string")
+        target = gateway.resolver.resolve(requested)
+        if not target.backend.supports(Api.OLLAMA_NATIVE):
+            raise NotFound(
+                f"backend {target.backend.name} does not serve ollama_native; it serves: "
+                + ", ".join(target.backend.api_names())
+            )
+        body["model"] = target.model
+        self._relay(gateway, target.backend, json.dumps(body).encode("utf-8"))
+
+    @staticmethod
+    def _tags(gateway, ollama) -> list[dict]:  # type: ignore[no-untyped-def,type-arg]
+        """Exposed Ollama models plus the aliases that point at Ollama (design: `/api/tags`)."""
+        entries = [m for backend in ollama if backend.expose_models for m in backend.tags()]
+        by_name = {m.get("name"): m for m in entries}
+        for name, alias in gateway.cfg.aliases.items():
+            upstream = by_name.get(alias["model"])
+            if gateway.backends[alias["backend"]].type == "ollama" and upstream is not None:
+                entries.append({**upstream, "name": name, "model": name})
+        return entries
 
     def _models(self, gateway, route: Route) -> None:  # type: ignore[no-untyped-def]
         """Answers `GET /v1/models` and `/v1/models/{id}` in the OpenAI or Anthropic shape."""
@@ -184,13 +228,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise BadRequest("request body must be a JSON object")
         return doc
 
-    def _relay(self, gateway, backend, body: bytes) -> None:  # type: ignore[no-untyped-def]
+    def _relay(self, gateway, backend, body: bytes | None) -> None:  # type: ignore[no-untyped-def]
         cfg = gateway.config
         conn = relay.connect(
             backend.address(), cfg["upstream_connect_timeout_s"], cfg["upstream_read_timeout_s"]
         )
         headers = relay.request_headers(self.headers, backend.auth_headers())
-        headers["Content-Length"] = str(len(body))
+        if body is not None:
+            headers["Content-Length"] = str(len(body))
         try:
             resp = relay.open_response(conn, self.command, self.path, body, headers)
             self.send_response_only(resp.status)
@@ -215,8 +260,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(chunk)
         self.wfile.flush()
 
-    def _send(self, status: int, body: bytes) -> None:
+    def _send(self, status: int, body: bytes, extra: list[tuple[str, str]] | None = None) -> None:
         self.send_response(status)
+        for name, value in extra or []:
+            self.send_header(name, value)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         if self.close_connection:

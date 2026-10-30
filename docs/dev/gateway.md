@@ -62,3 +62,13 @@ Each `GatewayError` subclass owns one HTTP status. `error_body(err, fmt)` render
   the alias `context_window` for now; router and Ollama sources come with steps 5 and 11.
 - Remote backends are marked `owned_by: "remote:<host>"` and replies carry `X-Hal-Remote`.
 - Mode aliases (`hal/main`) are a mapping on the resolver that the managed router fills (step 11).
+
+## Ollama backend (`backends/ollama`, `estimate`)
+
+- `OllamaBackend` adds `tags()`, `loaded()` (`/api/ps`) and `unload(model)` (`keep_alive: 0`).
+  It drops `llamacpp:<sha>` ids and repeated names from the model list.
+- Native routes are the eight of REQ-GW-24 only; `pull`, `push`, `create`, `copy`, `delete`
+  and `blobs` are not routes, so they are 404. `GET /api/tags` lists the exposed Ollama models
+  plus alias entries (the upstream entry with `name` and `model` set to the alias).
+- `POST /v1/messages/count_tokens` to Ollama returns `ceil(len(canonical JSON of system,
+  messages, tools) / 4)` with `X-Hal-Estimate: chars/4`.
