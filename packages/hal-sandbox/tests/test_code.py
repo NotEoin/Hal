@@ -80,6 +80,15 @@ def runtime(request):
     return request.param
 
 
+def laid_out(root: Path) -> RuntimeDir:
+    """A `RuntimeDir` whose bind sources exist, as `RuntimeDir.create` leaves them (docker needs that)."""
+    (root / "run").mkdir(parents=True, exist_ok=True)
+    (root / "etc").mkdir(exist_ok=True)
+    for name in ("etc/passwd", "etc/group", "empty"):
+        (root / name).touch()
+    return RuntimeDir(SID, root)
+
+
 @pytest.mark.docker
 def test_container_has_no_network_and_a_read_only_root(tmp_path, runtime):
     work = tmp_path / "w"
@@ -87,7 +96,7 @@ def test_container_has_no_network_and_a_read_only_root(tmp_path, runtime):
     (work / ".git").mkdir()
     socks = tmp_path / "s"
     socks.mkdir()
-    a = docker_args(work, RuntimeDir(SID, socks), image="python:3.12-slim", runtime=runtime)
+    a = docker_args(work, laid_out(socks), image="python:3.12-slim", runtime=runtime)
     cut = a.index("python:3.12-slim")
     script = (
         "import socket,os,sys\n"
@@ -119,10 +128,11 @@ def test_container_reaches_the_model_forwarder_socket(tmp_path, runtime, sockdir
 
     work = tmp_path / "w"
     work.mkdir()
-    fw = ModelForwarder(sockdir / "model.sock", upstream.url)
+    rd = laid_out(sockdir)  # the box sees run/ as /run/hal, so the socket goes there
+    fw = ModelForwarder(rd.run / "model.sock", upstream.url)
     fw.start()
     try:
-        a = docker_args(work, RuntimeDir(SID, sockdir), image="python:3.12-slim", runtime=runtime)
+        a = docker_args(work, rd, image="python:3.12-slim", runtime=runtime)
         cut = a.index("python:3.12-slim")
         script = (
             "import socket\ns=socket.socket(socket.AF_UNIX);s.connect('/run/hal/model.sock')\n"
