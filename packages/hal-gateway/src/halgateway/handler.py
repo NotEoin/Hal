@@ -124,7 +124,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(200, HEALTH_BODY)
                 return
             principal = auth.principal_for(
-                kind, self.peer, self.headers, gateway.owner_token, sessions=gateway.sessions
+                kind,
+                self.peer,
+                self.headers,
+                gateway.owner_token,
+                sessions=gateway.sessions,
+                clients=gateway.clients,
             )
             self.principal = principal
             self.rec["principal"] = (
@@ -132,12 +137,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if principal.kind == "owner"
                 else f"session:{principal.session.id}"  # type: ignore[attr-defined]
                 if principal.session
+                else f"client:{principal.client.name}"  # type: ignore[attr-defined]
+                if principal.client
                 else principal.kind
             )
             if principal.kind == "anonymous":
                 raise Unauthorized("missing API key")
             if route is None:
                 raise NotFound(f"no route for {self.command} {self.path.split('?', 1)[0]}")
+            if principal.client is not None and not route.client:
+                raise Forbidden("client tokens may call the model routes only")
             session = principal.session
             if session is not None and not route.session:
                 raise Forbidden("session tokens may call the model routes only")  # ATK-33
@@ -217,6 +226,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._note_target(model, target, body)
         if self.principal.session is not None:
             SessionRegistry.check_scope(self.principal.session, target.alias, bool(target.remote))  # type: ignore[arg-type]
+        if self.principal.client is not None and target.remote and not self.principal.client.allow_remote:  # type: ignore[attr-defined]
+            raise Forbidden("this client token may not use remote backends; issue it with --allow-remote")
         gateway.check_model(backend, upstream_model)
         if not backend.supports(route.api):
             raise NotFound(
@@ -450,6 +461,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         session = self.principal.session
         if session is not None:
             entries = [e for e in entries if self._visible(session, e)]
+        client = self.principal.client
+        if client is not None and not client.allow_remote:  # type: ignore[attr-defined]
+            entries = [e for e in entries if not e.owned_by.startswith("remote:")]
         if route.path.endswith("{id}"):
             wanted = self.path.split("?", 1)[0][len("/v1/models/") :]
             entries = [e for e in entries if e.id == wanted]

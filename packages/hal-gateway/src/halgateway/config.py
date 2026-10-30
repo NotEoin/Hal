@@ -86,6 +86,16 @@ def _url_or_empty(value: object) -> str | None:
     return "must be empty, http://..., https://... or unix:/absolute/path.sock"
 
 
+def _loopback_http_url(value: object) -> str | None:
+    """REQ-GW-68: client mode reaches the gateway through a tunnel end on loopback."""
+    if value == "":
+        return None
+    parts = urlsplit(str(value))
+    if parts.scheme == "http" and parts.hostname in ("127.0.0.1", "::1") and parts.port:
+        return None
+    return "must be empty or http://127.0.0.1:PORT or http://[::1]:PORT (the tunnel end)"
+
+
 def _vram_map(value: object) -> str | None:
     ok = isinstance(value, dict) and all(isinstance(v, int) and v > 0 for v in value.values())
     return None if ok else "must map names to MiB integers above 0"
@@ -97,7 +107,13 @@ GATEWAY_TABLE = config.register(
         name="gateway",
         owner=OWNER,
         keys=(
-            K("url", str, "", check=_url_or_empty, doc="Client mode: URL of a remote gateway; empty = local"),
+            K(
+                "url",
+                str,
+                "",
+                check=_loopback_http_url,
+                doc="Client mode: URL of a remote gateway; empty = local",
+            ),
             K("unix_path", str, "", doc="Unix socket path; empty = runtime_dir()/gateway.sock"),
             K("tcp", bool, False, doc="Listen on loopback TCP (off until `hal connect`)"),
             K("tcp_host", str, "127.0.0.1", check=_loopback_host, doc="TCP bind address, loopback only"),

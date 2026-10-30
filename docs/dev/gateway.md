@@ -296,3 +296,16 @@ length / 4. Before a request the estimate must fit, else 429 `budget_exceeded` w
 `Retry-After`. A body that is not a JSON object is a 400. `on_event` gets `token_rejected`
 (gateway 401 `session_unknown` or `session_expired`), `gateway_down`, `rejected` (with the limit
 name) and `request`. Tested against a fake gateway on a loopback port and a unix socket.
+
+## Client tokens and client mode (`clienttokens`, `cli`)
+
+`hal-gateway token issue --name N [--allow-remote] [--class C] [--rotate] [--json]`, `revoke`
+and `list [--json]` edit `<state>/gateway/tokens.json` (0600, SHA-256 of the secret, atomic
+replace) under `flock` (5 s). The gateway `stat`s the file on every check and re-reads it when
+the mtime or inode changed, so a revoke works on the next request. A client token reaches the
+model routes like the owner, never remote backends without `allow_remote`, never the admin
+routes, narrows the unix owner too (REQ-GW-62), and is logged as `client:<name>`. A damaged
+file fails closed. `token show` and `token rotate` handle the owner token file; the gateway
+re-reads it on a changed mtime or inode. `[gateway].url` must be `http://127.0.0.1:PORT` or
+`http://[::1]:PORT`, and `Gateway.start` refuses while it is set (client mode); the
+`hal-gateway serve` command itself arrives with the CLI step.

@@ -25,14 +25,15 @@ from typing import Literal
 
 from halkit import files
 
-from .errors import Forbidden, Unauthorized
+from .clienttokens import PREFIX as CLIENT_PREFIX
+from .clienttokens import ClientTokens
+from .errors import Forbidden, InvalidApiKey, Unauthorized
 from .sessions import PREFIX as SESSION_PREFIX
 from .sessions import SessionRegistry
 
 log = logging.getLogger(__name__)
 
 OWNER_PREFIX = "hal-gw-"
-CLIENT_PREFIX = "hal-gwc-"
 TOKEN_BYTES = 32  # secrets.token_urlsafe argument: 256 bits
 TOKEN_FILE_MODE = 0o600
 PEERCRED_FORMAT = "3i"  # struct ucred: pid, uid, gid
@@ -49,6 +50,7 @@ class Principal:
     kind: Literal["owner", "client", "session", "anonymous"]
     listener: Listener
     session: object | None = None  # the `sessions.Session` of a session principal
+    client: object | None = None  # the `clienttokens.ClientToken` of a client principal
     lease: bool = False  # a leased session passes the off flag (REQ-GW-54)
     cls: str = ""  # GPU claim class; empty = derived from the listener
 
@@ -92,6 +94,7 @@ def principal_for(
     *,
     own_uid: int | None = None,
     sessions: SessionRegistry | None = None,
+    clients: ClientTokens | None = None,
 ) -> Principal:
     """Returns the caller's principal; raises `Unauthorized` for a token that does not match.
 
@@ -104,14 +107,17 @@ def principal_for(
             raise Unauthorized("this token is not known to the gateway")
         found = sessions.find(token)
         return Principal("session", listener, session=found, lease=found.lease, cls=found.cls)
+    if token.startswith(CLIENT_PREFIX):  # rule 2: also narrows the unix owner (REQ-GW-62)
+        found_client = clients.check(token) if clients is not None else None
+        if found_client is None:
+            raise InvalidApiKey("invalid or revoked client token")
+        return Principal("client", listener, client=found_client, cls=found_client.cls)
     if listener == "unix":
         if peer == own:
             return Principal("owner", listener)
         return Principal("anonymous", listener)
     if not token:
         return Principal("anonymous", listener)
-    if token.startswith(CLIENT_PREFIX):
-        raise Unauthorized("this token is not known to the gateway")
     if owner_token and hmac.compare_digest(token.encode(), owner_token.encode()):
         return Principal("owner", listener)
     raise Unauthorized("invalid API key")

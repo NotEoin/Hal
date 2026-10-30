@@ -29,6 +29,7 @@ from halkit import paths
 from . import auth, relay, reqlog
 from .aliases import Resolver
 from .backends import LlamaRouter, make_backend
+from .clienttokens import ClientTokens
 from .config import GatewayConfig
 from .errors import GatewayError, ModelUnverified, Unavailable, error_body
 from .gpu import LeaseInfo
@@ -138,9 +139,10 @@ class Gateway:
         self.peer_uid = peer_uid
         self.own_uid = os.getuid() if own_uid is None else own_uid
         self.slots = threading.BoundedSemaphore(int(self.config["max_connections"]))  # type: ignore[call-overload]
-        self.owner_token = ""
+        self._owner_token, self._owner_stamp = "", None
         self.state_dir = Path(state_dir) if state_dir is not None else paths.state_dir() / "gateway"
         self.reqlog = RequestLog(self.state_dir, cfg.log)
+        self.clients = ClientTokens(self.state_dir / "tokens.json")
         self.manifest: dict[str, ModelEntry] = {}
         self.verifier = Verifier(self.manifest, self.state_dir / VERIFIED_NAME)
         self._digests: dict[str, tuple[float, dict[str, str]]] = {}  # backend -> (time, name -> digest)
@@ -160,6 +162,20 @@ class Gateway:
         self.unix: UnixHTTPServer | None = None
         self.tcp: LoopbackHTTPServer | None = None
         self._threads: list[threading.Thread] = []
+
+    @property
+    def owner_token(self) -> str:
+        """The owner token; re-read when the token file changes, so a rotation needs no restart."""
+        path = Path(str(self.config["token_file"])).expanduser()
+        try:
+            st = path.stat()
+            stamp = (st.st_mtime_ns, st.st_ino)
+        except OSError:
+            return self._owner_token
+        if stamp != self._owner_stamp:
+            self._owner_token = path.read_text(encoding="ascii").strip()
+            self._owner_stamp = stamp
+        return self._owner_token
 
     def router_entry(self) -> Mapping[str, object]:
         """The first `llama-router` backend entry, or an empty mapping."""
@@ -246,6 +262,8 @@ class Gateway:
 
     def start(self) -> None:
         """Binds the listeners and serves them on background threads; raises `StartError`."""
+        if self.config["url"]:
+            raise StartError("[gateway].url is set: this machine is in client mode and runs no gateway")
         path = self.socket_path()
         self.load_models()
         try:
@@ -253,7 +271,7 @@ class Gateway:
         except paths.UnsafePathError as exc:
             raise StartError(f"runtime directory is not private: {exc}") from exc
         token_path = Path(str(self.config["token_file"])).expanduser()
-        self.owner_token = auth.load_or_create_owner_token(token_path)
+        auth.load_or_create_owner_token(token_path)
         if self.config["tcp"] and not auth.token_file_is_private(token_path):
             raise StartError(f"token file {token_path} is readable by others; run chmod 600 on it")
         self._clear_stale_socket(path)

@@ -48,6 +48,12 @@ class Unauthorized(GatewayError):
     code = "unauthorized"
 
 
+class InvalidApiKey(Unauthorized):
+    """A client token that does not match, or was revoked."""
+
+    code = "invalid_api_key"
+
+
 class Forbidden(GatewayError):
     """The caller is known but not allowed here (peer uid, Host, Origin, scope)."""
 
