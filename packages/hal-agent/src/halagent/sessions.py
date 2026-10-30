@@ -138,13 +138,18 @@ def read_records(path: Path) -> list[dict[str, Any]]:
     return out
 
 
-def replay(records: Iterable[dict[str, Any]]) -> list[dict]:
-    """Rebuilds the chat messages: applies mask and summary compactions at their position."""
+def replay_indexed(records: Iterable[dict[str, Any]]) -> list[tuple[int, dict]]:
+    """Rebuilds (index, chat message) pairs: applies mask and summary compactions in place.
+
+    A summary message is written after the messages it replaces but sorts where they were.
+    """
     msgs: dict[int, dict] = {}
     dropped: set[int] = set()
+    order: dict[int, float] = {}
     for rec in records:
         if rec["type"] == "message":
             msgs[rec["i"]] = dict(rec["msg"])
+            order.setdefault(rec["i"], float(rec["i"]))
         elif rec["type"] == "compaction":
             for idx, stub in (rec.get("masked") or {}).items():
                 if int(idx) in msgs:
@@ -152,7 +157,14 @@ def replay(records: Iterable[dict[str, Any]]) -> list[dict]:
             if rec.get("replaces"):
                 first, last = rec["replaces"]
                 dropped.update(range(first, last + 1))
-    return [m for i, m in sorted(msgs.items()) if i not in dropped]
+                if rec.get("summary_i") is not None:
+                    order[rec["summary_i"]] = first - 0.5
+    return sorted(((i, m) for i, m in msgs.items() if i not in dropped), key=lambda im: order[im[0]])
+
+
+def replay(records: Iterable[dict[str, Any]]) -> list[dict]:
+    """Rebuilds the chat messages (see `replay_indexed`)."""
+    return [m for _, m in replay_indexed(records)]
 
 
 class SessionStore:

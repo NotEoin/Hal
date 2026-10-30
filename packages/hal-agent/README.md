@@ -10,7 +10,8 @@ an MCP client for the hub socket. Tool-call repair (leaked-call parsers, name an
 `--no-session`, `hal-agent sessions`, `hal-agent export ID [--format md|jsonl]`); argument values
 named like secrets are written as `***`. `AGENTS.md` (else `CLAUDE.md`) files from the workspace root to the working directory, the
 user file `~/.config/hal/AGENTS.md` and Agent Skills (`.agents/skills`, `.claude/skills`,
-`~/.config/hal/skills`) go into the system prompt. Not implemented: compaction, ACP, profiles.
+`~/.config/hal/skills`) go into the system prompt. Context is kept under `context_window - max_output` tokens: old tool output is masked,
+then summarised by the model (falling back to a harness-written state note). Not implemented: ACP, profiles.
 
 ## Usage
 

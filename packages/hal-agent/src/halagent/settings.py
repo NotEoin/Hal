@@ -15,6 +15,8 @@ from halkit import config, paths
 DEFAULT_MAX_TURNS = 30
 DEFAULT_MAX_TOOL_CALLS = 100
 DEFAULT_MODEL = "default"
+DEFAULT_WINDOW = 32_768
+DEFAULT_MAX_OUTPUT = 4_096
 
 
 def _positive(value: object) -> str | None:
@@ -44,6 +46,10 @@ AGENT_TABLE = config.register(
             config.Key(
                 "max_tool_calls", int, DEFAULT_MAX_TOOL_CALLS, check=_positive, doc="Tool calls per prompt"
             ),
+            config.Key("context_window", int, DEFAULT_WINDOW, check=_positive, doc="Model context in tokens"),
+            config.Key(
+                "max_output", int, DEFAULT_MAX_OUTPUT, check=_positive, doc="Tokens kept free for a reply"
+            ),
             config.Key("broker", str, "", env="HAL_AGENT_BROKER", doc="Hub MCP socket path, empty for none"),
         ),
     )
@@ -62,6 +68,8 @@ class AgentSettings:
     max_turns: int = DEFAULT_MAX_TURNS
     max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS
     broker: str = ""
+    context_window: int = DEFAULT_WINDOW
+    max_output: int = DEFAULT_MAX_OUTPUT
 
 
 def load_settings(
@@ -82,4 +90,6 @@ def load_settings(
         max_turns=int(values["max_turns"]),  # type: ignore[call-overload]  # validated by `_positive`
         max_tool_calls=int(values["max_tool_calls"]),  # type: ignore[call-overload]  # validated
         broker=str(values["broker"]),
+        context_window=int(values["context_window"]),  # type: ignore[call-overload]  # validated
+        max_output=int(values["max_output"]),  # type: ignore[call-overload]  # validated
     )

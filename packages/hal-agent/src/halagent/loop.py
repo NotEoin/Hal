@@ -13,10 +13,18 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from halagent.context import (
+    ContextManager,
+    ContextOverflow,
+    StateNote,
+    compaction_prompt,
+    render_for_summary,
+)
 from halagent.mcp.lite import LiteMcpClient, McpError
 from halagent.provider import ChatProvider
 from halagent.repair import repair_call, repair_text
-from halagent.sessions import SessionWriter, replay
+from halagent.repair.aliases import parse_args
+from halagent.sessions import SessionWriter, replay_indexed
 from halagent.settings import AgentSettings
 from halagent.tools import ToolError, Toolset, render_error
 
@@ -41,7 +49,7 @@ class RunResult:
     """Outcome of one prompt: final text, why it stopped, and counts."""
 
     text: str
-    stopped: str  # "done", "finished", "turn_limit" or "tool_limit"
+    stopped: str  # done, finished, turn_limit, tool_limit, context_overflow
     turns: int
     tool_calls: int
 
@@ -74,24 +82,55 @@ class Agent:
         self.session = session
         self.turn = 0
         self._next_i = 0
+        self.note = StateNote()
+        self.context = ContextManager(settings.context_window, settings.max_output, self._summarize)
+        self._ids: list[int] = []
         self.messages: list[dict] = []
         self._add({"role": "system", "content": self._system_prompt()})
 
     def _add(self, msg: dict, **extra: object) -> None:
         """Appends a message to the history and, with a session, to the transcript."""
         self.messages.append(msg)
+        self._ids.append(self._next_i)
         if self.session:
             rec = {"type": "message", "turn": self.turn, "i": self._next_i, "msg": msg, **extra}
             self.session.write(rec)
         self._next_i += 1
 
+    def _summarize(self, old: list[dict]) -> str:
+        """One model call, no tools, that compresses `old` into the compaction headings."""
+        request = [
+            {"role": "system", "content": compaction_prompt()},
+            {"role": "user", "content": render_for_summary(old)},
+        ]
+        return self.provider.complete(request, None).text
+
+    def _fit(self) -> list[dict]:
+        """The history to send; compacts it (and records that) when it is over budget."""
+        tools_chars = len(json.dumps(self._specs())) if self.settings.tool_format == "native" else 0
+        fitted = self.context.fit(self.messages, self._ids, self.note, tools_chars)
+        self.messages, self._ids = fitted.messages, fitted.ids
+        for rec in fitted.records:
+            if rec["kind"] in ("summary", "note"):
+                rec = {**rec, "summary_i": self._next_i}
+            if self.session:
+                self.session.write({**rec, "turn": self.turn, "id": f"cmp_{self._next_i}"})
+        if fitted.summary_at is not None:
+            self._ids[fitted.summary_at] = self._next_i
+            if self.session:
+                msg = self.messages[fitted.summary_at]
+                self.session.write({"type": "message", "turn": self.turn, "i": self._next_i, "msg": msg})
+            self._next_i += 1
+        return self.messages
+
     def resume(self, records: list[dict]) -> None:
         """Continues a stored session: replaces the history with the replayed messages."""
-        replayed = replay(records)
-        if not replayed or replayed[0].get("role") != "system":
+        pairs = replay_indexed(records)
+        if not pairs or pairs[0][1].get("role") != "system":
             raise ValueError("the stored session has no system message")
+        replayed = [m for _, m in pairs]
         replayed[0] = self.messages[0]  # the current prompt wins over the stored one
-        self.messages = replayed
+        self.messages, self._ids = replayed, [i for i, _ in pairs]
         self._next_i = 1 + max((r["i"] for r in records if r["type"] == "message"), default=-1)
         self.turn = max((r.get("turn", 0) for r in records if r["type"] == "message"), default=0)
 
@@ -169,12 +208,18 @@ class Agent:
         s = self.settings
         native = s.tool_format == "native"
         self.turn += 1
+        self.note.task = prompt
         self._add({"role": "user", "content": prompt})
         turns = calls_made = 0
         text = ""
         while turns < s.max_turns:
             turns += 1
-            reply = self.provider.complete(self.messages, self._specs() if native else None)
+            try:
+                history = self._fit()
+            except ContextOverflow as exc:
+                log.error("%s", exc)
+                return RunResult(text, "context_overflow", turns, calls_made)
+            reply = self.provider.complete(history, self._specs() if native else None)
             text = reply.text
             calls = list(reply.tool_calls)
             if not calls:
@@ -193,6 +238,7 @@ class Agent:
                 calls_made += 0 if free else 1
                 self.on_event("tool", f"{name} {raw}")
                 result = self._execute(name, raw)
+                self.note.observe(name, parse_args(raw) or {}, result)
                 self._add(self._result_message(cid, name, result, native))
                 if name == "finish" and not result.startswith('{"status": "error"'):
                     return RunResult(result, "finished", turns, calls_made)
