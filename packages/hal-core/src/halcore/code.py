@@ -29,6 +29,7 @@ from halsandbox import isolated
 from . import config, sessions
 from .tui.app import run_tui
 
+EXIT_REFUSED = 3  # 06-core-cli exit code table
 REVIEW_COMMANDS = ("ls", "diff", "accept", "export", "reject")
 log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[4]  # packages/hal-core/src/halcore -> checkout root
@@ -123,6 +124,9 @@ def main(argv: list[str]) -> int:
         return sandbox.run_code(
             Path(opts.dir), upstream=opts.upstream, image=opts.image, runtime=opts.runtime, direct=opts.direct, agent_args=agent_args
         )
-    except (sandbox.SandboxError, ValueError, OSError) as exc:
+    except sandbox.SandboxError as exc:
+        print(f"hal code: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+    except (ValueError, OSError) as exc:
         print(f"hal code: {exc}", file=sys.stderr)
         return 1

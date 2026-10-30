@@ -8,8 +8,9 @@ Design decisions:
 - The agent is started with flags (`-C`, `--endpoint`, `--broker`) rather than a run file: the
   settings run file (06 step 13) is not built yet.
 - The only host path the box sees is the model socket and the broker socket (and `/scratch`,
-  `/work` as `halsandbox` mounts them); backend `none` is refused here until the unboxed
-  consent flow (REQ-CLI-96) lands, so nothing silently runs unboxed.
+  `/work` as `halsandbox` mounts them). Backend `none` runs the agent as a host process (the
+  `hal-agent` subprocess, not inside `hal`: one transport for both) and an assistant channel
+  needs the recorded consent of `halcore.unboxed` first (REQ-CLI-96).
 """
 
 from __future__ import annotations
@@ -21,11 +22,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from halsandbox import code as sandbox
-from halsandbox.errors import SandboxError
 from halsandbox.forwarder import ModelForwarder
 from halsandbox.session import Session
 
-from . import config
+from . import config, unboxed
 from .acp.client import AcpClient, ClientHandler
 from .acp.transport import SubprocessTransport
 
@@ -76,8 +76,8 @@ class BoxedAgent:
         )  # fmt: skip
         forwarder = None
         try:
-            if session.backend == "none":
-                raise SandboxError("backend none cannot serve a channel yet: no unboxed assistant without consent")
+            if session.backend == "none" and kind == "chat":
+                unboxed.require_consent(channel)
             if session.backend == "docker":
                 sandbox._require_image(session.docker, image)
             forwarder = ModelForwarder(session.model_socket, upstream)

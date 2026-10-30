@@ -119,3 +119,41 @@ def test_acp_assistant_toolset_needs_a_channel():
     opts = acpcmd._parser().parse_args(["--toolset", "assistant"])
     with pytest.raises(acpcmd.SandboxError, match="--channel"):
         asyncio.run(acpcmd.serve(opts))
+
+
+def test_unboxed_assistant_needs_recorded_consent(tmp_path, monkeypatch):
+    from halsandbox.errors import SandboxError
+
+    from halcore import unboxed
+
+    monkeypatch.setenv("HAL_STATE", str(tmp_path))
+    with pytest.raises(SandboxError, match="no consent"):
+        unboxed.require_consent("chat", interactive=False)
+    with pytest.raises(SandboxError, match="not confirmed"):
+        unboxed.require_consent("chat", interactive=True, ask=lambda _: "yes")
+    unboxed.require_consent("chat", interactive=True, ask=lambda _: "y", now="2026-10-30T00:00:00Z")
+    assert unboxed.has_consent("chat") and not unboxed.has_consent("voice")
+    unboxed.require_consent("chat", interactive=False)  # recorded: no terminal needed now
+
+
+def test_unboxed_consent_file_that_is_not_an_object_fails_loudly(tmp_path, monkeypatch):
+    from halsandbox.errors import SandboxError
+
+    from halcore import unboxed
+
+    monkeypatch.setenv("HAL_STATE", str(tmp_path))
+    (tmp_path / unboxed.CONSENT_FILE).write_text("[1]")
+    with pytest.raises(SandboxError, match="JSON object"):
+        unboxed.has_consent("chat")
+
+
+def test_code_refusal_by_the_sandbox_exits_3(monkeypatch, capsys):
+    from halcore import code
+
+    def refuse(*a, **k):
+        raise code.sandbox.SandboxError("docker answered before and does not now")
+
+    monkeypatch.setattr(code.sandbox, "run_code", refuse)
+    monkeypatch.setattr(sys, "argv", ["hal", "code", "--", "x"])
+    assert code.main(["--", "x"]) == 3
+    assert "docker answered before" in capsys.readouterr().err

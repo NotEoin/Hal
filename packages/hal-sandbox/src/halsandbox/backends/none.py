@@ -21,11 +21,13 @@ SANDBOX_NAME = "none"
 HOST_BIN_PATH = "/usr/local/bin:/usr/bin:/bin"
 
 
-def _host_path(arg: str, run: Path, work: Path | None) -> str:
+def _host_path(arg: str, run: Path, work: Path | None, scratch: Path | None = None) -> str:
     """Maps a box path in a child argument to the host path; other arguments are unchanged."""
     if arg.startswith(BOX_RUN + "/"):
         return str(run / arg[len(BOX_RUN) + 1 :])
-    return str(work) if arg == "/work" and work is not None else arg
+    if arg == "/work" and work is not None:
+        return str(work)
+    return str(scratch) if arg == "/scratch" and scratch is not None else arg
 
 
 def none_launch(spec: LaunchSpec, host_env: dict[str, str] | None = None) -> Launch:
@@ -57,7 +59,7 @@ def none_launch(spec: LaunchSpec, host_env: dict[str, str] | None = None) -> Lau
     )
     if spec.scratch is not None:
         env["HAL_SCRATCH"] = str(spec.scratch)
-    argv = [_host_path(a, run, spec.work) for a in spec.child]
+    argv = [_host_path(a, run, spec.work, spec.scratch) for a in spec.child]
     exe = Path(venv_bin) / argv[0]
     if exe.is_file():
         argv[0] = str(exe)

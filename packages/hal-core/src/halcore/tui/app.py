@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import TextIO
 
-from .. import sessions
+from .. import sessions, unboxed
 from ..acp.client import AcpClient, AcpError
 from ..acp.permissions import PermissionBridge, socket_owned_by_us
 from ..acp.records import RecordRefused, RecordStore
@@ -84,6 +84,8 @@ async def run_tui(
     approvals = asyncio.ensure_future(bridge.run(make_asker(bridge, lambda: read(""), out)))
     commands = load_commands(project)
     where = f"{box.session.backend}, work {'copy' if box.session.iso else cwd}"
+    if box.session.backend == "none":
+        print(unboxed.BANNER, file=out)
     print(f"Hal ({where}). /help lists commands; Ctrl-C stops a turn; Ctrl-D leaves.", file=out)
     try:
         while True:
