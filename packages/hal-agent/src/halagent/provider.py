@@ -10,6 +10,8 @@ import http.client
 import json
 import logging
 import socket
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -20,10 +22,26 @@ log = logging.getLogger("halagent.provider")
 
 CONNECT_TIMEOUT_S = 10.0
 READ_TIMEOUT_S = 300.0  # a local model can take minutes to answer a long prompt
+RETRY_STATUSES = frozenset({408, 429, 500, 502, 503, 504})  # transient: the gateway may be swapping models
+MAX_RETRIES = 3
+BACKOFF_BASE_S = 1.0
+BACKOFF_CAP_S = 30.0
 
 
 class ProviderError(Exception):
     """The model endpoint failed, timed out or answered something unusable."""
+
+    def __init__(self, message: str, *, status: int = 0, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+        self.retry_after = retry_after
+
+
+def backoff_delay(attempt: int, retry_after: float | None) -> float:
+    """Seconds to wait before retry `attempt` (0-based); a server `Retry-After` wins, capped."""
+    if retry_after is not None:
+        return min(max(retry_after, 0.0), BACKOFF_CAP_S)
+    return min(BACKOFF_BASE_S * 2**attempt, BACKOFF_CAP_S)
 
 
 @dataclass
@@ -32,6 +50,9 @@ class Completion:
 
     text: str = ""
     tool_calls: list[tuple[str, str, str]] = field(default_factory=list)
+    finish: str = ""  # the server's finish_reason; "length" means the reply was cut off
+    prompt_tokens: int = 0  # from the server's usage block, 0 when it sent none
+    completion_tokens: int = 0
 
 
 class _UnixConnection(http.client.HTTPConnection):
@@ -48,8 +69,21 @@ class _UnixConnection(http.client.HTTPConnection):
 class ChatProvider:
     """Calls `POST {base}/v1/chat/completions` on an endpoint."""
 
-    def __init__(self, endpoint: str, model: str, *, api_key: str = "", stream: bool = False) -> None:
+    def __init__(
+        self,
+        endpoint: str,
+        model: str,
+        *,
+        api_key: str = "",
+        stream: bool = False,
+        max_retries: int = MAX_RETRIES,
+        sleep: Callable[[float], None] = time.sleep,
+        extra: dict | None = None,
+    ) -> None:
         self.model = model
+        self.max_retries = max_retries
+        self._sleep = sleep
+        self.extra = dict(extra or {})  # sampling and other body keys from the model profile
         self.stream = stream
         self._api_key = api_key
         self._prefix = ""
@@ -77,7 +111,9 @@ class ChatProvider:
 
     def complete(self, messages: list[dict], tools: list[dict] | None = None) -> Completion:
         """Sends `messages` (and native `tools` if given) and returns the assistant reply."""
-        body: dict = {"model": self.model, "messages": messages, "stream": self.stream}
+        body: dict = {**self.extra, "model": self.model, "messages": messages, "stream": self.stream}
+        if self.stream:
+            body["stream_options"] = {"include_usage": True}
         if tools:
             body["tools"] = tools
         headers = {"Content-Type": "application/json"}
@@ -86,13 +122,32 @@ class ChatProvider:
         path = self._prefix + (
             "/chat/completions" if self._prefix.endswith("/v1") else "/v1/chat/completions"
         )
+        payload = json.dumps(body)
+        for attempt in range(self.max_retries + 1):
+            try:
+                return self._once(path, payload, headers)
+            except ProviderError as exc:
+                transient = exc.status in RETRY_STATUSES or exc.status == 0
+                if not transient or attempt >= self.max_retries:
+                    raise
+                delay = backoff_delay(attempt, exc.retry_after)
+                log.warning("model request failed (%s); retry %d in %.1fs", exc, attempt + 1, delay)
+                self._sleep(delay)
+        raise AssertionError("unreachable")  # the loop returns or raises
+
+    def _once(self, path: str, payload: str, headers: dict[str, str]) -> Completion:
+        """One request. Only a failure before any reply text is a `ProviderError` worth retrying."""
         conn = self._connect()
         try:
-            conn.request("POST", path, json.dumps(body), headers)
+            conn.request("POST", path, payload, headers)
             resp = conn.getresponse()
             if resp.status != 200:
                 detail = resp.read(2000).decode("utf-8", "replace")
-                raise ProviderError(f"model endpoint returned HTTP {resp.status}: {detail}")
+                raise ProviderError(
+                    f"model endpoint returned HTTP {resp.status}: {detail}",
+                    status=resp.status,
+                    retry_after=_retry_after(resp.getheader("Retry-After")),
+                )
             return self._read_stream(resp) if self.stream else self._parse(json.loads(resp.read()))
         except (OSError, http.client.HTTPException, json.JSONDecodeError) as exc:
             raise ProviderError(f"model request failed: {exc}") from exc
@@ -109,12 +164,20 @@ class ChatProvider:
             (c.get("id") or f"call_{i}", c["function"]["name"], c["function"].get("arguments") or "{}")
             for i, c in enumerate(msg.get("tool_calls") or [])
         ]
-        return Completion(text=msg.get("content") or "", tool_calls=calls)
+        usage = data.get("usage") or {}
+        return Completion(
+            text=msg.get("content") or "",
+            tool_calls=calls,
+            finish=data["choices"][0].get("finish_reason") or "",
+            prompt_tokens=int(usage.get("prompt_tokens") or 0),
+            completion_tokens=int(usage.get("completion_tokens") or 0),
+        )
 
     @staticmethod
     def _read_stream(resp: http.client.HTTPResponse) -> Completion:
         text: list[str] = []
         calls: dict[int, list[str]] = {}
+        finish, usage = "", {}
         for raw in resp:
             line = raw.decode("utf-8", "replace").strip()
             if not line.startswith("data:"):
@@ -123,9 +186,13 @@ class ChatProvider:
             if payload == "[DONE]":
                 break
             try:
-                delta = json.loads(payload)["choices"][0].get("delta", {})
-            except (KeyError, IndexError, json.JSONDecodeError) as exc:
+                chunk = json.loads(payload)
+                usage = chunk.get("usage") or usage
+                choice = chunk["choices"][0] if chunk.get("choices") else {}
+            except (KeyError, IndexError, json.JSONDecodeError, AttributeError) as exc:
                 raise ProviderError(f"bad stream chunk: {payload[:200]}") from exc
+            finish = choice.get("finish_reason") or finish
+            delta = choice.get("delta", {})
             if delta.get("content"):
                 text.append(delta["content"])
             for tc in delta.get("tool_calls") or []:
@@ -135,4 +202,18 @@ class ChatProvider:
                 slot[1] += fn.get("name") or ""
                 slot[2] += fn.get("arguments") or ""
         out = [(s[0] or f"call_{i}", s[1], s[2] or "{}") for i, s in sorted(calls.items())]
-        return Completion(text="".join(text), tool_calls=out)
+        return Completion(
+            text="".join(text),
+            tool_calls=out,
+            finish=finish,
+            prompt_tokens=int(usage.get("prompt_tokens") or 0),
+            completion_tokens=int(usage.get("completion_tokens") or 0),
+        )
+
+
+def _retry_after(value: str | None) -> float | None:
+    """Parses a `Retry-After` header given in seconds; HTTP dates are ignored."""
+    try:
+        return float(value) if value is not None else None
+    except ValueError:
+        return None
