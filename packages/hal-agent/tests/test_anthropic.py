@@ -55,8 +55,8 @@ def test_stream_is_refused_for_anthropic():
 
 
 def test_unsupported_api_name_is_refused():
-    with pytest.raises(ValueError, match="responses"):
-        make_provider(AgentSettings(endpoint="http://127.0.0.1:1", api="responses"))
+    with pytest.raises(ValueError, match="grpc"):
+        make_provider(AgentSettings(endpoint="http://127.0.0.1:1", api="grpc"))
 
 
 def test_agent_runs_a_tool_turn_over_the_messages_api(server, tmp_path):

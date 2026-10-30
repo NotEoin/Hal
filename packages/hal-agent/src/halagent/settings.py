@@ -39,8 +39,8 @@ AGENT_TABLE = config.register(
                 str,
                 "openai",
                 env="HAL_AGENT_API",
-                choices=("openai", "anthropic"),
-                doc="Wire API of the endpoint: Chat Completions or Anthropic Messages",
+                choices=("openai", "responses", "anthropic"),
+                doc="Wire API of the endpoint: Chat Completions, Responses or Anthropic Messages",
             ),
             config.Key("stream", bool, False, env="HAL_AGENT_STREAM", doc="Use streaming responses"),
             config.Key(

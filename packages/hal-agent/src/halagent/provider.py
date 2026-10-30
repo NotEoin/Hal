@@ -313,6 +313,10 @@ def make_provider(settings: Any) -> ChatProvider:
         from halagent.anthropic import AnthropicProvider  # noqa: PLC0415 - the module imports this one
 
         return AnthropicProvider(settings.endpoint, settings.model, **kwargs)
+    if settings.api == "responses":
+        from halagent.responses import ResponsesProvider  # noqa: PLC0415 - the module imports this one
+
+        return ResponsesProvider(settings.endpoint, settings.model, **kwargs)
     if settings.api != "openai":
-        raise ValueError(f"api {settings.api!r} is not supported; use openai or anthropic")
+        raise ValueError(f"api {settings.api!r} is not supported; use openai, responses or anthropic")
     return ChatProvider(settings.endpoint, settings.model, **kwargs)

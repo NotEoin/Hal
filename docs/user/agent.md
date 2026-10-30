@@ -31,9 +31,9 @@ Resume a session with `--resume ID` or `--continue`. `--no-session` writes no tr
 
 ## Wire API
 
-`api = "openai"` (default, Chat Completions) or `api = "anthropic"` (Messages, `HAL_AGENT_API`) in
-`[agent]`, or `endpoint.api` in `agent.json`. The Anthropic API runs without streaming only; `stream = true`
-with it is an error. `responses` is not built yet and is refused by name.
+Set `api` in `[agent]` (or `HAL_AGENT_API`, or `endpoint.api` in `agent.json`) to `openai` (default,
+Chat Completions), `responses` (stateless, `store: false`) or `anthropic` (Messages). The last two
+run without streaming only; `stream = true` with them is an error.
 
 ## Limits come from the model
 
