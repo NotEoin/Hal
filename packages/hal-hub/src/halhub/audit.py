@@ -59,6 +59,7 @@ EVENTS = frozenset(
         "approval_mismatch",
         "approval_refused",
         "review",
+        "classification",
         "guard_scan",
         "result",
         "grant_revoked",

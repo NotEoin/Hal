@@ -78,6 +78,7 @@ from . import approvals, builtin, policy, search
 from .approvals.keys import security_digest
 from .args import ArgumentError, call_arguments, normalise
 from .audit import AuditLog, AuditUnavailable
+from .classifier import Classifier, ClassifyRequest
 from .config import HubConfig
 from .guard import GuardClient, GuardResult, GuardScanner
 from .manifest import ModuleSpec, ToolSpec
@@ -192,6 +193,7 @@ class Hub:
         runner: Runner | None = None,
         guard: GuardScanner | None = None,
         reviewer: CallReviewer | None = None,
+        classifier: Classifier | None = None,
         config: HubConfig | None = None,
         policy_path: Path | None = None,
         clock: Callable[[], datetime] = utc_now,
@@ -205,6 +207,7 @@ class Hub:
         self.runner = runner if runner is not None else Runner(self.config.runner)
         self.guard = guard
         self.reviewer = reviewer
+        self.classifier = classifier
         self.grants = approvals.GrantStore(paths.state_dir() / ROUTINE_GRANTS, clock=clock)
         self._policy_path = policy_path
         self._clock = clock
@@ -542,6 +545,10 @@ class Hub:
                     "nested:grant", f"{name} is covered only by a grant; a nested call needs a plain allow."
                 )
             )
+        if self.classifier is not None and self.classifier.paranoia != "off":
+            decision, refusal = self._classify(target, call, decision, session)
+            if refusal is not None:
+                return finish(**refusal)
         if decision.verdict is policy.Verdict.ASK:
             session.rate.record_ask(session.id)
             refusal = self._approve(target, call, decision, session, steps)
@@ -812,6 +819,57 @@ class Hub:
             "rule": "approval-declined",
             "message": f"The user declined {meta.name}.{note}",
         }
+
+    def _classify(
+        self, target: _Target, call: policy.ToolCall, d: policy.Decision, session: HubSession
+    ) -> tuple[policy.Decision, dict[str, object] | None]:
+        """Rates the call and applies the paranoia table: `(decision, None)` or `(d, refusal)`.
+
+        The classifier only tightens: an allow may become an ask (a `once` approval, no grant
+        consumed) or a deny; an ask may become a deny; and the reviewer is kept for the cells of
+        the table that allow it.
+        """
+        assert self.classifier is not None
+        tool_policy = session.policy.tool(target.meta)
+        roots = tuple(str(Path(r).expanduser()) for r in (*tool_policy.read_roots, *tool_policy.write_roots))
+        request = ClassifyRequest(
+            target.meta,
+            d.args,
+            session.current_taint(),
+            session.last_human_message,
+            target.tool.description,
+            roots,
+        )
+        verdict = self.classifier.classify(request)
+        outcome = self.classifier.apply(d.verdict, verdict)
+        try:
+            session.emit(
+                "classification",
+                call=call.call_id,
+                paranoia=self.classifier.paranoia,
+                risk=verdict.risk,
+                reason=verdict.reason,
+                rules=list(verdict.rules),
+                model=verdict.model,
+                ms=verdict.ms,
+                error=verdict.error,
+                verdict=str(outcome.verdict),
+                changed=outcome.changed,
+            )
+        except AuditUnavailable as exc:
+            return d, {"status": "error", "error_type": "audit_unavailable", "message": str(exc)}
+        if outcome.verdict is policy.Verdict.DENY and d.verdict is not policy.Verdict.DENY:
+            return d, _denied(outcome.rule, f"{target.meta.name} was refused: {outcome.reason}")
+        if outcome.changed:  # allow -> ask: a fresh once-approval, never a stored grant
+            d = dataclasses.replace(
+                d,
+                verdict=policy.Verdict.ASK,
+                rule=outcome.rule,
+                reason=outcome.reason,
+                scopes=(policy.Scope.ONCE,),
+                grant_id=None,
+            )
+        return dataclasses.replace(d, reviewable=d.reviewable and outcome.review_ok), None
 
     def _review(
         self, target: _Target, call: policy.ToolCall, d: policy.Decision, session: HubSession

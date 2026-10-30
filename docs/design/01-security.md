@@ -1004,6 +1004,11 @@ model = "hal-fast"                 # gateway role alias
 timeout_s = 20                     # int
 when_untrusted = true              # bool: may review while the session is untrusted
 
+[policy]                           # the risk classifier, halhub.classifier (RESOLUTIONS I5)
+paranoia = "balanced"              # "off" | "low" | "balanced" | "high" | "max"
+model = "hal-fast"                 # gateway role alias
+timeout_s = 20                     # int
+
 [paths]
 read_roots = ["~/Documents", "~/Downloads", "~/Desktop", "~/Pictures", "~/Music", "~/Videos"]
 write_roots = ["~/Downloads"]
@@ -2517,6 +2522,19 @@ carries its tests and docs and leaves the suite green.
 46. `Add user security guide and SECURITY.md` - `docs/user/security.md` (tiers, profiles,
     approvals and surfaces, guard cost, rootless Docker option, the README's "What Hal
     protects you from" list), `SECURITY.md` link to the threat model.
+
+### Risk classifier (RESOLUTIONS I5)
+
+`halhub.classifier` runs in the hub pipeline after `decide` and before execution. Deterministic
+rules (destructive shell patterns, paths outside the roots or sensitive, secrets in arguments,
+mass actions, send, system and runs-code tiers) fix a risk floor; the `[policy].model` can only
+raise it, and a bad answer, a timeout, an error or no model counts as `high`. The paranoia table
+maps the risk to `policy`, `ask` or `deny`; the result is never looser than the policy's verdict,
+and the reviewer runs only in the `low` risk cells of `low` and `balanced`. The effective
+paranoia is the configured one raised to the lockdown floor (`strict` -> `high`), which the
+broker passes to its children in `HAL_PARANOIA_FLOOR`. Every rated call writes a
+`classification` audit record. Paranoia and lockdown live in host files that no tool can write
+and are never read from call arguments. Verified by `hal-hub/tests/test_classifier.py`.
 
 ## Decisions
 

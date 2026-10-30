@@ -33,6 +33,7 @@ from halkit import paths as halpaths
 from .model import (
     ApprovalSettings,
     AuditSettings,
+    ClassifierSettings,
     EgressSettings,
     GuardSettings,
     PathSettings,
@@ -54,7 +55,18 @@ UNSAFE_MODE_BITS = 0o022  # group or other write (REQ-SEC-15)
 ConfigError = halconfig.ConfigError
 
 _TOP_KEYS = frozenset(
-    {"schema_version", "profile", "approval", "audit", "guard", "reviewer", "paths", "egress", "rate"}
+    {
+        "schema_version",
+        "profile",
+        "approval",
+        "audit",
+        "guard",
+        "reviewer",
+        "policy",
+        "paths",
+        "egress",
+        "rate",
+    }
     | {"packs", "tools", "profiles"}
 )
 
@@ -105,6 +117,11 @@ _SECTIONS: Mapping[str, _Spec] = {
         "timeout_s": (int, _positive),
         "when_untrusted": (bool, None),
     },
+    "policy": {
+        "paranoia": (str, _choice("off", "low", "balanced", "high", "max")),
+        "model": (str, None),
+        "timeout_s": (int, _positive),
+    },
     "paths": {"read_roots": (list, None), "write_roots": (list, None), "deny": (list, None)},
     "egress": {
         "domains": (list, None),
@@ -124,6 +141,7 @@ _SETTINGS_TYPES = {
     "audit": AuditSettings,
     "guard": GuardSettings,
     "reviewer": ReviewerSettings,
+    "policy": ClassifierSettings,
     "paths": PathSettings,
     "egress": EgressSettings,
     "rate": RateSettings,
@@ -441,6 +459,7 @@ def load_policy(
         audit=settings["audit"],
         guard=guard,
         reviewer=settings["reviewer"],
+        classifier=settings["policy"],
         paths=settings["paths"],
         egress=egress,
         rate=settings["rate"],

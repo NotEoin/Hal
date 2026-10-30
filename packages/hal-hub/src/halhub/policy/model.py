@@ -268,6 +268,18 @@ class ReviewerSettings:
     when_untrusted: bool = True
 
 
+Paranoia = Literal["off", "low", "balanced", "high", "max"]
+
+
+@dataclass(frozen=True)
+class ClassifierSettings:
+    """`[policy]`: the risk classifier (RESOLUTIONS I5); `halhub.classifier` maps risk to effect."""
+
+    paranoia: Paranoia = "balanced"
+    model: str = "hal-fast"
+    timeout_s: int = 20
+
+
 DEFAULT_READ_ROOTS = ("~/Documents", "~/Downloads", "~/Desktop", "~/Pictures", "~/Music", "~/Videos")
 DEFAULT_WRITE_ROOTS = ("~/Downloads",)
 
@@ -386,6 +398,7 @@ class Policy:
     audit: AuditSettings = AuditSettings()
     guard: GuardSettings = GuardSettings()
     reviewer: ReviewerSettings = ReviewerSettings()
+    classifier: ClassifierSettings = ClassifierSettings()
     paths: PathSettings = PathSettings()
     egress: EgressSettings = EgressSettings()
     rate: RateSettings = RateSettings()
