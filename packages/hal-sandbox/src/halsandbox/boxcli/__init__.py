@@ -5,10 +5,15 @@ from __future__ import annotations
 from ..errors import SandboxError
 from .base import BoxContext, BoxLaunch, CliProfile
 from .claude import Claude
+from .codex import Codex
+from .crush import Crush
+from .goose import Goose
 from .opencode import Opencode
 from .qwen import Qwen
 
-PROFILES: dict[str, CliProfile] = {p.name: p for p in (Claude(), Qwen(), Opencode())}
+PROFILES: dict[str, CliProfile] = {
+    p.name: p for p in (Claude(), Qwen(), Opencode(), Codex(), Crush(), Goose())
+}
 
 
 def profile(name: str) -> CliProfile:

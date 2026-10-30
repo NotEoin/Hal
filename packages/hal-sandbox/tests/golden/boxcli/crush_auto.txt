@@ -1,0 +1,35 @@
+argv: ["crush", "--yolo", "--foo"]
+env:
+  CRUSH_DISABLE_METRICS=1
+  CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1
+  DO_NOT_TRACK=1
+  HAL_API_KEY=hal-box
+--- .config/crush/crush.json
+{
+  "providers": {
+    "hal": {
+      "type": "openai-compat",
+      "base_url": "http://127.0.0.1:8741/v1",
+      "api_key": "$HAL_API_KEY",
+      "models": [
+        {
+          "id": "hal-code",
+          "name": "hal-code",
+          "context_window": 65536,
+          "default_max_tokens": 8192
+        }
+      ]
+    }
+  },
+  "mcp": {
+    "hal": {
+      "type": "stdio",
+      "command": "hal-mcp-bridge",
+      "args": []
+    }
+  },
+  "options": {
+    "disable_metrics": true,
+    "disable_provider_auto_update": true
+  }
+}

@@ -1,0 +1,20 @@
+argv: ["goose", "--foo"]
+env:
+  DO_NOT_TRACK=1
+  GOOSE_DISABLE_KEYRING=1
+  GOOSE_MODE=approve
+  GOOSE_TELEMETRY_ENABLED=false
+  HAL_API_KEY=hal-box
+  OPENAI_API_KEY=hal-box
+--- .config/goose/config.yaml
+GOOSE_PROVIDER: "openai"
+GOOSE_MODEL: "hal-code"
+OPENAI_HOST: "http://127.0.0.1:8741"
+OPENAI_BASE_PATH: "v1/chat/completions"
+extensions:
+  hal:
+    type: "stdio"
+    cmd: "hal-mcp-bridge"
+    args: []
+    enabled: true
+    timeout: 300

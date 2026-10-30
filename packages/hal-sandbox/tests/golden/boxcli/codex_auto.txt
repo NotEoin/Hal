@@ -1,0 +1,28 @@
+argv: ["codex", "--foo"]
+env:
+  DO_NOT_TRACK=1
+  HAL_API_KEY=hal-box
+--- .codex/config.toml
+model = "hal-code"
+model_provider = "hal"
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+check_for_update_on_startup = false
+model_context_window = 65536
+
+[analytics]
+enabled = false
+
+[otel]
+exporter = "none"
+
+[model_providers.hal]
+name = "Hal"
+base_url = "http://127.0.0.1:8741/v1"
+env_key = "HAL_API_KEY"
+wire_api = "responses"
+
+[mcp_servers.hal]
+command = "hal-mcp-bridge"
+args = []
+startup_timeout_sec = 20

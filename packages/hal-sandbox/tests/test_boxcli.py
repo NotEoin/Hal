@@ -46,3 +46,12 @@ def test_a_model_alias_with_control_characters_is_refused(cli):
 def test_unknown_cli_is_refused():
     with pytest.raises(SandboxError, match="unsupported agent CLI"):
         profile("emacs")
+
+
+def test_codex_config_is_valid_toml_with_the_responses_provider():
+    import tomllib
+
+    seed = profile("codex").launch(BoxContext(model="hal-code")).home_seed[".codex/config.toml"]
+    data = tomllib.loads(seed.decode("ascii"))
+    assert data["model_providers"]["hal"]["wire_api"] == "responses"
+    assert data["mcp_servers"]["hal"]["command"] == "hal-mcp-bridge"
