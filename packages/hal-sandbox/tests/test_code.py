@@ -127,3 +127,12 @@ def test_scratch_is_mounted_rw_at_scratch(tmp_path):
     a = docker_args(tmp_path, Path("/run/x"), scratch=Path("/st/scratch/p"))
     assert "/st/scratch/p:/scratch:rw" in a
     assert not any(":/scratch" in x for x in docker_args(tmp_path, Path("/run/x")))
+
+
+def test_direct_mode_is_refused_under_the_default_lockdown(tmp_path, monkeypatch):
+    from halsandbox.code import run_code
+    from halsandbox.errors import LockdownError
+
+    monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "none.toml"))
+    with pytest.raises(LockdownError, match="relaxed"):
+        run_code(tmp_path, direct=True)

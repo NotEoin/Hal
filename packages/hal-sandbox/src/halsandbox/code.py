@@ -20,6 +20,7 @@ from pathlib import Path
 from halkit import paths
 
 from . import config as sbconfig
+from . import isolated
 from . import scratch as scratch_dir
 from .broker import Broker
 from .errors import SandboxError
@@ -129,12 +130,22 @@ def run_code(
     upstream: str = DEFAULT_UPSTREAM,
     image: str = DEFAULT_IMAGE,
     runtime: str | None = None,
+    direct: bool = False,
     agent_args: Sequence[str] = (),
 ) -> int:
-    """Runs hal-agent boxed on `workdir`; returns its exit status."""
+    """Runs hal-agent boxed; returns its exit status.
+
+    By default the box gets an isolated copy of `workdir` and the real project is never mounted
+    (RESOLUTIONS I3); review the result with `isolated.accept`. `direct` mounts `workdir` itself and
+    needs lockdown `relaxed` or lower.
+    """
     workdir = workdir.resolve()
     if not workdir.is_dir():
         raise SandboxError(f"not a directory: {workdir}")
+    cfg = sbconfig.load()
+    policy = Policy.for_level(str(cfg["lockdown"]))
+    if direct:
+        policy.check_direct()
     if shutil.which("docker") is None:
         raise SandboxError("docker is not installed; hal code needs it")
     try:
@@ -148,12 +159,12 @@ def run_code(
         raise SandboxError(f"cannot query docker: {exc}") from exc
     if not have:
         raise SandboxError(f"image {image} not found; run `hal code --build`")
-    cfg = sbconfig.load()
-    policy = Policy.for_level(str(cfg["lockdown"]))
     runtime, warnings = policy.choose_runtime(docker_runtimes(), runtime)
     for warning in warnings:
         log.warning("hal code: %s", warning)
     scratch = scratch_dir.prepare(workdir, int(cfg["scratch_max_bytes"]))
+    iso = None if direct else isolated.create(workdir, int(cfg["max_copy_bytes"]))
+    mount = workdir if iso is None else iso.work
     base = paths.ensure_private_dir(paths.runtime_dir())
     sockdir = paths.ensure_private_dir(Path(tempfile.mkdtemp(prefix="code-", dir=base)))
     sockdir.chmod(0o700)
@@ -165,7 +176,7 @@ def run_code(
         broker.start()
         log.info("hal code: %s in %s, model at %s", runtime, workdir, upstream)
         argv = docker_args(
-            workdir,
+            mount,
             sockdir,
             image=image,
             runtime=runtime,
@@ -174,7 +185,14 @@ def run_code(
             limits=Limits.from_config(cfg),
             agent_args=agent_args,
         )
-        return subprocess.run(argv, timeout=SESSION_MAX_S).returncode
+        status = subprocess.run(argv, timeout=SESSION_MAX_S).returncode
+        if iso is not None:
+            log.warning(
+                "hal code: changes are in isolated session %s; `hal code accept %s` applies them",
+                iso.sid,
+                iso.sid,
+            )
+        return status
     finally:
         for server in (forwarder, broker):
             if server is not None:

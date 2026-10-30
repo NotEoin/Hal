@@ -18,7 +18,7 @@ uv run pytest packages/hal-sandbox
 `hal code [DIR]` runs `hal-agent` in a docker container on DIR (default: current directory).
 
 - Container: `--network none`, read-only root, `--cap-drop ALL`, `no-new-privileges`, host uid,
-  runtime `runsc` when docker has it, else `runc` with a warning (`[sandbox].lockdown = "strict"` refuses `runc`). DIR is `/work` (rw) with `/work/.git` read-only.
+  runtime `runsc` when docker has it, else `runc` with a warning (`[sandbox].lockdown = "strict"` refuses `runc`). By default `/work` (rw) is an isolated copy of DIR (see Isolated sessions) and the real project is never mounted; `--direct` mounts DIR itself and needs lockdown `relaxed` or lower (then `/work/.git` is read-only).
 - Sockets: a private directory under `$XDG_RUNTIME_DIR/hal/` is mounted read-only at `/run/hal`.
   `model.sock` forwards only `POST /v1/chat/completions` and `GET /v1/models` to the local model
   server (`--upstream URL`, env `HAL_CODE_UPSTREAM`, default `http://127.0.0.1:8080`).
@@ -58,3 +58,6 @@ shadow repository. The box mounts only that copy. `accept` shows the changed pat
 refuses high-risk paths (CI files, git config, hooks, symlinks, private keys) unless allowed, takes a
 checkpoint of the project in `$STATE/checkpoints/<project>`, then runs `git apply` all or nothing.
 `export` writes a patch or a git bundle and never touches the project.
+
+Review with `hal code ls`, `hal code accept SID [--allow-flags]`, `hal code export SID FILE [--bundle]`
+and `hal code reject SID`. `hal scratch clean [DIR]` empties scratchpads.
