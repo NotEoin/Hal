@@ -987,7 +987,7 @@ bwrap
 - Verified unprivileged on this machine [verified: bwrap 0.11.1 runs]: the socket under the
   read-only `/run/hal` bind answered; uid 1000; `/work/.git`, `/etc` and `/usr` writes failed
   with EROFS; `CapEff` 0, `NoNewPrivs` 1, `Seccomp` 0; outbound connect failed with
-  `ENETUNREACH`; `~` did not exist inside; `--disable-userns` needs `--unshare-user`
+  `ENETUNREACH`; `/home/me` did not exist inside; `--disable-userns` needs `--unshare-user`
   (an error without it), and with it `unshare -U` inside failed; `--size 67108864 --tmpfs`
   produced a 64 MiB tmpfs; the hostname was `hal-box`.
 - `systemd-run --user --scope` is used when `systemctl --user is-system-running` answers

@@ -1940,7 +1940,7 @@ its own transcript.
 One JSON object per line, ASCII-escaped (`ensure_ascii=True`), `ts` in UTC with `Z`.
 
 ```json
-{"type":"session","v":1,"id":"3f9a1c0b7e2d","created":"2026-10-23T18:15:00Z","agent":"halagent 0.1.0","mode":"code","toolset":"coding","channel":"tui","cwd":"/work","host_root":"~/proj","model":"hal-code","api":"openai","family":"qwen35","sandbox":"docker-runsc","title":""}
+{"type":"session","v":1,"id":"3f9a1c0b7e2d","created":"2026-10-23T18:15:00Z","agent":"halagent 0.1.0","mode":"code","toolset":"coding","channel":"tui","cwd":"/work","host_root":"/home/me/proj","model":"hal-code","api":"openai","family":"qwen35","sandbox":"docker-runsc","title":""}
 {"type":"message","ts":"2026-10-23T18:15:02Z","turn":1,"i":0,"msg":{"role":"user","content":"Fix the failing date parser test."}}
 {"type":"message","ts":"2026-10-23T18:15:09Z","turn":1,"i":1,"msg":{"role":"assistant","content":"","reasoning":"...","tool_calls":[{"id":"call_1_1","name":"grep","arguments":{"pattern":"parse_date"},"repair":[]}]},"usage":{"prompt_tokens":1834,"completion_tokens":61,"reasoning_tokens":40,"cached_tokens":0,"estimated":false},"model_s":6.8}
 {"type":"message","ts":"2026-10-23T18:15:09Z","turn":1,"i":2,"msg":{"role":"tool","tool_call_id":"call_1_1","tool_name":"grep","content":"3 matches in 2 files\n..."},"ok":true,"error_type":"","tool_s":0.04}
@@ -2260,7 +2260,7 @@ tools_deny = []
 
 [mcp.servers.mail]
 host = true                            # runs on the host as a broker upstream, under policy
-command = "~/.local/bin/mail-mcp"
+command = "/home/me/.local/bin/mail-mcp"
 args = []
 ```
 
@@ -2469,12 +2469,12 @@ in-box agent act on the host outside the box.
 ```json
 {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"session":{"notices":{}},"_meta":{"hal":{"records":true}}},"clientInfo":{"name":"hal","version":"0.1.0"}}}
 {"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":true},"mcpCapabilities":{"http":false,"sse":false},"_meta":{"hal":{"records":true,"version":"0.1.0"}}},"agentInfo":{"name":"hal-agent","title":"Hal","version":"0.1.0"},"authMethods":[]}}
-{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"~/proj","mcpServers":[],"_meta":{"hal":{"sessionId":"3f9a1c0b7e2d"}}}}
+{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/home/me/proj","mcpServers":[],"_meta":{"hal":{"sessionId":"3f9a1c0b7e2d"}}}}
 {"jsonrpc":"2.0","id":1,"result":{"sessionId":"3f9a1c0b7e2d","modes":{"currentModeId":"review","availableModes":[{"id":"auto","name":"Auto"},{"id":"review","name":"Review"}]}}}
 {"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"3f9a1c0b7e2d","prompt":[{"type":"text","text":"Rename parse_date to parse_iso_date"}]}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"3f9a1c0b7e2d","update":{"sessionUpdate":"tool_call","toolCallId":"call_1_1","name":"grep","title":"Search 'parse_date'","kind":"search","status":"pending","rawInput":{"pattern":"parse_date"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"3f9a1c0b7e2d","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_1_1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"3 matches in 2 files\n..."}}]}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"3f9a1c0b7e2d","update":{"sessionUpdate":"tool_call","toolCallId":"call_1_2","name":"edit","title":"Edit src/dates.py","kind":"edit","status":"pending","rawInput":{"path":"src/dates.py","old_string":"def parse_date(","new_string":"def parse_iso_date("},"locations":[{"path":"~/proj/src/dates.py"}]}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"3f9a1c0b7e2d","update":{"sessionUpdate":"tool_call","toolCallId":"call_1_2","name":"edit","title":"Edit src/dates.py","kind":"edit","status":"pending","rawInput":{"path":"src/dates.py","old_string":"def parse_date(","new_string":"def parse_iso_date("},"locations":[{"path":"/home/me/proj/src/dates.py"}]}}}
 {"jsonrpc":"2.0","id":7,"method":"session/request_permission","params":{"sessionId":"3f9a1c0b7e2d","toolCall":{"toolCallId":"call_1_2"},"options":[{"optionId":"allow-once","name":"Allow once","kind":"allow_once"},{"optionId":"allow-always","name":"Allow edit for this session","kind":"allow_always"},{"optionId":"reject-once","name":"Reject","kind":"reject_once"}]}}
 {"jsonrpc":"2.0","id":7,"result":{"outcome":{"outcome":"selected","optionId":"allow-once"}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"3f9a1c0b7e2d","update":{"sessionUpdate":"usage_update","used":5210,"size":32768}}}
@@ -2582,7 +2582,7 @@ One JSON object per line, flushed per line, in the spirit of
 milliseconds; 06-core-cli REQ-CLI-34):
 
 ```json
-{"type":"system","subtype":"init","session_id":"3f9a1c0b7e2d","ts":"...","cwd":"~/proj","model":"hal-code","toolset":"coding","sandbox":"docker-runsc","tools":["read","grep","glob","edit","write","run","todo","finish"],"hal_version":"0.1.0"}
+{"type":"system","subtype":"init","session_id":"3f9a1c0b7e2d","ts":"...","cwd":"/home/me/proj","model":"hal-code","toolset":"coding","sandbox":"docker-runsc","tools":["read","grep","glob","edit","write","run","todo","finish"],"hal_version":"0.1.0"}
 {"type":"assistant","session_id":"3f9a1c0b7e2d","ts":"...","message":{"role":"assistant","content":[{"type":"text","text":"I'll find the parser first."},{"type":"tool_use","id":"call_1_1","name":"grep","where":"box","input":{"pattern":"parse_date"}}]}}
 {"type":"user","session_id":"3f9a1c0b7e2d","ts":"...","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1_1","content":"3 matches in 2 files\n...","is_error":false}]}}
 {"type":"system","subtype":"notice","session_id":"3f9a1c0b7e2d","ts":"...","level":"warning","code":"repaired_call","text":"leaked:gemma4"}
@@ -2659,7 +2659,7 @@ socket paths (3.14.8). The agent finds the broker and the model endpoint only he
  "toolset":"coding",
  "channel":"tui",
  "sandbox":"docker-runsc",
- "workspace":"/work", "host_root":"~/proj", "scratch":"/tmp",
+ "workspace":"/work", "host_root":"/home/me/proj", "scratch":"/tmp",
  "endpoint":{"url":"unix:///run/hal/model.sock","api":"openai"},
  "broker":"unix:///run/hal/broker.sock",
  "broker_call_timeout_s":3900,

@@ -445,7 +445,7 @@ forward in v1):
 
 ```text
 restrict,port-forwarding,from="192.168.1.0/24",permitopen="127.0.0.1:8741",permitlisten="127.0.0.1:1",command="/bin/false" ssh-ed25519 AAAAC3Nza... hal-remote:laptop:tunnel
-restrict,from="192.168.1.0/24",command="'~/.local/bin/hal-remote' serve --client laptop --hub '~/.local/bin/hal-hub'" ssh-ed25519 AAAAC3Nza... hal-remote:laptop:mcp
+restrict,from="192.168.1.0/24",command="'/home/me/.local/bin/hal-remote' serve --client laptop --hub '/home/me/.local/bin/hal-hub'" ssh-ed25519 AAAAC3Nza... hal-remote:laptop:mcp
 ```
 
 Why each option. Behaviour was verified against OpenSSH 10.2p1, the version Ubuntu 26.04
@@ -644,7 +644,7 @@ Messages (all `ensure_ascii=True`, one line, `\n`-terminated):
 ```json
 {"schema": "hal.remote.check/1", "ok": true, "time": "2026-10-23T18:00:05Z",
  "client": "laptop", "python": "3.13.11", "hal_version": "0.1.0",
- "hub": {"path": "~/.local/bin/hal-hub", "executable": true},
+ "hub": {"path": "/home/me/.local/bin/hal-hub", "executable": true},
  "runtime_dir": "/run/user/1000/hal", "problems": []}
 ```
 

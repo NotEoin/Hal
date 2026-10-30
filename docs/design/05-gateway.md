@@ -1327,7 +1327,7 @@ The gateway follows GL "Socket API" exactly; `gpu/lightv2.py` is a stdlib client
    "match_unit": ["hal-gateway.service", "ollama.service"], "match_exe": ["llama-server"],
    "class": "service", "idle_after_s": 120, "reclaim_for": ["interactive", "batch"],
    "timeout_s": 60,
-   "reclaim": ["~/.local/share/hal/venv/bin/hal-gateway", "release-gpu", "--reclaim"]}
+   "reclaim": ["/home/me/.local/share/hal/venv/bin/hal-gateway", "release-gpu", "--reclaim"]}
   ```
 
   The argv uses the absolute path of the running console script (`sys.argv[0]` resolved), so

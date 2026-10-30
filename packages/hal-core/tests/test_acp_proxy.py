@@ -67,7 +67,7 @@ def test_cwd_outside_project_is_rejected_by_proxy(tmp_path):
 def test_assistant_toolset_cwd_is_replaced_by_scratch(tmp_path):
     scratch = tmp_path / "scratch"
     f = ProxyFilter(scratch=scratch)
-    out = f.to_agent({"id": 1, "method": "session/new", "params": {"cwd": "~/vault"}}).forward
+    out = f.to_agent({"id": 1, "method": "session/new", "params": {"cwd": "/home/me/vault"}}).forward
     assert out["params"]["cwd"] == str(scratch)
 
 
