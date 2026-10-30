@@ -74,6 +74,7 @@ from halkit.termsafe import escape
 
 from . import install, policy
 from .approvals import ApprovalRequest, ApprovalRouter, control
+from .classifier import floor_from_env
 from .config import HubConfig
 from .guard import GuardClient, GuardUnavailable
 from .hub import CallResult, Hub
@@ -866,10 +867,11 @@ def _json_object(text: str) -> dict[str, object]:
 def _new_hub() -> Hub:
     """The hub for this command: every module, or only the scope's modules for a pack."""
     scope = _current()
+    floor = floor_from_env()  # set by the broker for a boxed session, never by the box
     if scope.modules is None:
-        return Hub()
+        return Hub(paranoia_floor=floor)
     config = HubConfig.load()
-    return Hub(Registry.load(config, only=scope.modules), config=config)
+    return Hub(Registry.load(config, only=scope.modules), config=config, paranoia_floor=floor)
 
 
 def _usage() -> str:

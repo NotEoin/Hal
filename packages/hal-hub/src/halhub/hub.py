@@ -78,7 +78,7 @@ from . import approvals, builtin, policy, search
 from .approvals.keys import security_digest
 from .args import ArgumentError, call_arguments, normalise
 from .audit import AuditLog, AuditUnavailable
-from .classifier import Classifier, ClassifyRequest
+from .classifier import ChatFn, Classifier, ClassifyRequest
 from .config import HubConfig
 from .guard import GuardClient, GuardResult, GuardScanner
 from .manifest import ModuleSpec, ToolSpec
@@ -194,6 +194,8 @@ class Hub:
         guard: GuardScanner | None = None,
         reviewer: CallReviewer | None = None,
         classifier: Classifier | None = None,
+        paranoia_floor: str | None = None,
+        classify_chat: ChatFn | None = None,
         config: HubConfig | None = None,
         policy_path: Path | None = None,
         clock: Callable[[], datetime] = utc_now,
@@ -208,6 +210,8 @@ class Hub:
         self.guard = guard
         self.reviewer = reviewer
         self.classifier = classifier
+        self.paranoia_floor = paranoia_floor
+        self.classify_chat = classify_chat
         self.grants = approvals.GrantStore(paths.state_dir() / ROUTINE_GRANTS, clock=clock)
         self._policy_path = policy_path
         self._clock = clock
@@ -545,8 +549,9 @@ class Hub:
                     "nested:grant", f"{name} is covered only by a grant; a nested call needs a plain allow."
                 )
             )
-        if self.classifier is not None and self.classifier.paranoia != "off":
-            decision, refusal = self._classify(target, call, decision, session)
+        classifier = self._classifier_for(session)
+        if classifier is not None and classifier.paranoia != "off":
+            decision, refusal = self._classify(classifier, target, call, decision, session)
             if refusal is not None:
                 return finish(**refusal)
         if decision.verdict is policy.Verdict.ASK:
@@ -820,8 +825,25 @@ class Hub:
             "message": f"The user declined {meta.name}.{note}",
         }
 
+    def _classifier_for(self, session: HubSession) -> Classifier | None:
+        """The classifier for `session`: the one given, else one built from its `[policy]`.
+
+        A hub started with a `paranoia_floor` (a boxed session; the broker sets it from the
+        lockdown level) always classifies, even with no model: that counts as `high` risk.
+        """
+        if self.classifier is not None:
+            return self.classifier
+        if self.paranoia_floor is None:
+            return None
+        return Classifier(session.policy.classifier, self.classify_chat, floor=self.paranoia_floor)
+
     def _classify(
-        self, target: _Target, call: policy.ToolCall, d: policy.Decision, session: HubSession
+        self,
+        classifier: Classifier,
+        target: _Target,
+        call: policy.ToolCall,
+        d: policy.Decision,
+        session: HubSession,
     ) -> tuple[policy.Decision, dict[str, object] | None]:
         """Rates the call and applies the paranoia table: `(decision, None)` or `(d, refusal)`.
 
@@ -829,7 +851,6 @@ class Hub:
         consumed) or a deny; an ask may become a deny; and the reviewer is kept for the cells of
         the table that allow it.
         """
-        assert self.classifier is not None
         tool_policy = session.policy.tool(target.meta)
         roots = tuple(str(Path(r).expanduser()) for r in (*tool_policy.read_roots, *tool_policy.write_roots))
         request = ClassifyRequest(
@@ -840,13 +861,13 @@ class Hub:
             target.tool.description,
             roots,
         )
-        verdict = self.classifier.classify(request)
-        outcome = self.classifier.apply(d.verdict, verdict)
+        verdict = classifier.classify(request)
+        outcome = classifier.apply(d.verdict, verdict)
         try:
             session.emit(
                 "classification",
                 call=call.call_id,
-                paranoia=self.classifier.paranoia,
+                paranoia=classifier.paranoia,
                 risk=verdict.risk,
                 reason=verdict.reason,
                 rules=list(verdict.rules),

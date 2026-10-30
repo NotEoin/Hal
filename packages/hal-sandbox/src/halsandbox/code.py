@@ -171,7 +171,7 @@ def run_code(
     forwarder = broker = None
     try:
         forwarder = ModelForwarder(paths.check_socket_path(sockdir / "model.sock"), upstream)
-        broker = Broker(paths.check_socket_path(sockdir / "hub.sock"))
+        broker = Broker(paths.check_socket_path(sockdir / "hub.sock"), paranoia_floor=policy.paranoia_floor)
         forwarder.start()
         broker.start()
         log.info("hal code: %s in %s, model at %s", runtime, workdir, upstream)

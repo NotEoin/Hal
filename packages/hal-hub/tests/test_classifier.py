@@ -344,3 +344,31 @@ def test_a_call_cannot_carry_paranoia_or_lockdown_settings(make_hub):
     assert r.status == "ok" and not any(k.startswith("_") for k in spy.calls[0][1])
     assert hub.classifier.paranoia == "balanced"
     assert events("classification")[0]["paranoia"] == "balanced"
+
+
+def test_a_hub_with_a_floor_classifies_with_no_model_and_asks_at_balanced(make_hub):
+    approver = ScriptedApprover()
+    hub = make_hub(paranoia_floor="off")
+    assert (
+        hub.call("demo_echo", {"text": "hi"}, hub_session(hub, approver), front_end="python").status == "ok"
+    )
+    assert len(approver.requests) == 1 and events("classification")[0]["error"]
+
+
+def test_strict_floor_denies_a_high_risk_call_even_when_policy_says_paranoia_off(make_hub, hal_home):
+    hal_home.policy.write_text('schema_version = 1\n[policy]\nparanoia = "off"\n')
+    spy = SpyRunner()
+    hub = make_hub(runner=spy, paranoia_floor="high", classify_chat=Chat(reply("low")))
+    r = hub.call("demo_echo", {"text": "sudo ls"}, hub_session(hub), front_end="python")
+    assert r.rule == "classifier:high" and spy.calls == []
+
+
+def test_cli_hub_reads_the_floor_from_the_broker_environment(monkeypatch):
+    from halhub import cli
+
+    monkeypatch.setenv("HAL_PARANOIA_FLOOR", "high")
+    hub = cli._new_hub()
+    try:
+        assert hub.paranoia_floor == "high"
+    finally:
+        hub.close()

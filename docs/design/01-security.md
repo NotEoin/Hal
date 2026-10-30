@@ -2532,7 +2532,8 @@ raise it, and a bad answer, a timeout, an error or no model counts as `high`. Th
 maps the risk to `policy`, `ask` or `deny`; the result is never looser than the policy's verdict,
 and the reviewer runs only in the `low` risk cells of `low` and `balanced`. The effective
 paranoia is the configured one raised to the lockdown floor (`strict` -> `high`), which the
-broker passes to its children in `HAL_PARANOIA_FLOOR`. Every rated call writes a
+broker passes to its children in `HAL_PARANOIA_FLOOR` (set after the inherited environment, so nothing
+upstream lowers it). A hub with a floor classifies every call, with no model counting as `high`. Every rated call writes a
 `classification` audit record. Paranoia and lockdown live in host files that no tool can write
 and are never read from call arguments. Verified by `hal-hub/tests/test_classifier.py`.
 

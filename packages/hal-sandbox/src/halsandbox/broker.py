@@ -14,6 +14,9 @@ The box is hostile, so the broker treats the connection as untrusted input:
   connection with nothing pending is fine: a call may wait on a human approval);
 - at most `MAX_CONNECTIONS` children run at once.
 
+The lockdown level's paranoia floor reaches the children in `HAL_PARANOIA_FLOOR`, set by the host
+after the inherited environment so nothing upstream can lower it.
+
 Human messages reach the children on a private pipe (`HAL_HUMAN_FD`), never on the socket the box
 can write to; see `halhub.humanfeed`. `Broker.on_human_message` is the host's entry point. A new
 child gets the last message replayed, so a connection opened after the prompt still knows it.
@@ -43,6 +46,7 @@ PARTIAL_TIMEOUT_S = 30.0  # a frame that starts must finish within this time
 MAX_CONNECTIONS = 8  # concurrent hub children per session
 _PEERCRED = struct.Struct("3i")  # pid, uid, gid
 EXIT_WAIT_S = 5.0
+PARANOIA_FLOOR_ENV = "HAL_PARANOIA_FLOOR"  # same name as `halhub.classifier.FLOOR_ENV`
 HUMAN_FD_ENV = "HAL_HUMAN_FD"  # same name as `halhub.humanfeed.ENV_FD`; the sandbox does not import halhub
 SURFACES = frozenset({"tui", "acp", "telegram", "voice", "console", "headless", "routine"})  # REQ-SEC-93
 DEFAULT_COMMAND = (sys.executable, "-m", "halhub", "mcp", "--approvals", "out-of-band")
@@ -59,12 +63,14 @@ class Broker(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         command: Sequence[str] = DEFAULT_COMMAND,
         *,
         allowed_uid: int | None = None,
+        paranoia_floor: str = "off",
         max_frame_bytes: int = MAX_FRAME_BYTES,
         partial_timeout_s: float = PARTIAL_TIMEOUT_S,
         max_connections: int = MAX_CONNECTIONS,
     ) -> None:
         self.command = list(command)
         self.allowed_uid = os.getuid() if allowed_uid is None else allowed_uid
+        self.paranoia_floor = paranoia_floor
         self.max_frame_bytes = max_frame_bytes
         self.partial_timeout_s = partial_timeout_s
         self.slots = threading.BoundedSemaphore(max_connections)
@@ -165,7 +171,7 @@ class _Handler(socketserver.BaseRequestHandler):
         server = self.server
         feed_r, feed_w = os.pipe()
         os.set_blocking(feed_w, False)  # a stuck child must not stall the host's prompt
-        env = {**os.environ, HUMAN_FD_ENV: str(feed_r)}
+        env = {**os.environ, HUMAN_FD_ENV: str(feed_r), PARANOIA_FLOOR_ENV: server.paranoia_floor}
         try:
             proc = subprocess.Popen(
                 server.command,

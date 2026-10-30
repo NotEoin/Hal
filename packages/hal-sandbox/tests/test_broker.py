@@ -200,3 +200,20 @@ def test_unknown_surface_is_refused(sockdir):
             b.on_human_message("x", "carrier-pigeon")
     finally:
         b.stop()
+
+
+FLOOR_ECHO = (
+    sys.executable,
+    "-c",
+    "import os,sys\nsys.stdin.readline()\nsys.stdout.write('floor:'+os.environ['HAL_PARANOIA_FLOOR']+'\\n')",
+)
+
+
+def test_children_get_the_lockdown_paranoia_floor_over_the_inherited_environment(sockdir, monkeypatch):
+    monkeypatch.setenv("HAL_PARANOIA_FLOOR", "off")  # an upstream value must not win
+    b = Broker(sockdir / "h.sock", FLOOR_ECHO, paranoia_floor="high")
+    b.start()
+    try:
+        assert ask(b.socket_path, b"go\n") == b"floor:high\n"
+    finally:
+        b.stop()
