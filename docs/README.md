@@ -18,6 +18,10 @@ written.
 | [howto/enable-local-guard.md](howto/enable-local-guard.md) | How to install, time and turn on the local prompt-injection guard |
 | [howto/resume-and-export-a-session.md](howto/resume-and-export-a-session.md) | How to list, resume and export `hal-agent` sessions |
 | [howto/use-the-agent-from-an-editor-over-acp.md](howto/use-the-agent-from-an-editor-over-acp.md) | How to run `hal-agent --acp` for an editor and use review mode |
+| [howto/run-an-agent-cli-in-the-box.md](howto/run-an-agent-cli-in-the-box.md) | How to run claude, qwen, opencode, codex, crush or goose in the box with `hal box` |
+| [howto/undo-agent-changes.md](howto/undo-agent-changes.md) | How to review, reject or roll back what an agent changed |
+| [howto/install-gvisor.md](howto/install-gvisor.md) | How to register runsc with `--host-uds=open` so the box can use gVisor |
+| [howto/prepare-project-dependencies.md](howto/prepare-project-dependencies.md) | How to install project dependencies with `hal-sandbox deps` |
 | [howto/use-hal-in-zed.md](howto/use-hal-in-zed.md) | How to run the boxed agent from Zed or another ACP editor with `hal acp` |
 | [howto/write-a-tool-pack.md](howto/write-a-tool-pack.md) | How to write, install and check a tool pack with `hal-hub new` |
 | [dev/agent.md](dev/agent.md) | Agent developer notes: modules, limit precedence, records over ACP, what is not built |
