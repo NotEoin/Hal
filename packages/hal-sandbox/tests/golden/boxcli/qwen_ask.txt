@@ -1,0 +1,41 @@
+argv: ["qwen", "--foo"]
+env:
+  DO_NOT_TRACK=1
+  HAL_API_KEY=hal-box
+--- .qwen/settings.json
+{
+  "$version": 4,
+  "security": {
+    "auth": {
+      "selectedType": "openai"
+    }
+  },
+  "model": {
+    "name": "hal-code"
+  },
+  "modelProviders": {
+    "openai": [
+      {
+        "id": "hal-code",
+        "name": "Hal",
+        "baseUrl": "http://127.0.0.1:8741/v1",
+        "envKey": "HAL_API_KEY"
+      }
+    ]
+  },
+  "privacy": {
+    "usageStatisticsEnabled": false
+  },
+  "telemetry": {
+    "enabled": false
+  },
+  "general": {
+    "enableAutoUpdate": false
+  },
+  "mcpServers": {
+    "hal": {
+      "command": "hal-mcp-bridge",
+      "args": []
+    }
+  }
+}

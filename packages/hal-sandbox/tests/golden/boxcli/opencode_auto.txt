@@ -1,0 +1,43 @@
+argv: ["opencode", "--foo"]
+env:
+  DO_NOT_TRACK=1
+  HAL_API_KEY=hal-box
+  OPENCODE_DISABLE_AUTOUPDATE=1
+  OPENCODE_DISABLE_LSP_DOWNLOAD=1
+  OPENCODE_DISABLE_MODELS_FETCH=1
+  OPENCODE_DISABLE_SHARE=1
+--- .config/opencode/opencode.json
+{
+  "autoupdate": false,
+  "share": "disabled",
+  "provider": {
+    "hal": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Hal",
+      "options": {
+        "baseURL": "http://127.0.0.1:8741/v1",
+        "apiKey": "{env:HAL_API_KEY}"
+      },
+      "models": {
+        "hal-code": {
+          "name": "hal-code"
+        }
+      }
+    }
+  },
+  "model": "hal/hal-code",
+  "mcp": {
+    "hal": {
+      "type": "local",
+      "command": [
+        "hal-mcp-bridge"
+      ],
+      "enabled": true
+    }
+  },
+  "permission": {
+    "edit": "allow",
+    "bash": "allow",
+    "webfetch": "deny"
+  }
+}
