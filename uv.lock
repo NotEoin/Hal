@@ -254,10 +254,14 @@ name = "hal-agent"
 source = { editable = "packages/hal-agent" }
 dependencies = [
     { name = "hal-kit" },
+    { name = "mcp" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "hal-kit", editable = "packages/hal-kit" }]
+requires-dist = [
+    { name = "hal-kit", editable = "packages/hal-kit" },
+    { name = "mcp", specifier = ">=2.3,<3" },
+]
 
 [[package]]
 name = "hal-core"
