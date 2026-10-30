@@ -26,7 +26,7 @@ from halsandbox import isolated
 
 from . import config
 
-REVIEW_COMMANDS = ("ls", "accept", "export", "reject")
+REVIEW_COMMANDS = ("ls", "diff", "accept", "export", "reject")
 ROOT = Path(__file__).resolve().parents[4]  # packages/hal-core/src/halcore -> checkout root
 
 
@@ -35,6 +35,8 @@ def review(argv: list[str]) -> int:
     p = argparse.ArgumentParser(prog="hal code")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("ls")
+    dif = sub.add_parser("diff", help="show the patch, stat and risk flags without applying")
+    dif.add_argument("sid")
     acc = sub.add_parser("accept")
     acc.add_argument("sid")
     acc.add_argument("--allow-flags", action="store_true", help="apply even high-risk changes")
@@ -51,9 +53,14 @@ def review(argv: list[str]) -> int:
                 print(f"{sid}  {isolated.load(sid).project}")
             return 0
         iso = isolated.load(opts.sid)
-        if opts.cmd == "accept":
-            report = isolated.accept(iso, allow_flags=opts.allow_flags)
-            print("\n".join(f"{c.status} {c.path}{'  [' + c.flag + ']' if c.flag else ''}" for c in report) or "no changes")
+        if opts.cmd == "diff":
+            rep = isolated.report(iso)
+            print(rep.patch)
+            print(isolated.render(rep))
+        elif opts.cmd == "accept":
+            print(isolated.render(isolated.report(iso)))
+            applied = isolated.accept(iso, allow_flags=opts.allow_flags)
+            print(f"applied {len(applied)} changed paths" if applied else "no changes")
         elif opts.cmd == "export":
             print(isolated.export(iso, Path(opts.file), "bundle" if opts.bundle else "patch"))
         else:

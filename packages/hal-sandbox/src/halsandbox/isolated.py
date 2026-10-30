@@ -36,7 +36,7 @@ from halkit import fsafe, paths, proc, timeutil
 
 from . import shadow
 from .checkpoints import Checkpoint, CheckpointError
-from .diffreport import HIGH, MODE_SYMLINK, Flag, flags_for
+from .diffreport import DEFAULT_MAX_PATCH_BYTES, HIGH, DiffReport, Flag, build_report
 from .errors import SandboxError
 from .gitops import HARDEN_ARGS, GitRunner
 
@@ -58,7 +58,6 @@ MASK_PATTERNS = (
 )
 MASK_DIRS = (".ssh", ".aws", ".gnupg")
 SKIP_DIRS = (".git", "node_modules", ".venv", "__pycache__")  # rebuilt inside the box, never worth copying
-PRIVATE_KEY_RE = re.compile(rb"^\+.*-----BEGIN [A-Z ]*PRIVATE KEY-----", re.M)
 _IDENT = ("-c", "user.name=hal", "-c", "user.email=hal@localhost")
 
 
@@ -248,53 +247,39 @@ def _commit_all(iso: Isolated, message: str, ref: str) -> str:
     return commit
 
 
-def _flags(iso: Isolated, path: str, old_mode: str, new_mode: str, patch: bytes) -> tuple[Flag, ...]:
-    target = None
-    if new_mode == MODE_SYMLINK:
-        target = _git(iso.gitdir, None, "cat-file", "blob", f"refs/heads/work:{path}", cwd=iso.root).decode()
-    found = flags_for(path, old_mode, new_mode, target=target)
-    if PRIVATE_KEY_RE.search(patch):
-        found.append(Flag("secret", HIGH, "private key in added lines"))
-    return tuple(found)
+def _trees(iso: Isolated) -> tuple[str, str, str]:
+    """(base commit, base tree, work tree) after committing the copy's current state to `work`."""
+    _commit_all(iso, "work", ref="refs/heads/work")
+    base = _git(iso.gitdir, None, "rev-parse", "refs/heads/base", cwd=iso.root).decode().strip()
+    base_tree = _git(iso.gitdir, None, "rev-parse", "refs/heads/base^{tree}", cwd=iso.root).decode().strip()
+    work_tree = _git(iso.gitdir, None, "rev-parse", "refs/heads/work^{tree}", cwd=iso.root).decode().strip()
+    return base, base_tree, work_tree
+
+
+def report(iso: Isolated, *, max_patch_bytes: int = DEFAULT_MAX_PATCH_BYTES) -> DiffReport:
+    """The `DiffReport` (patch, stat, files, risk flags) from the base snapshot to the copy now."""
+    base, base_tree, work_tree = _trees(iso)
+    runner = GitRunner(iso.gitdir, git_dir=iso.gitdir, timeout_s=GIT_TIMEOUT_S)
+    return build_report(runner, base, base_tree, work_tree, max_patch_bytes=max_patch_bytes)
+
+
+def _changes_of(rep: DiffReport) -> list[Change]:
+    return [Change(f.status, f.path, tuple(fl for fl in rep.flags if fl.path == f.path)) for f in rep.files]
 
 
 def changes(iso: Isolated) -> list[Change]:
-    """The diff report: every path the agent changed against the base, with a risk flag."""
-    _commit_all(iso, "work", ref="refs/heads/work")
-    raw = _git(
-        iso.gitdir,
-        None,
-        "diff",
-        "--raw",
-        "-z",
-        "--no-renames",
-        "--no-ext-diff",
-        "refs/heads/base",
-        "refs/heads/work",
-        cwd=iso.root,
-    )
-    fields = raw.decode().split("\0")
-    out: list[Change] = []
-    i = 0
-    while i + 1 < len(fields) and fields[i].startswith(":"):
-        meta = fields[i].split()
-        status, path = meta[4][0], fields[i + 1]
-        old_mode, new_mode = meta[0][1:], meta[1]
-        patch = _git(
-            iso.gitdir,
-            None,
-            "diff",
-            "--no-ext-diff",
-            "--binary",
-            "refs/heads/base",
-            "refs/heads/work",
-            "--",
-            path,
-            cwd=iso.root,
-        )
-        out.append(Change(status, path, _flags(iso, path, old_mode, new_mode, patch)))
-        i += 2
-    return out
+    """Every path the agent changed against the base, with its risk flags."""
+    rep = report(iso)
+    return [Change(f.status, f.path, tuple(fl for fl in rep.flags if fl.path == f.path)) for f in rep.files]
+
+
+def render(rep: DiffReport) -> str:
+    """The text `hal code accept` shows before it applies: the stat, then one line per risk flag."""
+    lines = [rep.stat.rstrip() or "no changes"]
+    lines += [f"  [{f.severity}] {f.path}: {f.kind}, {f.reason}" for f in rep.flags]
+    if rep.truncated:
+        lines.append("  (the patch is longer than the preview; accept applies all of it)")
+    return "\n".join(lines)
 
 
 def patch_bytes(iso: Isolated) -> bytes:
@@ -334,12 +319,14 @@ def accept(iso: Isolated, *, allow_flags: bool = False) -> list[Change]:
     Raises `AcceptRefused` on a high-risk flag (unless `allow_flags`) or when the patch does not
     apply; in the second case the patch is kept under `$STATE/patches/<sid>.patch`.
     """
-    report = changes(iso)
-    flagged = [c for c in report if c.high]
-    if flagged and not allow_flags:
-        listing = "; ".join(f"{c.path} ({c.high_reasons})" for c in flagged)
+    rep = report(iso)
+    if rep.high and not allow_flags:
+        listing = "; ".join(f"{f.path} ({f.reason})" for f in rep.high)
         raise AcceptRefused(f"high-risk changes: {listing}; review them, then pass --allow-flags")
-    if not report:
+    applied = [
+        Change(f.status, f.path, tuple(fl for fl in rep.flags if fl.path == f.path)) for f in rep.files
+    ]
+    if not applied:
         return []
     patch = patch_bytes(iso)
     _checkpoint(iso)
@@ -359,7 +346,7 @@ def accept(iso: Isolated, *, allow_flags: bool = False) -> list[Change]:
             f"patch does not apply ({exc}); saved to {kept}; the project is unchanged"
         ) from exc
     reject(iso)
-    return report
+    return applied
 
 
 def export(iso: Isolated, dest: Path, kind: str = "patch") -> Path:

@@ -19,7 +19,19 @@ def test_accept_applies_the_agents_edit_and_prints_the_report(project, capsys):
     iso = isolated.create(project, 10**6)
     (iso.work / "a.txt").write_text("two\n")
     assert code.main(["accept", iso.sid]) == 0
-    assert (project / "a.txt").read_text() == "two\n" and "M a.txt" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert (project / "a.txt").read_text() == "two\n"
+    assert "a.txt" in out and "applied 1 changed paths" in out
+
+
+def test_diff_shows_the_patch_and_flags_without_applying(project, capsys):
+    iso = isolated.create(project, 10**6)
+    (iso.work / "a.txt").write_text("two\n")
+    (iso.work / ".envrc").write_text("export X=1\n")
+    assert code.main(["diff", iso.sid]) == 0
+    out = capsys.readouterr().out
+    assert "+two" in out and "[high] .envrc: automation" in out
+    assert (project / "a.txt").read_text() == "one\n" and isolated.sessions() == [iso.sid]
 
 
 def test_reject_leaves_the_project_unchanged(project):

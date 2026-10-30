@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import fnmatch
 import posixpath
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
@@ -143,6 +144,21 @@ class DiffReport:
         return tuple(f for f in self.flags if f.severity == HIGH)
 
 
+PRIVATE_KEY_RE = re.compile(rb"^\+.*-----BEGIN [A-Z ]*PRIVATE KEY-----", re.M)
+_PATCH_FILE_RE = re.compile(rb"^diff --git a/.* b/(.*)$", re.M)
+
+
+def _secret_paths(patch: bytes) -> list[str]:
+    """Paths whose added lines hold a private key header (the patch is scanned in full, never cut)."""
+    heads = list(_PATCH_FILE_RE.finditer(patch))
+    found: list[str] = []
+    for i, head in enumerate(heads):
+        end = heads[i + 1].start() if i + 1 < len(heads) else len(patch)
+        if PRIVATE_KEY_RE.search(patch, head.end(), end):
+            found.append(head.group(1).decode(errors="replace"))
+    return found
+
+
 def _parse_raw(raw: bytes) -> list[tuple[FileChange, str]]:
     """Parses `diff-tree --raw -z` output into changes with the new blob id."""
     parts = raw.decode(errors="surrogateescape").split("\0")
@@ -203,6 +219,7 @@ def build_report(
         flags.append(Flag(kind, MEDIUM, why, str(s["path"])))
     stat = git.out("diff", "--stat", base_tree, head_tree)
     patch = git.run("diff", "--binary", base_tree, head_tree).stdout
+    flags.extend(Flag("secret", HIGH, "private key in added lines", path) for path in _secret_paths(patch))
     truncated = len(patch) > max_patch_bytes
     text = patch[:max_patch_bytes].decode(errors="replace")
     return DiffReport(base_commit, head_tree, tuple(files), tuple(flags), stat, text, truncated)

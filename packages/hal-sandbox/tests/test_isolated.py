@@ -163,3 +163,36 @@ def test_a_medium_flag_is_reported_but_does_not_block_accept(repo):
     assert [c.flag for c in isolated.changes(iso)] == ["automation"]
     isolated.accept(iso)
     assert (repo / "Makefile").exists()
+
+
+def test_report_has_stat_files_and_flags_with_their_paths(repo):
+    iso = isolated.create(repo, CAP)
+    (iso.work / "app.py").write_text("print('changed')\n")
+    (iso.work / "Makefile").write_text("all:\n")
+    rep = isolated.report(iso)
+    assert {f.path for f in rep.files} == {"app.py", "Makefile"}
+    assert [(f.path, f.severity) for f in rep.flags] == [("Makefile", "medium")]
+    assert "app.py" in rep.stat and "app.py" in rep.patch
+
+
+def test_a_private_key_is_flagged_high_even_when_the_preview_is_cut(repo):
+    iso = isolated.create(repo, CAP)
+    (iso.work / "big.txt").write_text("x\n" * 5000)
+    (iso.work / "k.txt").write_text("-----BEGIN OPENSSH PRIVATE KEY-----\nsynthetic\n")
+    rep = isolated.report(iso, max_patch_bytes=100)
+    assert rep.truncated
+    assert [(f.kind, f.path) for f in rep.high] == [("secret", "k.txt")]
+    with pytest.raises(isolated.AcceptRefused, match="k.txt"):
+        isolated.accept(iso)
+
+
+def test_render_lists_the_stat_then_each_flag(repo):
+    iso = isolated.create(repo, CAP)
+    (iso.work / ".envrc").write_text("export X=1\n")
+    text = isolated.render(isolated.report(iso))
+    assert ".envrc" in text.splitlines()[0]
+    assert "[high] .envrc: automation" in text
+
+
+def test_render_of_an_unchanged_copy_says_no_changes(repo):
+    assert isolated.render(isolated.report(isolated.create(repo, CAP))) == "no changes"
