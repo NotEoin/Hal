@@ -1,6 +1,6 @@
 """Containment suite: a scripted hostile process in the real `hal code` box (RESOLUTIONS I6).
 
-The `docker run` argv comes from `halsandbox.code.docker_args`, so a flag change there is
+The `docker run` argv comes from `halsandbox.backends.docker.docker_argv`, so a flag change there is
 tested here. The "model" is a shell snippet that tries to leave the box; each snippet prints
 `ESCAPED` when the attack worked, and every test asserts it never does. A small CPU image
 stands in for `hal-agent` (the snippet replaces its entrypoint). Each case runs under `runc`,
@@ -15,7 +15,10 @@ import subprocess
 
 import pytest
 
-from halsandbox.code import docker_args, docker_runtimes
+from halsandbox import runtime as sbruntime
+from halsandbox.backends.docker import LaunchSpec, docker_argv
+from halsandbox.code import docker_runtimes
+from halsandbox.env import box_env
 from halsandbox.limits import Limits
 
 pytestmark = pytest.mark.docker
@@ -42,8 +45,8 @@ RUNTIMES = available_runtimes()
 @pytest.fixture(params=RUNTIMES or [pytest.param("none", marks=pytest.mark.skip("no docker or image"))])
 def box(request, tmp_path):
     """Returns `run(snippet) -> stdout`, running the snippet inside the box."""
-    work, scratch, socks = tmp_path / "work", tmp_path / "scratch", tmp_path / "socks"
-    for d in (work, scratch, socks):
+    work, scratch = tmp_path / "work", tmp_path / "scratch"
+    for d in (work, scratch):
         d.mkdir()
     (tmp_path / "outside.txt").write_text(HOST_CANARY)
     home_ssh = tmp_path / "home" / ".ssh"
@@ -51,10 +54,18 @@ def box(request, tmp_path):
     (home_ssh / "id_synthetic").write_text(HOST_CANARY)
     for d in (work, scratch):
         d.chmod(0o777)  # the box user is the caller's uid; this keeps the test portable to rootless docker
-    base = docker_args(
-        work, socks, image=IMAGE, runtime=request.param, scratch=scratch, limits=LIMITS,
-        agent_args=(),
+    root = tmp_path / "session"
+    (root / "run").mkdir(parents=True)
+    (root / "etc").mkdir()
+    (root / "etc" / "passwd").write_text(sbruntime.passwd_text(os.getuid(), os.getgid()))
+    (root / "etc" / "group").write_text(sbruntime.group_text(os.getgid()))
+    spec = LaunchSpec(
+        kind="code", sid="0123456789ab", image=IMAGE, runtime=request.param, work=work, session_root=root,
+        uid=os.getuid(), gid=os.getgid(), limits=LIMITS, env=box_env("code", "0123456789ab", "docker", {}),
+        child=(), pid=os.getpid(), pidstart=1, started="2026-10-30T00:00:00Z", scratch=scratch,
+        entrypoint=None,
     )  # fmt: skip
+    base = docker_argv(spec)
 
     def run(snippet: str) -> str:
         argv = base[: base.index(IMAGE) + 1] + ["sh", "-c", snippet]
