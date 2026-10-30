@@ -21,7 +21,9 @@ from halkit import paths
 
 from . import config as sbconfig
 from . import detect, gitlayout, isolated, projects, scratch
+from .backends import Launch
 from .backends.docker import LaunchSpec, docker_argv
+from .backends.none import none_launch
 from .broker import DEFAULT_COMMAND, Broker
 from .checkpoints import Checkpoint, CheckpointConfig, Checkpoints, RestoreResult
 from .diffreport import DiffReport
@@ -43,14 +45,14 @@ ASSISTANT_DIR = "assistant"  # `$STATE/assistant/`: the only work tree a `chat` 
 DOCKER_RM_TIMEOUT_S = 30.0
 RUN_FILES_MODE = 0o644
 RunFiles = Mapping[str, bytes] | Callable[[str], Mapping[str, bytes]]
-ArgvBuilder = Callable[["Session", LaunchSpec], list[str]]
+ArgvBuilder = Callable[[LaunchSpec], Launch]
 
 
-def _docker_builder(_session: Session, spec: LaunchSpec) -> list[str]:
-    return docker_argv(spec)
+def _docker_builder(spec: LaunchSpec) -> Launch:
+    return Launch(docker_argv(spec))
 
 
-ARGV_BUILDERS: dict[str, ArgvBuilder] = {"docker": _docker_builder}
+ARGV_BUILDERS: dict[str, ArgvBuilder] = {"docker": _docker_builder, "none": none_launch}
 
 
 def _write_files(root: Path, files: Mapping[str, bytes], forbidden: Sequence[bytes]) -> None:
@@ -93,6 +95,7 @@ class Session:
     approver: object
     channel: str
     docker: str = "docker"
+    launch: Launch | None = None
     closed: bool = False
 
     @classmethod
@@ -198,7 +201,8 @@ class Session:
                 git_mounts=gitlayout.discover(work) if not use_copy else (), masked=masked,
                 scratch=scratch.prepare(project or work, int(cfg["scratch_max_bytes"])),
             )  # fmt: skip
-            session.agent_argv = builder(session, spec)
+            session.launch = builder(spec)
+            session.agent_argv = list(session.launch.argv)
             rd.write_owner(kind=kind, backend=probe.backend, container=session.container, work=str(work))
             rd.write_session_json(session.capabilities(), kind=kind)
             broker.start()
