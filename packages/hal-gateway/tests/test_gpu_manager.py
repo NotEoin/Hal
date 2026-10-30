@@ -142,7 +142,7 @@ def test_v1_idle_timer_unloads_and_releases(tmp_path):
     mgr.tick(clock.now + 899)
     assert backend.freed == []
     mgr.tick(clock.now + 901)
-    assert backend.freed == [["a"]] and ("release", "hal-gateway-service") in coord.calls
+    assert backend.freed == [["a"]] and ("release", "hal-gateway") in coord.calls
     mgr.tick(clock.now + 5000)
     assert len(backend.freed) == 1  # nothing was used since
 

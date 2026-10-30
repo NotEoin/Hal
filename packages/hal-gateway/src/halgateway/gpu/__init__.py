@@ -78,10 +78,12 @@ class GpuCoordinator(Protocol):
         """A small document for `GET /hal/v1/status`."""
 
 
-def detect(v1_dir: str = "") -> Kind:
-    """The coordinator kind available now; gpu-light v2 detection arrives with its client."""
-    from . import lightv1
+def detect(v1_dir: str = "", v2_socket: str = "", timeout_s: float = 2.0) -> Kind:
+    """The coordinator kind available now: v2 when its socket answers, else v1, else none."""
+    from . import lightv1, lightv2
 
+    if lightv2.probe(lightv2.socket_path(v2_socket), timeout_s):
+        return "gpu-light-v2"
     return "gpu-light-v1" if lightv1.directory_ok(lightv1.state_dir(v1_dir)) else "none"
 
 

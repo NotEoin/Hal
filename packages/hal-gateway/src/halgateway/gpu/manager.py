@@ -15,6 +15,7 @@ import time
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 
+from .. import __version__
 from ..errors import GatewayError, Unavailable
 from . import AcquireResult, ClaimClass, GpuCoordinator, LeaseInfo, ReleaseResult
 from .peers import PeerGuard
@@ -28,13 +29,14 @@ CLASSES: tuple[ClaimClass, ...] = ("interactive", "service")
 
 def make_coordinator(cfg: Mapping[str, object]) -> GpuCoordinator | None:
     """The coordinator for `[gateway.gpu].coordinator`; None means no coordination (REQ-GW-50)."""
-    from . import lightv1
+    from . import lightv1, lightv2
 
     mode = str(cfg["coordinator"])
+    path = lightv2.socket_path(str(cfg["v2_socket"]))
+    if mode == "gpu-light-v2" or (mode == "auto" and lightv2.probe(path)):
+        spec = lightv2.reclaimer_spec(str(cfg["reclaimer_name"]))
+        return lightv2.V2Coordinator(path, reclaimer=spec, version=__version__)
     directory = lightv1.state_dir(str(cfg["v1_dir"]))
-    if mode == "gpu-light-v2":
-        log.warning("gpu-light v2 is not available in this build; no GPU coordination")
-        return None
     if mode in ("auto", "gpu-light-v1") and lightv1.directory_ok(directory):
         return lightv1.V1Coordinator(str(cfg["v1_claim_name"]), directory)
     if mode == "gpu-light-v1":
@@ -146,6 +148,12 @@ class GpuManager:
                 self._held.add(cls)
         self._unload_offloaded()
 
+    def _claim_name(self, cls: str) -> str:
+        """`<reclaimer_name>-<class>` for v2 (REQ-GW-58); the single v1 claim name otherwise."""
+        if self.coordinator is not None and self.coordinator.kind == "gpu-light-v1":
+            return str(self.cfg["v1_claim_name"])
+        return f"{self.cfg['reclaimer_name']}-{cls}"
+
     def check_peers(self) -> None:
         """REQ-GW-56: raises `PeerBusy` when a peer holds the GPU; call before a router start or load."""
         if self.guard is not None:
@@ -157,7 +165,7 @@ class GpuManager:
         wait_s = float(self.cfg["v1_claim_wait_s" if v1 else "claim_wait_s"])  # type: ignore[arg-type]
         model = target.model  # type: ignore[attr-defined]
         result = self.coordinator.acquire(
-            f"{self.cfg['reclaimer_name']}-{cls}" if not v1 else str(self.cfg["v1_claim_name"]),
+            self._claim_name(cls),
             cls=cls,
             wait_s=wait_s,
             vram_mib=self.vram_for(model),
@@ -197,10 +205,26 @@ class GpuManager:
         """Called every 10 s: unloads and releases after `idle_unload_s` of quiet (REQ-GW-53)."""
         idle_unload = float(self.cfg["idle_unload_s"])  # type: ignore[arg-type]
         with self._lock:
+            if self.coordinator is not None and hasattr(self.coordinator, "maintain"):
+                self.coordinator.maintain()
+            if self.coordinator is not None and self.coordinator.kind == "gpu-light-v2":
+                self._release_idle_claims(now)
+                return
             quiet = now - self._last_any >= idle_unload
             if idle_unload > 0 and self._dirty and not self.in_flight() and quiet:
                 log.info("GPU idle for %.0f s: unloading", now - self._last_any)
                 self._free(stop_router=False)
+
+    def _release_idle_claims(self, now: float) -> None:
+        """v2: give a claim back `idle_release_s` after its class went quiet; models stay loaded."""
+        idle_release = float(self.cfg["idle_release_s"])  # type: ignore[arg-type]
+        if idle_release <= 0:
+            return
+        for cls in sorted(self._held):
+            if self._class_inflight[cls] == 0 and now - self._last[cls] >= idle_release:
+                log.info("releasing the %s GPU claim after %.0f s idle", cls, now - self._last[cls])
+                self.coordinator.release(self._claim_name(cls))  # type: ignore[union-attr]
+                self._held.discard(cls)
 
     def _free(self, *, stop_router: bool) -> tuple[tuple[str, ...], bool]:
         unloaded: list[str] = []
@@ -224,7 +248,7 @@ class GpuManager:
     def _release_claims(self) -> None:
         if self.coordinator is not None:
             for cls in sorted(self._held):
-                self.coordinator.release(f"{self.cfg['reclaimer_name']}-{cls}")
+                self.coordinator.release(self._claim_name(cls))
         self._held.clear()
 
     def release(self, *, force: bool, stop_router: bool, reclaim: bool) -> ReleaseResult:
@@ -243,6 +267,8 @@ class GpuManager:
         """Releases every claim at gateway stop; loaded models stay."""
         with self._lock:
             self._release_claims()
+            if hasattr(self.coordinator, "close"):
+                self.coordinator.close()  # type: ignore[union-attr]
 
     def status(self) -> dict[str, object]:
         """The `gpu` object of the status document."""

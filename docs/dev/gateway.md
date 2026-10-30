@@ -244,3 +244,20 @@ new claim (or, with no coordinator, when no GPU request is running), before `mod
 `GET <url>/models` (timeout `peer_timeout_s`) and answers 409 `gpu_busy_peer` when an entry
 has `status.value == "loaded"`. An unreachable or unparsable peer is logged and ignored.
 Tested with fake fetchers only.
+
+### gpu-light v2 (`gpu/lightv2`)
+
+`V2Coordinator` keeps one connection to the GL socket (`gpu.v2_socket`, `$GPU_LIGHT_SOCKET`,
+`$XDG_RUNTIME_DIR/gpu-light/daemon.sock`, else the v1 state directory) with a reader thread
+for answers and `claim_granted`. `coordinator = "auto"` probes it with `hello`; any protocol
+other than 2 is logged and not used. Claims are named `<reclaimer_name>-<class>`, have
+lifetime `connection`, and are released `idle_release_s` after their class goes quiet; the
+models stay loaded, and gpu-light frees them through the `command` reclaimer
+(`hal-gateway release-gpu --reclaim`, registered at connect, REQ-GW-59). A lost connection is
+retried by the 10 s timer with backoff (1 s doubling to 30 s) and the held claims are sent
+again. A claim that is not granted within `claim_wait_s` is released, then the request
+proceeds or fails per `on_busy`.
+
+Tests use a fake daemon on a temporary socket. `tests/conftest.py` points `GPU_LIGHT_SOCKET`
+and `GPU_LIGHT_DIR` at nothing: a machine that runs a real gpu-light daemon must never see a
+test claim or reclaimer.
