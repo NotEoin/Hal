@@ -20,7 +20,7 @@ with a scripted agent; not yet run against a live model.
 | --- | --- |
 | `/help`, `/quit` | List commands; leave (Ctrl-D also leaves) |
 | `/clear` | Start a new conversation in the same box |
-| `/mode default\|auto-edit` | `default` asks per policy; `auto-edit` lets the agent edit the box copy without asking. `plan` is not available yet |
+| `/mode default\|auto-edit\|plan` | `default` asks per policy; `auto-edit` lets the agent edit the box copy without asking; `plan` is read-only: edits and commands are refused until you leave it |
 | `/todo` | Show the agent's todo list |
 | `/diff [N]`, `/rewind [N]` | Show changes since checkpoint N; list checkpoints, or restore one (files that cannot come back are listed) |
 | `/apply [--allow-flags]` | Apply the isolated copy to your real project after the risk report |
@@ -37,7 +37,6 @@ always has a point to return to.
 | --- | --- |
 | `hal code` prints the agent's own prompt, not this UI | You passed `-- ARGS` or stdin is not a terminal; the UI needs a terminal |
 | `/rewind` says no checkpoints | `hal chat` boxes have no work tree; use `hal code` |
-| `/mode plan` is refused | Not built into the agent yet; use `default` and read `/diff` before `/apply` |
 | `/image` is accepted but the agent ignores it | The agent build does not advertise image input yet |
 
 ## Headless: `hal -p`

@@ -3,8 +3,9 @@
 Messages are one JSON object per line. The reader thread stays free while a prompt runs on a
 worker thread, so `session/cancel` is seen at once. The server never calls `fs/*` or `terminal/*`
 client methods: that would let an in-box agent act on the host outside the box (design 03-agent,
-3.14.6). A session's `cwd` must lie inside the workspace root. Modes are `auto` and `review`;
-review mode asks the client with `session/request_permission` before an edit or a command.
+3.14.6). A session's `cwd` must lie inside the workspace root. Modes are `auto`, `review` and `plan`;
+plan mode is read-only: edits and commands are refused until the client leaves it.
+Review mode asks the client with `session/request_permission` before an edit or a command.
 A client that advertises `clientCapabilities._meta.hal.records` gets every transcript record as a
 `_hal/record` notification and the agent writes no file (REQ-AGT-66). `session/load` rebuilds a
 session from the records the client sends, else from the local store, and replays it as updates.
@@ -47,6 +48,7 @@ KIND_OF = {
 MODE_LIST = [
     {"id": "auto", "name": "Auto", "description": "Work freely inside the sandbox"},
     {"id": "review", "name": "Review", "description": "Ask before every edit and command"},
+    {"id": "plan", "name": "Plan", "description": "Read-only until the plan is approved"},
 ]
 PERMISSION_OPTIONS = [
     {"optionId": oid, "name": name, "kind": oid}
@@ -196,8 +198,8 @@ class AcpServer:
         if method == "session/set_mode":
             agent = self.sessions.get(str(params.get("sessionId")))
             mode = params.get("modeId")
-            if agent is None or mode not in ("auto", "review"):
-                raise RpcError(ERR_PARAMS, f"unknown session or mode {mode!r}; modes: auto, review")
+            if agent is None or mode not in {m["id"] for m in MODE_LIST}:
+                raise RpcError(ERR_PARAMS, f"unknown session or mode {mode!r}; modes: auto, review, plan")
             agent.mode = mode
             return {}
         raise RpcError(ERR_NOT_FOUND, f"method not found: {method}")

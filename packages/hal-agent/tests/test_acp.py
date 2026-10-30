@@ -262,3 +262,17 @@ def test_unknown_mode_is_an_invalid_params_error(server, tmp_path):
     c.call("session/new", {"cwd": str(tmp_path)})
     bad = c.call("session/set_mode", {"sessionId": c.sid(), "modeId": "yolo"})
     assert reply_to(c.finish(), bad)["error"]["code"] == -32602
+
+
+def test_plan_mode_refuses_a_write_without_asking_and_leaves_the_file_alone(server, tmp_path):
+    write = Reply(tool_calls=[("write", {"path": "n.txt", "content": "x"})])
+    server.script(write, "planned")
+    c = Client(server.url, tmp_path)
+    c.call("session/new", {"cwd": str(tmp_path), "_meta": {"hal": {"sessionId": "3f9a1c0b7e2e"}}})
+    sid = c.sid()
+    c.call("session/set_mode", {"sessionId": sid, "modeId": "plan"})
+    prompt = c.call("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": "write"}]})
+    msgs = c.finish()
+    assert reply_to(msgs, prompt)["result"] == {"stopReason": "end_turn"}
+    assert not any(m.get("method") == "session/request_permission" for m in msgs)
+    assert not (tmp_path / "n.txt").exists() and "plan_mode" in str(msgs)

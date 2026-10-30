@@ -108,12 +108,12 @@ def run(coro):
     return asyncio.run(coro)
 
 
-def test_mode_default_and_auto_edit_map_to_agent_modes_and_plan_is_refused():
+def test_mode_default_auto_edit_and_plan_map_to_agent_modes():
     state = make_state()
     run(slash.dispatch("/mode auto-edit", state, {}))
     run(slash.dispatch("/mode default", state, {}))
-    assert state.client.modes == ["auto", "review"]
-    assert "agent support" in run(slash.dispatch("/mode plan", state, {})).message
+    run(slash.dispatch("/mode plan", state, {}))
+    assert state.client.modes == ["auto", "review", "plan"] and state.mode == "plan"
 
 
 def test_rewind_lists_then_restores_and_reports_unrestorable_files():

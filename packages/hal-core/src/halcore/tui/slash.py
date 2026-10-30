@@ -32,7 +32,7 @@ MAX_COMMAND_BYTES = 64 * 1024  # a prompt template, not a document
 MAX_IMAGE_BYTES = 8 * 2**20  # the ACP line cap is 8 MiB; base64 adds a third, so keep well below it
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
 MAX_DIFF_CHARS = 20_000
-MODES = {"default": "review", "auto-edit": "auto"}  # TUI mode name -> hal-agent mode id
+MODES = {"default": "review", "auto-edit": "auto", "plan": "plan"}  # TUI mode name -> hal-agent mode id
 ARGUMENTS = "$ARGUMENTS"
 Block = dict[str, object]
 
@@ -116,10 +116,8 @@ async def _clear(state: TuiState, args: str) -> Result:
 async def _mode(state: TuiState, args: str) -> Result:
     if not args:
         return Result(message=f"mode: {state.mode} (default, auto-edit, plan)")
-    if args == "plan":
-        return Result(message="plan mode needs agent support that this build lacks; use default and read the diff")
     if args not in MODES:
-        return Result(message="modes: default (ask per policy), auto-edit (edits in the box copy without asking)")
+        return Result(message="modes: default (ask per policy), auto-edit (edits in the box copy without asking), plan (read-only)")
     await state.client.set_mode(state.sid, MODES[args])
     state.mode = args
     return Result(message=f"mode: {args}")

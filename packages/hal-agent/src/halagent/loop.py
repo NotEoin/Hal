@@ -144,7 +144,7 @@ class Agent:
         self.claims = (
             ClaimsCheck(has_tools=bool(settings.broker)) if assistant and assistant.claims_check else None
         )
-        self.mode = "auto"  # or "review": gated tools call `permission` first
+        self.mode = "auto"  # "review": gated tools call `permission` first; "plan": gated tools are refused
         self.permission = permission
         self._remembered: dict[str, str] = {}  # tool name -> allow_always or reject_always
         built = provider is None
@@ -586,6 +586,12 @@ class Agent:
     def _review(self, cid: str, name: str, raw: str) -> str | tuple[str, str] | None:
         """In review mode asks before a gated tool; returns an error JSON when it is refused."""
         tool = self.toolset.tools.get(name)
+        if self.mode == "plan" and tool and tool.kind in GATED_KINDS:
+            return _error(
+                "plan_mode",
+                f"{name} is not allowed in plan mode, which is read-only. Read, search and record the steps "
+                "with the todo tool, then tell the user the plan is ready so they can leave plan mode.",
+            )
         if self.mode != "review" or not self.permission or not tool or tool.kind not in GATED_KINDS:
             return None
         choice = self._remembered.get(name) or self.permission(cid, name, tool.kind, parse_args(raw) or {})
