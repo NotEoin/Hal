@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -49,7 +50,7 @@ class RunResult:
     """Outcome of one prompt: final text, why it stopped, and counts."""
 
     text: str
-    stopped: str  # done, finished, turn_limit, tool_limit, context_overflow
+    stopped: str  # done, finished, turn_limit, tool_limit, context_overflow, cancelled
     turns: int
     tool_calls: int
 
@@ -65,9 +66,12 @@ class Agent:
         on_event: Callable[[str, str], None] | None = None,
         session: SessionWriter | None = None,
         system_extra: str = "",
+        on_update: Callable[[dict], None] | None = None,
     ) -> None:
         self.settings = settings
         self.system_extra = system_extra
+        self.on_update = on_update or (lambda update: None)
+        self.cancel = threading.Event()
         self.toolset = toolset
         self.provider = provider or ChatProvider(
             settings.endpoint, settings.model, api_key=settings.api_key, stream=settings.stream
@@ -207,12 +211,15 @@ class Agent:
     def _run(self, prompt: str) -> RunResult:
         s = self.settings
         native = s.tool_format == "native"
+        self.cancel.clear()
         self.turn += 1
         self.note.task = prompt
         self._add({"role": "user", "content": prompt})
         turns = calls_made = 0
         text = ""
         while turns < s.max_turns:
+            if self.cancel.is_set():
+                return RunResult(text, "cancelled", turns, calls_made)
             turns += 1
             try:
                 history = self._fit()
@@ -226,6 +233,7 @@ class Agent:
                 calls, text = self._leaked_calls(text, turns)
             if text and native:
                 self.on_event("text", text)
+                self.on_update({"kind": "text", "text": text})
             if not calls:
                 self._add({"role": "assistant", "content": text})
                 return RunResult(text, "done", turns, calls_made)
@@ -236,8 +244,17 @@ class Agent:
                 if not free and calls_made >= s.max_tool_calls:
                     return RunResult(text, "tool_limit", turns, calls_made)
                 calls_made += 0 if free else 1
+                if self.cancel.is_set():
+                    return RunResult(text, "cancelled", turns, calls_made)
                 self.on_event("tool", f"{name} {raw}")
+                self.on_update({"kind": "tool_call", "id": cid, "name": name, "raw": raw})
                 result = self._execute(name, raw)
+                failed = result.startswith('{"status": "error"')
+                self.on_update(
+                    {"kind": "tool_result", "id": cid, "name": name, "text": result, "failed": failed}
+                )
+                if name == "todo" and not failed:
+                    self.on_update({"kind": "plan", "text": result})
                 self.note.observe(name, parse_args(raw) or {}, result)
                 self._add(self._result_message(cid, name, result, native))
                 if name == "finish" and not result.startswith('{"status": "error"'):

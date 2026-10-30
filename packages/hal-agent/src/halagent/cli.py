@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from halagent import __version__
+from halagent.acp.server import AcpServer
 from halagent.instructions import load_instructions
 from halagent.loop import Agent
 from halagent.mcp.lite import McpError
@@ -35,6 +37,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--max-turns", type=int)
     p.add_argument("--max-tool-calls", type=int)
     p.add_argument("--broker", help="hub MCP socket path")
+    p.add_argument("--acp", action="store_true", help="serve the Agent Client Protocol on stdio")
     p.add_argument("--resume", metavar="ID", help="continue a stored session")
     p.add_argument("--continue", dest="cont", action="store_true", help="continue the latest session here")
     p.add_argument("--no-session", action="store_true", help="do not write a transcript")
@@ -74,6 +77,8 @@ def main(argv: list[str] | None = None) -> int:
         root = Path(args.workspace).resolve()
         resumed = _pick_session(args, store, root)
         user_skills = tuple(d for d in (paths.config_dir() / "skills",) if d.is_dir())
+        if args.acp:
+            return _serve_acp(args, settings, store, root, user_skills)
         writer = None if args.no_session else _open_writer(store, resumed, root, settings)
         agent = Agent(
             settings,
@@ -99,6 +104,29 @@ def main(argv: list[str] | None = None) -> int:
             writer.close()
 
 
+def _serve_acp(
+    args: argparse.Namespace,
+    settings: AgentSettings,
+    store: SessionStore,
+    root: Path,
+    user_skills: tuple[Path, ...],
+) -> int:
+    """Serves ACP on stdin and stdout (stdout carries only protocol messages)."""
+
+    def factory(cwd: Path, sid: str, on_update: Callable[[dict], None]) -> Agent:
+        writer = None if args.no_session else _open_writer(store, "", cwd, settings, sid)
+        return Agent(
+            settings,
+            Toolset(Workspace(cwd, readonly=user_skills)),
+            session=writer,
+            system_extra=_prompt_extras(cwd),
+            on_update=on_update,
+        )
+
+    AcpServer(root, factory, sys.stdin, sys.stdout).serve()
+    return EXIT_OK
+
+
 def _prompt_extras(root: Path) -> str:
     """The "Project instructions" and "Skills" sections of the system prompt."""
     instructions = load_instructions(root, root, paths.config_dir() / "AGENTS.md")
@@ -122,8 +150,10 @@ def _pick_session(args: argparse.Namespace, store: SessionStore, root: Path) -> 
     return ""
 
 
-def _open_writer(store: SessionStore, resumed: str, root: Path, settings: AgentSettings) -> SessionWriter:
-    sid = resumed or new_session_id()
+def _open_writer(
+    store: SessionStore, resumed: str, root: Path, settings: AgentSettings, sid: str = ""
+) -> SessionWriter:
+    sid = resumed or sid or new_session_id()
     header = {"id": sid, "agent": f"halagent {__version__}", "mode": "headless", "toolset": "coding",
               "cwd": str(root), "model": settings.model, "api": "openai"}  # fmt: skip
     return SessionWriter(store.path(sid), header)
