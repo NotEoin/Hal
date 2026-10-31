@@ -215,6 +215,10 @@
    "tools": {
     "type": "string",
     "description": "'read-only' (default) or 'all' (may edit and run; only in auto-edit mode)"
+   },
+   "agent": {
+    "type": "string",
+    "description": "Optional named agent from the list in this tool's description; it sets the tools and instructions"
    }
   },
   "required": [

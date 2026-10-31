@@ -65,6 +65,23 @@ short report, so a big search does not fill the main conversation. Tasks separat
 dashes run in parallel (at most 4). A subagent is read-only unless the call sets `tools = "all"`, which
 works only in auto-edit mode. A subagent gets no host tools and cannot start subagents.
 
+Name an agent with `agent = "explore"` or `"review"` (both read-only; `review` may use `git diff`
+but not `git commit`), or define your own in `.hal/agents/NAME.md`:
+
+```markdown
+---
+description: Writes or fixes docs
+tools: read, grep, edit, write
+model: fast
+max_turns: 10
+---
+Keep prose short. Match the existing docs style.
+```
+
+The body is the child's instructions. `tools` can only narrow the parent's tools. An agent with a
+write tool needs auto-edit mode. The number of children that run at once follows the slots the
+gateway reports for the model (2 when unknown); the others wait their turn.
+
 ## Hooks
 
 Hooks are commands that run inside the box around tool calls. Put them in `~/.config/hal/hooks.toml`

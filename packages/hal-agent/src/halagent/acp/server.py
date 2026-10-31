@@ -410,6 +410,12 @@ class AcpServer:
                  "method": u.get("method", "summary"), "beforeTokens": u["before_tokens"],
                  "afterTokens": u["after_tokens"]},
             )  # fmt: skip
+        elif kind == "subagent":
+            self._notify_update(
+                sid,
+                {"sessionUpdate": "hal_subagent", "subagentId": u["id"], "agent": u["agent"],
+                 "phase": u["phase"], **{k: u[k] for k in ("task", "tool") if k in u}},
+            )  # fmt: skip
         elif kind == "plan":
             entries = [
                 {"content": ln[6:].strip(), "priority": "medium",

@@ -49,7 +49,7 @@ from halagent.repair import has_open_marker, repair_call, repair_text
 from halagent.repair.aliases import parse_args
 from halagent.sessions import SessionWriter, replay_indexed, title_from_prompt
 from halagent.settings import DEFAULT_MAX_OUTPUT, DEFAULT_WINDOW, AgentSettings
-from halagent.subagents import run_subagents
+from halagent.subagents import DEFAULT_SLOTS, describe_agents, discover_agents, run_subagents
 from halagent.tokens import ESTIMATE_FACTOR, TokenCounter
 from halagent.tools import COMPACT_TOOLS, ToolError, Toolset, render_error
 from halkit import paths
@@ -198,7 +198,11 @@ class Agent:
             self.toolset.tools = {n: t for n, t in self.toolset.tools.items() if n in keep}
         if "subagent" in self.toolset.tools:
             sub = self.toolset.tools["subagent"]
-            self.toolset.tools["subagent"] = replace(sub, fn=lambda a: run_subagents(self, a))
+            described = sub.description + describe_agents(discover_agents(self.toolset.workspace.root))
+            self.toolset.tools["subagent"] = replace(
+                sub, fn=lambda a: run_subagents(self, a), description=described
+            )
+        self.model_slots = info.slots or DEFAULT_SLOTS
         self.session = session
         self.tokens = TokenCounter("openai", settings.context_window)
         self.counters: Counter[str] = Counter()  # per-run quality counters for the eval (REQ-AGT-95)
@@ -762,6 +766,10 @@ class Agent:
             self.note.observe(name, parse_args(raw) or {}, result)
         self._add(self._result_message(cid, name, result, native))
         return result
+
+    def resolve_model(self, name: str) -> str:
+        """The model id for a role name (`main`, `fast`, ...) or `name` itself when it is not a role."""
+        return name
 
     def _constrain(self) -> None:
         """Passes the profile's grammar or schema for tool calls to the provider (text fallback only)."""

@@ -128,3 +128,11 @@ A call that crashes its server is not retried; the next call restarts it (once).
 (the tools keep their built-in limits), `workspace`, `host_root`, `scratch`, `channel` (only for the
 assistant), `broker_call_timeout_s` and `api`. The first ACP session of a process takes
 `session_id`; `permissions` sets the default mode of every session.
+
+## Subagent updates for the TUI
+
+Each child reports to the parent's `on_update` as `{"kind": "subagent", "id", "agent", "phase"}`
+with `phase` one of `start` (plus `task`), `tool` (plus `tool`, the name of a call the child made)
+and `done`. ACP sends it as `sessionUpdate = "hal_subagent"` with `subagentId`, `agent`, `phase` and
+the optional `task` and `tool`. A TUI nests the child's lines under the parent's `subagent` call.
+Nesting depth is one. Definitions come from `halagent.subagents.discover_agents`.

@@ -63,6 +63,7 @@ class ModelInfo:
 
     context_length: int = 0
     hal_profile: str = ""
+    slots: int = 0  # parallel decoding slots, from `meta.slots` when the gateway reports it
 
 
 class _UnixConnection(http.client.HTTPConnection):
@@ -181,6 +182,7 @@ class ChatProvider:
         return ModelInfo(
             context_length=length if isinstance(length, int) and length > 0 else 0,
             hal_profile=str(meta.get("hal_profile") or ""),
+            slots=meta["slots"] if isinstance(meta.get("slots"), int) and meta["slots"] > 0 else 0,
         )
 
     def complete(self, messages: list[dict], tools: list[dict] | None = None) -> Completion:
