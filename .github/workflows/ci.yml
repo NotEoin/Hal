@@ -52,6 +52,20 @@ jobs:
       - name: Run the hermetic tests
         run: uv run pytest -q
 
+  windows:
+    name: hal-remote on Windows
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      # Only hal-kit and hal-remote are installed: the laptop client has no other package
+      # (07-remote, Windows CI job). Tests that need POSIX features skip with a reason.
+      - name: Run the hal-remote tests
+        run: uv run --frozen --package hal-remote --group dev pytest -q packages/hal-remote
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-24.04
