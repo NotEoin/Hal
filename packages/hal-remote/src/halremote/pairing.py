@@ -162,6 +162,21 @@ def load_profile(name: str) -> Profile:
         raise PairingError(f"profile {name!r} is not set up: run `hal remote setup`") from None
 
 
+def resolve_profile(name: str | None, default: str = "") -> str:
+    """The profile to use: `name`, else `[remote].default_profile`, else the only one set up."""
+    if name:
+        return name
+    if default:
+        return default
+    root = paths.config_dir() / "remote"
+    found = sorted(p.name for p in root.iterdir() if (p / "profile.toml").is_file()) if root.is_dir() else []
+    if len(found) == 1:
+        return found[0]
+    if not found:
+        raise PairingError("no profile is set up: run `hal remote setup HOST`")
+    raise PairingError(f"several profiles exist ({', '.join(found)}): name one")
+
+
 def known_hosts_text(profile_name: str, host_keys: list[str]) -> str:
     """The pinned `known_hosts` lines under the alias `hal-<profile>`; invalid keys raise."""
     if not host_keys:

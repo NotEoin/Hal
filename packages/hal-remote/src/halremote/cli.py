@@ -11,17 +11,20 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from . import __version__, authorize, pairing, serve, servercheck
+from . import __version__, authorize, pairing, platform_linux, serve, servercheck, status, tunnelrun
 from . import config as _config  # noqa: F401 - import registers the [remote] tables
 
 EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_USAGE = 2
-IMPLEMENTED = frozenset({"server-check", "serve", "authorize", "revoke", "clients", "setup"})
+IMPLEMENTED = frozenset(
+    {"server-check", "serve", "authorize", "revoke", "clients", "setup", "up", "down", "status", "tunnel-run"}
+)
 
 HARNESSES = ("claude", "qwen", "opencode", "codex", "crush", "goose", "cline", "openai", "mcp")
 COMMANDS = (
@@ -68,6 +71,19 @@ def build_parser() -> argparse.ArgumentParser:
     setup.add_argument("--host-key-fingerprint", default="", metavar="SHA256:...")
     setup.add_argument("--expires", help="YYYY-MM-DD")
     setup.add_argument("--rotate", action="store_true", help="pair again with new keys")
+    up = sub.add_parser("up", help="start the tunnel")
+    up.add_argument("profile", nargs="?")
+    up.add_argument("--foreground", action="store_true", help="run the supervisor in this terminal")
+    up.add_argument("--enable", action="store_true", help="also start it at login (systemd)")
+    down = sub.add_parser("down", help="stop the tunnel")
+    down.add_argument("profile", nargs="?")
+    down.add_argument("--disable", action="store_true", help="also stop starting it at login")
+    st = sub.add_parser("status", help="show the tunnel state (exit 4 when not up)")
+    st.add_argument("profile", nargs="?")
+    st.add_argument("--json", action="store_true")
+    run = sub.add_parser("tunnel-run", help="the supervisor; used by units and `up`")
+    run.add_argument("--profile", required=True)
+    run.add_argument("--mode", choices=("systemd", "detached", "foreground"), default=None)
     sub.add_parser("revoke", help="remove a client").add_argument("name")
     sub.add_parser("clients", help="list authorized clients").add_argument("--json", action="store_true")
     # serve is the forced command: it parses its own arguments and must not print argparse help.
@@ -234,6 +250,50 @@ def _setup(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+EXIT_NOT_SET_UP = 3
+
+
+def _profile_name(args: argparse.Namespace) -> str:
+    from halkit import config
+
+    from .config import REMOTE_TABLE
+
+    try:
+        default = str(config.load(REMOTE_TABLE).get("default_profile", ""))
+    except config.ConfigError as exc:
+        raise pairing.PairingError(f"config error: {exc}") from None
+    return pairing.resolve_profile(args.profile, default)
+
+
+def _tunnel(args: argparse.Namespace) -> int:
+    """Handles `up`, `down`, `status` and `tunnel-run`."""
+    from .model import profile_paths
+
+    try:
+        name = args.profile if args.command == "tunnel-run" else _profile_name(args)
+        profile = pairing.load_profile(name)
+        pp = profile_paths(name)
+        if args.command == "tunnel-run":
+            return tunnelrun.run(name, args.mode or tunnelrun.default_mode())
+        if args.command == "status":
+            data = status.read(pp)
+            _out(json.dumps(data) if args.json else status.render(data, name, profile.host))
+            return status.exit_code(data)
+        exe = Path(shutil.which("hal-remote") or sys.argv[0]).resolve()
+        if args.command == "up" and args.foreground:
+            return tunnelrun.run(name, "foreground")
+        if args.command == "up":
+            mode = platform_linux.up(name, pp, exe, enable=args.enable)
+            _out(f"tunnel {name} started ({mode}); check it with: hal remote status")
+        else:
+            mode = platform_linux.down(name, pp, disable=args.disable)
+            _out(f"tunnel {name}: {mode}")
+        return EXIT_OK
+    except (pairing.PairingError, platform_linux.TunnelControlError) as exc:
+        _err(str(exc))
+        return EXIT_NOT_SET_UP if isinstance(exc, pairing.PairingError) else EXIT_FAILED
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Runs `hal-remote`; returns the process exit code."""
     words = list(sys.argv[1:] if argv is None else argv)
@@ -241,7 +301,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Bypasses argparse: REMAINDER rejects a first token that is an option (`--client`).
         return serve.main(words[1:])
     args = build_parser().parse_args(words)
-    handlers = {"setup": _setup, "authorize": _authorize, "revoke": _revoke, "clients": _clients}
+    handlers = {
+        "up": _tunnel,
+        "down": _tunnel,
+        "status": _tunnel,
+        "tunnel-run": _tunnel,
+        "setup": _setup,
+        "authorize": _authorize,
+        "revoke": _revoke,
+        "clients": _clients,
+    }
     if args.command in handlers:
         return handlers[args.command](args)
     if args.command == "server-check":

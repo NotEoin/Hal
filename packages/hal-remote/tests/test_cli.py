@@ -87,3 +87,24 @@ def test_clients_json_lists_the_registry(monkeypatch, capsys):
     monkeypatch.setattr(authorize, "clients", lambda: [rec])
     assert cli.main(["clients", "--json"]) == cli.EXIT_OK
     assert json.loads(capsys.readouterr().out)[0]["forwards"] == [8741]
+
+
+def test_status_of_a_profile_that_never_ran_exits_4(tmp_path, monkeypatch, capsys):
+    from halremote import pairing
+    from halremote.model import Forward, Profile
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "config.toml"))
+    pairing.save_profile(
+        Profile("desktop", "laptop", "desk.lan", "me", 22, (Forward("gateway", 8741, 8741),))
+    )
+    assert cli.main(["status"]) == 4
+    assert "not running" in capsys.readouterr().out
+
+
+def test_status_without_any_profile_exits_3(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "config.toml"))
+    assert cli.main(["status"]) == 3
+    assert "hal remote setup" in capsys.readouterr().err
