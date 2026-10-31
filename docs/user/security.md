@@ -88,7 +88,7 @@ scripted hostile process. It tries to write outside `/work` and `/scratch`, read
 socket, escalate privileges, fork-bomb, exhaust memory and disk, flood and malform broker frames,
 forge an approval, raise its own lockdown or paranoia, call tools that do not exist, and plant git
 hooks and `core.fsmonitor` config in the copy. Every attempt failed; broker-side attempts are
-audited. Measured 2026-10-30 on docker 29.2.1: 26 cases passed, 13 under `runc` and 13 under `runsc`
+audited. Measured 2026-10-31 on docker 29.2.1: 26 cases passed, 13 under `runc` and 13 under `runsc`
 (`uv run pytest -q -m docker tests/e2e/test_containment*.py`, about 40 s; needs `alpine:3.20` and
 `hal-agent:local`, see [dev/sandbox.md](../dev/sandbox.md)). Not covered: a kernel or runtime
 escape, and results that smuggle instructions into the model's next turn (that is the taint and
