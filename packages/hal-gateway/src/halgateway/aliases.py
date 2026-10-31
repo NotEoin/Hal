@@ -48,6 +48,7 @@ class ModelEntry:
     owned_by: str
     context_length: int | None
     profile: str | None = None  # the manifest `profile` of the upstream model (`meta.hal_profile`)
+    slots: int = 0  # parallel decoding slots of the alias (`meta.slots`); 0 = unknown
 
 
 class Resolver:
@@ -150,11 +151,13 @@ class Resolver:
         """Every name a caller may use, without duplicates (aliases, roles, `backend/model`)."""
         entries: dict[str, ModelEntry] = {}
 
-        def add(entry_id: str, backend: OpenAIBackend, window: int | None, upstream: str) -> None:
+        def add(
+            entry_id: str, backend: OpenAIBackend, window: int | None, upstream: str, slots: int = 0
+        ) -> None:
             if entry_id in entries:
                 return
             owner = f"remote:{backend.address().host}" if backend.remote else backend.name
-            entries[entry_id] = ModelEntry(entry_id, owner, window, self._profile_of(upstream))
+            entries[entry_id] = ModelEntry(entry_id, owner, window, self._profile_of(upstream), slots)
 
         for name, alias in self.cfg.aliases.items():
             add(
@@ -162,6 +165,7 @@ class Resolver:
                 self.backends[str(alias["backend"])],
                 alias["context_window"] or None,
                 str(alias["model"]),
+                int(alias["slots"]),  # type: ignore[call-overload]  # validated non-negative
             )  # type: ignore[arg-type]
         for role in ROLE_ALIASES:
             try:

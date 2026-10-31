@@ -58,8 +58,13 @@ def _openai_entry(entry) -> dict:  # type: ignore[no-untyped-def,type-arg]
     doc: dict = {"id": entry.id, "object": "model", "created": 0, "owned_by": entry.owned_by}
     if entry.context_length:
         doc["context_length"] = entry.context_length
+    meta = {}
     if entry.profile:
-        doc["meta"] = {"hal_profile": entry.profile}
+        meta["hal_profile"] = entry.profile
+    if entry.slots:
+        meta["slots"] = entry.slots
+    if meta:
+        doc["meta"] = meta
     return doc
 
 

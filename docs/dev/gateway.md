@@ -60,6 +60,8 @@ Each `GatewayError` subclass owns one HTTP status. `error_body(err, fmt)` render
 - `GET /v1/models` lists aliases, role aliases and `backend/model` names without duplicates, in the
   OpenAI shape, or the Anthropic shape with an `anthropic-version` header. `context_length` is
   the alias `context_window` for now; router and Ollama sources come with steps 5 and 11.
+  An alias key `slots` (set it to the server's `--parallel`) is listed as `meta.slots`; the agent
+  caps concurrent subagents by it. Unset or 0 means unknown.
 - Remote backends are marked `owned_by: "remote:<host>"` and replies carry `X-Hal-Remote`.
 - Mode aliases (`hal/main`) are a mapping on the resolver that the managed router fills (step 11).
 

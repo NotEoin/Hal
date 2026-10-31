@@ -33,6 +33,7 @@ url = "http://127.0.0.1:2"
 backend = "a"
 model = "coder-up"
 context_window = 4096
+slots = 2
 [gateway.aliases.catch]
 backend = "b"
 model = "catch-up"
@@ -129,6 +130,11 @@ def test_models_listing_has_no_duplicates_and_carries_context_length(tmp_path):
     assert next(e for e in entries if e.id == "coder").context_length == 4096
 
 
+def test_alias_slots_are_listed_and_unset_slots_are_zero(tmp_path):
+    entries = {e.id: e for e in build(tmp_path).listing()}
+    assert entries["coder"].slots == 2 and entries["catch"].slots == 0
+
+
 def test_model_lists_are_cached(tmp_path):
     calls = []
     resolver = build(tmp_path)
@@ -191,3 +197,12 @@ def test_models_listing_shape_follows_anthropic_header(served):
 def test_single_model_route_returns_the_entry_or_404(served):
     assert fetch(served, "/v1/models/up/m1")[1]["id"] == "up/m1"
     assert fetch(served, "/v1/models/nope")[0] == 404
+
+
+def test_openai_row_carries_meta_slots_next_to_the_profile():
+    from halgateway import handler
+    from halgateway.aliases import ModelEntry
+
+    row = handler._openai_entry(ModelEntry("m", "a", 4096, "gemma4", 3))
+    assert row["meta"] == {"hal_profile": "gemma4", "slots": 3}
+    assert "meta" not in handler._openai_entry(ModelEntry("m", "a", None))

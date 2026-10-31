@@ -247,6 +247,13 @@ _ALIAS_KEYS = (
     K("model", str, "", doc="Upstream model name"),
     K("patterns", list, [], check=_strings, doc="Client model names mapped to this alias"),
     K("context_window", int, 0, check=_non_negative, doc="Context length reported; 0 = unknown"),
+    K(
+        "slots",
+        int,
+        0,
+        check=_non_negative,
+        doc="Parallel decoding slots reported in meta.slots; 0 = unknown",
+    ),
     K("effort", bool, False, doc="Apply the effort policy"),
     K("route", dict, {}, doc="Route policy settings"),
     K("delegate", dict, {}, doc="Delegate policy settings"),
