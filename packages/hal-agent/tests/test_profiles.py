@@ -61,3 +61,20 @@ def test_invalid_file_fails_loudly_with_file_and_key(tmp_path, body, message):
 def test_request_extras_hold_only_sampling_and_cache_keys():
     extras = resolve_profile("gemma4:12b").request_extras()
     assert extras == {"temperature": 1.0, "top_p": 0.95, "top_k": 64, "cache_prompt": True}
+
+
+@pytest.mark.parametrize(
+    ("model", "family"),
+    [
+        ("qwen2.5-coder:32b", "qwen25coder"),
+        ("devstral-small-2:24b", "devstral"),
+        ("Devstral-Small-2507-Q4_K_M", "devstral"),
+        ("glm-4.6:9b", "glm47"),
+        ("deepseek-r1:14b", "deepseek"),
+        ("llama3.3:70b", "llama3"),
+        ("gpt-oss:20b", "gptoss"),
+        ("qwen3-coder:30b", "qwen3coder"),
+    ],
+)
+def test_common_local_families_resolve_to_their_profiles(model, family):
+    assert resolve_profile(model).family == family

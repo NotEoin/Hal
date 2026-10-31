@@ -41,7 +41,11 @@ When the gateway lists the model, its `context_length` sets the context window a
 `meta.hal_profile` picks the model profile. Your own `context_window`, `max_output` or
 `tool_format` setting wins over both. Profiles set sampling, tool-call repair order, how the
 system message is sent (`system_role`) and whether consecutive user messages are merged
-(`strict_alternation`). `hal-agent profiles show MODEL` prints the result.
+(`strict_alternation`). `hal-agent profiles show MODEL` prints the result. Shipped profiles cover Gemma 4, Qwen 3.x,
+Qwen2.5-Coder and Qwen3-Coder, gpt-oss, Devstral and other Mistral models, GLM 4.x, DeepSeek, Llama
+3.x, Granite and Phi. Add your own in `~/.config/hal/model-profiles.toml`. The key
+`tool_constraint = "grammar"` (or `"json_schema"`) makes llama.cpp enforce well-formed tool calls
+for models that use `tool_format = "prompt"`.
 
 If the server answers `context_length_exceeded`, the agent plans for 25 percent less input,
 compacts the history and retries once. A second overflow ends the turn with `context_overflow`.

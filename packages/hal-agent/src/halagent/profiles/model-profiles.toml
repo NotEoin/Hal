@@ -38,6 +38,17 @@ leak_parsers = ["hermes", "qwen_xml", "json"]
 evidence = "9b 33/38, 4b 31/38 (2026-10-10, single runs)"
 
 [[model]]
+match = ["qwen2.5-coder*", "qwen2.5-coder-*"]
+family = "qwen25coder"
+temperature = 0.7
+top_p = 0.8
+top_k = 20
+repeat_penalty = 1.05
+thinking = "off"
+leak_parsers = ["hermes", "json", "name_json"]
+notes = "sampling values from the Qwen2.5-Coder model card"
+
+[[model]]
 match = ["qwen3-coder*"]
 family = "qwen3coder"
 temperature = 0.7
@@ -53,7 +64,15 @@ thinking = "medium"
 leak_parsers = ["harmony", "json"]
 
 [[model]]
-match = ["ministral-3:*", "mistral-small3.2:*", "devstral-small-2:*", "magistral:*"]
+match = ["devstral*"]
+family = "devstral"
+temperature = 0.15
+thinking = "off"
+leak_parsers = ["mistral", "json"]
+notes = "Devstral is tuned for agent loops; Mistral publishes 0.15 for it"
+
+[[model]]
+match = ["ministral-3:*", "mistral-small3.2:*", "magistral:*"]
 family = "mistral3"
 temperature = 0.15
 thinking = "off"
@@ -61,10 +80,29 @@ leak_parsers = ["mistral", "json"]
 evidence = "ministral-3:14b 28/38, mistral-small3.2:24b 30/38 (2026-10-10)"
 
 [[model]]
-match = ["glm-4.7*"]
+match = ["glm-4.5*", "glm-4.6*", "glm-4.7*", "glm-4-*"]
 family = "glm47"
+temperature = 0.6
 thinking = "on"
 leak_parsers = ["glm", "hermes"]
+
+[[model]]
+match = ["deepseek-r1*", "deepseek-v3*", "deepseek-coder*"]
+family = "deepseek"
+temperature = 0.6
+top_p = 0.95
+thinking = "on"
+reasoning_replay = "none"
+leak_parsers = ["hermes", "json", "name_json"]
+notes = "R1 style models: reasoning is not replayed (the vendor advises against it)"
+
+[[model]]
+match = ["llama3.1*", "llama3.3*", "llama-3.1*", "llama-3.3*"]
+family = "llama3"
+temperature = 0.6
+top_p = 0.9
+thinking = "off"
+leak_parsers = ["json", "name_json", "hermes"]
 
 [[model]]
 match = ["granite4*"]
