@@ -92,7 +92,7 @@ the model cannot draw a fake panel. `hal approve ID` in another terminal also wo
 `/help` shows the table. Built in: `/model` (numbered picker with context sizes), `/mode`,
 `/compact`, `/clear`, `/resume` (numbered picker), `/fork`, `/rewind`, `/diff`,
 `/accept` (alias `/apply`: shows the diff report, asks `[y/N]`, then applies exactly what you
-reviewed), `/ide`, `/export [FILE]`, `/cost`, `/context`, `/todo`, `/jobs`, `/init`, `/image`,
+reviewed), `/ide`, `/export [FILE]`, `/cost`, `/context`, `/todo`, `/jobs`, `/init`, `/image FILE` (the workspace only; `--outside` allows another path and prints a warning),
 `/theme dark|light|mono`, `/lockdown` and `/paranoia` (read only: change them on the host with
 `hal config set`), `/quit`. Your own commands are files `.hal/commands/NAME.md` in the project;
 `$ARGUMENTS` is replaced by what you type after the name.

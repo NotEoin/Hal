@@ -146,3 +146,40 @@ def test_accept_refuses_changes_made_while_the_user_was_deciding(tmp_path, monke
     st = state(session=IsoSession(iso), confirm=swap_then_yes)
     assert "changed after the review" in run("/accept", st).message
     assert (project / "a.txt").read_text() == "one\n"
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 8
+
+
+def test_image_inside_the_workspace_is_attached(tmp_path):
+    (tmp_path / "a.png").write_bytes(PNG)
+    st = state(project=tmp_path)
+    assert "attached a.png" in run("/image a.png", st).message
+    assert len(st.attachments) == 1
+
+
+def test_image_outside_the_workspace_is_refused_without_the_flag(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (tmp_path / "x.png").write_bytes(PNG)
+    st = state(project=ws)
+    assert "outside the workspace" in run(f"/image {tmp_path / 'x.png'}", st).message
+    assert st.attachments == []
+
+
+def test_image_symlink_out_of_the_workspace_is_refused(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (tmp_path / "x.png").write_bytes(PNG)
+    (ws / "link.png").symlink_to(tmp_path / "x.png")
+    st = state(project=ws)
+    assert "outside the workspace" in run("/image link.png", st).message
+
+
+def test_image_outside_flag_attaches_with_a_warning(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (tmp_path / "x.png").write_bytes(PNG)
+    st = state(project=ws)
+    msg = run(f"/image --outside {tmp_path / 'x.png'}", st).message
+    assert msg.startswith("WARNING:") and len(st.attachments) == 1

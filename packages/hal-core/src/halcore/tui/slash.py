@@ -246,12 +246,28 @@ async def _compact(state: TuiState, args: str) -> Result:
     return Result(message=f"compacted: about {before} -> {after} tokens")
 
 
+OUTSIDE_FLAG = "--outside"
+
+
 async def _image(state: TuiState, args: str) -> Result:
+    outside = OUTSIDE_FLAG in args.split()
+    name = " ".join(w for w in args.split() if w != OUTSIDE_FLAG)
+    path = Path(name).expanduser()
+    root = (state.project or Path.cwd()).resolve()
+    resolved = path if path.is_absolute() else root / path
+    resolved = resolved.resolve()  # follows symlinks, so a link out of the workspace is caught
+    inside = resolved == root or root in resolved.parents
+    if not inside and not outside:
+        return Result(message=f"/image: {safe(str(resolved))} is outside the workspace; pass {OUTSIDE_FLAG} to attach it anyway")
     try:
-        state.attachments.append(image_block(Path(args).expanduser()))
+        state.attachments.append(image_block(resolved))
     except (ValueError, OSError) as exc:
-        return Result(message=f"/image: {exc}")
-    return Result(message=f"attached {Path(args).name} to the next prompt ({len(state.attachments)} pending)")
+        return Result(message=f"/image: {safe(str(exc))}")
+    note = f"attached {resolved.name} to the next prompt ({len(state.attachments)} pending)"
+    if not inside:
+        log.warning("image outside the workspace attached: %s", resolved)
+        note = f"WARNING: {resolved} is outside the workspace and goes to the model as is. {note}"
+    return Result(message=note)
 
 
 def _require_session(state: TuiState) -> Session:
