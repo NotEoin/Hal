@@ -151,3 +151,21 @@ def test_server_prompt_count_recalibrates_the_context_estimate(server, tmp_path)
     before = agent.context.chars_per_token
     agent.run("hello")
     assert agent.context.chars_per_token < before
+
+
+def test_thinking_text_from_the_model_is_sent_as_a_thinking_update(tmp_path):
+    from halagent.provider import Completion
+
+    class Stub:
+        route = "/v1/chat/completions"
+        extra: dict = {}  # noqa: RUF012 - a throwaway test double
+
+        def complete(self, messages, tools=None):
+            return Completion(text="42", reasoning="  6 times 7  ", finish="stop")
+
+    updates = []
+    a = Agent(
+        AgentSettings(endpoint="http://unused"), Toolset(tmp_path), provider=Stub(), on_update=updates.append
+    )
+    assert a.run("what is 6x7").text == "42"
+    assert {"kind": "thinking", "text": "6 times 7"} in updates

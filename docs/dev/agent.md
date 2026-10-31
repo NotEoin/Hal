@@ -145,3 +145,9 @@ serves compaction summaries and `_retitle`. `Agent.split` turns on `halagent.arc
 ACP: `session/set_model` takes a role name, and `session/set_split {sessionId, enabled}` toggles the
 split (an error when `architect` or `editor` is missing). While the architect plans, a `subagent`
 update with `agent = "architect"` and id 0 is sent.
+
+## Thinking blocks
+
+When the server returns reasoning (`reasoning_content`, `reasoning`, or inline think markers that the
+stream reader split off), the loop sends `{"kind": "thinking", "text"}` before the reply's text and
+tool calls. ACP maps it to the standard `agent_thought_chunk`. The text is for display; this update does not change what goes into the history.

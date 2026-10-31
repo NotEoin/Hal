@@ -600,6 +600,8 @@ class Agent:
             self._report_usage(reply, seconds)
             self._calibrate(history, reply, native)
             text = reply.text
+            if reply.reasoning.strip():
+                self.on_update({"kind": "thinking", "text": reply.reasoning.strip()})
             calls = list(reply.tool_calls)
             if not calls:
                 calls, text = self._leaked_calls(text, turns)

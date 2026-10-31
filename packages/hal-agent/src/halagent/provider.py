@@ -55,6 +55,7 @@ class Completion:
     finish: str = ""  # the server's finish_reason; "length" means the reply was cut off
     prompt_tokens: int = 0  # from the server's usage block, 0 when it sent none
     completion_tokens: int = 0
+    reasoning: str = ""  # the thinking text, kept only to show it; never sent back by this field
 
 
 @dataclass(frozen=True)
@@ -234,6 +235,7 @@ class ChatProvider:
                 msg = reply.message
                 return Completion(
                     text=msg.content or "",
+                    reasoning=msg.reasoning,
                     tool_calls=[(c.id, c.name, json.dumps(c.arguments)) for c in msg.tool_calls],
                     finish=reply.finish,
                     prompt_tokens=reply.usage.prompt_tokens,
@@ -273,6 +275,7 @@ class ChatProvider:
         usage = data.get("usage") or {}
         return Completion(
             text=msg.get("content") or "",
+            reasoning=str(msg.get("reasoning_content") or msg.get("reasoning") or ""),
             tool_calls=calls,
             finish=data["choices"][0].get("finish_reason") or "",
             prompt_tokens=int(usage.get("prompt_tokens") or 0),

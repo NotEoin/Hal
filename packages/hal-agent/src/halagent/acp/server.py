@@ -385,6 +385,10 @@ class AcpServer:
             self._notify_update(
                 sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": u["text"]}}
             )
+        elif kind == "thinking":
+            self._notify_update(
+                sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": u["text"]}}
+            )
         elif kind == "tool_call":
             try:
                 raw_input = json.loads(u["raw"] or "{}")
