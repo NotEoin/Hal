@@ -58,6 +58,9 @@ Verified by `tests/test_context.py` and `tests/test_budget.py`.
   a failed block is named in the retry message.
 - `repo_map` (query, max_tokens) lists source files with top-level symbols (Python `ast`, a regex
   for other languages), ranked by query words and cut at the token cap; output is deterministic.
+- `git` (status, diff, log, commit) runs fixed git commands in the copy through `halkit.proc.run`
+  with hooks disabled; it is left out when `run` is. Review mode asks before it (kind `execute`).
+  Web fetch and search stay with the online pack, reached only through the broker.
 - Profile key `tool_set = "compact"` offers only `COMPACT_TOOLS` (read, grep, edit, write, run,
   finish) so small models choose among fewer tools.
 

@@ -166,6 +166,29 @@
   "free": false
  },
  {
+  "name": "git",
+  "kind": "execute",
+  "description": "Git in the project copy. action is status, diff, log or commit. diff shows changes since the last commit, log shows the last 10 commits, commit stages everything (or path) and commits with message.",
+  "properties": {
+   "action": {
+    "type": "string",
+    "description": "status, diff, log or commit"
+   },
+   "path": {
+    "type": "string",
+    "description": "Limit diff, log or commit to this path"
+   },
+   "message": {
+    "type": "string",
+    "description": "One-line commit message (commit only)"
+   }
+  },
+  "required": [
+   "action"
+  ],
+  "free": false
+ },
+ {
   "name": "todo",
   "kind": "think",
   "description": "Record your plan as a checklist, one step per line: '- [ ] step' to do, '- [~] step' in progress, '- [x] step' done. Send the whole list each time. Free: does not use a tool call.",

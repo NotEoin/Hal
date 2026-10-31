@@ -44,7 +44,7 @@ STOP_REASONS = {
 KIND_OF = {
     "read": "read", "grep": "search", "glob": "search", "repo_map": "search", "edit": "edit",
     "patch": "edit", "write": "edit",
-    "run": "execute", "todo": "think", "subagent": "think",
+    "run": "execute", "git": "execute", "todo": "think", "subagent": "think",
 }  # fmt: skip
 MODE_LIST = [
     {"id": "auto", "name": "Auto", "description": "Work freely inside the sandbox"},

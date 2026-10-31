@@ -1,4 +1,5 @@
-"""The coding toolset: `read`, `grep`, `glob`, `edit`, `patch`, `write`, `run`, `todo`, `subagent`, `finish`.
+"""The coding toolset: `read`, `grep`, `glob`, `repo_map`, `edit`, `patch`, `write`, `run`, `git`, `todo`,
+`subagent` and `finish`.
 
 `Toolset` binds the tools to a `Workspace`. Schemas are flat (string and integer properties only)
 and offered in a fixed order. `finish` is offered in task mode only; `run` is left out when the
@@ -15,7 +16,7 @@ from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
-from halagent.tools import files, patch, plan, repomap, run, search
+from halagent.tools import files, gittool, patch, plan, repomap, run, search
 from halagent.tools.paths import ToolError, Workspace
 
 COMPACT_TOOLS = ("read", "grep", "edit", "write", "run", "finish")  # what a small model needs
@@ -67,6 +68,7 @@ class Toolset:
             "grep": lambda a: search.grep(ws, a),
             "glob": lambda a: search.glob(ws, a),
             "edit": lambda a: files.edit(ws, a, syntax_guard=syntax_guard),
+            "git": lambda a: gittool.git(ws, a),
             "repo_map": lambda a: repomap.repo_map(ws, a),
             "patch": lambda a: patch.patch(ws, a, syntax_guard=syntax_guard),
             "write": lambda a: files.write(ws, a),
@@ -76,7 +78,7 @@ class Toolset:
             "finish": plan.finish,
         }
         skip = {"finish"} if not task_mode else set()
-        skip |= {"run"} if not with_run else set()
+        skip |= {"run", "git"} if not with_run else set()
         rows = json.loads(resources.files("halagent.tools").joinpath("schemas.json").read_text("utf-8"))
         tools = [
             Tool(
