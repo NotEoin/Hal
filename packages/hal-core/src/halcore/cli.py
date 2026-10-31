@@ -69,7 +69,7 @@ COMMANDS: dict[str, Command] = {
     "eval": Command("evaluate", "run the evaluation suites"),
     "migrate": Command("migrate", "move from the old hal-ecosystem layout (dry run by default)"),
     "connect": Command("connect", "print settings for an outside coding tool (unsandboxed)"),
-    "ext": Command("ext", "extensions"),
+    "packs": Command("packs", "install and manage packs from the pinned catalogue"),
 }
 
 ALIASES: dict[str, Alias] = {
@@ -78,6 +78,7 @@ ALIASES: dict[str, Alias] = {
     "on": Alias(("power", "on")),
     "off": Alias(("power", "off")),
     "toggle": Alias(("power", "toggle")),
+    "ext": Alias(("packs",), "hal: 'hal ext' is now 'hal packs'"),
     "install": Alias(("units", "install", "--start"), "hal: 'hal install' is now 'hal units install --start'"),
 }
 
@@ -118,7 +119,7 @@ def resolve(argv: list[str]) -> tuple[Command, list[str]] | None:
 GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("work", ("code", "chat", "acp", "jobs", "sessions", "box", "connect")),
     ("safety", ("lockdown", "paranoia", "policy", "audit", "guard", "approvals", "approve", "deny", "scratch", "security")),
-    ("system", ("doctor", "status", "kill", "power", "gpulight", "units", "gateway", "migrate", "configure", "console", "eval", "ext")),
+    ("system", ("doctor", "status", "kill", "power", "gpulight", "units", "gateway", "migrate", "configure", "console", "eval", "packs")),
 )
 
 

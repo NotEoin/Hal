@@ -1,0 +1,1 @@
+# hashed requirements for the shared pack env; regenerated at each release with uv pip compile --generate-hashes
