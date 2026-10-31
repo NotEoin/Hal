@@ -77,6 +77,8 @@ class TurnStats:
     tools: int = 0
     used: int = 0  # context tokens in use, from `usage_update`, 0 when unknown
     size: int = 0
+    server_tok_s: float = 0.0  # `_meta.hal.tokensPerSecond` of the latest reply, 0 when unreported
+    compactions: int = 0
 
     @property
     def elapsed(self) -> float:
@@ -90,7 +92,9 @@ class TurnStats:
 
     @property
     def tok_s(self) -> float:
-        """Estimated output tokens per second."""
+        """Output tokens per second: the agent's measured rate when reported, else an estimate."""
+        if self.server_tok_s > 0:
+            return self.server_tok_s
         return self.tokens / self.elapsed if self.elapsed > 0.05 else 0.0
 
 
@@ -145,6 +149,13 @@ def diff_text(rows: list[tuple[str, int, int, str]], look: Look, limit: int) -> 
     return out
 
 
+def _hal_meta(update: Update) -> dict[str, object]:
+    """The `_meta.hal` object of an update, empty when absent or malformed."""
+    meta = update.get("_meta")
+    hal = meta.get("hal") if isinstance(meta, dict) else None
+    return hal if isinstance(hal, dict) else {}
+
+
 class Renderer:
     """Turns ACP `session/update` objects into terminal output; keeps the latest todo list and turn stats."""
 
@@ -161,6 +172,7 @@ class Renderer:
         self._buffer = ""
         self._thought = ""
         self._cards: dict[str, Card] = {}
+        self._subagents: dict[str, tuple[str, float]] = {}  # subagent id -> (name, start time)
         self._live: Live | None = None
 
     # -- scrollback --------------------------------------------------------------------
@@ -234,6 +246,7 @@ class Renderer:
         self.stats = TurnStats()
         self._buffer = ""
         self._cards.clear()
+        self._subagents.clear()
         if self.console.is_terminal and self._live is None:
             self._live = Live(
                 get_renderable=self._live_view, console=self.console, refresh_per_second=self.look.refresh_hz, transient=True
@@ -309,6 +322,49 @@ class Renderer:
             used, size = update.get("used"), update.get("size")
             if isinstance(used, int) and isinstance(size, int):
                 self.stats.used, self.stats.size = used, size
+            rate = _hal_meta(update).get("tokensPerSecond")
+            if isinstance(rate, (int, float)) and not isinstance(rate, bool) and rate > 0:
+                self.stats.server_tok_s = float(rate)
+        elif kind == "hal_compaction":
+            self._compaction(update)
+        elif kind == "hal_subagent":
+            self._subagent(update)
+
+    def _compaction(self, update: Update) -> None:
+        """Prints one muted line when the agent masks or summarises history."""
+        self._end_thought()
+        self._flush_for_card()
+        before, after = update.get("beforeTokens"), update.get("afterTokens")
+        self.stats.compactions += 1
+        if isinstance(after, int) and not isinstance(after, bool) and self.stats.size:
+            self.stats.used = after
+        span = f" ~{before} -> ~{after} tokens" if isinstance(before, int) and isinstance(after, int) else ""
+        what = clean(str(update.get("method", "")))
+        why = clean(str(update.get("reason", "auto")))
+        self.console.print(Text(f"{self.look.glyphs.think} compacted context ({why}, {what}){span}", style=f"dim {self.look.palette.muted}"))
+
+    def _subagent(self, update: Update) -> None:
+        """Nests a child agent's start, tool calls and end under the parent's turn."""
+        self._flush_for_card()
+        pal, g = self.look.palette, self.look.glyphs
+        sid, name = str(update.get("subagentId", "")), clean(str(update.get("agent") or "agent"))
+        phase = update.get("phase")
+        if phase == "start":
+            self._subagents[sid] = (name, time.monotonic())
+            task = clean(str(update.get("task") or "")).replace("\n", " ")
+            row = Text(f"{g.tool} ", style=pal.muted)
+            row.append(f"{name}", style="bold")
+            row.append(f"  {clip(task)}" if task else "", style=pal.muted)
+            self.console.print(row)
+        elif phase == "tool":
+            tool = clip(clean(str(update.get("tool") or "tool")).replace("\n", " "))
+            self.console.print(Text(f"  {g.nest} {tool}", style=pal.muted))
+        elif phase == "done":
+            _, started = self._subagents.pop(sid, (name, time.monotonic()))
+            row = Text(f"  {g.nest} ", style=pal.muted)
+            row.append(f"{name} done {g.ok}", style=pal.ok)
+            row.append(f"  {time.monotonic() - started:.1f}s", style=pal.muted)
+            self.console.print(row)
 
     def _flush_for_card(self) -> None:
         self._commit_blocks(final=True)

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import logging
 import os
 import signal
@@ -300,7 +301,15 @@ async def _run_tui(
         model=model, lockdown=lockdown, paranoia=paranoia, unsandboxed=session.backend == "none"
     )  # fmt: skip
     state.user_commands = load_commands(project)
-    renderer.status_provider = lambda: to_rich(segments(state.status, look), look)
+    def live_status() -> Text:
+        """The status line with this turn's context use and speed, so the bar moves while the model works."""
+        live = renderer.stats
+        info = dataclasses.replace(state.status, tok_s=live.tok_s or state.status.tok_s)
+        if live.size:
+            info.used, info.size = live.used, live.size
+        return to_rich(segments(info, look), look)
+
+    renderer.status_provider = live_status
     await refresh_status(state, session)
     ide_server = await open_ide(state, session, project, sid, renderer) if interactive else None
 

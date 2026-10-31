@@ -189,3 +189,35 @@ def test_approval_edit_key_denies_the_call_and_returns_the_note():
 
     asyncio.run(go())
     assert sent[0]["result"]["outcome"]["optionId"] == "deny" and notes == ["use pytest -x instead"]
+
+
+def test_usage_update_meta_gives_the_measured_tokens_per_second():
+    r, _ = make()
+    r.update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "x" * 400}})
+    r.update({"sessionUpdate": "usage_update", "used": 10, "size": 100, "_meta": {"hal": {"tokensPerSecond": 42.5}}})
+    assert r.stats.tok_s == 42.5
+
+
+def test_hal_compaction_prints_a_line_and_lowers_the_context_use():
+    r, out = make()
+    r.update({"sessionUpdate": "usage_update", "used": 900, "size": 1000})
+    r.update({"sessionUpdate": "hal_compaction", "reason": "auto", "method": "summary", "beforeTokens": 900, "afterTokens": 300})
+    assert "compacted context (auto, summary) ~900 -> ~300 tokens" in out.getvalue()
+    assert r.stats.used == 300 and r.stats.compactions == 1
+
+
+def test_hal_subagent_lines_nest_under_the_parent_turn():
+    r, out = make()
+    r.update({"sessionUpdate": "hal_subagent", "subagentId": "1", "agent": "explorer", "phase": "start", "task": "find the parser"})
+    r.update({"sessionUpdate": "hal_subagent", "subagentId": "1", "agent": "explorer", "phase": "tool", "tool": "grep"})
+    r.update({"sessionUpdate": "hal_subagent", "subagentId": "1", "agent": "explorer", "phase": "done"})
+    lines = out.getvalue().splitlines()
+    assert "explorer" in lines[0] and "find the parser" in lines[0]
+    assert lines[1].startswith("  `-") and "grep" in lines[1]
+    assert "explorer done ok" in lines[2]
+
+
+def test_hostile_subagent_text_is_cleaned():
+    r, out = make()
+    r.update({"sessionUpdate": "hal_subagent", "subagentId": "1", "agent": HOSTILE, "phase": "start", "task": HOSTILE})
+    assert "\x1b" not in out.getvalue() and "\x07" not in out.getvalue()
