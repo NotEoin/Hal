@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import shutil
 import subprocess
 import time
@@ -55,23 +54,7 @@ def installed() -> dict[str, Path]:
     return out
 
 
-def disabled() -> list[str]:
-    return list(config.load().get("hub", {}).get("disabled", []))
-
-
-def set_disabled(names: list[str]) -> None:
-    """Rewrites [hub].disabled in the config file, leaving everything else as it was."""
-    path = config.config_path()
-    text = path.read_text() if path.exists() else ""
-    line = "disabled = [" + ", ".join(f'"{n}"' for n in sorted(set(names))) + "]"
-    if re.search(r"^disabled\s*=.*$", text, re.M):
-        text = re.sub(r"^disabled\s*=.*$", line, text, count=1, flags=re.M)
-    elif re.search(r"^\[hub\]\s*$", text, re.M):
-        text = re.sub(r"^\[hub\]\s*$", "[hub]\n" + line, text, count=1, flags=re.M)
-    else:
-        text += f"\n[hub]\n{line}\n"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text)
+from .packs import disabled, set_disabled  # noqa: E402,F401 - moved; ext.py is retired next
 
 
 def add(names: list[str]) -> int:

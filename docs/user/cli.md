@@ -59,7 +59,7 @@ Packs add tools to Hal. `hal ext` still works and prints a notice, then runs `ha
 | `hal packs remove NAME` | uninstall; data stores stay, an own-env folder moves to `data_dir()/removed/` |
 | `hal packs enable NAME`, `disable NAME` | edit only `[hub].disabled` in the config file |
 | `hal packs update [NAME...]` | move packs to the catalogue pin |
-| `hal packs setup NAME` | run the pack's install steps, each after a typed `y` |
+| `hal packs setup NAME` | run the pack's install steps through the hub, each shown (argv, folder, network) and run only after a `y` typed on a terminal; with no terminal they stay `pending`; a failed step disables the pack until setup succeeds |
 | `hal packs doctor [NAME...]` | installed commit vs pin, modules, interpreters, setup state; exits 1 on a failure |
 
 Packs install into `data_dir()/envs/packs` (a pack with `env = "own"`, such as voice, gets `data_dir()/envs/NAME` built with `uv sync --frozen`) and are recorded in `state_dir()/packs.json`, which the

@@ -24,7 +24,10 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-from halkit import paths, proc, timeutil
+from halhub import install
+from halhub.manifest import InstallStep, ModuleSpec, load_manifest
+from . import config
+from halkit import paths, proc, termsafe, timeutil
 
 log = logging.getLogger(__name__)
 
@@ -326,6 +329,26 @@ def expand_set(name: str) -> list[str]:
     return list(sets[name])
 
 
+def disabled() -> list[str]:
+    """`[hub].disabled` from the config file."""
+    return list(config.load().get("hub", {}).get("disabled", []))
+
+
+def set_disabled(names: list[str]) -> None:
+    """Rewrites [hub].disabled in the config file, leaving everything else as it was."""
+    path = config.config_path()
+    text = path.read_text() if path.exists() else ""
+    line = "disabled = [" + ", ".join(f'"{n}"' for n in sorted(set(names))) + "]"
+    if re.search(r"^disabled\s*=.*$", text, re.M):
+        text = re.sub(r"^disabled\s*=.*$", line, text, count=1, flags=re.M)
+    elif re.search(r"^\[hub\]\s*$", text, re.M):
+        text = re.sub(r"^\[hub\]\s*$", "[hub]\n" + line, text, count=1, flags=re.M)
+    else:
+        text += f"\n[hub]\n{line}\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+
+
 def _utc() -> str:
     return timeutil.iso_z()
 
@@ -421,6 +444,80 @@ def doctor(names: list[str] | None = None) -> list[tuple[str, str, str]]:
     return rows
 
 
+def _load_specs(have: dict[str, Any]) -> list[ModuleSpec]:
+    """The manifests of a recorded pack, each with the interpreter it was installed with."""
+    return [
+        load_manifest(Path(ent["manifest"]), source="installed", distribution=have.get("distribution"), interpreter=tuple(ent["interpreter"]))
+        for _, ent in sorted(have.get("modules", {}).items())
+    ]  # fmt: skip
+
+
+def step_text(module: ModuleSpec, step: InstallStep) -> str:
+    """The block a person reads before typing `y` for one install step (REQ-CLI-64)."""
+    where = module.root if step.cwd == "root" else module.state_dir()
+    lines = [
+        f"{module.name} wants to run an install step ({step.id}):",
+        f"  summary: {step.summary}",
+        f"  argv:    {' '.join(step.run)}",
+        f"  in:      {where}",
+        f"  network: {'yes' if step.network else 'no'}",
+        "It may change files outside Hal. Type y to run it, anything else to skip: ",
+    ]
+    return termsafe.escape("\n".join(lines), multiline=True)
+
+
+def _typed_step(module: ModuleSpec, step: InstallStep) -> bool:
+    """True when a person typed `y` on a terminal; with no terminal the step stays pending."""
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        print(step_text(module, step).rsplit("\n", 1)[0])
+        print("  not run: no terminal to confirm on")
+        return False
+    print(step_text(module, step), end="", flush=True)
+    return sys.stdin.readline().strip() == "y"
+
+
+def setup(name: str, *, confirm: Callable[[ModuleSpec, InstallStep], bool] = _typed_step, force: bool = False) -> str:
+    """Runs a pack's install steps through `halhub.install.run_steps`; returns and records the setup state.
+
+    `none` (no steps), `done`, `pending` (a step was not confirmed) or `failed`. A failed step
+    disables nothing here: `hal packs doctor` reports it and the hub refuses the module until it ran.
+    """
+    record = read_record()
+    have = record["packs"].get(name)
+    if have is None:
+        raise PackError(f"{name} is not installed")
+    state = "none"
+    for spec in _load_specs(have):
+        if not spec.install:
+            continue
+        states = install.run_steps(spec, confirm=lambda step, spec=spec: confirm(spec, step), force=force)
+        if any(st.status != "ok" for st in states):
+            state = "failed"
+            break
+        state = "done" if all(prior is not None and prior.status == "ok" for _, prior in install.plan(spec)) else "pending"
+        if state == "pending":
+            break
+    have["setup"] = state
+    write_record(record)
+    return state
+
+
+def finish_setup(name: str) -> str:
+    """Runs the steps with typed confirmation; a failed step disables the pack (REQ-CLI-64)."""
+    return finish_setup_with(_typed_step, name)
+
+
+def finish_setup_with(confirm: Callable[[ModuleSpec, InstallStep], bool], name: str) -> str:
+    """`finish_setup` with another confirmation callback (tests pass one)."""
+    state = setup(name, confirm=confirm)
+    if state == "failed":
+        set_disabled([*disabled(), name])
+        print(f"  {name}: disabled until `hal packs setup {name}` succeeds; `hal packs enable {name}` overrides")
+    elif state == "pending":
+        print(f"  {name}: install steps are pending; run `hal packs setup {name}` on a terminal")
+    return state
+
+
 def _typed_yes(summary: str) -> bool:
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         raise PackError("a terminal is needed to confirm; nothing installed")
@@ -431,9 +528,7 @@ def _typed_yes(summary: str) -> bool:
 def _list(available: bool, as_json: bool) -> int:
     record = read_record()
     cat = load_catalog()
-    from . import ext  # noqa: PLC0415 - the disabled list helper lives there until ext.py is retired
-
-    off = set(ext.disabled())
+    off = set(disabled())
     rows = []
     for name, have in sorted(record["packs"].items()):
         state = "disabled" if name in off else "enabled"
@@ -485,8 +580,6 @@ def main(argv: list[str]) -> int:
 
 
 def _run(a: Any) -> int:
-    from . import ext  # noqa: PLC0415
-
     if a.cmd == "list":
         return _list(a.available, a.json)
     if a.cmd == "add":
@@ -494,15 +587,20 @@ def _run(a: Any) -> int:
             raise PackError("name a pack, or use --set NAME or --local PATH")
         if a.local:
             name = add_local(Path(a.local))
-            print(f"  {name}: installed from {a.local} (dev checkout, unpinned); run `hal packs setup {name}`")
+            print(f"  {name}: installed from {a.local} (dev checkout, unpinned); setup {finish_setup(name)}")
         for n in [*a.names, *(expand_set(a.set_name) if a.set_name else [])]:
             if "@" in n and "://" in n:
                 if not a.dist:
                     raise PackError("URL@REF needs --dist NAME (the distribution to install)")
                 add_url(n, confirm=_typed_yes, distribution=a.dist, subdirectory=a.subdirectory)
+                name = a.dist
             else:
-                add_catalog(n.removeprefix("hal-"))
-            print(f"  {n}: installed; run `hal packs setup {n}` to finish setup")
+                name = n.removeprefix("hal-")
+                if name in read_record()["packs"] and add_catalog(name).get("setup") != "pending":
+                    print(f"  {name}: already installed at the pin")
+                    continue
+                add_catalog(name)
+            print(f"  {name}: installed; setup {finish_setup(name)}")
         return 0
     if a.cmd == "update":
         record = read_record()
@@ -517,14 +615,14 @@ def _run(a: Any) -> int:
     if a.cmd in ("enable", "disable"):
         if a.name not in read_record()["packs"]:
             raise PackError(f"{a.name} is not installed")
-        names = [n for n in ext.disabled() if n != a.name] + ([a.name] if a.cmd == "disable" else [])
-        ext.set_disabled(names)
+        names = [n for n in disabled() if n != a.name] + ([a.name] if a.cmd == "disable" else [])
+        set_disabled(names)
         print(f"{a.name} {a.cmd}d; run `hal units install` to re-render units")
         return 0
     if a.cmd == "setup":
-        from halhub.cli import main as hub_main  # noqa: PLC0415 - loaded only for this command
-
-        return hub_main(["setup", a.name]) or 0
+        state = finish_setup(a.name)
+        print(f"  {a.name}: setup {state}")
+        return 1 if state == "failed" else 0
     rows = doctor(a.names)
     if a.json:
         print(json.dumps([{"pack": p, "check": c, "result": r} for p, c, r in rows], indent=1))
