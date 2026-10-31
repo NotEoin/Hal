@@ -118,3 +118,25 @@ def test_the_token_file_is_created_private_with_32_bytes_of_randomness():
         token = console.load_token()
         mode = stat.S_IMODE(console.token_file().stat().st_mode)
         assert mode == 0o600 and len(token) >= 43 and console.load_token() == token
+
+
+def test_console_help_and_banner_say_it_is_unboxed(capsys, monkeypatch):
+    # regression: the console ran on the host without saying so
+    with pytest.raises(SystemExit):
+        console.main(["--help"])
+    assert "UNBOXED" in capsys.readouterr().out
+
+    class Stop:
+        server_address = ("127.0.0.1", 1)
+        auth = console.Auth(TOKEN, 1)
+
+        def serve_forever(self):
+            raise KeyboardInterrupt
+
+    with TempHalHome():
+        monkeypatch.setattr(console, "make_server", lambda port: Stop())
+        assert console.main([]) == 0
+    assert "UNBOXED" in capsys.readouterr().out
+    from halcore.cli import COMMANDS
+
+    assert "UNBOXED" in COMMANDS["console"].help

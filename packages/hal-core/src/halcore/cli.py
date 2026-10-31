@@ -63,7 +63,7 @@ COMMANDS: dict[str, Command] = {
     "gpulight": Command("gpulight", "gpu-light integration"),
     "units": Command("units", "render and install systemd units"),
     "configure": Command("configure", "write the configuration"),
-    "console": Command("console", "local web console"),
+    "console": Command("console", "local web console (UNBOXED: runs on the host, real data)"),
     "eval": Command("evaluate", "run the evaluation suites"),
     "ext": Command("ext", "extensions"),
 }

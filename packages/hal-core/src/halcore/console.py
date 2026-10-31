@@ -6,7 +6,7 @@ with "use my last voice turn". The page runs the automatic checks it can against
 setup, and you mark each answer pass or fail with a note. Grades are kept in
 ~/.local/state/hal/console-results.jsonl.
 
-Unlike `hal eval`, this talks to your REAL calendar, tasks and vault; each card has an
+UNBOXED: the console runs on the host, outside any box, and is not sandboxed. Unlike `hal eval`, this talks to your REAL calendar, tasks and vault; each card has an
 "undo" that removes what the case created.
 
     hal console [--port 8740]     then open http://127.0.0.1:8740
@@ -299,12 +299,17 @@ def make_server(port: int, token: str | None = None) -> ThreadingHTTPServer:
     return server
 
 
+UNBOXED_BANNER = "UNBOXED: hal console runs on the host with no box and uses your REAL calendar, tasks and vault"
+
+
 def main(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser(prog="hal console")
+    """Runs the console server until interrupted."""
+    ap = argparse.ArgumentParser(prog="hal console", description=f"Local web console. {UNBOXED_BANNER}.")
     ap.add_argument("--port", type=int, default=int(config.load().get("console", {}).get("port", 8740)))
     args = ap.parse_args(argv)
     server = make_server(args.port)
     link = f"http://127.0.0.1:{server.server_address[1]}/open?t={server.auth.new_open_code()}"
+    print(UNBOXED_BANNER, flush=True)
     print(f"Hal console: open {link} (single use, {OPEN_CODE_TTL_S} s)", flush=True)
     try:
         server.serve_forever()
