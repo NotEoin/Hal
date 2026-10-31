@@ -207,6 +207,7 @@ def box_main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--image")
     parser.add_argument("--model", default=boxmod.DEFAULT_MODEL)
     parser.add_argument("--ask", action="store_true", help="keep the CLI's own prompts")
+    parser.add_argument("--no-mcp", action="store_true", help="give the CLI no broker tools")
     parser.add_argument("--no-checkpoint", action="store_true")
     parser.add_argument("--upstream", default="http://127.0.0.1:8080")
     parser.add_argument("cli", nargs="?")
@@ -221,7 +222,7 @@ def box_main(argv: Sequence[str] | None = None) -> int:
     try:
         return boxmod.run(
             args.cli, rest, project=Path(args.dir), backend=args.backend, direct=args.direct,
-            image=args.image, model=args.model, ask=args.ask,
+            image=args.image, model=args.model, ask=args.ask, mcp=not args.no_mcp,
             checkpoints=not args.no_checkpoint,
             start_model=lambda sock, _sid: _Forwarder(sock, args.upstream),
         )  # fmt: skip

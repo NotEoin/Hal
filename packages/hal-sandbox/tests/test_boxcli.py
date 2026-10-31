@@ -84,3 +84,11 @@ def test_box_direct_is_refused_under_standard_lockdown_before_any_model_starts(m
     assert boxcli_cmd.box_main(["--dir", str(tmp_path), "--direct", "--", "claude"]) == 1
     err = capsys.readouterr().err
     assert "--direct needs lockdown relaxed or lower (now standard)" in err and not started
+
+
+@pytest.mark.parametrize("cli", sorted(PROFILES))
+def test_no_mcp_leaves_the_broker_bridge_out_of_every_cli_config(cli):
+    launch = profile(cli).launch(BoxContext(model="hal-code", context_window=65536, mcp=False))
+    text = render(launch)
+    assert "hal-mcp-bridge" not in text
+    assert "hal-mcp-bridge" in render(profile(cli).launch(BoxContext(model="hal-code", context_window=65536)))

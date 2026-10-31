@@ -31,6 +31,7 @@ class BoxContext:
     relay_url: str = DEFAULT_RELAY_URL
     mcp_command: tuple[str, ...] = (BRIDGE,)
     auto_approve: bool = True
+    mcp: bool = True  # False for `hal box --no-mcp`: the CLI gets no broker tools
     user_args: tuple[str, ...] = ()
     home: str = "/home/hal"
 

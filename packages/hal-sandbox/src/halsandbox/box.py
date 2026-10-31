@@ -44,6 +44,7 @@ def run(
     image: str | None = None,
     model: str = DEFAULT_MODEL,
     ask: bool = False,
+    mcp: bool = True,
     checkpoints: bool = True,
     context_window: int | None = None,
     runtime: str | None = None,
@@ -63,6 +64,7 @@ def run(
     ctx = BoxContext(
         model=model,
         auto_approve=not ask,
+        mcp=mcp,
         user_args=tuple(cli_args),
         **({"context_window": context_window} if context_window else {}),
     )

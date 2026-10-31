@@ -30,7 +30,10 @@ class Qwen:
             "privacy": {"usageStatisticsEnabled": False},
             "telemetry": {"enabled": False},
             "general": {"enableAutoUpdate": False},
-            "mcpServers": {"hal": {"command": ctx.mcp_command[0], "args": list(ctx.mcp_command[1:])}},
         }  # SETTINGS_VERSION 4 is in the 0.25.0 bundle (02-sandbox, checked 2026-10-23)
+        if ctx.mcp:
+            settings["mcpServers"] = {
+                "hal": {"command": ctx.mcp_command[0], "args": list(ctx.mcp_command[1:])}
+            }
         argv = ["qwen", *(["--approval-mode", "yolo"] if ctx.auto_approve else []), *ctx.user_args]
         return BoxLaunch(tuple(argv), common_env(), {".qwen/settings.json": dump_json(settings)})

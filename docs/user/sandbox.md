@@ -49,7 +49,7 @@ without checkpoints cannot undo or diff.
 
 `hal box -- CLI [ARGS]` runs claude, qwen, opencode, codex, crush or goose in the same box, on an
 isolated copy of the project, with no network. The CLI talks to the model through the relay on
-`127.0.0.1:8741` and to Hal tools through `hal-mcp-bridge`. `--ask` keeps the CLI's own prompts;
+`127.0.0.1:8741` and to Hal tools through `hal-mcp-bridge`. `--no-mcp` leaves the bridge out of the CLI's config, so it gets no Hal tools (verified by `test_no_mcp_leaves_the_broker_bridge_out_of_every_cli_config`). `--ask` keeps the CLI's own prompts;
 `--direct` mounts the real project (lockdown `relaxed` or lower). Docker is the only backend.
 
 ```sh

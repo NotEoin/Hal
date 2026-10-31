@@ -30,7 +30,11 @@ class Opencode:
                 }
             },
             "model": f"hal/{ctx.model}",
-            "mcp": {"hal": {"type": "local", "command": list(ctx.mcp_command), "enabled": True}},
+            **(
+                {"mcp": {"hal": {"type": "local", "command": list(ctx.mcp_command), "enabled": True}}}
+                if ctx.mcp
+                else {}
+            ),
             "permission": {"edit": "allow", "bash": "allow", "webfetch": "deny"} if ctx.auto_approve else {},
         }
         seed = {".config/opencode/opencode.json": dump_json(config)}

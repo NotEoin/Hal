@@ -24,13 +24,14 @@ class Goose:
             "GOOSE_MODEL": ctx.model,
             "OPENAI_HOST": ctx.relay_url,
             "OPENAI_BASE_PATH": "v1/chat/completions",
-            "extensions": {
+        }  # fmt: skip
+        if ctx.mcp:
+            config["extensions"] = {
                 "hal": {
                     "type": "stdio", "cmd": ctx.mcp_command[0], "args": list(ctx.mcp_command[1:]),
                     "enabled": True, "timeout": EXTENSION_TIMEOUT_S,
                 }
-            },
-        }  # fmt: skip
+            }  # fmt: skip
         env = {
             **common_env(), "OPENAI_API_KEY": DUMMY_KEY, "GOOSE_DISABLE_KEYRING": "1",
             "GOOSE_TELEMETRY_ENABLED": "false", "GOOSE_MODE": "auto" if ctx.auto_approve else "approve",

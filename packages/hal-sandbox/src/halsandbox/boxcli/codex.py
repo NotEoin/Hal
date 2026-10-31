@@ -30,11 +30,12 @@ class Codex:
                 "name": "Hal", "base_url": f"{ctx.relay_url}/v1", "env_key": "HAL_API_KEY",
                 "wire_api": "responses",
             },
-            "mcp_servers.hal": {
+        }  # fmt: skip
+        if ctx.mcp:
+            tables["mcp_servers.hal"] = {
                 "command": ctx.mcp_command[0], "args": list(ctx.mcp_command[1:]),
                 "startup_timeout_sec": MCP_STARTUP_TIMEOUT_S,
-            },
-        }  # fmt: skip
+            }  # fmt: skip
         return BoxLaunch(
             ("codex", *ctx.user_args), common_env(), {".codex/config.toml": dump_toml(top, tables)}
         )

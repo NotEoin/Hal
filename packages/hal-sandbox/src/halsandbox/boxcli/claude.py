@@ -42,15 +42,13 @@ class Claude:
             ".claude.json": dump_json(
                 {"hasCompletedOnboarding": True, "bypassPermissionsModeAccepted": ctx.auto_approve}
             ),
-            MCP_CONFIG: dump_json(
-                {
-                    "mcpServers": {
-                        "hal": {"type": "stdio", "command": BRIDGE, "args": list(ctx.mcp_command[1:])}
-                    }
-                }
-            ),
         }
-        argv = ["claude", "--mcp-config", f"{ctx.home}/{MCP_CONFIG}", "--strict-mcp-config"]
+        argv = ["claude"]
+        if ctx.mcp:
+            hal = {"type": "stdio", "command": BRIDGE, "args": list(ctx.mcp_command[1:])}
+            seed[MCP_CONFIG] = dump_json({"mcpServers": {"hal": hal}})
+            argv += ["--mcp-config", f"{ctx.home}/{MCP_CONFIG}"]
+        argv.append("--strict-mcp-config")
         if ctx.auto_approve:
             argv.append("--dangerously-skip-permissions")
         return BoxLaunch((*argv, *ctx.user_args), env, seed)

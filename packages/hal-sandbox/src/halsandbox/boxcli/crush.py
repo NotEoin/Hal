@@ -31,9 +31,19 @@ class Crush:
                     ],  # fmt: skip
                 }
             },
-            "mcp": {
-                "hal": {"type": "stdio", "command": ctx.mcp_command[0], "args": list(ctx.mcp_command[1:])}
-            },
+            **(
+                {
+                    "mcp": {
+                        "hal": {
+                            "type": "stdio",
+                            "command": ctx.mcp_command[0],
+                            "args": list(ctx.mcp_command[1:]),
+                        }
+                    }
+                }
+                if ctx.mcp
+                else {}
+            ),
             "options": {"disable_metrics": True, "disable_provider_auto_update": True},
         }
         argv = ["crush", *(["--yolo"] if ctx.auto_approve else []), *ctx.user_args]
