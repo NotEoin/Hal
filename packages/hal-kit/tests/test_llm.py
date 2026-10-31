@@ -102,6 +102,11 @@ def test_ping_lists_the_gateway_models(home):
         assert llm.ping(timeout=5) == ["fake-model"]
 
 
+def test_models_returns_the_rows_with_their_ids(home):
+    with FakeModelServer(home.runtime / "gateway.sock"):
+        assert [row["id"] for row in llm.models(timeout=5)] == ["fake-model"]
+
+
 def test_chat_sends_ollama_options_only_when_given(home):
     with FakeModelServer(home.runtime / "gateway.sock") as server:
         server.script("a")

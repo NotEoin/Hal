@@ -60,7 +60,7 @@ def test_approval_view_shows_every_argument_escaped():
 
 @pytest.mark.parametrize(
     ("typed", "expected"),
-    [("o", "once"), ("y", "once"), ("", "deny"), ("yes please", "deny"), ("s", "deny")],
+    [("o", "once"), ("y", "once"), ("", "deny"), ("yes please", "deny"), ("s", "deny"), ("a", "deny"), ("e", "deny")],
 )
 def test_only_offered_letters_allow(typed, expected):
     assert approval.answer_to_option(typed, REQUEST) == expected

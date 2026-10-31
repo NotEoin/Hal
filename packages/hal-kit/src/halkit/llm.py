@@ -229,10 +229,15 @@ def embed(texts: Sequence[str], *, model: str = "hal-embed", timeout: float) -> 
     return vectors
 
 
-def ping(*, timeout: float) -> list[str]:
-    """Returns the model aliases the gateway lists; raises when it cannot be reached."""
+def models(*, timeout: float) -> list[dict[str, object]]:
+    """Returns the gateway's model rows (`id` plus whatever else it lists, such as a context size)."""
     data = _json(_post("/v1/models", None, timeout))
     rows = data.get("data")
     if not isinstance(rows, list):
         raise GatewayError("gateway reply has no model list", 200)
-    return [str(row["id"]) for row in rows if isinstance(row, dict) and "id" in row]
+    return [row for row in rows if isinstance(row, dict) and "id" in row]
+
+
+def ping(*, timeout: float) -> list[str]:
+    """Returns the model aliases the gateway lists; raises when it cannot be reached."""
+    return [str(row["id"]) for row in models(timeout=timeout)]

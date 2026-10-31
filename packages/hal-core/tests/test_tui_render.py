@@ -149,3 +149,43 @@ def test_usage_update_is_kept_for_the_status_line():
 
 def test_clean_strips_controls_and_shows_bidi():
     assert clean("a\x1b[31mb\x1b[0m" + RLO) == "ab\\u202e"
+
+
+def test_approval_panel_shows_risk_args_keys_and_escapes_hostile_text():
+    from halcore.tui import approval
+
+    request = {
+        "tool": "shell_run", "tier": "system", "pack": "core", "reason": "ask", "scopes": ["once", "session"],
+        "risk": "high", "risk_reason": "rm -rf " + HOSTILE, "display": "cmd: " + HOSTILE,
+    }  # fmt: skip
+    look = theme.load_look({"unicode": False}, stream=io.StringIO(), environ={})
+    out = io.StringIO()
+    theme.make_console(look, out).print(approval.approval_panel(request, look))
+    text = out.getvalue()
+    assert "classifier: high" in text and "[a] always this session" in text and "[e]" in text
+    assert "\x1b" not in text and RLO not in text and "[bold red]x[/]" in text
+    assert text.splitlines()[0].startswith("+") and text.isascii()
+
+
+def test_approval_edit_key_denies_the_call_and_returns_the_note():
+    import asyncio
+    import types
+
+    from halcore.tui import approval
+
+    request = {"tool": "t", "tier": "x", "pack": "p", "reason": "r", "display": "d", "scopes": ["once"]}
+    sent, notes = [], []
+    bridge = types.SimpleNamespace(request_for=lambda rid: request, consume=sent.append)
+
+    async def go():
+        async def line():
+            return "e"
+
+        async def note():
+            return " use pytest -x instead "
+
+        ask = approval.make_asker(bridge, line, io.StringIO(), read_note=note, on_note=notes.append)
+        await ask({"id": "r1"})
+
+    asyncio.run(go())
+    assert sent[0]["result"]["outcome"]["optionId"] == "deny" and notes == ["use pytest -x instead"]
