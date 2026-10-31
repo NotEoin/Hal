@@ -9,6 +9,9 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `hal remote setup` pairs a laptop with the desktop (bootstrap or `--manual`), `hal remote up`,
+  `down` and `status` run the SSH tunnel on Linux (systemd or detached) and Windows, and
+  `docs/howto/` has pages for a Linux laptop, a Windows laptop and Tailscale.
 - `[agent].repo_map_auto` (off by default) puts the repo map in the system prompt once per
   session. `/image` stays inside the workspace unless `--outside` is given; the IDE socket caps
   editor connections.
