@@ -25,12 +25,13 @@ from halsandbox import code as sandbox
 from halsandbox.forwarder import ModelForwarder
 from halsandbox.session import Session
 
-from . import config, unboxed
+from . import config, settings, unboxed
 from .acp.client import AcpClient, ClientHandler
 from .acp.transport import SubprocessTransport
 
 log = logging.getLogger(__name__)
 
+AGENT_CONFIG = "/run/hal/agent.json"  # where the sandbox mounts the run file (halsandbox.session.DEFAULT_CHILD)
 BOX_WORK = "/work"
 BOX_SCRATCH = "/scratch"
 STDERR_LOG = "agent-stderr.log"
@@ -69,11 +70,15 @@ class BoxedAgent:
         child = [
             "hal-agent", "--acp", "-C", BOX_WORK if coding else BOX_SCRATCH,
             "--endpoint", sandbox.MODEL_SOCKET, "--broker", sandbox.BROKER_SOCKET,
-            "--model", model, *([] if coding else ["--toolset", "assistant"]), *agent_args,
+            "--model", model, "--config", AGENT_CONFIG, *([] if coding else ["--toolset", "assistant"]), *agent_args,
         ]  # fmt: skip
         session = Session.start(
             project, kind=kind, runtime=runtime, isolated_copy=False if direct else None,
             image=image, channel=channel, child_argv=child, interactive=os.isatty(0),
+            run_files=settings.run_files(
+                mode="code" if coding else "assistant", channel=channel, host_root=str(project or ""), model=model,
+                sandbox=f"docker-{runtime}" if runtime else "docker-runsc",
+            ),
         )  # fmt: skip
         forwarder = None
         try:
