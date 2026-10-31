@@ -65,9 +65,12 @@ DIALS = {
 }
 
 
-def set_key(text: str, table: str, key: str, value: str) -> str:
-    """Returns `text` with `[table] key = "value"` set, changing only that line (or adding it)."""
-    line = f'{key} = "{value}"'
+def set_key(text: str, table: str, key: str, value: str, *, raw: bool = False) -> str:
+    """Returns `text` with `[table] key = "value"` set, changing only that line (or adding it).
+
+    `raw` writes `value` unquoted, for booleans and numbers.
+    """
+    line = f"{key} = {value}" if raw else f'{key} = "{value}"'
     lines = text.splitlines()
     header = re.compile(rf"^\s*\[{re.escape(table)}\]\s*(#.*)?$")
     start = next((i for i, raw in enumerate(lines) if header.match(raw)), None)

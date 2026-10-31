@@ -9,6 +9,8 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `hal connect --write` for claude and qwen (diff, y/N, backup) and a notice when it turns on the
+  gateway TCP listener.
 - IDE integration: `hal ide setup zed|jetbrains|neovim|emacs|vscode`, ACP file access served from
   the isolated copy, edits sent as ACP diffs, a per-session host socket in `hal code`
   (`/ide`, `@path#L10-20` chips) and a VS Code extension in `ide/vscode/`.

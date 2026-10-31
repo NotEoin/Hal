@@ -60,3 +60,37 @@ def test_list_and_json_and_missing_harness(home, capsys):
 
 def test_connect_is_a_command():
     assert cli.resolve(["connect", "qwen"])[0].module == "connect"
+
+
+def _token(harness="claude", secret="s3cret"):
+    connect.token_file(harness).parent.mkdir(parents=True, exist_ok=True)
+    connect.token_file(harness).write_text(secret + "\n")
+
+
+def test_connect_write_needs_confirmation(home, tmp_path, capsys):
+    _token()
+    target = tmp_path / ".claude" / "settings.json"
+    target.parent.mkdir()
+    target.write_text('{"theme": "dark"}\n')
+    assert connect.write_config("claude", home=tmp_path, confirm=lambda _: "n") == 0
+    out = capsys.readouterr().out
+    assert "<token>" in out and "s3cret" not in out and "nothing written" in out
+    assert json.loads(target.read_text()) == {"theme": "dark"}
+    assert connect.write_config("claude", home=tmp_path, confirm=lambda _: "y") == 0
+    data = json.loads(target.read_text())
+    assert data["theme"] == "dark" and data["env"]["ANTHROPIC_AUTH_TOKEN"] == "s3cret"
+    assert json.loads(target.with_name("settings.json.hal.bak").read_text()) == {"theme": "dark"}
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+
+def test_connect_write_refuses_unsupported_harness_and_missing_token(home, tmp_path):
+    assert connect.write_config("goose", home=tmp_path, confirm=lambda _: "y") == 2
+    assert connect.write_config("qwen", home=tmp_path, confirm=lambda _: "y") == 1
+
+
+def test_connect_enables_tcp_with_notice_and_named_token(home, capsys):
+    assert connect.ensure_tcp() is True
+    assert "turning on the gateway's loopback TCP listener" in capsys.readouterr().err
+    assert "tcp = true" in connect.paths.config_file().read_text()
+    assert connect.ensure_tcp() is False and capsys.readouterr().err == ""
+    assert connect.token_file("qwen").name == "connect-qwen"

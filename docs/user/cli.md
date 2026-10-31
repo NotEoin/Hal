@@ -39,7 +39,10 @@ Then run `hal doctor`. Verified by `packages/hal-core/tests/test_install_script.
 qwen, opencode, codex, crush, goose, cline) at the Hal gateway. The first line says the tool runs
 unsandboxed. `--list` shows the harnesses, `--issue` mints the token `connect-<harness>` into
 `~/.config/hal/tokens/` (mode 0600), `--json` prints the lines as JSON. The gateway needs
-`[gateway].tcp = true`. Not yet done: `--write` of the harness config and switching TCP on.
+`[gateway].tcp = true`; `hal connect` sets it in `config.toml` after printing a notice, and the
+gateway needs a restart to pick it up. `--write` (claude and qwen only) merges the settings into
+`~/.claude/settings.json` or `~/.qwen/settings.json` after a diff with the token masked and a y/N
+prompt, keeping the old file as `<file>.hal.bak`.
 Verified by `packages/hal-core/tests/test_connect.py`.
 
 ## hal packs
