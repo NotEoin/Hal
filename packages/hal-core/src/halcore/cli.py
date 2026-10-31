@@ -59,6 +59,8 @@ COMMANDS: dict[str, Command] = {
     "kill": Command("killcmd", "stop everything Hal started"),
     "scratch": Command("scratch", "inspect and clean box scratchpads"),
     "security": Command("security", "security status and doctor"),
+    "doctor": Command("doctor", "check docker, runsc, the model server, images and permissions"),
+    "status": Command("doctor", "same report as doctor"),
     "power": Command("power", "GPU power state"),
     "gpulight": Command("gpulight", "gpu-light integration"),
     "units": Command("units", "render and install systemd units"),
