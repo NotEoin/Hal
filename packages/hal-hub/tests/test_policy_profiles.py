@@ -10,6 +10,7 @@ from halhub.policy.model import Scope, Tier, Verdict
 from halhub.policy.profiles import (
     CHANNEL_PROFILES,
     HARD_DENY_GLOBS,
+    HARD_DENY_PATHS,
     PROFILES,
     PROMPT_SCOPES,
     hard_deny_paths,
@@ -91,3 +92,28 @@ def test_unset_runtime_dir_is_left_out_rather_than_denying_the_root():
 
 def test_hard_deny_globs_cover_keys_and_env_files():
     assert {".env", ".env.*", "*.pem", "*.key", "id_rsa*", "id_ed25519*", "*.kdbx"} <= set(HARD_DENY_GLOBS)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "~/.bash_history",
+        "~/.zsh_history",
+        "~/.git-credentials",
+        "~/.npmrc",
+        "~/.config/gcloud",
+        "~/.local/share/kwalletd",
+        "~/.var/app/org.mozilla.firefox",
+        "~/snap/firefox",
+        "~/.config/vivaldi",
+        "~/.config/KeePassXC",
+    ],
+)
+def test_hard_deny_covers_history_cloud_keyring_and_browser_profile_paths(entry):
+    # review gap: these credential and history stores were not in the built-in list
+    assert entry in HARD_DENY_PATHS
+    assert Path("/home/u" + entry[1:]) in hard_deny_paths(home=Path("/home/u"), environ={})
+
+
+def test_hard_deny_paths_have_no_duplicates():
+    assert len(set(HARD_DENY_PATHS)) == len(HARD_DENY_PATHS)
