@@ -5,6 +5,7 @@ hostile, so the transport enforces what a peer must not be trusted with, and not
 
 - `SO_PEERCRED` uid (and on runc the container id in `/proc/<pid>/cgroup`) is checked on accept;
 - a message over `max_message_bytes` gets one `-32600` error frame, then the connection closes;
+- a write the peer does not read within `send_timeout_s` closes the connection;
 - a partial message older than `partial_timeout_s` is a slowloris and closes the connection; an
   idle connection with nothing pending is fine, because a call may wait on a human approval;
 - connections past `max_connections` get an error frame and are closed.
@@ -35,6 +36,7 @@ log = logging.getLogger(__name__)
 MAX_MESSAGE_BYTES = 4 * 2**20  # the request cap of the `mcp` 2.x SDK (REQ-BOX-29)
 MAX_CONNECTIONS = 8
 PARTIAL_TIMEOUT_S = 30.0  # no legitimate client takes 30 s to write one line
+SEND_TIMEOUT_S = 30.0  # a peer that does not read for 30 s is stuck or hostile, not slow
 CHUNK_BYTES = 65536
 JOIN_TIMEOUT_S = 5.0
 ERR_INVALID_REQUEST = -32600  # JSON-RPC "Invalid Request"
@@ -55,6 +57,10 @@ class MessageTooLarge(TransportError):
 
 class PartialTimeout(TransportError):
     """A message was started and not finished in time."""
+
+
+class SendTimeout(TransportError):
+    """The peer did not read a message in time; the connection is closed."""
 
 
 @dataclass(frozen=True)
@@ -98,8 +104,11 @@ class LineConnection:
     """One accepted client; reads and writes whole newline-framed messages."""
 
     def __init__(self, sock: socket.socket, conn_id: int, peer: Cred, *, max_message_bytes: int,
-                 partial_timeout_s: float) -> None:  # fmt: skip
+                 partial_timeout_s: float, send_timeout_s: float = SEND_TIMEOUT_S) -> None:  # fmt: skip
         self.sock = sock
+        self.send_timeout_s = send_timeout_s
+        # bounds `sendall` against a peer that never reads; reads wait in `select`, not here
+        sock.settimeout(send_timeout_s)
         self.conn_id = conn_id
         self.peer = peer
         self.max_message_bytes = max_message_bytes
@@ -145,13 +154,19 @@ class LineConnection:
             raise MessageTooLarge(f"message exceeds {self.max_message_bytes} bytes")
         if b"\n" in data:
             raise ValueError("a framed message must not contain a newline")
-        with self._wlock:
-            self.sock.sendall(data + b"\n")
+        self._send(data + b"\n")
 
     def write_raw(self, data: bytes) -> None:
         """Sends already framed bytes (an error frame); serialised with `write_message`."""
+        self._send(data)
+
+    def _send(self, data: bytes) -> None:
         with self._wlock:
-            self.sock.sendall(data)
+            try:
+                self.sock.sendall(data)
+            except TimeoutError as exc:
+                self.close()
+                raise SendTimeout(f"peer did not read within {self.send_timeout_s:g}s") from exc
 
     def close(self) -> None:
         """Closes the socket; safe to call twice and from another thread."""
@@ -170,7 +185,7 @@ class LineServer:
 
     def __init__(self, path: Path, handler: Callable[[LineConnection], None], *, peer: PeerRule,
                  max_message_bytes: int = MAX_MESSAGE_BYTES, max_connections: int = MAX_CONNECTIONS,
-                 partial_timeout_s: float = PARTIAL_TIMEOUT_S,
+                 partial_timeout_s: float = PARTIAL_TIMEOUT_S, send_timeout_s: float = SEND_TIMEOUT_S,
                  peer_cred: Callable[[socket.socket], Cred] = _socket_cred) -> None:  # fmt: skip
         self.path = Path(path)
         self.handler = handler
@@ -178,6 +193,7 @@ class LineServer:
         self.max_message_bytes = max_message_bytes
         self.max_connections = max_connections
         self.partial_timeout_s = partial_timeout_s
+        self.send_timeout_s = send_timeout_s
         self._peer_cred = peer_cred
         self._listener: socket.socket | None = None
         self._thread: threading.Thread | None = None
@@ -256,7 +272,8 @@ class LineServer:
             conn_id = self._next_id
             self._next_id += 1
             conn = LineConnection(sock, conn_id, cred, max_message_bytes=self.max_message_bytes,
-                                  partial_timeout_s=self.partial_timeout_s)  # fmt: skip
+                                  partial_timeout_s=self.partial_timeout_s,
+                                  send_timeout_s=self.send_timeout_s)  # fmt: skip
             if not full:
                 self._live[conn_id] = conn
         if full:

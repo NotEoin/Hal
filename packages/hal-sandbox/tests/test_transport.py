@@ -171,3 +171,23 @@ def test_container_id_read_at_connect_time_is_used(make, monkeypatch):
     c = _dial(s)
     c.sendall(b"ok\n")
     assert c.makefile("rb").readline() == b"re:ok\n"
+
+
+def test_a_peer_that_never_reads_times_out_the_send_and_closes():
+    # regression: `sendall` had no timeout, so a non-reading peer pinned the handler thread forever
+    import socket as _socket
+
+    from halsandbox.transport import LineConnection, SendTimeout
+
+    a, b = _socket.socketpair()
+    for s in (a, b):
+        s.setsockopt(_socket.SOL_SOCKET, _socket.SO_SNDBUF, 4096)
+    conn = LineConnection(
+        a, 1, (0, 0, 0), max_message_bytes=8 * 2**20, partial_timeout_s=5, send_timeout_s=0.2
+    )
+    try:
+        with pytest.raises(SendTimeout):
+            conn.write_message(b"x" * (4 * 2**20))
+        assert conn._closed
+    finally:
+        b.close()
