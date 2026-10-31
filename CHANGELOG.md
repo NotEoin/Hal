@@ -9,6 +9,9 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- IDE integration: `hal ide setup zed|jetbrains|neovim|emacs|vscode`, ACP file access served from
+  the isolated copy, edits sent as ACP diffs, a per-session host socket in `hal code`
+  (`/ide`, `@path#L10-20` chips) and a VS Code extension in `ide/vscode/`.
 - `hal code` and `hal chat` terminal UI: rich markdown and diff rendering, a prompt_toolkit editor
   (history, completion, `@file`, `!cmd`, `# note`), status line, approval panel, more slash
   commands and `[ui]` settings (`docs/user/hal-code.md`).

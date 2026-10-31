@@ -31,7 +31,10 @@ written.
 | [howto/pin-a-model.md](howto/pin-a-model.md) | How to pin an Ollama model or a weight file in `models.toml` |
 | [howto/install-gvisor.md](howto/install-gvisor.md) | How to register runsc with `--host-uds=open` so the box can use gVisor |
 | [howto/prepare-project-dependencies.md](howto/prepare-project-dependencies.md) | How to install project dependencies with `hal-sandbox deps` |
-| [howto/use-hal-in-zed.md](howto/use-hal-in-zed.md) | How to run the boxed agent from Zed or another ACP editor with `hal acp` |
+| [howto/use-hal-code-in-zed.md](howto/use-hal-code-in-zed.md) | How to run the boxed agent from Zed or another ACP editor with `hal acp` |
+| [howto/use-hal-code-in-jetbrains.md](howto/use-hal-code-in-jetbrains.md) | How to add Hal as a custom ACP agent in JetBrains AI Assistant |
+| [howto/use-hal-code-in-neovim.md](howto/use-hal-code-in-neovim.md) | How to connect CodeCompanion, avante.nvim or Emacs agent-shell to `hal acp` |
+| [howto/use-hal-code-in-vscode.md](howto/use-hal-code-in-vscode.md) | How to build the Hal extension for VS Code, VSCodium or Cursor and share selections and diffs with `hal code` |
 | [howto/write-a-tool-pack.md](howto/write-a-tool-pack.md) | How to write, install and check a tool pack with `hal-hub new` |
 | [dev/agent.md](dev/agent.md) | Agent developer notes: modules, limit precedence, records over ACP, what is not built |
 | [dev/gateway.md](dev/gateway.md) | Gateway developer notes: configuration, listeners, relay, aliases, Ollama backend |
