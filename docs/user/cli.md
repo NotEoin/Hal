@@ -86,4 +86,5 @@ Each command also answers `--help`. Verified 2026-10-31 by running `python -m ha
 | `hal audit tail [-n N] [--session ID] [--json]`, `hal audit verify` | Read the audit log, or check its hash chain |
 | `hal units install [--start] [--no-desktop]`, `remove`, `list` | Render and install the systemd user units |
 | `hal console [--port N] [--open]` | UNBOXED local web page for trying Hal; `--open` opens the single-use link (valid 60 s, sets a strict cookie). Broker approvals queue on the page: Allow stays disabled until the whole argument text is scrolled into view. Verified by `test_consolesurface.py` |
+| `hal configure [--profile auto\|max\|24gb\|12gb\|cloud] [--chat-model M] [--vault DIR] [--yes]` | Create `config.toml` (0600) when it is missing, never overwrite a key. The profile comes from `nvidia-smi` and `/proc/meminfo` (22000 MiB and 60 GiB: `max`; 22000 MiB: `24gb`; 11000 MiB: `12gb`; else `cloud`), is confirmed on a terminal unless `--yes`, and sets `[hal].profile` and the chat model. Verified by `test_profiles.py` |
 | `hal eval [--model M] [--only IDS] [--category C] [--repeat N]` | Ask Hal the test cases and check the answers |

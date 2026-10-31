@@ -1,6 +1,6 @@
 """`hal configure`: writes ~/.config/hal/config.toml on first install, and keeps it pointing at this checkout.
 
-    hal configure [--chat-model M] [--vault DIR]
+    hal configure [--profile auto|max|24gb|12gb|cloud] [--chat-model M] [--vault DIR] [--yes]
 
 A new file gets Hal's defaults and a private ntfy topic for phone notifications. An
 existing file is only changed where it must be: [hub].module_paths gains this
@@ -11,13 +11,15 @@ from __future__ import annotations
 import argparse
 import re
 import secrets
+import sys
 
-from . import config
+from . import config, profiles
 
 TEMPLATE = """# Hal's settings, shared by core hal and every extension. Each extension reads its own table;
 # see each one's README for what it takes.
 
 [hal]
+profile = "{profile}"                  # hardware profile chosen by hal configure (informational)
 vault = "{vault}"                      # the Obsidian vault Hal's memory lives in
 ollama_url = "http://localhost:11434"
 chat_model = "{chat_model}"            # the brain: answers and calls tools (hal eval compares models)
@@ -47,11 +49,11 @@ def paths() -> list[str]:
     return [str(config.ECOSYSTEM / "core"), str(config.extensions_dir())]
 
 
-def init(chat_model: str, vault: str) -> str:
+def init(chat_model: str, vault: str, profile: str = "cloud") -> str:
     path = config.config_path()
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(TEMPLATE.format(vault=vault, chat_model=chat_model, topic=f"hal-{secrets.token_hex(12)}",
+        path.write_text(TEMPLATE.format(profile=profile, vault=vault, chat_model=chat_model, topic=f"hal-{secrets.token_hex(12)}",
                                         paths=", ".join(f'"{p}"' for p in paths())))
         path.chmod(0o600)
         return f"wrote {path}"
@@ -76,10 +78,29 @@ def init(chat_model: str, vault: str) -> str:
     return f"updated [hub].module_paths in {path}"
 
 
+def choose_profile(requested: str, yes: bool) -> str:
+    """The profile to write: `requested`, or the detected one, confirmed on a terminal unless `yes`."""
+    if requested != "auto":
+        return requested
+    found = profiles.detect_profile()
+    if yes or not sys.stdin.isatty():
+        return found
+    answer = input(f"Detected profile {found}. Use it? [Y/n/max/24gb/12gb/cloud] ").strip().lower()
+    if answer in profiles.PROFILES:
+        return answer
+    return found if answer in ("", "y", "yes") else "cloud"
+
+
 def main(argv: list[str]) -> int:
+    """Entry point of `hal configure`."""
     ap = argparse.ArgumentParser(prog="hal configure")
-    ap.add_argument("--chat-model", default=config.SHARED["chat_model"])
+    ap.add_argument("--profile", choices=("auto", *profiles.PROFILES), default="auto")
+    ap.add_argument("--chat-model", default=None)
     ap.add_argument("--vault", default=config.SHARED["vault"])
+    ap.add_argument("--yes", action="store_true", help="accept the detected profile without asking")
     args = ap.parse_args(argv)
-    print(init(args.chat_model, args.vault))
+    # a profile only matters when the file is about to be created, so an existing file never prompts
+    name = choose_profile(args.profile, args.yes) if not config.config_path().exists() else "cloud"
+    chat_model = args.chat_model or profiles.PROFILES[name].chat_model
+    print(init(chat_model, args.vault, name))
     return 0
