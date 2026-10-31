@@ -29,6 +29,7 @@ TOOL_ALIASES = _table(
         "read": "read_file view view_file open open_file cat file_read readfile get_file",
         "edit": "str_replace str_replace_editor str_replace_based_edit_tool edit_file replace "
         "replace_in_file search_replace apply_edit file_edit multiedit",
+        "patch": "apply_patch apply_diff patch_file unified_diff",
         "write": "write_file create_file create save_file file_write",
         "grep": "search search_code grep_search rg ripgrep find_in_files code_search git_grep",
         "glob": "find_files list_files ls list_dir list_directory file_glob_search find",
@@ -54,6 +55,9 @@ ARG_ALIASES: dict[str, dict[str, str]] = {
             "new_string": "new_str new replace replacement new_text",
         }
     ),  # fmt: skip
+    "patch": _table(
+        {"path": "file_path file filename", "patch": "diff patch_text unified_diff changes input"}
+    ),
     "write": _table({"path": "file_path file", "content": "file_text text contents data file_content code"}),
     "run": _table(
         {

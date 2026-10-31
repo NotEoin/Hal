@@ -63,7 +63,7 @@ class StateNote:
             span = f"{path}:{args.get('start_line', 1)}-{args.get('end_line', '')}".rstrip("-")
             if span not in self.read:
                 self.read.append(span)
-        elif name in ("edit", "write") and path and not result.startswith('{"status": "error"'):
+        elif name in ("edit", "patch", "write") and path and not result.startswith('{"status": "error"'):
             self.changed[f"{path} ({name})"] = self.changed.get(f"{path} ({name})", 0) + 1
         elif name == "run":
             tail = "\n".join("  " + ln for ln in result.splitlines()[-5:])

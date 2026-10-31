@@ -51,6 +51,14 @@ must be listed here in the same commit.
 `session/compact` takes an optional `focus` string that the summary keeps detail on.
 Verified by `tests/test_context.py` and `tests/test_budget.py`.
 
+## Tool reliability
+
+- `patch` takes SEARCH/REPLACE blocks or a unified diff for one file. Each block uses the `edit`
+  matcher (exact, line-number stripped, whitespace-insensitive); the patch is all-or-nothing and
+  a failed block is named in the retry message.
+- Profile key `tool_set = "compact"` offers only `COMPACT_TOOLS` (read, grep, edit, write, run,
+  finish) so small models choose among fewer tools.
+
 ## Prompt-cache friendliness
 
 The system prompt is built once per session and the tool list has a fixed order, so the prefix of

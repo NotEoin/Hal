@@ -1,8 +1,9 @@
-"""The coding toolset: `read`, `grep`, `glob`, `edit`, `write`, `run`, `todo`, `subagent`, `finish`.
+"""The coding toolset: `read`, `grep`, `glob`, `edit`, `patch`, `write`, `run`, `todo`, `subagent`, `finish`.
 
 `Toolset` binds the tools to a `Workspace`. Schemas are flat (string and integer properties only)
 and offered in a fixed order. `finish` is offered in task mode only; `run` is left out when the
-caller has no sandbox for it. `Agent.__init__` binds `subagent` to its agent.
+caller has no sandbox for it. `compact=True` keeps only `COMPACT_TOOLS`, for small models.
+`Agent.__init__` binds `subagent` to its agent.
 Tools raise `ToolError`; the loop renders it for the model.
 """
 
@@ -14,10 +15,12 @@ from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
-from halagent.tools import files, plan, run, search
+from halagent.tools import files, patch, plan, run, search
 from halagent.tools.paths import ToolError, Workspace
 
-__all__ = ["Tool", "ToolError", "Toolset", "Workspace", "render_error"]
+COMPACT_TOOLS = ("read", "grep", "edit", "write", "run", "finish")  # what a small model needs
+
+__all__ = ["COMPACT_TOOLS", "Tool", "ToolError", "Toolset", "Workspace", "render_error"]
 
 
 @dataclass(frozen=True)
@@ -55,7 +58,7 @@ class Toolset:
 
     def __init__(
         self, workspace: Workspace | Path | str, *, task_mode: bool = False, with_run: bool = True,
-        syntax_guard: bool = True, coding: bool = True,
+        syntax_guard: bool = True, coding: bool = True, compact: bool = False,
     ) -> None:  # fmt: skip
         self.workspace = workspace if isinstance(workspace, Workspace) else Workspace(Path(workspace))
         ws = self.workspace
@@ -64,6 +67,7 @@ class Toolset:
             "grep": lambda a: search.grep(ws, a),
             "glob": lambda a: search.glob(ws, a),
             "edit": lambda a: files.edit(ws, a, syntax_guard=syntax_guard),
+            "patch": lambda a: patch.patch(ws, a, syntax_guard=syntax_guard),
             "write": lambda a: files.write(ws, a),
             "run": lambda a: run.run(ws, a),
             "subagent": _unbound_subagent,
@@ -84,7 +88,7 @@ class Toolset:
                 r["free"],
             )
             for r in rows
-            if r["name"] not in skip
+            if r["name"] not in skip and (not compact or r["name"] in COMPACT_TOOLS)
         ]
         # the assistant toolset offers no coding tool (REQ-AGT-102)
         self.tools: dict[str, Tool] = {t.name: t for t in tools} if coding else {}

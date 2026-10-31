@@ -90,6 +90,26 @@
   "free": false
  },
  {
+  "name": "patch",
+  "kind": "edit",
+  "description": "Change a file with SEARCH/REPLACE blocks or a unified diff. Each block is: <<<<<<< SEARCH, the old lines, =======, the new lines, >>>>>>> REPLACE. Use it for several changes in one file. Copy the old lines from read output without line numbers.",
+  "properties": {
+   "path": {
+    "type": "string",
+    "description": "File to change"
+   },
+   "patch": {
+    "type": "string",
+    "description": "One or more SEARCH/REPLACE blocks, or a unified diff"
+   }
+  },
+  "required": [
+   "path",
+   "patch"
+  ],
+  "free": false
+ },
+ {
   "name": "write",
   "kind": "edit",
   "description": "Create a file, or replace a whole file, with the given content. Use edit to change part of an existing file.",

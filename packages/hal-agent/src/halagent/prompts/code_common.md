@@ -7,7 +7,7 @@
 
 ## Edit
 
-- Change the code with the edit tool. Copy old_string exactly from the read output, without the line numbers, and include enough lines to make it unique. If an edit fails, read the lines again and retry once.
+- Change the code with the edit tool. Copy old_string exactly from the read output, without the line numbers, and include enough lines to make it unique. If an edit fails, read the lines again and retry once. For several changes in one file, use patch with SEARCH/REPLACE blocks.
 - Fix the cause with the smallest change. Keep the existing style, names and public API.
 - Change tests only when the task asks for it.
 - Put scratch files in /scratch, never in the project.

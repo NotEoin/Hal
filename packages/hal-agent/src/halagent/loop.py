@@ -50,7 +50,7 @@ from halagent.sessions import SessionWriter, replay_indexed
 from halagent.settings import DEFAULT_MAX_OUTPUT, DEFAULT_WINDOW, AgentSettings
 from halagent.subagents import run_subagents
 from halagent.tokens import ESTIMATE_FACTOR, TokenCounter
-from halagent.tools import ToolError, Toolset, render_error
+from halagent.tools import COMPACT_TOOLS, ToolError, Toolset, render_error
 from halkit import paths
 
 log = logging.getLogger("halagent.loop")
@@ -191,6 +191,9 @@ class Agent:
             self._offer_listed(listed)  # the assistant offers none up front: tools are chosen per turn
             if assistant and any(t.name == "memory_profile" for t in listed):
                 self._profile_text = self._fetch_profile()
+        if self.profile.values.get("tool_set") == "compact":
+            keep = set(COMPACT_TOOLS)
+            self.toolset.tools = {n: t for n, t in self.toolset.tools.items() if n in keep}
         if "subagent" in self.toolset.tools:
             sub = self.toolset.tools["subagent"]
             self.toolset.tools["subagent"] = replace(sub, fn=lambda a: run_subagents(self, a))

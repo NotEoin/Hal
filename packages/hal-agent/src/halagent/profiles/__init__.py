@@ -42,6 +42,7 @@ KEYS: dict[str, tuple[tuple[type, ...], tuple[str, ...] | None]] = {
     "strict_alternation": ((bool,), None),
     "max_tools_hint": ((int,), None),
     "stop": ((list,), None),
+    "tool_set": ((str,), ("full", "compact")),
     "cache_prompt": ((bool,), None),
     "id_slot": ((int,), None),
 }

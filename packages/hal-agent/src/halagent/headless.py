@@ -27,7 +27,7 @@ EXIT_OK, EXIT_ERROR, EXIT_UNREACHABLE, EXIT_LIMIT, EXIT_REFUSAL = 0, 1, 3, 4, 5
 EXIT_TIMEOUT, EXIT_CANCELLED = 124, 130
 STREAM_RESULT_CHARS = 4_000  # tool results in stream-json are cut to this (03-agent 3.15.3)
 GIT_TIMEOUT_S = 10.0
-EDIT_TOOLS = frozenset({"edit", "write"})
+EDIT_TOOLS = frozenset({"edit", "patch", "write"})
 # halagent stop reason -> (subtype, exit code); table in 03-agent 3.15.2
 OUTCOMES: dict[str, tuple[str, int]] = {
     "finished": ("success", EXIT_OK),

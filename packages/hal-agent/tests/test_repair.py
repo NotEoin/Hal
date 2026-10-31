@@ -92,7 +92,7 @@ def test_gemma_argument_parser_rejects_deep_nesting():
 @pytest.mark.parametrize(
     ("given", "want"),
     [("read_file", "read"), ("Bash", "run"), ("functions.grep", "grep"), ("str_replace_editor", "edit"),
-     ("submit", "finish"), ("apply_patch", None)],
+     ("submit", "finish"), ("deploy_site", None)],
 )  # fmt: skip
 def test_names_resolve_through_case_prefix_and_alias(given, want):
     assert resolve_name(given, OFFERED) == want
@@ -130,5 +130,5 @@ def test_unknown_argument_is_dropped_with_a_note_and_missing_required_is_an_erro
 
 
 def test_unknown_tool_lists_the_offered_tools():
-    r = repair_call("apply_patch", {}, OFFERED)
+    r = repair_call("deploy_site", {}, OFFERED)
     assert r.error and r.error[0] == "unknown_tool" and "Your tools are: read, grep" in r.error[1]
