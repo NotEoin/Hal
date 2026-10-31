@@ -149,3 +149,21 @@ def test_a_mentioned_fifo_is_skipped_without_blocking(tmp_path):
     os.mkfifo(tmp_path / "pipe")
     blocks, _ = mentions.attach_mentions("see @pipe", tmp_path, 20)
     assert blocks == []
+
+
+def test_branch_is_read_from_head_without_running_the_copys_git_config(tmp_path, monkeypatch):
+    # regression: the status line ran host `git` inside the box-written copy, under its .git/config
+    def no_process(*args, **kwargs):
+        raise AssertionError("the status line must not start a process")
+
+    monkeypatch.setattr("subprocess.Popen", no_process)
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "config").write_text("[core]\n\tfsmonitor = touch pwned\n")
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/feature/x\n")
+    assert status.git_branch(tmp_path) == "feature/x"
+    (tmp_path / ".git" / "HEAD").write_text("0123abcd\n")
+    assert status.git_branch(tmp_path) == "HEAD"
+    (tmp_path / ".git" / "HEAD").unlink()
+    (tmp_path / ".git" / "HEAD").symlink_to(tmp_path / ".git" / "config")
+    assert status.git_branch(tmp_path) == "" and status.git_branch(None) == ""
+    assert not (tmp_path / "pwned").exists()

@@ -4,15 +4,20 @@
 the line costs nothing per redraw). `segments` turns it into `(role, text)` pairs that both the
 prompt_toolkit toolbar and the rich live region draw, so the two always agree. Roles map to the
 palette: accent for focus, muted for metadata, ok and bad only for pass and fail marks.
+
+The branch is read from the copy's `.git/HEAD` file, never by running `git`: the box writes that
+repository, and host `git` would honour its config (`core.fsmonitor` and friends).
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from halkit import proc
+from halkit import fsafe
+from halkit.paths import UnsafePathError
 from rich.text import Text
 
 from .render import clean, clip
@@ -21,7 +26,8 @@ from .theme import Glyphs, Look
 log = logging.getLogger(__name__)
 
 BAR_WIDTH = 10
-GIT_TIMEOUT_S = 5.0
+MAX_HEAD_BYTES = 512  # a symbolic ref line; anything longer is not a HEAD file
+HEAD_REF_PREFIX = "ref: refs/heads/"
 MAX_FIELD_CHARS = 40
 WARN_PERCENT = 85  # the point where a 16k to 64k window starts truncating useful history
 PT_COLORS = {
@@ -101,12 +107,15 @@ def to_prompt_toolkit(parts: list[tuple[str, str]], look: Look) -> list[tuple[st
 
 
 def git_branch(work: Path | None) -> str:
-    """The current branch of the working copy at `work`, or "" when it is not a git tree."""
-    if work is None or not (work / ".git").exists():
+    """The current branch of the working copy at `work`, `HEAD` when detached, or "" when not a git tree."""
+    if work is None:
         return ""
     try:
-        done = proc.run(["git", "-C", str(work), "rev-parse", "--abbrev-ref", "HEAD"], timeout=GIT_TIMEOUT_S, check=False)
-    except (proc.ProcTimeout, OSError) as exc:
-        log.warning("git branch lookup failed: %s", exc)
+        fd = fsafe.open_regular_beneath(work, ".git/HEAD")
+        with os.fdopen(fd, "rb") as fh:
+            head = fh.read(MAX_HEAD_BYTES).decode("utf-8", "replace").strip()
+    except (OSError, UnsafePathError):
         return ""
-    return done.stdout.decode("utf-8", "replace").strip() if done.returncode == 0 else ""
+    if head.startswith(HEAD_REF_PREFIX):
+        return head[len(HEAD_REF_PREFIX) :]
+    return "HEAD" if head else ""
