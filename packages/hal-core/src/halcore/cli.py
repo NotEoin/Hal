@@ -44,6 +44,7 @@ COMMANDS: dict[str, Command] = {
     "chat": Command("chat", "talk to Hal in a box"),
     "code": Command("code", "coding session on a project copy"),
     "acp": Command("acpcmd", "ACP proxy for editors and channels"),
+    "ide": Command("idecmd", "connect editors: print or write their configuration"),
     "jobs": Command("deepwork", "list, follow, cancel and accept background jobs"),
     "sessions": Command("sessionscmd", "list, resume, fork and export sessions"),
     "lockdown": Command("levels", "show or explain the lockdown level", ("lockdown",)),
