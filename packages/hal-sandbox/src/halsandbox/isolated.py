@@ -313,11 +313,12 @@ def _checkpoint(iso: Isolated) -> Checkpoint:
         raise AcceptRefused(f"cannot checkpoint the project, so nothing was applied: {exc}") from exc
 
 
-def accept(iso: Isolated, *, allow_flags: bool = False) -> list[Change]:
+def accept(iso: Isolated, *, allow_flags: bool = False, expected_patch: bytes | None = None) -> list[Change]:
     """Applies the agent's changes to the project, all or nothing; returns what was applied.
 
-    Raises `AcceptRefused` on a high-risk flag (unless `allow_flags`) or when the patch does not
-    apply; in the second case the patch is kept under `$STATE/patches/<sid>.patch`.
+    Raises `AcceptRefused` on a high-risk flag (unless `allow_flags`), when `expected_patch` (the
+    patch the user reviewed) no longer matches the copy, or when the patch does not apply; in the
+    last case the patch is kept under `$STATE/patches/<sid>.patch`.
     """
     rep = report(iso)
     if rep.high and not allow_flags:
@@ -329,6 +330,8 @@ def accept(iso: Isolated, *, allow_flags: bool = False) -> list[Change]:
     if not applied:
         return []
     patch = patch_bytes(iso)
+    if expected_patch is not None and patch != expected_patch:
+        raise AcceptRefused("the copy changed after the review; nothing was applied, run accept again")
     _checkpoint(iso)
     env = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),

@@ -302,11 +302,15 @@ class Session:
         """The patch text from checkpoint `since` (default: the first) to now."""
         return self.report(since).patch
 
-    def apply_isolated(self, *, allow_flags: bool = False) -> list[Path]:
-        """Applies the isolated copy's changes to the real project; returns the paths applied."""
+    def apply_isolated(self, *, allow_flags: bool = False, expected_patch: bytes | None = None) -> list[Path]:
+        """Applies the isolated copy's changes to the real project; returns the paths applied.
+
+        `expected_patch` is the patch the user confirmed; a copy that changed since is refused.
+        """
         if self.iso is None:
             raise SandboxError("this session has no isolated copy")
-        return [Path(c.path) for c in isolated.accept(self.iso, allow_flags=allow_flags)]
+        applied = isolated.accept(self.iso, allow_flags=allow_flags, expected_patch=expected_patch)
+        return [Path(c.path) for c in applied]
 
     def reject_isolated(self) -> None:
         """Discards the isolated copy."""

@@ -59,6 +59,7 @@ NOTIFY_LONG_S = 60.0  # a turn this long notifies even when the terminal cannot 
 MODEL_LIST_TIMEOUT_S = 3.0
 AGENTS_FILE = "AGENTS.md"
 PLAN_PROMPT = "Run this plan? [d]efault mode, [a]uto-edit mode, anything else keeps plan mode: "
+YES_ANSWERS = ("y", "yes")
 PLAN_ANSWERS = {"d": "default", "a": "auto-edit"}  # typed by the human; agent text never reaches this table
 PLAN_APPROVED_PROMPT = "The plan is approved. Carry it out."
 
@@ -362,6 +363,15 @@ async def _run_tui(
             return await stdin_line("")
         return await loop.run_in_executor(None, input, "note for the agent> ")
 
+    async def confirm(question: str) -> bool:
+        if stdin_line is not None:
+            answer = await stdin_line("")
+        else:
+            with suspend():
+                answer = await loop.run_in_executor(None, input, question)
+        return answer.strip().lower() in YES_ANSWERS
+
+    state.confirm = confirm
     bridge = PermissionBridge(socket_owned_by_us, lambda: state.sid)
     approvals = asyncio.ensure_future(
         bridge.run(make_asker(bridge, read_approval, out, console=renderer.console, suspend=suspend, read_note=read_note, on_note=queued.append))

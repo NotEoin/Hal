@@ -85,3 +85,64 @@ def test_theme_changes_the_look_for_the_session():
     run("/theme mono", st)
     assert not st.renderer.look.color
     assert "pick one" in run("/theme neon", st).message
+
+
+class IsoSession:
+    """A session with a real isolated copy, so `/accept` runs the real report and apply."""
+
+    def __init__(self, iso):
+        self.iso = iso
+
+    def apply_isolated(self, *, allow_flags=False, expected_patch=None):
+        from halsandbox import isolated
+
+        return [c.path for c in isolated.accept(self.iso, allow_flags=allow_flags, expected_patch=expected_patch)]
+
+
+def accept_setup(tmp_path, monkeypatch):
+    from halsandbox import isolated
+
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "state"))
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "a.txt").write_text("one\n")
+    iso = isolated.create(project, 10**6)
+    (iso.work / "a.txt").write_text("two\n")
+    return project, iso
+
+
+def answering(answer, seen=None):
+    async def confirm(question):
+        if seen is not None:
+            seen.append(question)
+        return answer
+
+    return confirm
+
+
+def test_accept_applies_nothing_until_the_user_confirms(tmp_path, monkeypatch):
+    # regression: /accept applied the copy at once, without the confirmation the docs promise
+    project, iso = accept_setup(tmp_path, monkeypatch)
+    out = io.StringIO()
+    st = slash.TuiState(NullClient(), "0123456789ab", "/work", Renderer(out), session=IsoSession(iso))
+    assert "nothing applied" in run("/accept", st).message
+    st.confirm = answering(False)
+    assert "nothing applied" in run("/accept", st).message
+    assert (project / "a.txt").read_text() == "one\n"
+    assert "a.txt" in out.getvalue()
+    seen = []
+    st.confirm = answering(True, seen)
+    assert "applied 1 changed paths" in run("/accept", st).message
+    assert (project / "a.txt").read_text() == "two\n" and "[y/N]" in seen[0]
+
+
+def test_accept_refuses_changes_made_while_the_user_was_deciding(tmp_path, monkeypatch):
+    project, iso = accept_setup(tmp_path, monkeypatch)
+
+    async def swap_then_yes(question):
+        (iso.work / "a.txt").write_text("swapped\n")
+        return True
+
+    st = state(session=IsoSession(iso), confirm=swap_then_yes)
+    assert "changed after the review" in run("/accept", st).message
+    assert (project / "a.txt").read_text() == "one\n"

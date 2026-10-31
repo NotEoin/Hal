@@ -79,6 +79,18 @@ def test_accept_applies_edits_adds_and_deletes_and_checkpoints(repo):
     assert (repo / "app.py").read_text() != "print('changed')\n" and (repo / "untracked.txt").exists()
 
 
+def test_accept_refuses_a_copy_that_changed_after_the_reviewed_patch(repo):
+    # regression: the TUI applied whatever the copy held at apply time, not what the user reviewed
+    iso = isolated.create(repo, CAP)
+    (iso.work / "app.py").write_text("print('reviewed')\n")
+    reviewed = isolated.patch_bytes(iso)
+    (iso.work / "app.py").write_text("print('swapped')\n")
+    with pytest.raises(isolated.AcceptRefused, match="changed after the review"):
+        isolated.accept(iso, expected_patch=reviewed)
+    assert "swapped" not in (repo / "app.py").read_text()
+    assert [c.path for c in isolated.accept(iso, expected_patch=isolated.patch_bytes(iso))] == ["app.py"]
+
+
 def test_high_risk_changes_block_accept_unless_allowed(repo):
     iso = isolated.create(repo, CAP)
     (iso.work / ".github" / "workflows").mkdir(parents=True)

@@ -44,6 +44,7 @@ MAX_COMMAND_BYTES = 64 * 1024  # a prompt template, not a document
 MAX_IMAGE_BYTES = 5 * 2**20  # the ACP line cap is 8 MiB and base64 adds a third
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
 MAX_DIFF_CHARS = 20_000
+ALLOW_FLAGS = "--allow-flags"
 MODEL_LIST_TIMEOUT_S = 3.0  # a picker must not hang on a stopped gateway
 CONTEXT_KEYS = ("context_length", "context_window", "n_ctx", "max_model_len")
 INIT_PROMPT = (
@@ -88,6 +89,7 @@ class TuiState:
     model_choices: list[str] = field(default_factory=list)
     resume_choices: list[str] = field(default_factory=list)
     ide: object | None = None  # an `IdeBridge` when the IDE channel is open
+    confirm: Callable[[str], Awaitable[bool]] | None = None  # a yes/no typed on the terminal; None refuses
 
 
 def image_block(path: Path) -> Block:
@@ -284,15 +286,30 @@ async def _rewind(state: TuiState, args: str) -> Result:
 
 
 async def _apply(state: TuiState, args: str) -> Result:
+    """Shows the diff report, asks for a typed yes, then applies exactly the reviewed patch."""
     session = state.session
     if session is None or session.iso is None:
-        return Result(message="/apply: this session has no isolated copy")
+        return Result(message="/accept: this session has no isolated copy")
+    if args not in ("", ALLOW_FLAGS):
+        return Result(message=f"/accept [{ALLOW_FLAGS}]")
     try:
-        print_report = isolated.render(isolated.report(session.iso))
-        applied = session.apply_isolated(allow_flags=args == "--allow-flags")
+        rep = isolated.report(session.iso)
+        reviewed = isolated.patch_bytes(session.iso)
     except SandboxError as exc:
-        return Result(message=f"/apply: {exc}")
-    return Result(message=print_report + f"\napplied {len(applied)} changed paths")
+        return Result(message=f"/accept: {exc}")
+    if not rep.files:
+        return Result(message="/accept: the copy has no changes")
+    state.renderer.plain(isolated.render(rep))
+    if state.confirm is None:  # headless or scripted: an accept needs a human at the terminal
+        return Result(message="/accept: nothing applied; confirming needs a terminal (or run `hal code accept`)")
+    question = f"apply {len(rep.files)} changed paths to {safe(str(session.iso.project))}? [y/N] "
+    if not await state.confirm(question):
+        return Result(message="/accept: nothing applied")
+    try:
+        applied = session.apply_isolated(allow_flags=args == ALLOW_FLAGS, expected_patch=reviewed)
+    except SandboxError as exc:
+        return Result(message=f"/accept: {exc}")
+    return Result(message=f"applied {len(applied)} changed paths")
 
 
 async def _cost(state: TuiState, args: str) -> Result:
