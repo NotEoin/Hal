@@ -22,3 +22,10 @@ Verified by `packages/hal-core/tests/test_doctor.py`.
 `hal migrate ecosystem [--from DIR] [--yes]` plans the move from the old layout and applies it
 only with `--yes`. `hal migrate undo JOURNAL` reverts it. See
 [move-from-hal-ecosystem](../howto/move-from-hal-ecosystem.md).
+
+## Installing
+
+`scripts/install.sh` creates `~/.local/share/hal/venv` with uv, installs the packages of this
+checkout editable and links `~/.local/bin/hal`. It never uses sudo. `--dry-run` prints every
+step and changes nothing; a second run changes nothing. Options: `--core-only`, `--no-link`.
+Then run `hal doctor`. Verified by `packages/hal-core/tests/test_install_script.py`.
