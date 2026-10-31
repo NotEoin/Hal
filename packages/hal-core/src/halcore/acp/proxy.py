@@ -3,9 +3,12 @@
 `ProxyFilter` holds the rules as pure functions of one message so they are testable without
 pipes; `Proxy` pumps two transports through it. The agent is untrusted (REQ-CLI-37..39):
 
-- `fs/*` and `terminal/*` requests from the agent never reach the editor: they get -32601, so the
-  agent cannot read or run anything on the host through it.
+- `fs/*` and `terminal/*` requests from the agent never reach the editor: `fs/read_text_file` and
+  `fs/write_text_file` are answered from the isolated copy when the proxy has one (`hostfs`),
+  everything else gets -32601, so the agent cannot read or run anything on the host through it.
 - The client's `fs` and `terminal` capabilities are removed from `initialize`.
+- `edit` and `write` tool calls get ACP `diff` content with the editor's own file path, so the
+  editor shows the change natively.
 - Every `hal/` key under `_meta` is deleted from agent messages and tool titles get `[box] `, so
   an agent cannot pose as a broker approval (REQ-SEC-29). Request ids starting `hal-` are the
   proxy's own and an agent request that uses one is refused.
@@ -26,6 +29,7 @@ from pathlib import Path, PurePosixPath
 
 from typing import TYPE_CHECKING
 
+from .hostfs import CopyFs, FsRefused
 from .records import RecordRefused, RecordStore
 from .transport import Transport
 
@@ -39,6 +43,7 @@ OWN_ID_PREFIX = "hal-"  # ids of requests the proxy itself sends to the client
 META_PREFIX = "hal/"
 BOX_PREFIX = "[box] "
 HOST_METHOD_PREFIXES = ("fs/", "terminal/")
+FS_METHODS = ("fs/read_text_file", "fs/write_text_file")
 TITLED_UPDATES = ("tool_call", "tool_call_update")
 Message = dict[str, object]
 
@@ -91,6 +96,7 @@ class ProxyFilter:
         on_human_message: Callable[[str], None] | None = None,
         records: RecordStore | None = None,
         on_own_response: Callable[[Message], bool] | None = None,
+        copy: CopyFs | None = None,
     ) -> None:
         if (project is None) == (scratch is None):
             raise ValueError("give exactly one of project (code) or scratch (assistant channel)")
@@ -100,6 +106,7 @@ class ProxyFilter:
         self._human = on_human_message
         self._records = records
         self.own_response = on_own_response
+        self.copy = copy
         self.sessions: set[str] = set()
         self.active: str | None = None
 
@@ -117,6 +124,8 @@ class ProxyFilter:
             caps = dict(params.get("clientCapabilities") or {})  # type: ignore[call-overload]
             caps.pop("fs", None)
             caps.pop("terminal", None)
+            if self.copy is not None:  # served by the host from the isolated copy, not by the editor
+                caps["fs"] = {"readTextFile": True, "writeTextFile": True}
             meta = dict(caps.get("_meta") or {})
             meta["hal"] = {"records": True}
             caps["_meta"] = meta
@@ -158,6 +167,8 @@ class ProxyFilter:
         if isinstance(method, str) and method.startswith(HOST_METHOD_PREFIXES):
             if rid is None:
                 return Routed()
+            if self.copy is not None and method in FS_METHODS:
+                return Routed(reply=self._serve_fs(rid, method, msg.get("params")))
             return Routed(reply=_error(rid, ERR_METHOD_NOT_FOUND, f"method not found: {method}"))
         params = msg.get("params")
         params = params if isinstance(params, dict) else {}
@@ -167,7 +178,26 @@ class ProxyFilter:
         out = strip_hal_meta(msg)
         assert isinstance(out, dict)
         self._prefix_title(out)
+        self._add_diff(out)
         return Routed(forward=out)
+
+    def _add_diff(self, out: Message) -> None:
+        params = out.get("params")
+        update = params.get("update") if isinstance(params, dict) else None
+        if self.copy is None or not isinstance(update, dict) or update.get("sessionUpdate") != "tool_call":
+            return
+        diffs = self.copy.edit_diff(update)
+        if diffs:
+            update["content"] = [*(update.get("content") or []), *diffs]  # type: ignore[misc]
+            update["locations"] = [{"path": diffs[0]["path"]}]
+
+    def _serve_fs(self, rid: object, method: str, params: object) -> Message:
+        assert self.copy is not None
+        try:
+            result = self.copy.serve(method, params if isinstance(params, dict) else {})
+        except FsRefused as exc:
+            return _error(rid, exc.code, str(exc))
+        return {"jsonrpc": "2.0", "id": rid, "result": result}
 
     def _store(self, params: Message) -> None:
         sid, record = params.get("sessionId"), params.get("record")

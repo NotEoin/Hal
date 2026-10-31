@@ -20,6 +20,7 @@ from halsandbox.errors import SandboxError
 
 from . import sessions
 from . import pids
+from .acp.hostfs import CopyFs
 from .acp.permissions import PermissionBridge, socket_owned_by_us
 from .acp.proxy import Proxy, ProxyFilter
 from .acp.records import RecordStore
@@ -70,6 +71,7 @@ async def serve(opts: argparse.Namespace) -> None:
             box_root=None if assistant else sessions.BOX_WORK,
             on_human_message=lambda text: box.session.broker.on_human_message(text, sessions.SURFACE_ACP),
             records=RecordStore(),
+            copy=CopyFs(box.session.iso.work, project, sessions.BOX_WORK) if box.session.iso and project else None,
         )
         bridge = PermissionBridge(socket_owned_by_us, lambda: rules.active)
         rules.own_response = bridge.consume  # the filter and the bridge need each other
