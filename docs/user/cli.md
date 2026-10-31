@@ -29,3 +29,12 @@ only with `--yes`. `hal migrate undo JOURNAL` reverts it. See
 checkout editable and links `~/.local/bin/hal`. It never uses sudo. `--dry-run` prints every
 step and changes nothing; a second run changes nothing. Options: `--core-only`, `--no-link`.
 Then run `hal doctor`. Verified by `packages/hal-core/tests/test_install_script.py`.
+
+## hal connect
+
+`hal connect HARNESS` prints the environment and MCP entry that point an outside tool (claude,
+qwen, opencode, codex, crush, goose, cline) at the Hal gateway. The first line says the tool runs
+unsandboxed. `--list` shows the harnesses, `--issue` mints the token `connect-<harness>` into
+`~/.config/hal/tokens/` (mode 0600), `--json` prints the lines as JSON. The gateway needs
+`[gateway].tcp = true`. Not yet done: `--write` of the harness config and switching TCP on.
+Verified by `packages/hal-core/tests/test_connect.py`.

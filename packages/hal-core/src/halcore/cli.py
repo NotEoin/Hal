@@ -68,6 +68,7 @@ COMMANDS: dict[str, Command] = {
     "console": Command("console", "local web console (UNBOXED: runs on the host, real data)"),
     "eval": Command("evaluate", "run the evaluation suites"),
     "migrate": Command("migrate", "move from the old hal-ecosystem layout (dry run by default)"),
+    "connect": Command("connect", "print settings for an outside coding tool (unsandboxed)"),
     "ext": Command("ext", "extensions"),
 }
 
