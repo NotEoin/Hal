@@ -71,3 +71,16 @@ def test_box_without_a_cli_exits_2():
     with pytest.raises(SystemExit) as exc:
         boxcli_cmd.box_main([])
     assert exc.value.code == 2
+
+
+def test_box_direct_is_refused_under_standard_lockdown_before_any_model_starts(monkeypatch, tmp_path, capsys):
+    """REQ-CLI-42: the front end reports a lockdown refusal as an error, not a traceback."""
+    from halsandbox import session
+
+    monkeypatch.setattr(boxcli_cmd.boxmod.boximages, "newest", lambda cli: "hal-box-claude:test")
+    monkeypatch.setattr(session.sbconfig, "load_all", lambda: {"sandbox": {"lockdown": "standard"}})
+    started = []
+    monkeypatch.setattr(boxcli_cmd, "_Forwarder", lambda *a: started.append(a))
+    assert boxcli_cmd.box_main(["--dir", str(tmp_path), "--direct", "--", "claude"]) == 1
+    err = capsys.readouterr().err
+    assert "--direct needs lockdown relaxed or lower (now standard)" in err and not started
