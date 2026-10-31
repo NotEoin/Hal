@@ -65,6 +65,7 @@ def _done(argv, code, out, err=""):
 def home(tmp_path, monkeypatch):
     for var in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR"):
         monkeypatch.setenv(var, str(tmp_path / var))
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "hal-state"))
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "config.toml"))
     monkeypatch.setattr(sshconf, "find_ssh", lambda override="": SSH)

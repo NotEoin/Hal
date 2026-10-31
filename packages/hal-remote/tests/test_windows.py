@@ -45,7 +45,9 @@ class Tools:
 @pytest.fixture
 def pp(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "hal-state"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "cfg" / "config.toml"))
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
     paths = profile_paths("desktop")
     paths.state.mkdir(parents=True)

@@ -95,6 +95,7 @@ def test_status_of_a_profile_that_never_ran_exits_4(tmp_path, monkeypatch, capsy
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "hal-state"))
     monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "config.toml"))
     pairing.save_profile(
         Profile("desktop", "laptop", "desk.lan", "me", 22, (Forward("gateway", 8741, 8741),))
