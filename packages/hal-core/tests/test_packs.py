@@ -230,3 +230,33 @@ def test_own_pack_at_the_wrong_commit_is_refused(home, monkeypatch):
     monkeypatch.setattr(packs.proc, "run", lambda argv, **kw: subprocess.CompletedProcess(argv, 0, b"b" * 40 + b"\n", b""))
     with pytest.raises(packs.PackError, match="not the pin"):
         packs.install_own("s", "https://example.invalid/s.git", PIN, {}, "voice")
+
+
+def _online_setup(home, monkeypatch, tag_commit: str):
+    cat = packs.tomllib.loads(_catalog(home, PIN).read_text())
+    monkeypatch.setattr(packs, "load_catalog", lambda path=None: cat)
+    monkeypatch.setattr(packs, "resolve_ref", lambda url, ref: tag_commit)
+    packs.write_record({"version": 2, "packs": {"demo": {"commit": PIN, "setup": "done", "modules": {}}}})
+
+
+def test_doctor_online_passes_when_the_tag_still_points_at_the_pin(home, monkeypatch):
+    _online_setup(home, monkeypatch, PIN)
+    rows = {check: result for _, check, result in packs.doctor(online=True)}
+    assert rows["online"].startswith("ok")
+
+
+def test_doctor_online_fails_when_the_tag_moved(home, monkeypatch):
+    _online_setup(home, monkeypatch, "d" * 40)
+    rows = {check: result for _, check, result in packs.doctor(online=True)}
+    assert rows["online"].startswith("FAIL tag v1 now points at")
+
+
+def test_doctor_online_reports_an_unreachable_source_and_offline_never_asks(home, monkeypatch):
+    _online_setup(home, monkeypatch, PIN)
+
+    def down(url, ref):
+        raise packs.PackError("network is down")
+
+    monkeypatch.setattr(packs, "resolve_ref", down)
+    assert packs.doctor(online=True)[1][2].startswith("FAIL cannot check")
+    assert "online" not in {check for _, check, _ in packs.doctor()}

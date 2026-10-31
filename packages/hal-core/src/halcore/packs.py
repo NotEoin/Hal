@@ -418,8 +418,11 @@ def remove(name: str) -> Path | None:
     return moved
 
 
-def doctor(names: list[str] | None = None) -> list[tuple[str, str, str]]:
-    """Rows `(pack, check, result)`; a result starting with `FAIL` means the pack needs attention."""
+def doctor(names: list[str] | None = None, *, online: bool = False) -> list[tuple[str, str, str]]:
+    """Rows `(pack, check, result)`; a result starting with `FAIL` means the pack needs attention.
+
+    `online` also asks each catalogue source whether its tag still resolves to the pinned commit.
+    """
     record = read_record()
     cat = load_catalog()
     rows: list[tuple[str, str, str]] = []
@@ -439,6 +442,8 @@ def doctor(names: list[str] | None = None) -> list[tuple[str, str, str]]:
         for mod, ent in sorted(have.get("modules", {}).items()):
             ok = Path(ent["manifest"]).is_file() and Path(ent["interpreter"][0]).exists()
             rows.append((name, f"module {mod}", "ok" if ok else "FAIL manifest or interpreter missing"))
+        if online and pin and not have.get("local"):
+            rows.append((name, "online", _online_row(cat, cat["packs"][name], pin)))
         setup = have.get("setup", "pending")
         rows.append((name, "setup", setup if setup == "done" else f"FAIL setup {setup}; run `hal packs setup {name}`"))
     return rows
@@ -518,6 +523,18 @@ def finish_setup_with(confirm: Callable[[ModuleSpec, InstallStep], bool], name: 
     return state
 
 
+def _online_row(cat: dict[str, Any], entry: dict[str, Any], pin: str) -> str:
+    """Whether the source's release tag still points at `pin` (a moved tag means a tampered or rebuilt release)."""
+    source = cat["sources"][entry["source"]]
+    try:
+        now = resolve_ref(mirror(str(source["repo"])), str(source["tag"]))
+    except (PackError, proc.ProcTimeout, subprocess.CalledProcessError, OSError) as exc:
+        return f"FAIL cannot check {source['tag']}: {exc}"
+    if now != pin:
+        return f"FAIL tag {source['tag']} now points at {now[:12]}, the pin is {pin[:12]}"
+    return f"ok tag {source['tag']} still points at the pin"
+
+
 def _typed_yes(summary: str) -> bool:
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         raise PackError("a terminal is needed to confirm; nothing installed")
@@ -567,6 +584,7 @@ def main(argv: list[str]) -> int:
     sub.add_parser("update", help="move installed packs to the catalogue pin").add_argument("names", nargs="*")
     s = sub.add_parser("doctor", help="check installed packs")
     s.add_argument("names", nargs="*")
+    s.add_argument("--online", action="store_true", help="also check that each release tag still points at its pin")
     s.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     try:
@@ -623,7 +641,7 @@ def _run(a: Any) -> int:
         state = finish_setup(a.name)
         print(f"  {a.name}: setup {state}")
         return 1 if state == "failed" else 0
-    rows = doctor(a.names)
+    rows = doctor(a.names, online=a.online)
     if a.json:
         print(json.dumps([{"pack": p, "check": c, "result": r} for p, c, r in rows], indent=1))
     else:
