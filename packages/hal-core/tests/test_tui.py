@@ -33,7 +33,7 @@ def test_agent_text_cannot_inject_terminal_escapes():
 
 def test_tool_titles_and_diffs_are_escaped_and_cut():
     update = {
-        "sessionUpdate": "tool_call", "title": HOSTILE,
+        "sessionUpdate": "tool_call", "title": HOSTILE, "status": "completed",
         "content": [{"type": "diff", "path": "a\x1b.py", "oldText": "x\n" * 100, "newText": HOSTILE}],
     }  # fmt: skip
     text = rendered(update)
