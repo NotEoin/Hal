@@ -164,3 +164,44 @@ def test_confine_gives_relative_posix_paths(env):
 
 def test_chip_collapses_a_single_line():
     assert chip("a.py", 4, 4) == "@a.py#L4" and chip("a.py", 10, 20) == "@a.py#L10-20"
+
+
+def test_connection_over_the_client_cap_is_refused(env, monkeypatch):
+    ws, run = env
+    monkeypatch.setattr(server, "MAX_CLIENTS", 1)
+
+    async def go():
+        srv = server.IdeServer(SID, ws, None, directory=run)
+        sock = await srv.start()
+        _r1, w1 = await asyncio.open_unix_connection(str(sock))
+        w1.write(j(type="hello"))
+        await w1.drain()
+        await asyncio.sleep(0.1)
+        r2, w2 = await asyncio.open_unix_connection(str(sock))
+        reply = json.loads(await asyncio.wait_for(r2.readline(), 2))
+        w1.close()
+        w2.close()
+        await srv.close()
+        return reply
+
+    assert asyncio.run(go())["type"] == "error"
+
+
+def test_send_to_a_stalled_editor_gives_up_within_the_send_timeout(env, monkeypatch):
+    ws, run = env
+    monkeypatch.setattr(server, "SEND_TIMEOUT_S", 0.1)
+
+    class Stuck:
+        def write(self, data):
+            pass
+
+        async def drain(self):
+            await asyncio.sleep(30)
+
+    async def go():
+        srv = server.IdeServer(SID, ws, None, directory=run)
+        srv._writers.add(Stuck())
+        await asyncio.wait_for(srv.send({"type": "welcome"}), 2)
+        return srv.connected
+
+    assert asyncio.run(go()) is False

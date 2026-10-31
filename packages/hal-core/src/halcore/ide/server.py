@@ -27,6 +27,8 @@ log = logging.getLogger(__name__)
 
 READ_TIMEOUT_S = 300.0  # a quiet editor is normal; a stalled half-sent line is not
 HELLO_TIMEOUT_S = 5.0  # the first message must come promptly
+SEND_TIMEOUT_S = 3.0  # a stuck editor must not stall the agent turn that is publishing to it
+MAX_CLIENTS = 8  # one session has a handful of editors at most; more is a runaway or hostile loop
 SOCKET_MODE = 0o600
 PEERCRED_FORMAT = "3i"  # struct ucred: pid, uid, gid
 Handler = Callable[[Message], Awaitable[None]]
@@ -96,7 +98,7 @@ class IdeServer:
         for writer in list(self._writers):
             try:
                 writer.write(data)
-                await asyncio.wait_for(writer.drain(), READ_TIMEOUT_S)
+                await asyncio.wait_for(writer.drain(), SEND_TIMEOUT_S)
             except (TimeoutError, OSError):
                 self._writers.discard(writer)
 
@@ -120,6 +122,10 @@ class IdeServer:
         try:
             if sock is None or peer_uid(sock) != os.getuid():
                 log.warning("ide: refused a connection from another user")
+                return
+            if len(self._writers) >= MAX_CLIENTS:
+                log.warning("ide: refused a connection, %d editors are already connected", MAX_CLIENTS)
+                await self._reply_error(writer, "too many editor connections")
                 return
             self._writers.add(writer)
             first = True
