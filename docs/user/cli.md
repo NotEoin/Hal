@@ -61,3 +61,7 @@ Packs install into `data_dir()/envs/packs` and are recorded in `state_dir()/pack
 hub reads. The installed commit is checked against the pin and the install is rolled back on a
 mismatch. The catalogue ships with placeholder commits until a release fills them, so
 `hal packs add NAME` refuses until then (unverified for a real release: run it against a built wheel).
+
+`hal doctor --only NAME` (repeatable) shows only checks whose name starts with NAME, for example
+`--only runtime`. `hal doctor --fix` sets your own runtime directory to 0700 and re-checks; it
+changes nothing else and refuses a directory owned by another user.

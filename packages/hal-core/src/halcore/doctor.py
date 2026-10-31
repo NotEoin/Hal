@@ -1,7 +1,8 @@
 """`hal doctor` and `hal status`: one read-only health report for the whole install.
 
 It gathers the sandbox checks (docker, runsc, box images), the runtime directory permissions,
-the model server and the security lines, and never starts, stops or repairs anything. Every
+the model server and the security lines. It never starts or stops anything; the only repair is
+`--fix`, which narrows the runtime directory to 0700 and nothing else. Every
 failing line carries its fix, because a person reading a red line needs the next command.
 Design decisions:
 
@@ -89,6 +90,31 @@ def collect() -> list[Check]:
     return checks
 
 
+def select(checks: list[Check], only: list[str]) -> list[Check]:
+    """The checks whose name starts with one of `only` (case-insensitive); all when `only` is empty."""
+    if not only:
+        return checks
+    wanted = tuple(o.lower() for o in only)
+    return [c for c in checks if c.name.lower().startswith(wanted)]
+
+
+def fix_runtime_dir() -> str:
+    """Sets your own runtime directory to 0700 and returns what happened; refuses any other owner."""
+    try:
+        path = paths._runtime_candidate()  # noqa: SLF001 - same reason as `runtime_dir_check`
+    except paths.RuntimeDirMissing as exc:
+        return f"runtime dir: cannot fix: {exc}"
+    if not path.exists():
+        return f"runtime dir: {path} does not exist yet; nothing to fix"
+    info = path.stat()
+    if info.st_uid != os.getuid():
+        return f"runtime dir: {path} is owned by uid {info.st_uid}; not touching it"
+    if stat.S_IMODE(info.st_mode) == PRIVATE_MODE:
+        return f"runtime dir: {path} is already {PRIVATE_MODE:04o}"
+    path.chmod(PRIVATE_MODE)
+    return f"runtime dir: set {path} to {PRIVATE_MODE:04o}"
+
+
 def render(checks: list[Check]) -> str:
     """The checks as aligned text, problems marked so they stand out."""
     width = max(len(c.name) for c in checks)
@@ -98,10 +124,17 @@ def render(checks: list[Check]) -> str:
 
 def main(argv: list[str]) -> int:
     """Runs `hal doctor` (or `hal status`); exits 1 when any line failed."""
-    parser = argparse.ArgumentParser(prog="hal doctor", description="check the Hal install; read-only")
+    parser = argparse.ArgumentParser(prog="hal doctor", description="check the Hal install (read-only unless --fix)")
     parser.add_argument("--json", action="store_true", help="print the checks as JSON")
+    parser.add_argument("--only", action="append", default=[], metavar="NAME", help="show only checks starting with NAME (repeatable)")
+    parser.add_argument("--fix", action="store_true", help="set the runtime directory to 0700 if it is yours, then re-check")
     args = parser.parse_args(argv)
-    checks = collect()
+    if args.fix:
+        print(fix_runtime_dir())
+    checks = select(collect(), args.only)
+    if not checks:
+        print(f"hal doctor: no check matches {', '.join(args.only)}", file=sys.stderr)
+        return 2
     if args.json:
         print(json.dumps([asdict(c) for c in checks]))
     else:

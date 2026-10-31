@@ -55,3 +55,24 @@ def test_doctor_and_status_are_commands():
 def test_render_marks_failures():
     text = doctor.render([doctor.Check("a", "ok", "fine"), doctor.Check("bb", "fail", "bad")])
     assert "[ok  ] a " in text and "[FAIL] bb" in text
+
+
+def test_only_keeps_checks_whose_name_starts_with_the_filter():
+    checks = [doctor.Check("docker", "ok", ""), doctor.Check("runtime dir", "ok", ""), doctor.Check("security", "ok", "")]
+    assert [c.name for c in doctor.select(checks, ["Run", "doc"])] == ["docker", "runtime dir"]
+    assert doctor.select(checks, []) == checks
+
+
+def test_fix_sets_own_runtime_dir_to_0700(monkeypatch, tmp_path):
+    run = tmp_path / "hal"
+    run.mkdir()
+    run.chmod(0o755)
+    monkeypatch.setenv("HAL_RUNTIME_DIR", str(run))
+    assert "set" in doctor.fix_runtime_dir()
+    assert doctor.runtime_dir_check().status == "ok"
+
+
+def test_only_with_no_match_exits_2(monkeypatch, capsys):
+    monkeypatch.setattr(doctor, "collect", lambda: [doctor.Check("docker", "ok", "")])
+    assert doctor.main(["--only", "nothing"]) == 2
+    assert "no check matches" in capsys.readouterr().err
