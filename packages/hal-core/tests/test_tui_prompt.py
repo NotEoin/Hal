@@ -122,3 +122,23 @@ def test_status_line_flags_unsandboxed_and_a_full_window():
 def test_context_bar_clamps_and_handles_unknown_size():
     assert status.context_bar(0, 0, LOOK.glyphs) == "-" * 10
     assert status.context_bar(99, 10, LOOK.glyphs) == "#" * 10
+
+
+def test_turn_keys_are_parsed_from_one_read():
+    from halcore.tui import keys
+
+    assert keys.parse_keys(b"\x1b") == ["escape"]
+    assert keys.parse_keys(b"\x0f\x14") == ["verbose", "todo"]
+    assert keys.parse_keys(b"\x1b[I") == ["focus-in"] and keys.parse_keys(b"\x1b[O") == ["focus-out"]
+    assert keys.parse_keys(b"\x1b[A") == [] and keys.parse_keys(b"abc") == []
+
+
+def test_key_watcher_does_nothing_without_a_terminal(monkeypatch):
+    from halcore.tui import keys
+
+    monkeypatch.setattr("sys.stdin", io.StringIO())
+    watcher = keys.KeyWatcher(lambda key: None)
+    watcher.start()
+    watcher.stop()
+    with watcher.suspended():
+        pass

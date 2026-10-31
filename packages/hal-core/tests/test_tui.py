@@ -256,7 +256,7 @@ def test_plan_is_run_only_after_the_human_picks_a_mode():
     assert run(app.approve_plan(state, keep, out)) is None and state.mode == "plan"
     assert run(app.approve_plan(state, run_it, out)) == app.PLAN_APPROVED_PROMPT
     assert state.mode == "auto-edit" and state.client.modes == ["auto"]
-    assert "write tests" in out.getvalue()
+    assert "write tests" in state.renderer.out.getvalue()
 
 
 @pytest.fixture(autouse=True)
@@ -286,3 +286,9 @@ def test_tui_registers_a_pid_file_while_it_runs_and_removes_it_after(tmp_path, m
 
     asyncio.run(go())
     assert seen == [["tui"]] and pids.live() == []
+
+
+@pytest.fixture(autouse=True)
+def _no_user_config(tmp_path, monkeypatch):
+    """The TUI reads `[ui]` from the config file; tests must not read the real one."""
+    monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "no-such-config.toml"))

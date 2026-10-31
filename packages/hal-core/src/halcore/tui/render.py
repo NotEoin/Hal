@@ -13,6 +13,7 @@ text a user can select and search. Only the fixed labels this module writes are 
 
 from __future__ import annotations
 
+import contextlib
 import difflib
 import re
 import sys
@@ -20,6 +21,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TextIO
+from collections.abc import Iterator
 
 from halkit import termsafe
 from rich.console import Console, Group, RenderableType
@@ -247,11 +249,27 @@ class Renderer:
             self._live = None
         return self.stats
 
+    @contextlib.contextmanager
+    def suspended(self) -> Iterator[None]:
+        """Hides the live region while something else (an approval prompt) draws, then restores it."""
+        live = self._live
+        if live is not None:
+            live.stop()
+            self._live = None
+        try:
+            yield
+        finally:
+            if live is not None and self.console.is_terminal:
+                self._live = Live(
+                    get_renderable=self._live_view, console=self.console, refresh_per_second=self.look.refresh_hz, transient=True
+                )
+                self._live.start()
+
     def toggle_verbose(self) -> bool:
         """Flips folded tool output on and off; turning it on shows the last folded output in full."""
         self.verbose = not self.verbose
         if self.verbose and self.last_folded:
-            self._print_output(self.last_folded, force_full=True)
+            self.print_output(self.last_folded, force_full=True)
             self.last_folded = ""
         return self.verbose
 
@@ -349,9 +367,9 @@ class Renderer:
             if i.get("type") == "content" and isinstance(i.get("content"), dict) and isinstance(i["content"].get("text"), str)
         ]
         if texts:
-            self._print_output("\n".join(texts))
+            self.print_output("\n".join(texts))
 
-    def _print_output(self, text: str, *, force_full: bool = False) -> None:
+    def print_output(self, text: str, *, force_full: bool = False) -> None:
         lines = clean(text).rstrip("\n").splitlines()
         full = force_full or self.verbose
         limit = MAX_VERBOSE_LINES if full else self.look.tool_output_lines
