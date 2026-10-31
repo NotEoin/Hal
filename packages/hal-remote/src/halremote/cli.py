@@ -15,13 +15,13 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from . import __version__, authorize, serve, servercheck
+from . import __version__, authorize, pairing, serve, servercheck
 from . import config as _config  # noqa: F401 - import registers the [remote] tables
 
 EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_USAGE = 2
-IMPLEMENTED = frozenset({"server-check", "serve", "authorize", "revoke", "clients"})
+IMPLEMENTED = frozenset({"server-check", "serve", "authorize", "revoke", "clients", "setup"})
 
 HARNESSES = ("claude", "qwen", "opencode", "codex", "crush", "goose", "cline", "openai", "mcp")
 COMMANDS = (
@@ -54,6 +54,20 @@ def build_parser() -> argparse.ArgumentParser:
     auth.add_argument("--accept-risk", action="append", default=[], metavar="ID")
     auth.add_argument("--json", action="store_true")
     auth.add_argument("--authorized-keys", type=Path, default=None)
+    setup = sub.add_parser("setup", help="pair this machine with the desktop (laptop side)")
+    setup.add_argument("host", metavar="HOST", help="user@host of the desktop")
+    setup.add_argument("--profile", default=pairing.DEFAULT_PROFILE)
+    setup.add_argument("--client", default="", help="name the desktop knows this machine by")
+    setup.add_argument("--user", default="")
+    setup.add_argument("--port", type=int, default=pairing.DEFAULT_SSH_PORT)
+    setup.add_argument("--manual", action="store_true", help="copy one command to the desktop by hand")
+    setup.add_argument("--from", dest="from_pattern", help="from= pattern, or 'any'")
+    setup.add_argument(
+        "--remote-hal", default=pairing.DEFAULT_REMOTE_HAL, help="hal-remote path on the desktop"
+    )
+    setup.add_argument("--host-key-fingerprint", default="", metavar="SHA256:...")
+    setup.add_argument("--expires", help="YYYY-MM-DD")
+    setup.add_argument("--rotate", action="store_true", help="pair again with new keys")
     sub.add_parser("revoke", help="remove a client").add_argument("name")
     sub.add_parser("clients", help="list authorized clients").add_argument("--json", action="store_true")
     # serve is the forced command: it parses its own arguments and must not print argparse help.
@@ -186,6 +200,40 @@ def _clients(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _setup(args: argparse.Namespace) -> int:
+    from halkit import paths
+
+    from .config import REMOTE_TABLE  # noqa: F401 - keeps the [remote] table registered
+
+    def wait(command: str) -> None:
+        _out("On the desktop, run this command, then come back here:\n\n  " + command + "\n")
+        input("Press Enter when the desktop printed its host key fingerprints: ")
+
+    def confirm(question: str) -> bool:
+        return input(question + " [yes/no] ").strip().lower() == "yes"
+
+    opts = pairing.SetupOptions(
+        host=args.host, profile=args.profile, client=args.client, user=args.user, port=args.port,
+        manual=args.manual, from_pattern=args.from_pattern, remote_hal=args.remote_hal,
+        host_key_fingerprint=args.host_key_fingerprint, expires=args.expires, rotate=args.rotate,
+    )  # fmt: skip
+    try:
+        result = pairing.setup(opts, confirm=confirm, wait_for_desktop=wait)
+    except (pairing.PairingError, EOFError) as exc:
+        _err(str(exc) or "input ended")
+        return EXIT_FAILED
+    _out(f"paired profile {result.profile.name} with {result.profile.host}")
+    if result.gateway_lines:
+        _out(
+            f"a [gateway] table exists in {paths.config_file()}; add these lines yourself:\n"
+            + result.gateway_lines
+        )
+    if result.mcp_server_lines:
+        _out(f"added the desktop's tools to {paths.config_file()}")
+    _out("next: hal remote up; hal remote env <harness>")
+    return EXIT_OK
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Runs `hal-remote`; returns the process exit code."""
     words = list(sys.argv[1:] if argv is None else argv)
@@ -193,7 +241,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Bypasses argparse: REMAINDER rejects a first token that is an option (`--client`).
         return serve.main(words[1:])
     args = build_parser().parse_args(words)
-    handlers = {"authorize": _authorize, "revoke": _revoke, "clients": _clients}
+    handlers = {"setup": _setup, "authorize": _authorize, "revoke": _revoke, "clients": _clients}
     if args.command in handlers:
         return handlers[args.command](args)
     if args.command == "server-check":

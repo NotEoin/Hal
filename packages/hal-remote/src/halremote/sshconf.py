@@ -55,6 +55,18 @@ def find_ssh_keygen(ssh: Path) -> Path:
     return Path(found)
 
 
+def find_ssh_keyscan(ssh: Path) -> Path:
+    """Finds `ssh-keyscan` beside `ssh`, else on `PATH`."""
+    for name in ("ssh-keyscan", "ssh-keyscan.exe"):
+        beside = ssh.with_name(name)
+        if beside.is_file():
+            return beside
+    found = shutil.which("ssh-keyscan")
+    if found is None:
+        raise SshNotFound("no ssh-keyscan found beside ssh or on PATH")
+    return Path(found)
+
+
 def _q(path: Path) -> str:
     """Double-quotes a path with forward slashes; ssh_config unquotes it."""
     text = path.as_posix()
