@@ -54,6 +54,7 @@ from halagent.settings import DEFAULT_MAX_OUTPUT, DEFAULT_WINDOW, AgentSettings
 from halagent.subagents import DEFAULT_SLOTS, describe_agents, discover_agents, run_subagents
 from halagent.tokens import ESTIMATE_FACTOR, TokenCounter
 from halagent.tools import COMPACT_TOOLS, ToolError, Toolset, render_error
+from halagent.tools.repomap import DEFAULT_MAP_TOKENS, build_map
 from halkit import paths
 
 log = logging.getLogger("halagent.loop")
@@ -188,6 +189,10 @@ class Agent:
             self.provider.max_output = self.settings.max_output
         settings = self.settings
         self.system_extra = system_extra
+        if settings.repo_map_auto and not assistant:
+            # built once, here: the prompt is the cached prefix and must not change between turns
+            listing = build_map(toolset.workspace.root, "", DEFAULT_MAP_TOKENS)
+            self.system_extra = f"{system_extra}\n\nRepository map:\n{listing}".strip()
         self.on_update = on_update or (lambda update: None)
         self.cancel = threading.Event()
         self.toolset = toolset

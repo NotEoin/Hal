@@ -9,6 +9,9 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `[agent].repo_map_auto` (off by default) puts the repo map in the system prompt once per
+  session. `/image` stays inside the workspace unless `--outside` is given; the IDE socket caps
+  editor connections.
 - `hal connect --write` for claude and qwen (diff, y/N, backup) and a notice when it turns on the
   gateway TCP listener.
 - IDE integration: `hal ide setup zed|jetbrains|neovim|emacs|vscode`, ACP file access served from

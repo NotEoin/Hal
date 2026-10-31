@@ -78,6 +78,7 @@ class BoxedAgent:
             run_files=settings.run_files(
                 mode="code" if coding else "assistant", channel=channel, host_root=str(project or ""), model=model,
                 sandbox=f"docker-{runtime}" if runtime else "docker-runsc",
+                overrides={"prompt": {"repo_map_auto": bool(config.load().get("agent", {}).get("repo_map_auto", False))}},
             ),
         )  # fmt: skip
         forwarder = None

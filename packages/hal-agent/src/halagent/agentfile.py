@@ -89,7 +89,7 @@ SCHEMA: dict[str, Any] = {
         "user_name": _STR,
         "timezone": _STR,
     },
-    "prompt": {"extra": _STR},
+    "prompt": {"extra": _STR, "repo_map_auto": bool},
 }
 
 
@@ -207,6 +207,7 @@ class AgentFile:
             max_tool_calls=int(budget["max_tool_calls"]),
             max_wall_s=int(budget["max_wall_s"]),
             tuning=self.tuning(),
+            repo_map_auto=bool(d["prompt"]["repo_map_auto"]),
             **({"context_window": window} if window > 0 else {}),
         )
 

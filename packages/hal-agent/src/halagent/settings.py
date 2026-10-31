@@ -64,6 +64,12 @@ AGENT_TABLE = config.register(
             ),
             config.Key("broker", str, "", env="HAL_AGENT_BROKER", doc="Hub MCP socket path, empty for none"),
             config.Key("models", dict, {}, doc="The [agent.models] table"),
+            config.Key(
+                "repo_map_auto",
+                bool,
+                False,
+                doc="Put the repo map in the system prompt once at session start (costs about 1k tokens)",
+            ),
         ),
     )
 )
@@ -118,6 +124,7 @@ class AgentSettings:
     max_wall_s: int = DEFAULT_MAX_WALL_S
     tuning: Tuning = field(default_factory=Tuning)
     models: Mapping[str, str] = field(default_factory=dict)  # role -> model id, from `[agent.models]`
+    repo_map_auto: bool = False
 
 
 def load_settings(
@@ -140,6 +147,7 @@ def load_settings(
         api_key=str(values["api_key"]),
         api=str(values["api"]),
         stream=bool(values["stream"]),
+        repo_map_auto=bool(values["repo_map_auto"]),
         tool_format=str(values["tool_format"]),
         max_turns=int(values["max_turns"]),  # type: ignore[call-overload]  # validated by `_positive`
         max_tool_calls=int(values["max_tool_calls"]),  # type: ignore[call-overload]  # validated

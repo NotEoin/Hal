@@ -45,7 +45,14 @@ system message is sent (`system_role`) and whether consecutive user messages are
 Qwen2.5-Coder and Qwen3-Coder, gpt-oss, Devstral and other Mistral models, GLM 4.x, DeepSeek, Llama
 3.x, Granite and Phi. Add your own in `~/.config/hal/model-profiles.toml`. The key
 `tool_constraint = "grammar"` (or `"json_schema"`) makes llama.cpp enforce well-formed tool calls
-for models that use `tool_format = "prompt"`.
+for models that use `tool_format = "prompt"`. No shipped profile turns it on, because it needs a
+llama-server that accepts a grammar and that has not been checked live. To try it, add
+`tool_constraint = "grammar"` to the model's entry in `~/.config/hal/model-profiles.toml` and run
+`hal-agent profiles show MODEL` to see it applied. Leave it off if tool calls start failing.
+
+`repo_map_auto = true` in `[agent]` (default false) puts the repo map in the system prompt once, at
+session start, for about 1k tokens. The prompt stays byte-identical afterwards, so the server's
+prompt cache keeps working. The `repo_map` tool is still there to rank files for a query.
 
 If the server answers `context_length_exceeded`, the agent plans for 25 percent less input,
 compacts the history and retries once. A second overflow ends the turn with `context_overflow`.

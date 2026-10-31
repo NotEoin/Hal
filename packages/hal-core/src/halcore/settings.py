@@ -130,7 +130,7 @@ def render_agent_json(
         },
         "mcp": {"servers": mcp_servers or [], "project_servers": "box", "restart_limit": 1},
         "assistant": dict(_ASSISTANT),
-        "prompt": {"extra": ""},
+        "prompt": {"extra": "", "repo_map_auto": False},
     }
     for table, values in (overrides or {}).items():
         if table not in data or not isinstance(data[table], dict):

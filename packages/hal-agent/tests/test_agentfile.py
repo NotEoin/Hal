@@ -33,7 +33,7 @@ GOOD = {
     "mcp": {"servers": [], "project_servers": "box", "restart_limit": 1},
     "assistant": {"history_turns": 10, "max_tool_rounds": 5, "tools_per_turn": 8, "claims_check": True,
                   "log_conversation": True, "persona": "", "user_name": "", "timezone": "UTC"},
-    "prompt": {"extra": "Be brief."},
+    "prompt": {"extra": "Be brief.", "repo_map_auto": False},
 }  # fmt: skip
 
 

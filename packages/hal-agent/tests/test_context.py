@@ -180,3 +180,21 @@ def test_requests_ask_llama_cpp_to_reuse_the_prompt_cache(server, tmp_path):
     server.script("one")
     Agent(AgentSettings(endpoint=server.url), Toolset(tmp_path)).run("first")
     assert server.requests[-1]["body"]["cache_prompt"] is True
+
+
+def test_repo_map_auto_puts_the_map_in_the_system_prompt_once_and_keeps_the_prefix(server, tmp_path):
+    (tmp_path / "app.py").write_text("def serve():\n    pass\n")
+    server.script("one", "two")
+    agent = Agent(AgentSettings(endpoint=server.url, repo_map_auto=True), Toolset(tmp_path))
+    agent.run("first")
+    agent.run("second")
+    a, b = (r["body"] for r in server.requests[-2:])
+    assert "Repository map:" in a["messages"][0]["content"] and "serve" in a["messages"][0]["content"]
+    assert a["messages"][0] == b["messages"][0]
+
+
+def test_repo_map_is_not_in_the_system_prompt_by_default(server, tmp_path):
+    (tmp_path / "app.py").write_text("def serve():\n    pass\n")
+    server.script("one")
+    Agent(AgentSettings(endpoint=server.url), Toolset(tmp_path)).run("first")
+    assert "Repository map:" not in server.requests[-1]["body"]["messages"][0]["content"]
