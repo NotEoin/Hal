@@ -65,6 +65,23 @@
   "free": false
  },
  {
+  "name": "repo_map",
+  "kind": "search",
+  "description": "Outline of the project: source files with their classes and functions, most relevant to query first. Use it to find where to work before reading files.",
+  "properties": {
+   "query": {
+    "type": "string",
+    "description": "Words about the task, used to rank files"
+   },
+   "max_tokens": {
+    "type": "integer",
+    "description": "Size cap in tokens (default 1000, at most 4000)"
+   }
+  },
+  "required": [],
+  "free": false
+ },
+ {
   "name": "edit",
   "kind": "edit",
   "description": "Replace one exact piece of text in a file. old_string must appear exactly once; copy it from read output without the line numbers. Returns a short diff.",

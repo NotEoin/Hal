@@ -56,6 +56,8 @@ Verified by `tests/test_context.py` and `tests/test_budget.py`.
 - `patch` takes SEARCH/REPLACE blocks or a unified diff for one file. Each block uses the `edit`
   matcher (exact, line-number stripped, whitespace-insensitive); the patch is all-or-nothing and
   a failed block is named in the retry message.
+- `repo_map` (query, max_tokens) lists source files with top-level symbols (Python `ast`, a regex
+  for other languages), ranked by query words and cut at the token cap; output is deterministic.
 - Profile key `tool_set = "compact"` offers only `COMPACT_TOOLS` (read, grep, edit, write, run,
   finish) so small models choose among fewer tools.
 

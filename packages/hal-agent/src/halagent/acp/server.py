@@ -42,7 +42,8 @@ STOP_REASONS = {
     ),
 }
 KIND_OF = {
-    "read": "read", "grep": "search", "glob": "search", "edit": "edit", "patch": "edit", "write": "edit",
+    "read": "read", "grep": "search", "glob": "search", "repo_map": "search", "edit": "edit",
+    "patch": "edit", "write": "edit",
     "run": "execute", "todo": "think", "subagent": "think",
 }  # fmt: skip
 MODE_LIST = [

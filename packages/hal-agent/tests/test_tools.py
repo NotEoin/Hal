@@ -187,6 +187,7 @@ def test_toolset_offers_spec_order_and_finish_only_in_task_mode(tmp_path):
         "read",
         "grep",
         "glob",
+        "repo_map",
         "edit",
         "patch",
         "write",

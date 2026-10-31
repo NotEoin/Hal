@@ -87,7 +87,7 @@ def test_found_tool_is_offered_in_later_rounds_and_called_by_name(server, tmp_pa
 
 
 def test_tools_beyond_max_tools_hint_stay_behind_hal_find_tools(server, tmp_path):
-    profile = resolve_profile("x", overrides={"max_tools_hint": 10})
+    profile = resolve_profile("x", overrides={"max_tools_hint": 12})
     with FakeBroker(tmp_path / "b.sock") as broker:
         for i in range(6):
             broker.add_tool(f"extra_{i}", "r", description=f"unique{i} thing")
@@ -96,7 +96,7 @@ def test_tools_beyond_max_tools_hint_stay_behind_hal_find_tools(server, tmp_path
             Toolset(tmp_path),
             profile=profile,
         )
-        assert len(agent._mcp_tools) + len(agent.toolset.tools) + 1 <= 10
+        assert len(agent._mcp_tools) + len(agent.toolset.tools) + 1 <= 12
         hidden = set(agent._hidden)
         out = json.loads(agent._find_tools({"query": "unique5 thing"}))
         agent.close()

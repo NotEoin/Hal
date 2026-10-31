@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
-from halagent.tools import files, patch, plan, run, search
+from halagent.tools import files, patch, plan, repomap, run, search
 from halagent.tools.paths import ToolError, Workspace
 
 COMPACT_TOOLS = ("read", "grep", "edit", "write", "run", "finish")  # what a small model needs
@@ -67,6 +67,7 @@ class Toolset:
             "grep": lambda a: search.grep(ws, a),
             "glob": lambda a: search.glob(ws, a),
             "edit": lambda a: files.edit(ws, a, syntax_guard=syntax_guard),
+            "repo_map": lambda a: repomap.repo_map(ws, a),
             "patch": lambda a: patch.patch(ws, a, syntax_guard=syntax_guard),
             "write": lambda a: files.write(ws, a),
             "run": lambda a: run.run(ws, a),
