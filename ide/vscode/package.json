@@ -1,0 +1,43 @@
+{
+  "name": "hal-vscode",
+  "displayName": "Hal",
+  "description": "Connect VS Code (and VSCodium, Cursor) to a running `hal code` session on this machine.",
+  "version": "0.1.0",
+  "publisher": "hal-local",
+  "license": "MIT",
+  "private": true,
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["Other"],
+  "main": "./out/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "extensionKind": ["workspace"],
+  "capabilities": {
+    "untrustedWorkspaces": { "supported": false, "description": "Hal reads the workspace and talks to a local socket." },
+    "virtualWorkspaces": false
+  },
+  "contributes": {
+    "commands": [
+      { "command": "hal.openInTerminal", "title": "Hal: Open in terminal" },
+      { "command": "hal.addSelection", "title": "Hal: Add selection to context" },
+      { "command": "hal.sendDiagnostics", "title": "Hal: Send diagnostics of this file" },
+      { "command": "hal.showChanges", "title": "Hal: Show changes" },
+      { "command": "hal.acceptChanges", "title": "Hal: Accept changes" }
+    ],
+    "configuration": {
+      "title": "Hal",
+      "properties": {
+        "hal.command": { "type": "string", "default": "hal", "description": "The command that starts the Hal CLI in the terminal." },
+        "hal.shareActiveFile": { "type": "boolean", "default": false, "description": "Tell Hal which file and lines are open. Off by default." }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "check": "tsc -p . --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "20.14.0",
+    "@types/vscode": "1.90.0",
+    "typescript": "5.6.3"
+  }
+}
