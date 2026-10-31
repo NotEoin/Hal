@@ -68,3 +68,19 @@ mismatch. The catalogue ships with placeholder commits until a release fills the
 `hal doctor --only NAME` (repeatable) shows only checks whose name starts with NAME, for example
 `--only runtime`. `hal doctor --fix` sets your own runtime directory to 0700 and re-checks; it
 changes nothing else and refuses a directory owned by another user.
+
+## Other commands
+
+Each command also answers `--help`. Verified 2026-10-31 by running `python -m halcore COMMAND
+--help` under a temporary `HOME` and XDG tree.
+
+| Command | What it does |
+| --- | --- |
+| `hal jobs [list \| show ID \| cancel ID \| add TASK... \| run [--wait] \| follow ID \| accept ID \| export ID FILE]` | Background boxed jobs; changes leave only through `accept` or `export` |
+| `hal kill [--quiet]` | Stop every Hal process, unit and box |
+| `hal power` | One-line report: GPU services running, models loaded in Ollama, GPU light state |
+| `hal gpulight claim NAME`, `release`, `status` | Talk to gpu-light; `status` prints `unknown` when it is not installed |
+| `hal security [status\|doctor]` | Lockdown, paranoia and whether the classifier model is reachable |
+| `hal audit tail [-n N] [--session ID] [--json]`, `hal audit verify` | Read the audit log, or check its hash chain |
+| `hal units install [--start] [--no-desktop]`, `remove`, `list` | Render and install the systemd user units |
+| `hal eval [--model M] [--only IDS] [--category C] [--repeat N]` | Ask Hal the test cases and check the answers |
