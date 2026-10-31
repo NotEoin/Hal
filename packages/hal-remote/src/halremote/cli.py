@@ -16,7 +16,17 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from . import __version__, authorize, pairing, platform_linux, serve, servercheck, status, tunnelrun
+from . import (
+    __version__,
+    authorize,
+    pairing,
+    platform_linux,
+    platform_windows,
+    serve,
+    servercheck,
+    status,
+    tunnelrun,
+)
 from . import config as _config  # noqa: F401 - import registers the [remote] tables
 
 EXIT_OK = 0
@@ -75,6 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     up.add_argument("profile", nargs="?")
     up.add_argument("--foreground", action="store_true", help="run the supervisor in this terminal")
     up.add_argument("--enable", action="store_true", help="also start it at login (systemd)")
+    up.add_argument("--install-task", action="store_true", help="also start it at logon (Windows)")
     down = sub.add_parser("down", help="stop the tunnel")
     down.add_argument("profile", nargs="?")
     down.add_argument("--disable", action="store_true", help="also stop starting it at login")
@@ -279,17 +290,26 @@ def _tunnel(args: argparse.Namespace) -> int:
             data = status.read(pp)
             _out(json.dumps(data) if args.json else status.render(data, name, profile.host))
             return status.exit_code(data)
-        exe = Path(shutil.which("hal-remote") or sys.argv[0]).resolve()
+        windows = os.name == "nt"
+        exe = Path(shutil.which("hal-remote-tunnelw" if windows else "hal-remote") or sys.argv[0]).resolve()
         if args.command == "up" and args.foreground:
             return tunnelrun.run(name, "foreground")
         if args.command == "up":
-            mode = platform_linux.up(name, pp, exe, enable=args.enable)
+            if windows:
+                mode = platform_windows.up(name, pp, exe, install_task=args.install_task)
+            else:
+                mode = platform_linux.up(name, pp, exe, enable=args.enable)
             _out(f"tunnel {name} started ({mode}); check it with: hal remote status")
         else:
-            mode = platform_linux.down(name, pp, disable=args.disable)
+            control = platform_windows if windows else platform_linux
+            mode = control.down(name, pp, disable=args.disable)
             _out(f"tunnel {name}: {mode}")
         return EXIT_OK
-    except (pairing.PairingError, platform_linux.TunnelControlError) as exc:
+    except (
+        pairing.PairingError,
+        platform_linux.TunnelControlError,
+        platform_windows.WindowsControlError,
+    ) as exc:
         _err(str(exc))
         return EXIT_NOT_SET_UP if isinstance(exc, pairing.PairingError) else EXIT_FAILED
 
