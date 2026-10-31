@@ -162,6 +162,20 @@ def load_profile(name: str) -> Profile:
         raise PairingError(f"profile {name!r} is not set up: run `hal remote setup`") from None
 
 
+def list_profiles() -> list[Profile]:
+    """Every profile that is set up, sorted by name; an unreadable one is skipped with a log line."""
+    root = paths.config_dir() / "remote"
+    found: list[Profile] = []
+    for entry in sorted(root.iterdir()) if root.is_dir() else []:
+        if not (entry / "profile.toml").is_file():
+            continue
+        try:
+            found.append(load_profile(entry.name))
+        except (PairingError, ValueError, OSError) as exc:
+            log.warning("profile %s is unreadable: %s", entry.name, exc)
+    return found
+
+
 def resolve_profile(name: str | None, default: str = "") -> str:
     """The profile to use: `name`, else `[remote].default_profile`, else the only one set up."""
     if name:

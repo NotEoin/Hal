@@ -109,3 +109,25 @@ def test_status_without_any_profile_exits_3(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "config.toml"))
     assert cli.main(["status"]) == 3
     assert "hal remote setup" in capsys.readouterr().err
+
+
+def test_profiles_lists_each_paired_desktop_without_secrets(tmp_path, monkeypatch, capsys):
+    from halremote import pairing
+    from halremote.model import Forward, Profile
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "hal-state"))
+    monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "config.toml"))
+    pairing.save_profile(
+        Profile("desktop", "laptop", "desk.lan", "me", 22, (Forward("gateway", 8741, 8741),))
+    )
+    assert cli.main(["profiles", "--json"]) == cli.EXIT_OK
+    rows = json.loads(capsys.readouterr().out)
+    assert rows == [{"name": "desktop", "client": "laptop", "host": "desk.lan", "user": "me", "port": 22}]
+
+
+def test_profiles_without_any_says_how_to_set_one_up(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "config.toml"))
+    assert cli.main(["profiles"]) == cli.EXIT_OK
+    assert "hal remote setup" in capsys.readouterr().out

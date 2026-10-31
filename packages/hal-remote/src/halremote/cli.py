@@ -33,7 +33,19 @@ EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_USAGE = 2
 IMPLEMENTED = frozenset(
-    {"server-check", "serve", "authorize", "revoke", "clients", "setup", "up", "down", "status", "tunnel-run"}
+    {
+        "server-check",
+        "serve",
+        "authorize",
+        "revoke",
+        "clients",
+        "setup",
+        "up",
+        "down",
+        "status",
+        "tunnel-run",
+        "profiles",
+    }
 )
 
 HARNESSES = ("claude", "qwen", "opencode", "codex", "crush", "goose", "cline", "openai", "mcp")
@@ -92,6 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     st = sub.add_parser("status", help="show the tunnel state (exit 4 when not up)")
     st.add_argument("profile", nargs="?")
     st.add_argument("--json", action="store_true")
+    sub.add_parser("profiles", help="list the paired desktops").add_argument("--json", action="store_true")
     run = sub.add_parser("tunnel-run", help="the supervisor; used by units and `up`")
     run.add_argument("--profile", required=True)
     run.add_argument("--mode", choices=("systemd", "detached", "foreground"), default=None)
@@ -264,6 +277,23 @@ def _setup(args: argparse.Namespace) -> int:
 EXIT_NOT_SET_UP = 3
 
 
+def _profiles(args: argparse.Namespace) -> int:
+    """Lists the profiles; no secret is printed, only host, user, port and client name."""
+    found = pairing.list_profiles()
+    rows = [
+        {"name": p.name, "client": p.client, "host": p.host, "user": p.user, "port": p.port} for p in found
+    ]
+    if args.json:
+        _out(json.dumps(rows))
+    elif not rows:
+        _out("no profile is set up: run `hal remote setup HOST`")
+    else:
+        _out(
+            "\n".join(f"{r['name']}  {r['user']}@{r['host']}:{r['port']}  client {r['client']}" for r in rows)
+        )
+    return EXIT_OK
+
+
 def _profile_name(args: argparse.Namespace) -> str:
     from halkit import config
 
@@ -330,6 +360,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "authorize": _authorize,
         "revoke": _revoke,
         "clients": _clients,
+        "profiles": _profiles,
     }
     if args.command in handlers:
         return handlers[args.command](args)

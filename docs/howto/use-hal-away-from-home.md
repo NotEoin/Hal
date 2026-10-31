@@ -23,6 +23,7 @@ Funnel (Decision D17); only SSH crosses the network, with the same restricted ke
    ```sh
    hal remote up
    hal remote status   # gateway ok means the models answer
+   hal remote profiles  # lists the paired desktops (name, user, host, port; no secrets)
    ```
 
 5. Keep the desktop awake. A sleeping desktop shows as `backoff` and the tunnel returns by itself
