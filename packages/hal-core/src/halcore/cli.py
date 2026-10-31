@@ -118,7 +118,7 @@ def resolve(argv: list[str]) -> tuple[Command, list[str]] | None:
 
 # Groups for `hal --help`; a test keeps every command in exactly one group.
 GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("work", ("code", "chat", "acp", "jobs", "sessions", "box", "connect")),
+    ("work", ("code", "chat", "acp", "jobs", "sessions", "box", "connect", "ide")),
     ("safety", ("lockdown", "paranoia", "policy", "audit", "guard", "approvals", "approve", "deny", "scratch", "security")),
     ("system", ("doctor", "status", "kill", "power", "gpulight", "units", "gateway", "migrate", "configure", "console", "eval", "packs")),
 )
