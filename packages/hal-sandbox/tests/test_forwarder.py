@@ -166,3 +166,24 @@ def test_connections_over_the_limit_are_dropped(sockdir, upstream):
         first.close()
     finally:
         fw.stop()
+
+
+def test_requests_past_the_budget_get_429_and_never_reach_the_upstream(sockdir, upstream):
+    fw = ModelForwarder(sockdir / "m.sock", upstream.url, max_requests=2)
+    fw.start()
+    try:
+        codes = [call(fw, "GET", "/v1/models")[0] for _ in range(3)]
+    finally:
+        fw.stop()
+    assert codes[:2] == [200, 200] and codes[2] == 429
+    assert len(upstream.seen) == 2
+
+
+def test_a_configured_body_cap_is_enforced(sockdir, upstream):
+    fw = ModelForwarder(sockdir / "m.sock", upstream.url, max_body_bytes=10)
+    fw.start()
+    try:
+        assert call(fw, "POST", "/v1/chat/completions", b"x" * 11)[0] == 413
+    finally:
+        fw.stop()
+    assert upstream.seen == []
