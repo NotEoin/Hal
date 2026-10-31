@@ -81,6 +81,49 @@ client, imports a telemetry or analytics SDK, or names an unlisted host. Run it 
 - **Coding on your own hardware.** Claude Code runs against a local model, chosen for your GPU, from a
   24GB card down to none at all.
 
+## Hal code
+
+`hal code` is a terminal coding assistant for your local models. It lives in your normal
+scrollback (no alternate screen), and the agent runs in a box on a copy of your project, so a
+wrong or hostile model cannot touch the real repo until you accept its changes.
+
+```
++------------------------------------------------------------------+
+| Hal 0.1.0                                                        |
+| qwen3-coder-30b | 32k context | lockdown standard | box runsc    |
++------------------------------------------------------------------+
+
+> fix the failing test in @tests/test_parse.py
+
+* Edit src/parse.py  ok  0.1s  src/parse.py +2 -1
+       41   if not text:
+       42 - return None
+       42 + raise ValueError("empty input")
+* Run pytest -q  ok  3.2s
+
+[end_turn] mode default | 1 file +2 -1 | ~210 tok | 11.8s | 36 tok/s
+ qwen3-coder-30b | ####------ 38% | 36 tok/s | mode default | 1 unaccepted
+```
+
+Five headline features:
+
+1. **Isolated by default.** Work happens on a snapshot copy; `/accept` shows a diff report and
+   applies it atomically, `hal code export` writes a patch or git bundle.
+2. **Built for local models.** A live context bar, tokens per second, automatic and manual
+   `/compact`, a compact tool set and constrained tool calls for small models, and per-family
+   profiles (Qwen, Devstral, DeepSeek, Llama, GLM, gpt-oss).
+3. **Modern terminal UI.** Rendered markdown, syntax-coloured diffs, tool cards, a todo panel,
+   thinking summaries, nested subagents, `@file` mentions, `!cmd`, `# note`, slash commands and
+   desktop notifications for long turns.
+4. **Model roles and subagents.** A fast model for titles and summaries, an optional
+   architect/editor split, named subagents from `.hal/agents`, hooks and `@image` prompts.
+5. **IDE integration.** `hal acp` serves Zed, JetBrains, Neovim and Emacs; a VS Code extension
+   shares selections and diffs with the running session (`hal ide setup`).
+
+Not yet run against a live model for speed figures; see [docs/user/hal-code.md](docs/user/hal-code.md).
+Editors: [Zed](docs/howto/use-hal-code-in-zed.md), [JetBrains](docs/howto/use-hal-code-in-jetbrains.md),
+[Neovim and Emacs](docs/howto/use-hal-code-in-neovim.md), [VS Code](docs/howto/use-hal-code-in-vscode.md).
+
 ## Overview
 
 | Piece | What it does |
@@ -104,6 +147,7 @@ Built by [@NotEoin](https://github.com/NotEoin).
 ## Usage
 
 ```bash
+hal code                 # the coding assistant in a box, on a copy of the project
 hal chat                 # talk to Hal in a box; /reset starts over
 hal chat "what's on tomorrow?"   # one message
 hal acp                  # the boxed agent over ACP for an editor (see docs/howto/use-hal-code-in-zed.md)

@@ -15,6 +15,14 @@ First release of the monorepo (uv workspace on branch `next`).
 - `hal code` and `hal chat` terminal UI: rich markdown and diff rendering, a prompt_toolkit editor
   (history, completion, `@file`, `!cmd`, `# note`), status line, approval panel, more slash
   commands and `[ui]` settings (`docs/user/hal-code.md`).
+- `hal-agent` for local models: context usage and compaction updates, prompt-cache friendly
+  prefix, `patch`, `repo_map` and `git` tools, a compact tool set, grammar and JSON-schema
+  constrained tool calls, profiles for Qwen2.5-Coder, Devstral, DeepSeek and Llama, named
+  subagents, model roles with an architect/editor split, `@image` prompts, prompt-submit hooks,
+  session fork and first-prompt titles.
+- `hal` command: `hal doctor` (`--only`, `--fix`), `hal migrate` with dry run and undo,
+  `hal connect`, `hal packs` with a pinned catalogue, grouped `hal help` and `hal version`, and an
+  idempotent `scripts/install.sh`.
 - `hal-kit` (`halkit`): paths, config, files, time, logging, subprocess, secrets, redaction,
   canonical JSON, terminal escaping, symlink-safe file access, egress URL checks, test fakes.
 - `hal-hub`: tool registry, runner, MCP server, policy with tool tiers, approvals bound to exact
@@ -36,3 +44,6 @@ First release of the monorepo (uv workspace on branch `next`).
 
 - The model is treated as hostile: every agent turn runs in a box with no network, a copy of
   the project and a scratchpad. Lockdown and paranoia can be changed only on the host.
+- Security hardening: nested tool arguments are scanned without a depth limit, the broker, egress
+  proxy and model forwarder have send timeouts and budgets, more credential paths are hard-denied,
+  and `hal code export` refuses to overwrite a file without `--force`.
