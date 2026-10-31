@@ -9,6 +9,9 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- A bare `hal` opens Hal's own interface (`hal code` in a project, else `hal chat`) and never
+  Claude Code. `hal claude [model|mode NAME]` is the only way to Claude Code and prints a notice;
+  `hal here`, `hal mode` and `hal model` are removed.
 - `hal remote setup` pairs a laptop with the desktop (bootstrap or `--manual`), `hal remote up`,
   `down` and `status` run the SSH tunnel on Linux (systemd or detached) and Windows, and
   `docs/howto/` has pages for a Linux laptop, a Windows laptop and Tailscale.

@@ -1,7 +1,7 @@
 # Hal, Setup
 
 Hal runs local models on your GPU and gives you two ways to use them: a conversation (`hal chat`,
-and through extensions a voice and Telegram) and Claude Code for coding (`hal here`). `setup.sh`
+and through extensions a voice and Telegram) and Claude Code for coding (`hal claude`). `setup.sh`
 picks one of four profiles from your hardware and installs what that profile needs.
 
 ```
@@ -64,12 +64,12 @@ a bot token for Telegram, the Obsidian plugins for memory).
 
 ```bash
 cd ~/code/my-project
-hal here
+hal claude
 ```
 
 That opens Claude Code in the current folder, on your profile's coding model. The first message is
-a little slow while the model loads; it's quick after that. `hal` with no arguments opens it in
-your vault instead.
+a little slow while the model loads; it's quick after that. `hal` with no arguments opens Hal's
+own interface instead (`hal code` in a project folder, `hal chat` elsewhere).
 
 ## Step 4, Check it
 
@@ -95,7 +95,7 @@ the reminder daemons, the llama.cpp server and any Hal command left running in a
 ## The max profile
 
 On a machine with a 24GB GPU and 64GB of RAM, `./setup.sh --profile max` serves three
-models through llama.cpp instead of Ollama, and `hal mode <name>` picks one of five ways
+models through llama.cpp instead of Ollama, and `hal claude mode <name>` picks one of five ways
 to run them. Setup installs a pinned `llama-server` build into
 `~/.local/share/hal/llama.cpp/` and downloads about 160GB of GGUFs into the models
 directory. Put that directory on a large drive:
@@ -125,7 +125,7 @@ background jobs to leave:
 |---|---|---|
 | `hal on` | `hal` | Claims, waits up to 90 s, unloads any Ollama model already split into RAM, then starts its services. `hal off` releases the claim once the models are unloaded. |
 | Login, while Hal is on | `hal` | `hal.target` starts at every login, so `hal-gpu-light.service` makes the same claim before any of Hal's GPU services start. `hal install` adds it only when gpu-light is installed: run `hal install` again after installing gpu-light. `hal off` stops it, which releases the claim. |
-| `hal`, `hal here`, `hal model` on an Ollama model | `hal-session-<pid>` | Claims for the whole session, waits up to 60 s and unloads any model already split into RAM. An open session counts as using the GPU, even while Ollama has no model loaded; the claim ends when Claude Code exits, even after a crash. |
+| `hal claude` on an Ollama model | `hal-session-<pid>` | Claims for the whole session, waits up to 60 s and unloads any model already split into RAM. An open session counts as using the GPU, even while Ollama has no model loaded; the claim ends when Claude Code exits, even after a crash. |
 | `hal serve`, and `hal` on the max profile | `hal-serve` | Claims, waits up to 120 s, then starts the llama.cpp server, in every mode (`cpu` mode still uses about 3GB of VRAM for prompt processing). The claim then follows the server, so a server that crashes stops holding the GPU. `hal stop` releases it. |
 
 If the wait times out, Hal starts anyway and says the models may load slowly. A failing
@@ -187,7 +187,7 @@ Raise it for a one-off with `HAL_MAX_OUTPUT_TOKENS=16384 hal`, but don't exceed 
 `nvidia-smi`; on a 24GB card the 27B leaves only modest headroom.
 
 **It's slow.** The very first reply after launch includes load time. For more speed, run the
-Mixture-of-Experts coder with `hal model qwen3-coder:30b` (~3.3B active parameters), at some cost
+Mixture-of-Experts coder with `hal claude model qwen3-coder:30b` (~3.3B active parameters), at some cost
 in code quality. Keep
 `OLLAMA_KEEP_ALIVE` high (the installer sets 30m) so it doesn't unload between prompts.
 
@@ -207,7 +207,7 @@ that is too small for tool calling shows up in `hal eval` as many failures.
 so it stays fixed.
 
 **Change the model later.** Pull anything from Ollama and launch with it:
-`hal model qwen3-coder:30b` (or set `HAL_MODEL`). The dense 27B default writes the better code;
+`hal claude model qwen3-coder:30b` (or set `HAL_MODEL`). The dense 27B default writes the better code;
 the MoE 30B answers faster.
 
 ---

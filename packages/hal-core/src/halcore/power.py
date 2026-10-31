@@ -3,7 +3,7 @@
 `hal off` stops every Hal service marked X-HalGPU (voice, speech, the memory sorter, the
 chat bridges, briefings) and unloads the models Ollama holds, which frees the VRAM.
 Reminder daemons that use no model keep running, so phone reminders still arrive.
-The llama.cpp server that `hal here` uses for coding is not touched. `hal on` starts it
+The llama.cpp server that `hal claude` uses for coding is not touched. `hal on` starts it
 all again.
 
 With gpu-light installed (see gpulight.py), `hal on` first claims the GPU light as `hal` and

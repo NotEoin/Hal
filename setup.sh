@@ -355,7 +355,7 @@ HAL_OLLAMA_URL="http://localhost:11434"
 $(if [ "$PROFILE" = "max" ]; then cat <<MAX
 
 # max profile: models served by a llama.cpp router, in one of five modes (see docs/user/modes.md).
-# HAL_MODE is the default; 'hal mode <name>' picks another for one launch.
+# HAL_MODE is the default; 'hal claude mode <name>' picks another for one launch.
 HAL_BACKEND="llamacpp"
 HAL_MODE="gpu"
 HAL_MODELS_DIR="$MODELS_DIR"
@@ -410,11 +410,11 @@ Next steps:
        hal ext add --pack assistant      # memory, calendar, tasks, notify, clock, web, briefing, voice
 
   4) Code with the local model:
-       hal here        # Claude Code in the current directory
+       hal claude      # Claude Code in the current directory (not boxed)
 
 Profile '$PROFILE' is recorded in hal.conf, edit it, or re-run ./setup.sh --profile <name>
 to switch between max, 24gb, 12gb and cloud.
-$( [ "$PROFILE" = "max" ] && printf '\nOn max, pick a mode per launch: hal mode gpu | cpu | hybrid | hybrid-256k | combined.\n' )
+$( [ "$PROFILE" = "max" ] && printf '\nOn max, pick a mode per launch: hal claude mode gpu | cpu | hybrid | hybrid-256k | combined.\n' )
 
 See SETUP.md for details and troubleshooting.
 EOF

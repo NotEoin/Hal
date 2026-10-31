@@ -9,7 +9,7 @@
 > one extension at a time.*
 
 Hal is the core of a desktop assistant. It runs the local models, gives you a conversation with them
-(`hal chat`), and points [Claude Code](https://claude.ai/code) at them for coding (`hal here`).
+(`hal chat`), and points [Claude Code](https://claude.ai/code) at them when you ask for it (`hal claude`).
 Everything else (a memory in Obsidian, your calendar on your phone, a voice, timers, lights,
 the computer itself) is an extension you add when you want it. Raw Hal works on its own.
 
@@ -152,7 +152,7 @@ hal chat                 # talk to Hal in a box; /reset starts over
 hal chat "what's on tomorrow?"   # one message
 hal acp                  # the boxed agent over ACP for an editor (see docs/howto/use-hal-code-in-zed.md)
 hal ide setup zed        # print an editor configuration (zed, jetbrains, neovim, emacs, vscode)
-hal here                 # Claude Code on the local model, in the current directory
+hal claude               # Claude Code on the local model, in the current directory (not boxed)
 hal ext list             # installed extensions, and the ones you can add
 hal ext add calendar     # add one (or --pack assistant for the everyday set)
 hal off / hal on         # free the GPU, and take it back
@@ -205,7 +205,7 @@ to re-run.
 
 #### Setup profiles
 
-Each profile has a coding model (what Claude Code talks to in `hal here`) and a chat brain (what
+Each profile has a coding model (what Claude Code talks to in `hal claude`) and a chat brain (what
 answers in `hal chat`, the voice and Telegram). The brain is smaller, so it can sit beside the voice
 engine and answer within about a second.
 

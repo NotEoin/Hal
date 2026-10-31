@@ -79,7 +79,7 @@ class ServeTest(LightCase):
 
 
 class SessionTest(LightCase):
-    """Runs the real `hal` launcher on a local profile, with a fake Claude Code and Ollama."""
+    """Runs the real `hal claude` launcher on a local profile, with a fake Claude Code and Ollama."""
 
     def setUp(self):
         super().setUp()
@@ -100,7 +100,7 @@ class SessionTest(LightCase):
         env = {**os.environ, "HAL_CONF": str(conf), "HAL_CONFIG": str(self.dir / "config.toml"),
                "HAL_VAULT": str(self.dir / "vault"), "PATH": f"{self.dir}:{os.environ['PATH']}",
                "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"}
-        return subprocess.run([str(ROOT / "hal")], capture_output=True, text=True, env=env, timeout=60)
+        return subprocess.run([str(ROOT / "hal"), "claude"], capture_output=True, text=True, env=env, timeout=60)
 
     def test_an_ollama_session_claims_the_light_for_its_own_pid(self):
         proc = self.launch("chat-model")
@@ -119,6 +119,46 @@ class SessionTest(LightCase):
             self.assertEqual(self.launch("chat-model").returncode, 0)
         self.assertEqual(len(self.calls()), 1)
         self.assertTrue(self.calls()[0].startswith("claude pid "))
+
+
+class EntryTest(LightCase):
+    """Runs the real `hal` launcher with a fake Claude Code and a fake Python for the Hal CLI."""
+
+    def setUp(self):
+        super().setUp()
+        claude = self.dir / "claude"
+        claude.write_text('#!/bin/sh\necho "claude $*" >> "$FAKE_GPU_LIGHT_LOG"\n')
+        claude.chmod(0o755)
+        python = self.dir / "fakepython"
+        python.write_text('#!/bin/sh\necho "halcore $*" >> "$FAKE_GPU_LIGHT_LOG"\n')
+        python.chmod(0o755)
+        (self.dir / "vault").mkdir()
+        # a cloud profile: no model server is needed to reach the `claude` path
+        conf = self.dir / "hal.conf"
+        conf.write_text('HAL_PROFILE="cloud"\nHAL_MODEL=""\n')
+        self.conf = conf
+
+    def hal(self, *args: str, conf: bool = True) -> subprocess.CompletedProcess:
+        env = {**os.environ, "HAL_CONF": str(self.conf if conf else self.dir / "absent.conf"),
+               "HAL_PYTHON": str(self.dir / "fakepython"), "HAL_VAULT": str(self.dir / "vault"),
+               "PATH": f"{self.dir}:{os.environ['PATH']}"}
+        return subprocess.run([str(ROOT / "hal"), *args], capture_output=True, text=True, env=env, timeout=60)
+
+    def test_bare_hal_opens_hals_own_interface_even_without_hal_conf(self):
+        proc = self.hal(conf=False)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.calls(), ["halcore -m halcore"])
+
+    def test_hal_here_is_no_longer_a_way_into_claude_code(self):
+        self.hal("here")
+        self.assertEqual(self.calls(), ["halcore -m halcore here"])
+
+    def test_hal_claude_opens_claude_code_with_a_one_line_notice(self):
+        proc = self.hal("claude", "--resume")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.calls(), ["claude --resume"])
+        self.assertEqual(len(proc.stderr.strip().splitlines()), 1)
+        self.assertIn("not Hal's private local path", proc.stderr)
 
 
 if __name__ == "__main__":

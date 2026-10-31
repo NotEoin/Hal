@@ -70,16 +70,16 @@ model cards.
 
 ## Switch modes
 
-Pick a mode for one launch with `hal mode`. Add `here` to work in the current directory
-instead of the vault; any further arguments go to Claude Code:
+Pick a mode for one Claude Code launch with `hal claude mode NAME`. It works in the current
+directory; any further arguments go to Claude Code:
 
 ```bash
-hal mode gpu                # Qwen3.8-27B on the GPU, in the vault
-hal mode hybrid here        # Qwen3.8-Flash-Next across GPU and RAM, in this directory
-hal mode combined here -c   # combined mode, continuing the last session here
+hal claude mode gpu         # Qwen3.8-27B on the GPU
+hal claude mode hybrid      # Qwen3.8-Flash-Next across GPU and RAM
+hal claude mode combined -c # combined mode, continuing the last session
 ```
 
-A plain `hal` uses `HAL_MODE` from `hal.conf`, which is `gpu` after setup. The model
+A plain `hal claude` uses `HAL_MODE` from `hal.conf`, which is `gpu` after setup. The model
 server keeps running after Claude Code exits, so the next launch in the same mode starts
 at once. Starting a different mode stops the server and loads that mode's models: about
 20 seconds for `gpu`, and a few minutes for the others from a cold disk.
