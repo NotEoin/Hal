@@ -32,7 +32,7 @@ First release of the monorepo (uv workspace on branch `next`).
   `hal connect`, `hal packs` with a pinned catalogue, grouped `hal help` and `hal version`, and an
   idempotent `scripts/install.sh`. `scripts/host-setup.sh` (sudo, `--dry-run`)
   registers `runsc` with `--host-uds=open` and writes a key-only sshd drop-in with `--ssh`.
-- `hal configure --profile` picks `max`, `24gb`, `12gb` or `cloud` from the GPU and RAM and writes it to `[hal].profile`.
+- `hal configure --profile` picks `max`, `24gb`, `12gb` or `cloud` from the GPU and RAM and writes it to `[hal].profile`. `--migrate` imports an old `hal.conf` after a diff and a typed y.
 - `hal-kit` (`halkit`): paths, config, files, time, logging, subprocess, secrets, redaction,
   canonical JSON, terminal escaping, symlink-safe file access, egress URL checks, test fakes.
 - `hal-hub`: tool registry, runner, MCP server, policy with tool tiers, approvals bound to exact

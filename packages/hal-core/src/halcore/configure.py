@@ -12,8 +12,9 @@ import argparse
 import re
 import secrets
 import sys
+from pathlib import Path
 
-from . import config, profiles
+from . import config, confmigrate, profiles
 
 TEMPLATE = """# Hal's settings, shared by core hal and every extension. Each extension reads its own table;
 # see each one's README for what it takes.
@@ -66,7 +67,6 @@ def init(chat_model: str, vault: str, profile: str = "cloud") -> str:
         else:
             text += f"\n[hub]\n{line}\n"
     else:
-        from pathlib import Path
         have = {str(Path(p).expanduser().resolve()) for p in current}
         missing = [p for p in paths() if str(Path(p).resolve()) not in have]
         if not missing:
@@ -91,14 +91,47 @@ def choose_profile(requested: str, yes: bool) -> str:
     return found if answer in ("", "y", "yes") else "cloud"
 
 
+def migrate(conf_arg: str, yes: bool) -> int:
+    """Shows the diff for an old `hal.conf` and writes it after a typed y (REQ-CLI-84)."""
+    conf_path = Path(conf_arg) if conf_arg else config.ECOSYSTEM / "core" / "hal" / "hal.conf"
+    try:
+        conf = confmigrate.parse_conf(conf_path.read_text(encoding="utf-8", errors="replace"))
+    except OSError as exc:
+        print(f"hal configure: cannot read {conf_path}: {exc}", file=sys.stderr)
+        return 1
+    target = config.config_path()
+    old = target.read_text(encoding="utf-8") if target.exists() else ""
+    new, notes = confmigrate.migrate_text(old, conf, str(conf_path))
+    for note in notes:
+        print(f"note: {note}")
+    if new == old:
+        print("nothing to change")
+        return 0
+    print(confmigrate.diff(old, new, str(target)), end="")
+    if not yes:
+        if not sys.stdin.isatty():
+            print("hal configure: --migrate needs a terminal to confirm, or --yes", file=sys.stderr)
+            return 2
+        if input("Write these changes? [y/N] ").strip().lower() != "y":
+            print("nothing written")
+            return 1
+    target.parent.mkdir(parents=True, exist_ok=True)
+    backup = confmigrate.apply(target, new)
+    print(f"wrote {target}" + (f" (backup {backup.name})" if old else ""))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     """Entry point of `hal configure`."""
     ap = argparse.ArgumentParser(prog="hal configure")
     ap.add_argument("--profile", choices=("auto", *profiles.PROFILES), default="auto")
     ap.add_argument("--chat-model", default=None)
     ap.add_argument("--vault", default=config.SHARED["vault"])
+    ap.add_argument("--migrate", nargs="?", const="", metavar="HAL_CONF", help="add keys from an old hal.conf")
     ap.add_argument("--yes", action="store_true", help="accept the detected profile without asking")
     args = ap.parse_args(argv)
+    if args.migrate is not None:
+        return migrate(args.migrate, args.yes)
     # a profile only matters when the file is about to be created, so an existing file never prompts
     name = choose_profile(args.profile, args.yes) if not config.config_path().exists() else "cloud"
     chat_model = args.chat_model or profiles.PROFILES[name].chat_model
