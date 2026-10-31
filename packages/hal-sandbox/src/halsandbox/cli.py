@@ -211,6 +211,11 @@ def box_main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--upstream", default="http://127.0.0.1:8080")
     parser.add_argument("cli", nargs="?")
     args = parser.parse_args(own)
+    if not args.cli and rest:
+        args.cli, rest = (
+            rest[0],
+            rest[1:],
+        )  # `hal box -- CLI ARGS`: the CLI is the first word after `--` (REQ-CLI-42)
     if not args.cli:
         parser.error("name a CLI after `--`: hal box -- claude")
     try:

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from halsandbox import cli as boxcli_cmd
 from halsandbox.boxcli import PROFILES, BoxContext, profile
 from halsandbox.errors import SandboxError
 
@@ -55,3 +56,18 @@ def test_codex_config_is_valid_toml_with_the_responses_provider():
     data = tomllib.loads(seed.decode("ascii"))
     assert data["model_providers"]["hal"]["wire_api"] == "responses"
     assert data["mcp_servers"]["hal"]["command"] == "hal-mcp-bridge"
+
+
+def test_box_passes_argv_after_double_dash_unchanged(monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(
+        boxcli_cmd.boxmod, "run", lambda cli, rest, **kw: seen.update(cli=cli, rest=rest) or 0
+    )
+    assert boxcli_cmd.box_main(["--dir", str(tmp_path), "--", "crush", "--version", "-x", "--", "y"]) == 0
+    assert seen == {"cli": "crush", "rest": ["--version", "-x", "--", "y"]}
+
+
+def test_box_without_a_cli_exits_2():
+    with pytest.raises(SystemExit) as exc:
+        boxcli_cmd.box_main([])
+    assert exc.value.code == 2
