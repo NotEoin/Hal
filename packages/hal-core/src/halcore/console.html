@@ -64,6 +64,7 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: v
     <span style="color:var(--fail)">fail <b id="n-fail">0</b></span></div>
 </div></header>
 <main>
+  <div id="approvals"></div>
   <div class="free">
     <input type="text" id="free" placeholder="Ask Hal anything..." autocomplete="off">
     <button class="primary" id="free-go">Ask</button>
@@ -172,6 +173,44 @@ async function free() {
 }
 $("#free-go").onclick = free; $("#free").onkeydown = e => { if (e.key === "Enter") free(); };
 $("#reset").onclick = () => api("/api/reset", {}).then(() => { $("#free-out").classList.remove("show"); });
+
+// Approvals: every field is inserted with textContent; approve stays disabled until the whole
+// argument text has been scrolled into view (REQ-CLI-109).
+const approvalEls = new Map();
+function approvalCard(a) {
+  const el = document.createElement("div"); el.className = "card show";
+  const head = document.createElement("div"); head.className = "ask";
+  head.textContent = `${a.pack}.${a.tool} (${a.tier}) leaves the box - key ${a.key.slice(0, 19)}`;
+  const why = document.createElement("div"); why.className = "meta"; why.textContent = a.reason;
+  const pre = document.createElement("pre"); pre.className = "tools"; pre.textContent = a.display;
+  pre.style.maxHeight = "12em"; pre.style.overflow = "auto";
+  const note = document.createElement("input"); note.type = "text"; note.placeholder = "note for the model (optional)";
+  const msg = document.createElement("span"); msg.className = "err";
+  const send = async (verdict, scope) => {
+    try { await api("/api/approvals/" + a.id, { key: a.key, verdict, scope, note: note.value, shown_all: seen() }); el.remove(); approvalEls.delete(a.id); }
+    catch (e) { msg.textContent = e.message; }
+  };
+  const seen = () => pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 1;
+  const buttons = [];
+  for (const sc of a.scopes) {
+    const b = document.createElement("button"); b.className = "primary"; b.textContent = sc === "once" ? "Allow once" : "Allow these exact args for this session";
+    b.disabled = !seen(); b.onclick = () => send("allow", sc); buttons.push(b);
+  }
+  const deny = document.createElement("button"); deny.textContent = "Deny"; deny.onclick = () => send("deny", null);
+  pre.onscroll = () => buttons.forEach(b => { b.disabled = !seen(); });
+  el.append(head, why, pre, note, ...buttons, deny, msg);
+  requestAnimationFrame(() => buttons.forEach(b => { b.disabled = !seen(); }));
+  return el;
+}
+async function pollApprovals() {
+  try {
+    const { approvals } = await api("/api/approvals");
+    const ids = new Set(approvals.map(a => a.id));
+    for (const [id, el] of approvalEls) if (!ids.has(id)) { el.remove(); approvalEls.delete(id); }
+    for (const a of approvals) if (!approvalEls.has(a.id)) { const el = approvalCard(a); approvalEls.set(a.id, el); $("#approvals").append(el); }
+  } catch (e) { /* the next poll retries */ }
+}
+setInterval(pollApprovals, 2000); pollApprovals();
 
 api("/api/cases").then(d => {
   state = { ...state, ...d };

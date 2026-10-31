@@ -83,4 +83,5 @@ Each command also answers `--help`. Verified 2026-10-31 by running `python -m ha
 | `hal security [status\|doctor]` | Lockdown, paranoia and whether the classifier model is reachable |
 | `hal audit tail [-n N] [--session ID] [--json]`, `hal audit verify` | Read the audit log, or check its hash chain |
 | `hal units install [--start] [--no-desktop]`, `remove`, `list` | Render and install the systemd user units |
+| `hal console [--port N] [--open]` | UNBOXED local web page for trying Hal; `--open` opens the single-use link (valid 60 s, sets a strict cookie). Broker approvals queue on the page: Allow stays disabled until the whole argument text is scrolled into view. Verified by `test_consolesurface.py` |
 | `hal eval [--model M] [--only IDS] [--category C] [--repeat N]` | Ask Hal the test cases and check the answers |

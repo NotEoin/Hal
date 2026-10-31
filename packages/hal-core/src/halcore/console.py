@@ -20,6 +20,7 @@ import re
 import secrets
 import threading
 import time
+import webbrowser
 from datetime import datetime
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -29,11 +30,13 @@ from halkit import files, paths
 
 from . import config, evaluate
 from .brain import Brain
+from .consolesurface import ConsoleSurface, UnknownRequest
 
 PAGE = Path(__file__).with_name("console.html")
 TOKEN_BYTES = 32  # REQ-SEC-71
 OPEN_CODE_TTL_S = 60  # the one-time link is for the browser launched right now
 COOKIE_NAME = "hal_console"
+APPROVAL_PREFIX = "/api/approvals/"
 LOOPBACK_NAMES = ("127.0.0.1", "localhost")
 # no remote image, script or frame: model text shown here cannot trigger a fetch (REQ-SEC-73)
 CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:"
@@ -246,6 +249,19 @@ class Handler(BaseHTTPRequestHandler):
         cookie = f"{COOKIE_NAME}={auth.token}; HttpOnly; SameSite=Strict; Path=/"
         self._send(303, b"", "text/plain", {"Set-Cookie": cookie, "Location": "/"})
 
+    def _answer_approval(self, request_id: str, body: dict) -> None:
+        """Passes the page's answer to the surface; 404 for an unknown id, 400 for a refused one."""
+        try:
+            self.server.approvals.answer(  # type: ignore[attr-defined]
+                request_id, str(body.get("key", "")), str(body.get("verdict", "")), body.get("scope"),
+                str(body.get("note", "")), shown_all=body.get("shown_all") is True)
+        except UnknownRequest:
+            self._send(404, {"error": "no such pending request"})
+        except ValueError as e:
+            self._send(400, {"error": str(e)})
+        else:
+            self._send(200, {"answered": True})
+
     def log_message(self, *args) -> None:  # quiet
         pass
 
@@ -261,6 +277,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path in ("/", "/index.html"):
             self._send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
+        elif self.path == "/api/approvals":
+            self._send(200, {"approvals": self.server.approvals.pending()})  # type: ignore[attr-defined]
         elif self.path == "/api/cases":
             cases = [{k: evaluate.fill(v) if isinstance(v, str) and k in ("ask", "look_for") else v
                       for k, v in c.items()} for c in evaluate.load_cases()]
@@ -284,6 +302,9 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/reset": lambda: (brain().reset(), {"reset": True})[1],
                 "/api/speak": lambda: config.hub().call("voice_say", {"text": body["text"]}),
             }
+            if self.path.startswith(APPROVAL_PREFIX):
+                self._answer_approval(self.path[len(APPROVAL_PREFIX) :], body)
+                return
             if self.path not in routes:
                 self._send(404, {"error": "not found"})
                 return
@@ -296,6 +317,7 @@ def make_server(port: int, token: str | None = None) -> ThreadingHTTPServer:
     """A console server on loopback `port` (0 picks one) that checks every request with `Auth`."""
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.auth = Auth(token or load_token(), server.server_address[1])  # type: ignore[attr-defined]
+    server.approvals = ConsoleSurface()  # type: ignore[attr-defined]
     return server
 
 
@@ -305,12 +327,15 @@ UNBOXED_BANNER = "UNBOXED: hal console runs on the host with no box and uses you
 def main(argv: list[str]) -> int:
     """Runs the console server until interrupted."""
     ap = argparse.ArgumentParser(prog="hal console", description=f"Local web console. {UNBOXED_BANNER}.")
+    ap.add_argument("--open", action="store_true", help="open the one-time link in the default browser")
     ap.add_argument("--port", type=int, default=int(config.load().get("console", {}).get("port", 8740)))
     args = ap.parse_args(argv)
     server = make_server(args.port)
     link = f"http://127.0.0.1:{server.server_address[1]}/open?t={server.auth.new_open_code()}"
     print(UNBOXED_BANNER, flush=True)
     print(f"Hal console: open {link} (single use, {OPEN_CODE_TTL_S} s)", flush=True)
+    if args.open:
+        webbrowser.open(link)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
