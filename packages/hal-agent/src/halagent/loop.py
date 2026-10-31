@@ -41,6 +41,7 @@ from halagent.context import (
     render_for_summary,
 )
 from halagent.hooks import Hooks
+from halagent.images import extract_images
 from halagent.mcp.client import UserMcp
 from halagent.mcp.lite import McpError
 from halagent.profiles import Profile, resolve_profile
@@ -523,8 +524,13 @@ class Agent:
 
     def run(self, prompt: str, images: list[dict] | None = None) -> RunResult:
         """Runs one user prompt (with optional `{mimeType, data}` images) until it ends or a limit hits."""
+        if images is None and "@" in prompt:
+            images = extract_images(prompt, self.toolset.workspace.root)
         if images and not self.accepts_images:
-            raise ValueError("this model or endpoint does not take image input")
+            raise ValueError(
+                f"{self.settings.model} does not take image input (text-only profile or endpoint); "
+                "remove the @image reference or switch to a vision model"
+            )
         if self.hooks and (reason := self.hooks.user_prompt_submit(prompt)):
             return RunResult(f"Prompt blocked by a hook: {reason}", "blocked", 0, 0)
         if self.split:

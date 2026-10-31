@@ -82,6 +82,14 @@ The body is the child's instructions. `tools` can only narrow the parent's tools
 write tool needs auto-edit mode. The number of children that run at once follows the slots the
 gateway reports for the model (2 when unknown); the others wait their turn.
 
+## Images
+
+Write `@path/to/shot.png` in a prompt (png, jpg, gif or webp under the working copy, up to 8 MB,
+at most 4 per prompt) and the file goes to the model as an image. A path outside the working copy
+is refused. Models whose profile sets `vision = false` (Qwen3-Coder, gpt-oss, GLM, DeepSeek, Llama,
+Granite) refuse the prompt with a clear message instead of dropping the image silently. Clients
+that speak ACP send images as content blocks instead.
+
 ## Model roles
 
 Name more than one model in `[agent.models]`:

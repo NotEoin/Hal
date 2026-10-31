@@ -45,6 +45,7 @@ KEYS: dict[str, tuple[tuple[type, ...], tuple[str, ...] | None]] = {
     "tool_set": ((str,), ("full", "compact")),
     "tool_constraint": ((str,), ("none", "grammar", "json_schema")),
     "cache_prompt": ((bool,), None),
+    "vision": ((bool,), None),
     "id_slot": ((int,), None),
 }
 ENTRY_KEYS = ("match", "family", "notes", "evidence")

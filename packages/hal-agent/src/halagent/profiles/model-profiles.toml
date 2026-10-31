@@ -45,12 +45,14 @@ top_p = 0.8
 top_k = 20
 repeat_penalty = 1.05
 thinking = "off"
+vision = false
 leak_parsers = ["hermes", "json", "name_json"]
 notes = "sampling values from the Qwen2.5-Coder model card"
 
 [[model]]
 match = ["qwen3-coder*"]
 family = "qwen3coder"
+vision = false
 temperature = 0.7
 thinking = "off"
 leak_parsers = ["qwen_xml", "hermes"]
@@ -59,6 +61,7 @@ notes = "temperature is unverified: Ollama publishes none"
 [[model]]
 match = ["gpt-oss:*", "gpt-oss-*"]
 family = "gptoss"
+vision = false
 temperature = 1.0
 thinking = "medium"
 leak_parsers = ["harmony", "json"]
@@ -82,6 +85,7 @@ evidence = "ministral-3:14b 28/38, mistral-small3.2:24b 30/38 (2026-10-10)"
 [[model]]
 match = ["glm-4.5*", "glm-4.6*", "glm-4.7*", "glm-4-*"]
 family = "glm47"
+vision = false
 temperature = 0.6
 thinking = "on"
 leak_parsers = ["glm", "hermes"]
@@ -89,6 +93,7 @@ leak_parsers = ["glm", "hermes"]
 [[model]]
 match = ["deepseek-r1*", "deepseek-v3*", "deepseek-coder*"]
 family = "deepseek"
+vision = false
 temperature = 0.6
 top_p = 0.95
 thinking = "on"
@@ -99,6 +104,7 @@ notes = "R1 style models: reasoning is not replayed (the vendor advises against 
 [[model]]
 match = ["llama3.1*", "llama3.3*", "llama-3.1*", "llama-3.3*"]
 family = "llama3"
+vision = false
 temperature = 0.6
 top_p = 0.9
 thinking = "off"
@@ -107,6 +113,7 @@ leak_parsers = ["json", "name_json", "hermes"]
 [[model]]
 match = ["granite4*"]
 family = "granite"
+vision = false
 thinking = "off"
 leak_parsers = ["hermes", "json"]
 
