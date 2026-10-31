@@ -64,7 +64,7 @@ Tools:
 NO_TOOLS = """
 You have no tools in this installation: answer from your own knowledge, and if asked to act on the
 computer, the calendar or anything outside this conversation, say plainly that the extension for it
-is not installed (extensions are added with `hal ext add <name>`).
+is not installed (extensions are added with `hal packs add <name>`).
 """
 
 # A reply that says something was done, or that it cannot be done, when no tool ran,
@@ -79,7 +79,7 @@ CLAIM = re.compile(r"\bI(?:'ve| have|'ll| will)? (?:added|scheduled|set|saved|no
                    r"cancell?ed|deleted|removed|turned|sent|started|reminded|recorded|updated|stored|logged)\b", re.I)
 NO_TOOLS_RETRY = ("Your draft reply was not sent: it said you did something, but you have no tools in this "
                   "installation and did nothing. Answer again: say plainly that you cannot do that here, and "
-                  "that the extension for it can be added with `hal ext add <name>`.")
+                  "that the extension for it can be added with `hal packs add <name>`.")
 RETRY = ("Your draft reply was not sent: it either said something was done without a tool call, or said "
          "you cannot do it. You have tools for nearly everything. If an action was asked for, call the right "
          "tool now: memory_fact for a lasting fact about the user, memory_remember for anything to remember, "

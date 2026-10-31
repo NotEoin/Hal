@@ -112,7 +112,7 @@ def test_prompt_has_user_channel_style_and_local_time():
 
 
 def test_prompt_without_tools_says_the_extension_is_missing():
-    assert "hal ext add" in system_prompt(user="", persona="", channel="chat", timezone="", has_tools=False)
+    assert "hal packs add" in system_prompt(user="", persona="", channel="chat", timezone="", has_tools=False)
 
 
 def test_memory_profile_is_fetched_through_the_broker(server, tmp_path):
