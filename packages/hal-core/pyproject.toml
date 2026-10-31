@@ -9,7 +9,7 @@ description = "The hal command: agent loop host, extensions, services, eval and 
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-dependencies = ["hal-kit", "hal-hub", "hal-sandbox"]
+dependencies = ["hal-kit", "hal-hub", "hal-sandbox", "rich>=15,<16", "prompt-toolkit>=3.0.53,<4"]
 
 [tool.uv.sources]
 hal-kit = { workspace = true }

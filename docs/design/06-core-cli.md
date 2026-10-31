@@ -202,8 +202,9 @@ deselected by default; markers per E12), **manual**.
 - **REQ-CLI-23** (MUST) With backend `none` (a code session, or the unboxed assistant of
   REQ-CLI-96), the TUI MUST show a banner at start and `UNSANDBOXED` in the status line on
   every redraw. Test: unit `test_unsandboxed_banner_and_status`.
-- **REQ-CLI-24** (SHOULD) Output SHOULD use ASCII box drawing and spinners unless
-  `[ui].unicode` is true. Test: unit `test_default_render_is_ascii`.
+- **REQ-CLI-24** (SHOULD) Output SHOULD use Unicode box drawing and spinners when the terminal
+  encoding is UTF-8 and `[ui].unicode` is true (the default), and plain ASCII otherwise
+  (user directive 2026-10-30; this replaces the earlier ASCII default). Test: unit `test_default_render_is_ascii`.
 
 ### Approvals
 
@@ -1940,7 +1941,9 @@ Each check: id, probe, timeout, fix line. `--only` takes ids.
 | `diff_max_lines` | int | `80` | About one screen; longer diffs go to `/diff` |
 | `markdown_refresh_hz` | int | `8` | Smooth to the eye while keeping rich re-render cost low on long tails |
 | `mention_max_bytes` | int | `32768` | About 8k tokens at 4 characters per token, a quarter of a 32k window |
-| `unicode` | bool | `false` | ASCII output is predictable in every terminal and copies cleanly into notes |
+| `unicode` | bool | `true` | Unicode glyphs when the terminal is UTF-8; ASCII otherwise or when false |
+| `theme` | str (`dark`, `light`, `mono`) | `"dark"` | One accent colour; `mono` and `NO_COLOR` drop colour |
+| `notify` | str (`off`, `bell`, `osc9`) | `"bell"` | Signal when a long turn ends while the terminal is unfocused |
 
 `[console]`: `port` int `8740` (kept from today; desktop launcher and habits use it),
 `open_link_ttl_s` int `60` (see Console).

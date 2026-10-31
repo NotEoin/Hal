@@ -1,0 +1,155 @@
+"""The look of the TUI: `[ui]` settings, glyph sets, colour tokens and the rich console factory.
+
+One accent colour (HAL red) marks the prompt, the active spinner and focus; grey is for metadata;
+green and red appear only on diff lines and pass/fail marks. Glyphs are Unicode when the terminal
+encoding is UTF-8 and `[ui].unicode` is true, plain ASCII otherwise (this overrides the spec's
+ASCII default, see docs/design/06-core-cli.md REQ-CLI-24). The console is built with markup,
+emoji and highlighting off, so a string printed through it is never parsed as markup: model text
+cannot restyle the screen (REQ-SEC-25).
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import TextIO
+
+from halkit import config as kitconfig
+from rich import box as richbox
+from rich.console import Console
+
+ACCENT = "#e5484d"  # HAL red
+THEMES = ("dark", "light", "mono")
+NOTIFY_MODES = ("off", "bell", "osc9")
+DEFAULT_WIDTH = 100  # used when the output is not a terminal (tests, pipes)
+
+UI_TABLE = kitconfig.register(
+    kitconfig.Table(
+        name="ui",
+        owner="hal-core",
+        keys=(
+            kitconfig.Key("default_mode", str, "auto", choices=("auto", "code", "chat"), doc="What a bare `hal` runs"),
+            kitconfig.Key("show_thinking", bool, False, doc="Show reasoning text, dimmed, while it streams"),
+            kitconfig.Key("tool_output_lines", int, 8, doc="Lines of tool output shown before folding"),
+            kitconfig.Key("diff_max_lines", int, 80, doc="Diff lines shown inline; /diff shows the rest"),
+            kitconfig.Key("markdown_refresh_hz", int, 8, doc="Redraws per second of the streaming tail"),
+            kitconfig.Key("mention_max_bytes", int, 32768, doc="Largest file an @path mention attaches"),
+            kitconfig.Key("unicode", bool, True, doc="Use box drawing and glyphs when the terminal is UTF-8"),
+            kitconfig.Key("theme", str, "dark", choices=THEMES, env="HAL_THEME", doc="Colour theme"),
+            kitconfig.Key("notify", str, "bell", choices=NOTIFY_MODES, doc="Signal when a long turn ends unfocused"),
+        ),
+    )
+)
+
+
+@dataclass(frozen=True)
+class Glyphs:
+    """The drawing characters of one glyph set."""
+
+    box: richbox.Box
+    prompt: str
+    tool: str
+    ok: str
+    fail: str
+    running: str
+    nest: str
+    bullet: str
+    think: str
+    bar_full: str
+    bar_empty: str
+    sep: str
+    spinner: str  # name of a rich spinner
+    todo: Mapping[str, str]
+
+
+# fmt: off
+UNICODE = Glyphs(
+    box=richbox.ROUNDED, prompt="\u276f", tool="\u25cf", ok="\u2713", fail="\u2717", running="\u25cb",
+    nest="\u2514", bullet="\u2022", think="\u2237", bar_full="\u2588", bar_empty="\u2591", sep="\u00b7",
+    spinner="dots", todo={"pending": "\u2610", "in_progress": "\u25d0", "completed": "\u2611"},
+)  # fmt: skip
+# fmt: on
+
+ASCII = Glyphs(
+    box=richbox.ASCII, prompt=">", tool="*", ok="ok", fail="FAIL", running="...", nest="`-", bullet="-",
+    think="~", bar_full="#", bar_empty="-", sep="|", spinner="line",
+    todo={"pending": "[ ]", "in_progress": "[~]", "completed": "[x]"},
+)  # fmt: skip
+
+
+@dataclass(frozen=True)
+class Palette:
+    """Rich style names for one theme; `""` means no colour."""
+
+    accent: str
+    muted: str
+    ok: str
+    bad: str
+    code: str  # pygments theme for code blocks
+
+
+PALETTES = {
+    "dark": Palette(ACCENT, "grey58", "green", "red", "monokai"),
+    "light": Palette(ACCENT, "grey42", "dark_green", "red3", "default"),
+    "mono": Palette("bold", "dim", "", "", "ansi_dark"),
+}
+
+
+@dataclass(frozen=True)
+class Look:
+    """Glyphs and palette resolved for this terminal, plus the display limits from `[ui]`."""
+
+    glyphs: Glyphs
+    palette: Palette
+    color: bool
+    tool_output_lines: int = 8
+    diff_max_lines: int = 80
+    refresh_hz: int = 8
+    show_thinking: bool = False
+    notify: str = "bell"
+    mention_max_bytes: int = 32768
+
+    @property
+    def unicode(self) -> bool:
+        """True when this look draws Unicode glyphs."""
+        return self.glyphs is UNICODE
+
+
+def encoding_is_utf8(stream: TextIO | None = None) -> bool:
+    """True when `stream` (default stdout) writes UTF-8."""
+    return (getattr(stream or sys.stdout, "encoding", "") or "").lower().replace("-", "") == "utf8"
+
+
+def load_look(
+    settings: Mapping[str, object] | None = None, *, stream: TextIO | None = None, environ: Mapping[str, str] | None = None
+) -> Look:
+    """Builds the `Look` from `[ui]` settings (defaults when None), the stream's encoding and `NO_COLOR`."""
+    env = os.environ if environ is None else environ
+    ui = dict(settings) if settings is not None else {key.name: key.default for key in UI_TABLE.keys}
+    theme = str(ui.get("theme", "dark"))
+    unicode_ok = bool(ui.get("unicode", True)) and encoding_is_utf8(stream)
+    color = theme != "mono" and not env.get("NO_COLOR")
+    return Look(
+        glyphs=UNICODE if unicode_ok else ASCII,
+        palette=PALETTES.get(theme, PALETTES["dark"]),
+        color=color,
+        tool_output_lines=int(ui.get("tool_output_lines", 8)),  # type: ignore[call-overload]  # config validated the type
+        diff_max_lines=int(ui.get("diff_max_lines", 80)),  # type: ignore[call-overload]  # config validated the type
+        refresh_hz=max(1, int(ui.get("markdown_refresh_hz", 8))),  # type: ignore[call-overload]  # config validated the type
+        show_thinking=bool(ui.get("show_thinking", False)),
+        notify=str(ui.get("notify", "bell")),
+        mention_max_bytes=int(ui.get("mention_max_bytes", 32768)),  # type: ignore[call-overload]  # config validated the type
+    )
+
+
+def make_console(look: Look, file: TextIO | None = None, *, width: int | None = None, record: bool = False) -> Console:
+    """A rich console that never parses markup; colour only when `look.color` and the file is a terminal."""
+    console = Console(
+        file=file, markup=False, emoji=False, highlight=False, record=record,
+        no_color=not look.color, width=width, soft_wrap=False,
+    )  # fmt: skip
+    if width is None and not console.is_terminal:
+        console.width = DEFAULT_WIDTH
+    return console
