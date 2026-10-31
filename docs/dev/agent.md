@@ -37,6 +37,20 @@ How `packages/hal-agent` is put together and how to change it. The requirements 
   fails with -32602 when it has neither.
 - `hal-agent --acp` and `acp.serve()` share one code path; a test compares their output.
 
+## State exposed to the TUI
+
+Agent updates (`Agent.on_update`) and the ACP `session/update` they map to. A new stream line
+must be listed here in the same commit.
+
+| Agent update | ACP `sessionUpdate` | Fields |
+| --- | --- | --- |
+| `usage` | `usage_update` | `used` (tokens in context after the reply), `size` (window), `_meta.hal.promptTokens`, `completionTokens`, `tokensPerSecond` (completion tokens over reply wall time) |
+| `compaction` | `hal_compaction` | `reason` (`auto` or `manual`), `method` (`mask`, `summary`, `note`), `beforeTokens`, `afterTokens` |
+| `plan` | `plan` | the `todo` list as ACP plan entries |
+
+`session/compact` takes an optional `focus` string that the summary keeps detail on.
+Verified by `tests/test_context.py` and `tests/test_budget.py`.
+
 ## Tests
 
 ```sh

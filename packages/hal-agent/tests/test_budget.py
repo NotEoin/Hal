@@ -98,4 +98,8 @@ def test_usage_update_reports_tokens(server, tmp_path):
     seen: list[dict] = []
     a = Agent(AgentSettings(endpoint=server.url), Toolset(tmp_path), on_update=seen.append)
     a.run("go")
-    assert {"kind": "usage", "prompt_tokens": 12, "completion_tokens": 4, "window": 32768} in seen
+    usage = {
+        "kind": "usage", "prompt_tokens": 12, "completion_tokens": 4, "window": 32768,
+        "context_used": 16, "tokens_per_s": 8.0,
+    }  # fmt: skip
+    assert usage in seen

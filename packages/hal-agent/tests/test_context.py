@@ -130,3 +130,37 @@ def test_replayed_summary_sorts_where_the_replaced_messages_were():
     recs += [{"type": "compaction", "kind": "summary", "replaces": [2, 3], "summary_i": 5}]
     recs += [msg(5, "user", "SUMMARY")]
     assert [m["content"] for m in replay(recs)] == ["s", "task", "SUMMARY", "tail"]
+
+
+def _two_turn_agent(server, tmp_path, updates):
+    settings = AgentSettings(endpoint=server.url, context_window=16_000, max_output=300)
+    return Agent(settings, Toolset(tmp_path), on_update=updates.append)
+
+
+def test_manual_compact_passes_the_focus_text_to_the_summary_request(server, tmp_path):
+    updates: list[dict] = []
+    server.script("first answer", "SUMMARY OF WORK")
+    agent = _two_turn_agent(server, tmp_path, updates)
+    agent.run("hello there")
+    agent.compact("keep the db schema")
+    summary_request = server.requests[-1]["body"]["messages"]
+    assert "keep the db schema" in summary_request[0]["content"]
+
+
+def test_manual_compact_emits_a_compaction_update_with_token_counts(server, tmp_path):
+    updates: list[dict] = []
+    server.script("first answer", "SUMMARY OF WORK")
+    agent = _two_turn_agent(server, tmp_path, updates)
+    agent.run("hello there")
+    agent.compact()
+    event = next(u for u in updates if u["kind"] == "compaction")
+    assert event["reason"] == "manual" and event["before_tokens"] >= 0 and "after_tokens" in event
+
+
+def test_usage_update_reports_context_used_and_tokens_per_second(server, tmp_path):
+    updates: list[dict] = []
+    server.script("answer")
+    agent = _two_turn_agent(server, tmp_path, updates)
+    agent.run("hi")
+    usage = [u for u in updates if u["kind"] == "usage"]
+    assert usage and {"context_used", "tokens_per_s", "window"} <= set(usage[0])

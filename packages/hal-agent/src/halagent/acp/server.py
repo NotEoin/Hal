@@ -222,7 +222,7 @@ class AcpServer:
             if busy is not None and busy.is_alive():
                 raise RpcError(ERR_BUSY, "a turn is running: compact after it ends")
             try:
-                before, after = agent.compact()
+                before, after = agent.compact(str(params.get("focus") or ""))
             except ValueError as exc:
                 raise RpcError(ERR_PARAMS, str(exc)) from exc
             return {"_meta": {"hal": {"beforeTokens": before, "afterTokens": after}}}
@@ -394,6 +394,21 @@ class AcpServer:
                     "content": [body],
                 },
             )
+        elif kind == "usage":
+            self._notify_update(
+                sid,
+                {"sessionUpdate": "usage_update", "used": u["context_used"], "size": u["window"],
+                 "_meta": {"hal": {"promptTokens": u["prompt_tokens"],
+                                   "completionTokens": u["completion_tokens"],
+                                   "tokensPerSecond": u["tokens_per_s"]}}},
+            )  # fmt: skip
+        elif kind == "compaction":
+            self._notify_update(
+                sid,
+                {"sessionUpdate": "hal_compaction", "reason": u["reason"],
+                 "method": u.get("method", "summary"), "beforeTokens": u["before_tokens"],
+                 "afterTokens": u["after_tokens"]},
+            )  # fmt: skip
         elif kind == "plan":
             entries = [
                 {"content": ln[6:].strip(), "priority": "medium",

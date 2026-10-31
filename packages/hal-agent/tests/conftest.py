@@ -34,3 +34,10 @@ def isolated_state(tmp_path_factory, monkeypatch) -> None:
 def isolated_config(tmp_path_factory, monkeypatch) -> None:
     """Keeps the user's real config, AGENTS.md and model profiles out of every test."""
     monkeypatch.setenv("HAL_CONFIG", str(tmp_path_factory.mktemp("config") / "config.toml"))
+
+
+@pytest.fixture(autouse=True)
+def fixed_clock(monkeypatch) -> None:
+    """Makes the agent's reply timing constant (0.5 s per call) so tokens per second is stable."""
+    ticks = iter(x * 0.5 for x in range(10**6))
+    monkeypatch.setattr("halagent.loop._now", lambda: next(ticks))

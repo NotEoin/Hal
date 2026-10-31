@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -77,6 +78,7 @@ FIND_SPEC = {
 }
 MAX_OUTPUT_SHARE = 4  # a reply may take at most a quarter of the window
 OVERFLOW_SHRINK = 0.75  # after a context_length_exceeded answer, plan for 25% less input
+FOCUS_MAX_CHARS = 500  # a focus hint longer than this would crowd the small model's summary prompt
 HEAD_SHARE = 3  # a cut result keeps the first third and the last two thirds of the cap
 
 
@@ -122,6 +124,11 @@ def effective_settings(settings: AgentSettings, profile: Profile, info: ModelInf
     if fmt == "native" and profile.values.get("tool_format") == "prompt":
         fmt = "prompt"
     return replace(settings, context_window=window, max_output=out, tool_format=fmt)
+
+
+def _now() -> float:
+    """Monotonic seconds; tests replace it so tokens per second is deterministic."""
+    return time.monotonic()
 
 
 class Agent:
@@ -199,6 +206,7 @@ class Agent:
             mask_at=t.mask_at, mask_to=t.mask_to, summarize_at=t.summarize_at, safety_tokens=t.safety_tokens,
         )  # fmt: skip
         self._ids: list[int] = []
+        self._focus = ""
         self.messages: list[dict] = []
         self._add({"role": "system", "content": self._system_prompt()})
 
@@ -213,8 +221,9 @@ class Agent:
 
     def _summarize(self, old: list[dict]) -> str:
         """One model call, no tools, that compresses `old` into the compaction headings."""
+        focus = f"\n\nPay special attention to: {self._focus}" if self._focus else ""
         request = [
-            {"role": "system", "content": compaction_prompt()},
+            {"role": "system", "content": compaction_prompt() + focus},
             {"role": "user", "content": render_for_summary(old)},
         ]
         return self.provider.complete(request, None).text
@@ -224,16 +233,27 @@ class Agent:
         tools_chars = len(json.dumps(self._specs())) if self.settings.tool_format == "native" else 0
         return self._apply_fitted(self.context.fit(self.messages, self._ids, self.note, tools_chars))
 
-    def compact(self) -> tuple[int, int]:
-        """Summarises the whole history now; returns the estimated tokens before and after."""
+    def compact(self, focus: str = "") -> tuple[int, int]:
+        """Summarises the whole history now; returns the estimated tokens before and after.
+
+        `focus` is optional text (the `/compact` argument) that the summary should keep detail on.
+        """
         before = self.context.estimate(self.messages)
-        fitted = self.context.compact_all(self.messages, self._ids, self.note)
+        self._focus = focus.strip()[:FOCUS_MAX_CHARS]
+        try:
+            fitted = self.context.compact_all(self.messages, self._ids, self.note)
+        finally:
+            self._focus = ""
         if not fitted.records:
             raise ValueError("there is nothing to compact yet")
-        self._apply_fitted(fitted)
-        return before, self.context.estimate(self.messages)
+        self._apply_fitted(fitted, announce=False)
+        after = self.context.estimate(self.messages)
+        self.on_update(
+            {"kind": "compaction", "reason": "manual", "before_tokens": before, "after_tokens": after}
+        )
+        return before, after
 
-    def _apply_fitted(self, fitted: Fitted) -> list[dict]:
+    def _apply_fitted(self, fitted: Fitted, announce: bool = True) -> list[dict]:
         """Adopts a fitted history and writes its compaction records to the transcript."""
         self.messages, self._ids = fitted.messages, fitted.ids
         for rec in fitted.records:
@@ -241,6 +261,16 @@ class Agent:
                 self.counters["compactions"] += 1
             if rec["kind"] in ("summary", "note"):
                 rec = {**rec, "summary_i": self._next_i}
+            if announce and rec["kind"] in ("summary", "note", "mask"):
+                self.on_update(
+                    {
+                        "kind": "compaction",
+                        "reason": "auto",
+                        "method": rec["kind"],
+                        "before_tokens": rec["before_tokens"],
+                        "after_tokens": rec["after_tokens"],
+                    }
+                )
             if self.session:
                 self.session.write({**rec, "turn": self.turn, "id": f"cmp_{self._next_i}"})
         if fitted.summary_at is not None:
@@ -464,7 +494,12 @@ class Agent:
         cap = self.settings.tuning.max_result_chars
         if len(out) > cap:
             head = cap // HEAD_SHARE
-            out = out[:head] + f"\n[... {len(out) - cap} characters cut ...]\n" + out[-(cap - head) :]
+            out = (
+                out[:head]
+                + f"\n[... {len(out) - cap} characters cut; to see the middle use read with start_line"
+                + " or grep for the part you need ...]\n"
+                + out[-(cap - head) :]
+            )
         if self.hooks and (note := self.hooks.post_tool(name, args, out)):
             out += f"\n{note}"
         return out + "".join(f"\n{n}" for n in fixed.notes)
@@ -509,7 +544,9 @@ class Agent:
                 log.error("%s", exc)
                 return RunResult(text, "context_overflow", turns, clock.calls_used)
             try:
+                started = _now()
                 reply = self.provider.complete(self._wire(history), self._specs() if native else None)
+                seconds = _now() - started
             except ProviderError as exc:
                 if exc.status != 400 or "context_length_exceeded" not in str(exc):
                     raise
@@ -521,11 +558,13 @@ class Agent:
                 )
                 try:
                     history = self._fit()
+                    started = _now()
                     reply = self.provider.complete(self._wire(history), self._specs() if native else None)
+                    seconds = _now() - started
                 except (ContextOverflow, ProviderError) as again:
                     log.error("%s", again)
                     return RunResult(text, "context_overflow", turns, clock.calls_used)
-            self._report_usage(reply)
+            self._report_usage(reply, seconds)
             self._calibrate(history, reply, native)
             text = reply.text
             calls = list(reply.tool_calls)
@@ -574,7 +613,7 @@ class Agent:
         # fake servers) must not make the window check trust a too-small estimate
         self.context.chars_per_token = min(CHARS_PER_TOKEN, 1 / (self.tokens.ratio * ESTIMATE_FACTOR))
 
-    def _report_usage(self, reply: Completion) -> None:
+    def _report_usage(self, reply: Completion, seconds: float = 0.0) -> None:
         """Emits a `usage` update when the server reported token counts."""
         if reply.prompt_tokens or reply.completion_tokens:
             self.on_update(
@@ -583,6 +622,8 @@ class Agent:
                     "prompt_tokens": reply.prompt_tokens,
                     "completion_tokens": reply.completion_tokens,
                     "window": self.settings.context_window,
+                    "context_used": reply.prompt_tokens + reply.completion_tokens,
+                    "tokens_per_s": round(reply.completion_tokens / seconds, 1) if seconds > 0 else 0.0,
                 }
             )
 

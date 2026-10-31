@@ -96,8 +96,13 @@ def test_prompt_streams_tool_calls_and_replies_with_end_turn(server, tmp_path):
     assert reply_to(msgs, new)["result"]["sessionId"] == "3f9a1c0b7e2d"
     assert reply_to(msgs, prompt)["result"] == {"stopReason": "end_turn"}
     kinds = [m["params"]["update"]["sessionUpdate"] for m in msgs if m.get("method") == "session/update"]
+    kinds = [k for k in kinds if k != "usage_update"]
     assert kinds == ["tool_call", "tool_call_update", "agent_message_chunk"]
-    call = next(m for m in msgs if m.get("method") == "session/update")["params"]["update"]
+    call = next(
+        m
+        for m in msgs
+        if m.get("method") == "session/update" and m["params"]["update"]["sessionUpdate"] == "tool_call"
+    )["params"]["update"]
     assert (call["title"], call["kind"], call["status"]) == ("read", "read", "pending")
 
 
