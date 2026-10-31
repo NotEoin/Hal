@@ -349,10 +349,20 @@ def accept(iso: Isolated, *, allow_flags: bool = False) -> list[Change]:
     return applied
 
 
-def export(iso: Isolated, dest: Path, kind: str = "patch") -> Path:
-    """Writes the agent's changes to `dest` as a `patch` or a git `bundle`; the project is untouched."""
+def export(iso: Isolated, dest: Path, kind: str = "patch", *, force: bool = False) -> Path:
+    """Writes the agent's changes to `dest` as a `patch` or a git `bundle`; the project is untouched.
+
+    Refuses an existing `dest` unless `force`; a forced overwrite replaces a symlink itself and
+    never writes through it. A directory is never replaced.
+    """
     if kind not in ("patch", "bundle"):
         raise SandboxError("export kind must be patch or bundle")
+    if dest.is_dir() and not dest.is_symlink():
+        raise SandboxError(f"{dest} is a directory; give a file path")
+    if os.path.lexists(dest):
+        if not force:
+            raise SandboxError(f"{dest} already exists; pass --force to overwrite it")
+        dest.unlink()
     patch = patch_bytes(iso)
     dest = dest.resolve()
     if kind == "patch":

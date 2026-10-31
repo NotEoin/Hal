@@ -33,7 +33,7 @@ to the project. It is never chosen automatically.
 
 The agent never writes to your repository. In the default mode its work stays in the copy until
 you run `hal code accept SID` (shows the stat and risk flags, takes a checkpoint, applies the
-patch all or nothing) or `hal code export SID FILE` (patch, or `--bundle` for a git bundle).
+patch all or nothing) or `hal code export SID FILE` (patch, or `--bundle` for a git bundle; it refuses an existing FILE unless `--force`).
 `hal code diff SID` shows the patch and the flags without applying anything. A high-risk flag
 (CI files, `.envrc`, git metadata, a link out of the project, a private key) stops `accept`
 until you pass `--allow-flags`.

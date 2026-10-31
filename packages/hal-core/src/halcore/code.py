@@ -3,7 +3,7 @@
     hal code [DIR] [--upstream URL] [--model NAME] [--image NAME] [--runtime runc|runsc]
              [-- AGENT ARGS...]
     hal code --build
-    hal code ls | accept SID [--allow-flags] | export SID FILE [--bundle] | reject SID
+    hal code ls | accept SID [--allow-flags] | export SID FILE [--bundle] [--force] | reject SID
 
 On a terminal it runs the TUI over ACP (streaming, slash commands, /rewind, /diff, /apply); with `-- AGENT ARGS`
 or without a terminal it runs the agent's own prompt in the box. By default the box works on an isolated copy of DIR; `accept` or `export` is how changes leave it.
@@ -49,6 +49,7 @@ def review(argv: list[str]) -> int:
     exp.add_argument("sid")
     exp.add_argument("file")
     exp.add_argument("--bundle", action="store_true", help="write a git bundle instead of a patch")
+    exp.add_argument("--force", action="store_true", help="overwrite FILE if it exists")
     rej = sub.add_parser("reject")
     rej.add_argument("sid")
     opts = p.parse_args(argv)
@@ -67,7 +68,7 @@ def review(argv: list[str]) -> int:
             applied = isolated.accept(iso, allow_flags=opts.allow_flags)
             print(f"applied {len(applied)} changed paths" if applied else "no changes")
         elif opts.cmd == "export":
-            print(isolated.export(iso, Path(opts.file), "bundle" if opts.bundle else "patch"))
+            print(isolated.export(iso, Path(opts.file), "bundle" if opts.bundle else "patch", force=opts.force))
         else:
             isolated.reject(iso)
     except sandbox.SandboxError as exc:

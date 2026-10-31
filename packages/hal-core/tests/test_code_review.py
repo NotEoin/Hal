@@ -50,3 +50,26 @@ def test_scratch_clean_removes_the_project_pad(project, capsys):
     scratch.prepare(project, 10)
     assert scratch_cmd.main(["clean", str(project)]) == 0
     assert "removed" in capsys.readouterr().out and scratch.clean() == []
+
+
+def test_export_refuses_an_existing_file_unless_forced(project, tmp_path, capsys):
+    # regression: `hal code export` silently overwrote its destination
+    iso = isolated.create(project, 10**6)
+    (iso.work / "a.txt").write_text("two\n")
+    dest = tmp_path / "keep.patch"
+    dest.write_text("precious\n")
+    assert code.main(["export", iso.sid, str(dest)]) == 1
+    assert "--force" in capsys.readouterr().err and dest.read_text() == "precious\n"
+    assert code.main(["export", iso.sid, str(dest), "--force"]) == 0
+    assert "two" in dest.read_text()
+
+
+def test_forced_export_replaces_a_symlink_without_writing_through_it(project, tmp_path):
+    iso = isolated.create(project, 10**6)
+    (iso.work / "a.txt").write_text("two\n")
+    target = tmp_path / "target.txt"
+    target.write_text("untouched\n")
+    link = tmp_path / "link.patch"
+    link.symlink_to(target)
+    assert code.main(["export", iso.sid, str(link), "--force"]) == 0
+    assert target.read_text() == "untouched\n" and not link.is_symlink()
