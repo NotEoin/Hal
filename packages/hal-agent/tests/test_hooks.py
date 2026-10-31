@@ -96,3 +96,22 @@ def test_a_timed_out_hook_does_not_block(tmp_path):
         tmp_path, '[[hook]]\nevent = "pre_tool"\ncommand = "sh slow.sh"\ntimeout = 1', slow="sleep 5; exit 2"
     )
     assert hooks.pre_tool("write", {}) is None
+
+
+def test_hooks_in_settings_toml_are_loaded(tmp_path):
+    (tmp_path / ".hal").mkdir()
+    (tmp_path / ".hal" / "settings.toml").write_text('[[hook]]\nevent = "pre_tool"\ncommand = "true"\n')
+    assert len(Hooks.load(tmp_path, tmp_path / "no-config").hooks) == 1
+
+
+def test_a_failing_user_prompt_hook_refuses_the_prompt_with_its_message(server, tmp_path):
+    hooks = hooks_in(
+        tmp_path,
+        '[[hook]]\nevent = "user_prompt_submit"\ncommand = "sh deny.sh"\n',
+        deny="echo no secrets in prompts >&2; exit 2\n",
+    )
+    a = agent(server, tmp_path, hooks)
+    result = a.run("my password is hunter2")
+    assert result.stopped == "blocked"
+    assert "no secrets in prompts" in result.text
+    assert not server.requests

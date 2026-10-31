@@ -1,6 +1,7 @@
 """User hooks: commands run around tool calls and at session start and stop, inside the box.
 
-Hooks come from `~/.config/hal/hooks.toml` and `<project>/.hal/hooks.toml`. The agent runs inside
+Hooks come from `~/.config/hal/hooks.toml`, `<project>/.hal/hooks.toml` and the `[[hook]]` tables of
+`<project>/.hal/settings.toml`. The agent runs inside
 the box, so a hook is only as powerful as the agent already is: it can reach nothing the model
 could not reach with the `execute` tool. The project file lives in the working copy and a model
 can edit it, so both files are read once when the session starts and later edits wait for the next
@@ -23,7 +24,7 @@ from pathlib import Path
 
 log = logging.getLogger("halagent.hooks")
 
-EVENTS = ("pre_tool", "post_tool", "session_start", "session_stop")
+EVENTS = ("pre_tool", "post_tool", "user_prompt_submit", "session_start", "session_stop")
 BLOCK_EXIT_CODE = 2  # the same code Claude Code hooks use to block a call
 DEFAULT_TIMEOUT_S = 30
 MAX_TIMEOUT_S = 120
@@ -78,7 +79,7 @@ class Hooks:
     def load(cls, cwd: Path, config_dir: Path) -> Hooks:
         """Reads the user and project files; a bad file is logged and skipped, never fatal."""
         found: list[Hook] = []
-        for path in (config_dir / "hooks.toml", cwd / ".hal" / "hooks.toml"):
+        for path in (config_dir / "hooks.toml", cwd / ".hal" / "hooks.toml", cwd / ".hal" / "settings.toml"):
             if not path.is_file():
                 continue
             try:
@@ -131,6 +132,14 @@ class Hooks:
                     f"[hook {hook.command!r} exited {done.returncode}] {(done.stderr or done.stdout).strip()}"
                 )
         return "\n".join(notes)[:MAX_NOTE_CHARS]
+
+    def user_prompt_submit(self, prompt: str) -> str | None:
+        """Returns the reason when a hook blocks the prompt, else None."""
+        for hook in self._matching("user_prompt_submit"):
+            done = self._run(hook, {"event": "user_prompt_submit", "prompt": prompt[:MAX_ARG_CHARS]})
+            if done and done.returncode == BLOCK_EXIT_CODE:
+                return (done.stderr or done.stdout).strip()[:MAX_NOTE_CHARS] or "blocked by a hook"
+        return None
 
     def lifecycle(self, event: str) -> None:
         """Runs the `session_start` or `session_stop` hooks."""

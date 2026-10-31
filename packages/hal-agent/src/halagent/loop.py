@@ -511,6 +511,8 @@ class Agent:
         """Runs one user prompt (with optional `{mimeType, data}` images) until it ends or a limit hits."""
         if images and not self.accepts_images:
             raise ValueError("this model or endpoint does not take image input")
+        if self.hooks and (reason := self.hooks.user_prompt_submit(prompt)):
+            return RunResult(f"Prompt blocked by a hook: {reason}", "blocked", 0, 0)
         result = self._run(prompt, images or [])
         if self.session:
             stats = {"model_requests": result.turns, "tool_calls": result.tool_calls, **self.counters}

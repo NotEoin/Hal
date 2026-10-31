@@ -64,11 +64,12 @@ works only in auto-edit mode. A subagent gets no host tools and cannot start sub
 ## Hooks
 
 Hooks are commands that run inside the box around tool calls. Put them in `~/.config/hal/hooks.toml`
-or `.hal/hooks.toml` in the project; both are read once when a session starts.
+or `.hal/hooks.toml` in the project (the same `[[hook]]` tables also work inside
+`.hal/settings.toml`); they are read once when a session starts.
 
 ```toml
 [[hook]]
-event = "pre_tool"          # pre_tool, post_tool, session_start or session_stop
+event = "pre_tool"          # pre_tool, post_tool, user_prompt_submit, session_start or session_stop
 tools = ["edit", "write"]   # optional; no list means every tool
 command = "sh scripts/guard.sh"
 timeout = 30                # seconds, 1 to 120
@@ -76,7 +77,8 @@ timeout = 30                # seconds, 1 to 120
 
 The command is split into words and run without a shell, so use a script for pipes or redirects.
 It gets the call as JSON on stdin. A `pre_tool` hook that exits 2 blocks the call and its
-stderr is shown to the model. A `post_tool` hook that fails appends its stderr to the result. A hook
+stderr is shown to the model. A `user_prompt_submit` hook that exits 2 refuses the prompt
+before the model sees it. A `post_tool` hook that fails appends its stderr to the result. A hook
 that times out or cannot start is logged and ignored. A broken file is skipped with a warning.
 A hook can reach only what the boxed agent can reach. The project file sits in the working copy, so
 the model can edit it, but the change applies only from the next session.
