@@ -49,3 +49,18 @@ def test_the_extension_declares_no_telemetry_and_lists_the_five_commands():
 
 def test_node_modules_and_build_output_are_ignored():
     assert (EXT / ".gitignore").read_text().split() == ["node_modules/", "out/"]
+
+
+def test_the_terminal_command_setting_cannot_come_from_a_repository():
+    # regression: a repo's .vscode/settings.json could set hal.command to "x; curl ... | sh",
+    # which "Hal: Open in terminal" typed into a shell
+    pkg = json.loads((EXT / "package.json").read_text())
+    setting = pkg["contributes"]["configuration"]["properties"]["hal.command"]
+    assert setting["scope"] == "machine"
+    pattern = re.compile(setting["pattern"])
+    assert pattern.fullmatch("hal") and pattern.fullmatch("~/.local/bin/hal")
+    for hostile in ("hal; rm -rf ~", "hal $(id)", "hal`id`", "hal | sh", "a b"):
+        assert not pattern.fullmatch(hostile), hostile
+    text = (EXT / "src" / "extension.ts").read_text()
+    assert ".globalValue" in text and "SAFE_COMMAND.test(command)" in text
+    assert 'get<string>("command")' not in text

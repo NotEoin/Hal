@@ -34,7 +34,9 @@ VS Code: it compiles with `npx tsc -p ide/vscode` and its message types are cove
    ```
 
 3. Run "Hal: Open in terminal". It starts `hal code` for the workspace folder in the integrated
-   terminal.
+   terminal. If `hal` is not on your `PATH`, set `hal.command` in your user settings to its full
+   path; a workspace's `.vscode/settings.json` cannot change it, and a value with spaces or shell
+   syntax is refused.
 
 4. Select lines and run "Hal: Add selection to context". The terminal prints `ide: added
    @path#L10-20` and the lines join your next prompt.

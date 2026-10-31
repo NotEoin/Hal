@@ -4,6 +4,9 @@
 // and sends it; it runs nothing the terminal session sends back. The only thing it does with a
 // reply is open a diff of two files that the host named, after checking they stay inside the
 // two roots the host reported.
+//
+// `hal.command` is typed into a shell, so it is a machine-scoped setting (a repository's
+// .vscode/settings.json cannot override it) and must be a plain command path with no shell syntax.
 import * as path from "path";
 import * as vscode from "vscode";
 import { Channel, Incoming } from "./channel";
@@ -11,6 +14,7 @@ import { Channel, Incoming } from "./channel";
 const MAX_DIFF_FILES = 20; // a diff tab per file; more is noise
 const CONTEXT_DELAY_MS = 300; // selection events come in bursts
 const SEVERITY = ["error", "warning", "info", "hint"];
+const SAFE_COMMAND = /^[A-Za-z0-9_.\/~+-]+$/; // a path or program name; no spaces, quotes or ; & | $ `
 
 function workspaceFolder(): vscode.WorkspaceFolder | undefined {
   const active = vscode.window.activeTextEditor?.document.uri;
@@ -109,7 +113,11 @@ export function activate(context: vscode.ExtensionContext): void {
         void vscode.window.showWarningMessage("Hal: open a folder first.");
         return;
       }
-      const command = vscode.workspace.getConfiguration("hal").get<string>("command") ?? "hal";
+      const command = vscode.workspace.getConfiguration("hal").inspect<string>("command")?.globalValue ?? "hal";
+      if (!SAFE_COMMAND.test(command)) {
+        void vscode.window.showErrorMessage("Hal: hal.command must be a plain program path without spaces or shell syntax.");
+        return;
+      }
       const terminal = vscode.window.createTerminal({ name: "Hal", cwd: folder.uri.fsPath });
       terminal.show();
       terminal.sendText(`${command} code`, true);

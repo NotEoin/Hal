@@ -26,7 +26,7 @@
     "configuration": {
       "title": "Hal",
       "properties": {
-        "hal.command": { "type": "string", "default": "hal", "description": "The command that starts the Hal CLI in the terminal." },
+        "hal.command": { "type": "string", "default": "hal", "scope": "machine", "pattern": "^[A-Za-z0-9_./~+-]+$", "description": "The program that starts the Hal CLI in the terminal (user settings only)." },
         "hal.shareActiveFile": { "type": "boolean", "default": false, "description": "Tell Hal which file and lines are open. Off by default." }
       }
     }
