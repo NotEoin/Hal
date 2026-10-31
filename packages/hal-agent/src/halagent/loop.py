@@ -46,7 +46,7 @@ from halagent.prompts import render_code_prompt
 from halagent.provider import ChatProvider, Completion, ModelInfo, ProviderError, make_provider
 from halagent.repair import has_open_marker, repair_call, repair_text
 from halagent.repair.aliases import parse_args
-from halagent.sessions import SessionWriter, replay_indexed
+from halagent.sessions import SessionWriter, replay_indexed, title_from_prompt
 from halagent.settings import DEFAULT_MAX_OUTPUT, DEFAULT_WINDOW, AgentSettings
 from halagent.subagents import run_subagents
 from halagent.tokens import ESTIMATE_FACTOR, TokenCounter
@@ -526,6 +526,8 @@ class Agent:
         self.note.task = prompt
         if self.assistant and self.backend:
             self._select_for_turn(prompt)
+        if self.turn == 1 and self.session:
+            self.session.write({"type": "title", "title": title_from_prompt(prompt)})
         self._add({"role": "user", "content": prompt, **({"images": images} if images else {})})
         budget = self._budget()
         clock, dog = BudgetClock(budget), Watchdog(budget)

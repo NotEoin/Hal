@@ -30,7 +30,8 @@ REASONING_CAP = 20_000
 EXPORT_RESULT_CAP = 2_000
 LIST_LIMIT = 50
 SUMMARY_TEXT_CHARS = 300
-RECORD_TYPES = ("session", "message", "compaction", "notice", "turn_end", "checkpoint")
+TITLE_CHARS = 60
+RECORD_TYPES = ("session", "message", "compaction", "notice", "turn_end", "checkpoint", "title")
 
 
 class SessionError(Exception):
@@ -76,6 +77,13 @@ def _mask_message(msg: dict) -> dict:
     if isinstance(out.get("reasoning"), str):
         out["reasoning"] = out["reasoning"][:REASONING_CAP]
     return out
+
+
+def title_from_prompt(prompt: str, limit: int = TITLE_CHARS) -> str:
+    """A one-line ASCII title from the first words of `prompt`."""
+    line = " ".join(prompt.split())
+    line = line.encode("ascii", "replace").decode("ascii")
+    return line if len(line) <= limit else line[: limit - 3].rstrip() + "..."
 
 
 def finalize_record(record: dict[str, Any]) -> dict[str, Any]:
@@ -196,18 +204,37 @@ class SessionStore:
         found = []
         for path in self.root.glob("*/transcript.jsonl") if self.root.is_dir() else []:
             try:
-                first = next(iter(read_records(path)), None)
+                records = read_records(path)
+                first = records[0] if records else None
             except SessionError as exc:
                 log.warning("skipping %s: %s", path, exc)
                 continue
             if not first or first["type"] != "session" or (cwd is not None and first.get("cwd") != cwd):
                 continue
+            titled = [r["title"] for r in records if r["type"] == "title"]
+            first = {**first, "title": titled[-1] if titled else first.get("title", "")}
             found.append(
                 SessionInfo(first["id"], first.get("created", ""), first.get("cwd", ""),
                             first.get("title", ""), first.get("model", ""), path)
             )  # fmt: skip
         found.sort(key=lambda s: (s.created, s.id), reverse=True)
         return found[:limit]
+
+    def fork(self, session_id: str, new_id: str = "") -> str:
+        """Copies a session under a new id (header gets `forked_from`); returns the new id."""
+        records = self.load(session_id)
+        if not records or records[0]["type"] != "session":
+            raise SessionError(f"session {session_id} has no header")
+        new_id = new_id or new_session_id()
+        target = self.path(new_id)
+        if target.exists():
+            raise SessionError(f"session {new_id} already exists")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        head = {**records[0], "id": new_id, "forked_from": session_id, "created": utc_now()}
+        with target.open("w", encoding="ascii") as fh:
+            for rec in [head, *records[1:]]:
+                fh.write(json.dumps(rec, ensure_ascii=True) + "\n")
+        return new_id
 
     def latest(self, *, cwd: str) -> SessionInfo | None:
         """The newest session started in `cwd`."""

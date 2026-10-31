@@ -132,3 +132,56 @@ def test_cli_continue_reuses_the_latest_session_and_export_prints_it(server, tmp
     assert cli.main(["sessions", "export", listed[0]]) == 0
     out = capsys.readouterr().out
     assert "first" in out and "second" in out
+
+
+def _stored(store, sid, cwd="/w"):
+    from halagent.sessions import SessionWriter
+
+    w = SessionWriter(store.path(sid), {"id": sid, "agent": "t", "mode": "headless", "toolset": "coding",
+                                        "cwd": cwd, "model": "m"})  # fmt: skip
+    w.write({"type": "message", "turn": 1, "i": 0, "msg": {"role": "system", "content": "s"}})
+    w.write({"type": "message", "turn": 1, "i": 1, "msg": {"role": "user", "content": "do it"}})
+    w.close()
+
+
+def test_fork_copies_messages_under_a_new_id_and_records_the_parent(tmp_path):
+    from halagent.sessions import SessionStore, replay
+
+    store = SessionStore(tmp_path)
+    _stored(store, "aaaaaaaaaaaa")
+    new = store.fork("aaaaaaaaaaaa")
+    records = store.load(new)
+    assert new != "aaaaaaaaaaaa" and records[0]["id"] == new and records[0]["forked_from"] == "aaaaaaaaaaaa"
+    assert replay(records) == replay(store.load("aaaaaaaaaaaa"))
+    assert len(store.load("aaaaaaaaaaaa")) == 3  # the original is untouched
+
+
+def test_first_prompt_becomes_the_session_title_in_the_list(server, tmp_path):
+    from halagent.loop import Agent
+    from halagent.sessions import SessionStore, SessionWriter
+    from halagent.settings import AgentSettings
+    from halagent.tools import Toolset
+
+    store = SessionStore(tmp_path)
+    header = {
+        "id": "bbbbbbbbbbbb",
+        "agent": "t",
+        "mode": "headless",
+        "toolset": "coding",
+        "cwd": "/w",
+        "model": "m",
+    }
+    w = SessionWriter(store.path("bbbbbbbbbbbb"), header)
+    server.script("ok", "ok")
+    agent = Agent(AgentSettings(endpoint=server.url), Toolset(tmp_path), session=w)
+    agent.run("Fix the   login redirect\nplease")
+    agent.run("second prompt")
+    w.close()
+    assert store.list(cwd="/w")[0].title == "Fix the login redirect please"
+
+
+def test_title_from_prompt_is_ascii_and_capped():
+    from halagent.sessions import title_from_prompt
+
+    out = title_from_prompt("caf" + chr(0xE9) + " " + "x" * 100)
+    assert out.isascii() and len(out) == 60 and out.endswith("...")

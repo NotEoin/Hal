@@ -51,6 +51,14 @@ must be listed here in the same commit.
 `session/compact` takes an optional `focus` string that the summary keeps detail on.
 Verified by `tests/test_context.py` and `tests/test_budget.py`.
 
+## Sessions
+
+`--resume ID` and `--continue` load a stored session; `--fork` with either copies it first
+(`SessionStore.fork`, header gets `forked_from`) so the original stays unchanged. The first prompt
+of a new session is written as a `title` record (ASCII, 60 characters) and shown by
+`SessionStore.list`. Transcripts live under `state_dir()/sessions/<sid>/`. Verified by
+`tests/test_sessions.py`.
+
 ## Tool reliability
 
 - `patch` takes SEARCH/REPLACE blocks or a unified diff for one file. Each block uses the `edit`

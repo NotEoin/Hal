@@ -64,6 +64,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--toolset", choices=("coding", "assistant"), help="tools to offer (default: coding)")
     p.add_argument("--acp", action="store_true", help="serve the Agent Client Protocol on stdio")
     p.add_argument("--resume", metavar="ID", help="continue a stored session")
+    p.add_argument("--fork", action="store_true", help="with --resume or --continue: copy the session first")
     p.add_argument("--continue", dest="cont", action="store_true", help="continue the latest session here")
     p.add_argument("--no-session", action="store_true", help="do not write a transcript")
     p.add_argument("--sessions-dir", help="session store (default: state_dir()/sessions)")
@@ -124,6 +125,10 @@ def main(argv: list[str] | None = None) -> int:
         first_sid = run_file.session_id if run_file else ""
         root = Path(args.workspace).resolve()
         resumed = _pick_session(args, store, root)
+        if args.fork:
+            if not resumed:
+                raise SessionError("--fork needs --resume or --continue")
+            resumed = store.fork(resumed)
         user_skills = tuple(d for d in (paths.config_dir() / "skills",) if d.is_dir())
         if args.acp:
             return _serve_acp(args, settings, store, root, profile, run_file.extra_prompt if run_file else "",

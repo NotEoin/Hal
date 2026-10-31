@@ -50,3 +50,8 @@ def test_profiles_show_prints_values_with_their_sources(capsys):
 def test_profiles_list_names_every_family(capsys):
     assert cli.main(["profiles", "list"]) == 0
     assert "qwen35" in capsys.readouterr().out
+
+
+def test_fork_without_a_session_to_resume_fails_loudly(server, tmp_path, capsys):
+    code = cli.main(["--fork", "-p", "hi", "--endpoint", server.url, "-C", str(tmp_path)])
+    assert code != 0 and "--fork needs" in capsys.readouterr().err
