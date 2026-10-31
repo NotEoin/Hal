@@ -49,6 +49,8 @@ must be listed here in the same commit.
 | `plan` | `plan` | the `todo` list as ACP plan entries |
 
 `session/compact` takes an optional `focus` string that the summary keeps detail on.
+
+`session/fork {sessionId}` copies a stored session under a new id (optional `_meta.hal.sessionId`), opens it, replays it as updates and returns `{sessionId, modes}`. It needs the local store: with host records the host copies its own and uses `session/load`.
 Verified by `tests/test_context.py` and `tests/test_budget.py`.
 
 ## Sessions

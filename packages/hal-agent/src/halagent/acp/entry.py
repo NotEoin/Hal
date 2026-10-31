@@ -73,6 +73,7 @@ def serve(
             return []
 
     AcpServer(
-        root, factory, rfile, wfile, load_records=load_records, first_session_id=first_session_id,
+        root, factory, rfile, wfile, load_records=load_records, fork_session=store.fork,
+        first_session_id=first_session_id,
         mode=permissions,
     ).serve()  # fmt: skip

@@ -112,6 +112,7 @@ class AcpServer:
         wfile: IO[str],
         *,
         load_records: RecordLoader | None = None,
+        fork_session: Callable[[str, str], str] | None = None,
         first_session_id: str = "",
         mode: str = "auto",
     ) -> None:
@@ -122,6 +123,7 @@ class AcpServer:
         self.root = root.resolve()
         self.factory = factory
         self.load_records = load_records
+        self.fork_session = fork_session
         self.records = False  # the client takes transcript records (set by `initialize`)
         self.rfile, self.wfile = rfile, wfile
         self.sessions: dict[str, Agent] = {}
@@ -192,6 +194,8 @@ class AcpServer:
             return self._new_session(params)
         if method == "session/load":
             return self._load_session(params)
+        if method == "session/fork":
+            return self._fork_session(params)
         if method == "session/cancel":
             agent = self.sessions.get(str(params.get("sessionId")))
             if agent:
@@ -315,6 +319,31 @@ class AcpServer:
             raise RpcError(ERR_PARAMS, f"session {sid} cannot be replayed: {exc}") from exc
         self._replay_updates(sid, history)
         return {}
+
+    def _fork_session(self, params: dict) -> dict:
+        """`session/fork`: copies a stored session to a new id, opens it and replays it."""
+        cwd = self._cwd(params)
+        if self.records or self.fork_session is None:
+            raise RpcError(ERR_PARAMS, "fork needs the local session store: the host copies its own records")
+        try:
+            source = check_session_id(str(params.get("sessionId") or ""))
+            busy = self._running.get(source)
+            if busy is not None and busy.is_alive():
+                raise RpcError(ERR_BUSY, "a turn is running: fork after it ends")
+            hint = ((params.get("_meta") or {}).get("hal") or {}).get("sessionId")
+            new_id = self.fork_session(source, check_session_id(hint) if hint else "")
+        except SessionError as exc:
+            raise RpcError(ERR_PARAMS, str(exc)) from exc
+        records = self.load_records(new_id) if self.load_records else []
+        try:
+            history = replay(records)
+            agent = self._make(cwd, new_id, new=False)
+            agent.resume(records)
+        except (KeyError, TypeError, ValueError) as exc:
+            self.sessions.pop(new_id, None)
+            raise RpcError(ERR_PARAMS, f"session {source} cannot be forked: {exc}") from exc
+        self._replay_updates(new_id, history)
+        return {"sessionId": new_id, "modes": _modes(agent.mode)}
 
     def _replay_updates(self, sid: str, history: list[dict]) -> None:
         """Sends the stored conversation as updates: text chunks and finished tool calls."""

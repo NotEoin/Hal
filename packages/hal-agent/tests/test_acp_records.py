@@ -122,3 +122,27 @@ def test_serve_and_the_command_line_send_identical_messages(server, tmp_path, mo
     )
     assert code == 0
     assert [json.loads(x) for x in captured.getvalue().splitlines()] == direct
+
+
+def test_fork_opens_a_copy_under_a_new_id_and_the_source_is_unchanged(server, tmp_path):
+    store = SessionStore(paths.state_dir() / "sessions")
+    head = {"type": "session", "v": 1, "created": "2026-10-31T00:00:00Z", "id": SID, "cwd": str(tmp_path)}
+    writer = store.path(SID)
+    writer.parent.mkdir(parents=True, exist_ok=True)
+    writer.write_text("".join(json.dumps(r) + "\n" for r in [head, *history_records()]), encoding="ascii")
+    out = run_serve(server, tmp_path, [init(False), rpc(2, "session/fork", {"sessionId": SID})])
+    new_id = next(m for m in out if m.get("id") == 2)["result"]["sessionId"]
+    assert new_id != SID and store.load(new_id)[0]["forked_from"] == SID
+    kinds = [m["params"]["update"]["sessionUpdate"] for m in out if m.get("method") == "session/update"]
+    assert "user_message_chunk" in kinds and "agent_message_chunk" in kinds
+    assert len(store.load(SID)) == 6  # the source file is not touched
+
+
+def test_fork_of_an_unknown_session_is_a_params_error(server, tmp_path):
+    out = run_serve(server, tmp_path, [init(False), rpc(2, "session/fork", {"sessionId": SID})])
+    assert next(m for m in out if m.get("id") == 2)["error"]["code"] == -32602
+
+
+def test_fork_is_refused_when_the_host_keeps_the_records(server, tmp_path):
+    out = run_serve(server, tmp_path, [init(True), rpc(2, "session/fork", {"sessionId": SID})])
+    assert "host copies its own records" in next(m for m in out if m.get("id") == 2)["error"]["message"]
