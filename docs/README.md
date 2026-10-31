@@ -37,6 +37,7 @@ written.
 | [howto/use-hal-code-in-vscode.md](howto/use-hal-code-in-vscode.md) | How to build the Hal extension for VS Code, VSCodium or Cursor and share selections and diffs with `hal code` |
 | [howto/use-hal-from-a-laptop.md](howto/use-hal-from-a-laptop.md) | How to pair a Linux laptop with the desktop's Hal and keep the SSH tunnel up |
 | [howto/use-hal-from-a-windows-laptop.md](howto/use-hal-from-a-windows-laptop.md) | How to pair a Windows laptop, run the tunnel without a console and start it at logon |
+| [howto/use-hal-away-from-home.md](howto/use-hal-away-from-home.md) | How to reach the desktop's Hal from outside the home network with SSH over Tailscale |
 | [howto/write-a-tool-pack.md](howto/write-a-tool-pack.md) | How to write, install and check a tool pack with `hal-hub new` |
 | [dev/agent.md](dev/agent.md) | Agent developer notes: modules, limit precedence, records over ACP, what is not built |
 | [dev/gateway.md](dev/gateway.md) | Gateway developer notes: configuration, listeners, relay, aliases, Ollama backend |
