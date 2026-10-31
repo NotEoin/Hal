@@ -30,7 +30,8 @@ First release of the monorepo (uv workspace on branch `next`).
   session fork and first-prompt titles.
 - `hal` command: `hal doctor` (`--only`, `--fix`), `hal migrate` with dry run and undo,
   `hal connect`, `hal packs` with a pinned catalogue, grouped `hal help` and `hal version`, and an
-  idempotent `scripts/install.sh`.
+  idempotent `scripts/install.sh`. `scripts/host-setup.sh` (sudo, `--dry-run`)
+  registers `runsc` with `--host-uds=open` and writes a key-only sshd drop-in with `--ssh`.
 - `hal-kit` (`halkit`): paths, config, files, time, logging, subprocess, secrets, redaction,
   canonical JSON, terminal escaping, symlink-safe file access, egress URL checks, test fakes.
 - `hal-hub`: tool registry, runner, MCP server, policy with tool tiers, approvals bound to exact
