@@ -94,3 +94,11 @@ the model can edit it, but the change applies only from the next session.
 | 130 | Cancelled by a signal |
 
 See also [the setup check how-to](../howto/check-the-agent-setup.md).
+
+## Run files for a box session
+
+`halcore.settings` writes `agent.json` (every value resolved on the host, including the model's
+context window so masking and summaries fit a 16k to 64k local model) and copies
+`~/.config/hal/AGENTS.md` and `skills/` into the box as read-only run files. Files over 64 KiB, links
+and anything past 1 MiB in total are skipped with a log warning. Verified by
+`packages/hal-core/tests/test_settings.py`, which loads the output with the agent's strict loader.
