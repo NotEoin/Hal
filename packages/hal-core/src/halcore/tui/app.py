@@ -173,7 +173,7 @@ def append_note(work: Path | None, note: str) -> str:
     if not text:
         return "# note: write the note after the #"
     try:
-        fd = fsafe.open_beneath(work, AGENTS_FILE, os.O_WRONLY | os.O_APPEND | os.O_CREAT)
+        fd = fsafe.open_regular_beneath(work, AGENTS_FILE, os.O_WRONLY | os.O_APPEND | os.O_CREAT)
     except (fsafe.UnsafePathError, OSError) as exc:
         return f"# note refused: {exc}"
     with os.fdopen(fd, "a", encoding="utf-8") as handle:

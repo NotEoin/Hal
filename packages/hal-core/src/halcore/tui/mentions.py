@@ -1,6 +1,6 @@
 """`@path` mentions: index the workspace for completion and attach mentioned files to a prompt.
 
-Files are read below the workspace root without following symlinks (`halkit.fsafe.open_beneath`),
+Files are read below the workspace root without following symlinks (`halkit.fsafe.open_regular_beneath`),
 so a link a model planted in the copy cannot pull a host file into the context. A file over the
 byte cap is skipped with a note rather than cut, because half a file misleads a small model.
 """
@@ -64,7 +64,7 @@ def attach_mentions(text: str, root: Path | None, max_bytes: int) -> tuple[list[
             continue
         seen.add(rel)
         try:
-            fd = fsafe.open_beneath(root, rel)
+            fd = fsafe.open_regular_beneath(root, rel)
         except (fsafe.UnsafePathError, OSError):
             continue  # not a file in the workspace: it was just an @ in the text
         with os.fdopen(fd, "rb") as handle:

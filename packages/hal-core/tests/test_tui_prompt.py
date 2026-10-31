@@ -142,3 +142,10 @@ def test_key_watcher_does_nothing_without_a_terminal(monkeypatch):
     watcher.stop()
     with watcher.suspended():
         pass
+
+
+def test_a_mentioned_fifo_is_skipped_without_blocking(tmp_path):
+    # regression: `@pipe` naming a FIFO the box planted hung the TUI on open
+    os.mkfifo(tmp_path / "pipe")
+    blocks, _ = mentions.attach_mentions("see @pipe", tmp_path, 20)
+    assert blocks == []

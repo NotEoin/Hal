@@ -132,3 +132,8 @@ def test_loop_handles_note_shell_and_mention_prefixes(tmp_path, monkeypatch):
     assert "3 passed" in text and "attached @a.py" in text
     bodies = [b["text"] for b in sent]
     assert any("3 passed" in b for b in bodies) and any('<file path="a.py">' in b for b in bodies)
+
+
+def test_note_refuses_a_planted_fifo_without_blocking(tmp_path):
+    os.mkfifo(tmp_path / "AGENTS.md")
+    assert "refused" in app.append_note(tmp_path, "x")

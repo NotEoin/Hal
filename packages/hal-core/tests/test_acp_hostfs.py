@@ -1,5 +1,6 @@
 """Tests for ACP `fs/*` served from the isolated copy and for diff content on edits."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -87,3 +88,11 @@ def test_session_load_maps_the_project_cwd_to_the_box_path(setup):
     rules, _, project = setup
     sent = rules.to_agent({"id": 5, "method": "session/load", "params": {"sessionId": "0123456789ab", "cwd": str(project / "sub"), "mcpServers": [{"x": 1}]}}).forward
     assert sent["params"]["cwd"] == "/work/sub" and sent["params"]["mcpServers"] == []
+
+
+def test_a_fifo_in_the_copy_is_refused_without_hanging_the_proxy(setup):
+    # regression: an agent-made FIFO blocked the host proxy forever on fs/read_text_file
+    rules, work, _ = setup
+    os.mkfifo(work / "pipe")
+    for method, extra in (("fs/read_text_file", {}), ("fs/write_text_file", {"content": "x"})):
+        assert "error" in call(rules, 4, method, path="/work/pipe", **extra).reply

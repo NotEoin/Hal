@@ -3,7 +3,7 @@
 The boxed agent may ask the client to read or write a text file. The proxy answers on the host
 from the session's isolated copy (`iso.work`), never from the real repository, so an editor
 user gets the usual ACP file semantics while 'nothing reaches the real repo before accept' (I3)
-still holds. Paths are opened with `halkit.fsafe.open_beneath`, so a symlink the agent planted in
+still holds. Paths are opened with `halkit.fsafe.open_regular_beneath`, so a symlink the agent planted in
 the copy cannot send a read or write elsewhere. `terminal/*` is not served: the box already has
 its own exec path, and a host terminal would be a way out.
 
@@ -61,7 +61,7 @@ class CopyFs:
         """Answers `fs/read_text_file`, honouring the optional 1-based `line` and `limit`."""
         rel = self.relative(params.get("path"))
         try:
-            fd = fsafe.open_beneath(self.work, rel)
+            fd = fsafe.open_regular_beneath(self.work, rel)
             with os.fdopen(fd, "rb") as fh:
                 data = fh.read(MAX_READ_BYTES + 1)
         except (OSError, fsafe.UnsafePathError) as exc:
@@ -87,7 +87,7 @@ class CopyFs:
         if not isinstance(content, str) or len(content.encode("utf-8")) > MAX_WRITE_BYTES:
             raise FsRefused("content must be text under the write cap")
         try:
-            fd = fsafe.open_beneath(self.work, rel, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+            fd = fsafe.open_regular_beneath(self.work, rel, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
             with os.fdopen(fd, "wb") as fh:
                 fh.write(content.encode("utf-8"))
         except (OSError, fsafe.UnsafePathError) as exc:

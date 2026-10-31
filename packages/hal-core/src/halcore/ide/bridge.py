@@ -2,7 +2,7 @@
 
 `IdeBridge` is the only consumer of `IdeServer` messages. It never executes or applies anything:
 
-- `add_selection` reads the named lines from the real project (host side, `open_beneath`, size
+- `add_selection` reads the named lines from the real project (host side, `open_regular_beneath`, size
   capped) and queues them as a text block for the next prompt, and shows an `@path#L10-20` chip.
 - `context` remembers the editor's current file and selection; it joins a prompt as one short
   line only while ambient sharing is on (off by default: the editor's open file is private).
@@ -68,7 +68,7 @@ class IdeBridge:
 
     def _add_selection(self, rel: str, start: int, end: int) -> None:
         try:
-            fd = fsafe.open_beneath(self.project, rel)
+            fd = fsafe.open_regular_beneath(self.project, rel)
             with os.fdopen(fd, "rb") as fh:
                 data = fh.read(MAX_SELECTION_BYTES * 4)
         except (OSError, fsafe.UnsafePathError, IdeRefused) as exc:

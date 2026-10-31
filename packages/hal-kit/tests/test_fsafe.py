@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from halkit.fsafe import WalkPolicy, is_beneath, open_beneath, walk
+from halkit.fsafe import WalkPolicy, is_beneath, open_beneath, open_regular_beneath, walk
 from halkit.paths import UnsafePathError
 
 
@@ -63,6 +63,24 @@ def test_open_beneath_creates_files_private(tree):
     fd = open_beneath(tree, "src/new.txt", os.O_WRONLY | os.O_CREAT | os.O_EXCL)
     os.close(fd)
     assert (tree / "src" / "new.txt").stat().st_mode & 0o777 == 0o600
+
+
+def test_open_regular_beneath_refuses_a_fifo_without_blocking(tree):
+    # regression: a FIFO planted in the box copy hung the host TUI and ACP proxy on open
+    os.mkfifo(tree / "pipe")
+    for flags in (os.O_RDONLY, os.O_WRONLY | os.O_APPEND | os.O_CREAT):
+        with pytest.raises((UnsafePathError, OSError)):
+            os.close(open_regular_beneath(tree, "pipe", flags))
+    with pytest.raises(UnsafePathError, match="not a regular file"):
+        open_regular_beneath(tree, "src")
+
+
+def test_open_regular_beneath_returns_a_blocking_descriptor_for_a_file(tree):
+    fd = open_regular_beneath(tree, "src/pkg/mod.py")
+    try:
+        assert os.get_blocking(fd) and os.read(fd, 100)
+    finally:
+        os.close(fd)
 
 
 def test_missing_file_raises_file_not_found(tree):

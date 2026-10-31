@@ -10,6 +10,8 @@ to `~/.ssh` would otherwise hand its target to the host.
   `openat2`, so this is the portable equivalent of `RESOLVE_BENEATH`: `..`, absolute paths
   and a symlink in any component are refused with `UnsafePathError`, and a component swapped
   for a link between two calls is caught by the next `open`.
+- `open_regular_beneath` also refuses anything but a regular file: a FIFO a box planted in its
+  copy would otherwise block the host process that opens it.
 - `walk` uses `os.scandir` with `follow_symlinks=False`: it never descends into or yields a
   symlink, skips denied directories without listing them, skips files whose names match a
   deny glob, and stops after `WalkPolicy.max_entries` paths. 01-security "Proposed halkit
@@ -113,6 +115,23 @@ def open_beneath(root: Path, rel: str, flags: int = os.O_RDONLY) -> int:
             raise
     finally:
         os.close(fd)
+
+
+def open_regular_beneath(root: Path, rel: str, flags: int = os.O_RDONLY) -> int:
+    """Like `open_beneath`, but the target must be a regular file; the descriptor is blocking.
+
+    The open itself is non-blocking, so a FIFO cannot stall it (a FIFO with no reader fails a
+    write open with `ENXIO`). Raises `UnsafePathError` for a FIFO, socket, device or directory.
+    """
+    fd = open_beneath(root, rel, flags | os.O_NONBLOCK)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise UnsafePathError(f"{rel!r} is not a regular file")
+        os.set_blocking(fd, True)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
 
 
 def _denied(path: Path, policy: WalkPolicy) -> bool:
