@@ -12,7 +12,8 @@ written.
 | [user/gateway.md](user/gateway.md) | The model gateway: listeners, commands, configuration, pinning, remote backends |
 | [user/modes.md](user/modes.md) | The llama.cpp modes: what each runs, how to switch, measurements |
 | [user/security.md](user/security.md) | What Hal protects you from, the lockdown and paranoia tables, and which paths are not private |
-| [user/tui.md](user/tui.md) | The terminal UI of `hal code` and `hal chat`: what it shows, approvals, slash commands |
+| [user/hal-code.md](user/hal-code.md) | A tour of the `hal code` and `hal chat` terminal UI: keys, streaming, approvals, slash commands, `[ui]` settings |
+| [user/tui.md](user/tui.md) | Headless `hal -p` and `hal sessions` |
 | [user/sandbox.md](user/sandbox.md) | The box: lockdown levels, what it sees, getting changes out, checkpoints |
 | [user/cli.md](user/cli.md) | The `hal` command: exit codes, `hal doctor` and `hal migrate` |
 | [howto/approve-tool-calls.md](howto/approve-tool-calls.md) | How to see why a call asks, answer it, and make a policy rule last |

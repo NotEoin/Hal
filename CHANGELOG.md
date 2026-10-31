@@ -9,6 +9,9 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `hal code` and `hal chat` terminal UI: rich markdown and diff rendering, a prompt_toolkit editor
+  (history, completion, `@file`, `!cmd`, `# note`), status line, approval panel, more slash
+  commands and `[ui]` settings (`docs/user/hal-code.md`).
 - `hal-kit` (`halkit`): paths, config, files, time, logging, subprocess, secrets, redaction,
   canonical JSON, terminal escaping, symlink-safe file access, egress URL checks, test fakes.
 - `hal-hub`: tool registry, runner, MCP server, policy with tool tiers, approvals bound to exact
