@@ -260,3 +260,36 @@ def test_doctor_online_reports_an_unreachable_source_and_offline_never_asks(home
     monkeypatch.setattr(packs, "resolve_ref", down)
     assert packs.doctor(online=True)[1][2].startswith("FAIL cannot check")
     assert "online" not in {check for _, check, _ in packs.doctor()}
+
+
+def _pack_repo(root: Path) -> str:
+    root.mkdir()
+    (root / "hal-module.toml").write_text(
+        'schema = 2\n[module]\nname = "demo"\nsummary = "Synthetic"\npython = "demo.tools"\n[[tools]]\nname = "demo_send"\n'
+        'function = "send"\ndescription = "Send."\ntier = "send"\nnetwork = true\n'
+        '[[install]]\nid = "mark"\nsummary = "touch"\nrun = ["/usr/bin/touch", "m"]\n'
+    )
+    (root / "pyproject.toml").write_text('[project]\nname = "hal-demo"\nversion = "0"\ndependencies = ["requests"]\n')
+    subprocess.run([*GIT, "init", "-q", str(root)], check=True)
+    subprocess.run([*GIT, "-C", str(root), "add", "."], check=True)
+    subprocess.run([*GIT, "-C", str(root), "commit", "-q", "-m", "x"], check=True)
+    return subprocess.run([*GIT, "-C", str(root), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def test_url_pack_summary_names_tools_install_steps_and_unpinned_dependencies(home, monkeypatch):
+    commit = _pack_repo(home / "repo")
+    shown: list[str] = []
+    monkeypatch.setattr(packs, "install_pip", lambda *a, **k: {"modules": {}})
+    packs.add_url(f"file://{home / 'repo'}@{commit}", confirm=lambda text: shown.append(text) or True, distribution="hal-demo")
+    text = shown[0]
+    assert "tool demo_send (tier send, network)" in text and "install step mark: /usr/bin/touch m" in text
+    assert "unpinned dependencies (no uv.lock): requests" in text and commit in text
+
+
+def test_declining_the_url_pack_summary_installs_nothing(home, monkeypatch):
+    commit = _pack_repo(home / "repo")
+    called: list = []
+    monkeypatch.setattr(packs, "install_pip", lambda *a, **k: called.append(1))
+    with pytest.raises(packs.PackError, match="not confirmed"):
+        packs.add_url(f"file://{home / 'repo'}@{commit}", confirm=lambda text: False, distribution="hal-demo")
+    assert not called

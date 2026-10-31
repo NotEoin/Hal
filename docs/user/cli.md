@@ -55,7 +55,7 @@ Packs add tools to Hal. `hal ext` still works and prints a notice, then runs `ha
 | `hal packs add NAME...` | install from the catalogue at its pinned commit |
 | `hal packs add --set NAME` | install every pack of a catalogue set (`assistant`, `computer`, `personal`) |
 | `hal packs add --local PATH` | install a development checkout (editable, unpinned); `[tool.hal-pack]` in its `pyproject.toml` picks `shared`, `own` or `system` |
-| `hal packs add URL@REF --dist NAME` | install from a tag or a full commit after a typed `y`; branches are refused |
+| `hal packs add URL@REF --dist NAME` | install from a tag or a full commit; first shows the pack's modules, tools with tiers, units, install steps and unpinned dependencies, then needs a typed `y`; branches are refused |
 | `hal packs remove NAME` | uninstall; data stores stay, an own-env folder moves to `data_dir()/removed/` |
 | `hal packs enable NAME`, `disable NAME` | edit only `[hub].disabled` in the config file |
 | `hal packs update [NAME...]` | move packs to the catalogue pin |

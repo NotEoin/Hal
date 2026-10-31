@@ -18,6 +18,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
 from collections.abc import Callable
 from importlib import resources
@@ -379,11 +380,50 @@ def add_catalog(name: str, record: dict[str, Any] | None = None) -> dict[str, An
     return new
 
 
+def fetch_commit(url: str, commit: str, dest: Path) -> None:
+    """Clones `url` into `dest` at exactly `commit`; raises `PackError` when the commit is not there."""
+    proc.run(["git", "clone", "--quiet", "--no-checkout", url, str(dest)], timeout=PACK_INSTALL_TIMEOUT_S, env=_env())
+    try:
+        proc.run(["git", "-C", str(dest), "checkout", "--quiet", "--detach", commit], timeout=QUICK_TIMEOUT_S, env=_env())
+    except subprocess.CalledProcessError as exc:
+        raise PackError(f"{url} does not have commit {commit}") from exc
+
+
+def manifest_summary(root: Path) -> str:
+    """What a person reads before trusting a `URL@REF` pack: modules, tools with tiers, units, install steps and unpinned dependencies."""
+    lines: list[str] = []
+    for name, ent in sorted(scan_modules(root, Path("python3")).items()):
+        try:
+            spec = load_manifest(Path(ent["manifest"]), source="path")
+        except Exception as exc:  # noqa: BLE001 - any manifest problem is shown to the person, not raised
+            lines.append(f"  module {name}: manifest does not load ({exc})")
+            continue
+        lines.append(f"  module {spec.name} {spec.version}: {spec.summary}")
+        lines += [f"    tool {t.name} (tier {t.tier}{', network' if t.network else ''})" for t in spec.tools]
+        lines += [f"    unit {u.file.name}" for u in spec.units]
+        lines += [f"    install step {st.id}: {' '.join(st.run)}" for st in spec.install]
+        if spec.domains:
+            lines.append(f"    network domains: {', '.join(spec.domains)}")
+    if not lines:
+        lines.append("  no hal-module.toml found")
+    try:
+        project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        project = {}
+    deps = [*project.get("project", {}).get("dependencies", []), *project.get("build-system", {}).get("requires", [])]
+    if deps and not (root / "uv.lock").exists():
+        lines.append(f"  unpinned dependencies (no uv.lock): {', '.join(deps)}")
+    return termsafe.escape("\n".join(lines), multiline=True)
+
+
 def add_url(spec: str, *, confirm: Callable[[str], bool], distribution: str, subdirectory: str = "") -> dict[str, Any]:
     """Installs `URL@REF` into the shared env after the summary and a typed `y` (REQ-CLI-62)."""
     url, ref = parse_ref(spec)
     commit = resolve_ref(url, ref)
-    summary = f"{distribution} from {url}\n  ref {ref}\n  commit {commit}\n  unpinned dependencies: not hash-checked"
+    with tempfile.TemporaryDirectory() as tmp:
+        fetch_commit(url, commit, Path(tmp) / "pack")
+        details = manifest_summary(Path(tmp) / "pack" / subdirectory)
+    summary = f"{distribution} from {url}\n  ref {ref}\n  commit {commit}\n{details}"
     if not confirm(summary):
         raise PackError("not confirmed; nothing installed")
     entry = {"distribution": distribution, "subdirectory": subdirectory}
