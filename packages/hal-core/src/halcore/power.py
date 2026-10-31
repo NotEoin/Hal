@@ -22,6 +22,7 @@ import urllib.request
 
 from . import config, gpulight, units
 
+NOTIFY_TIMEOUT_S = 5.0  # a missing notification daemon must not hang `hal power`
 FLAG = "off"
 
 
@@ -76,7 +77,8 @@ def unload_offloaded() -> list[str]:
 
 def _notify(title: str, body: str, quiet: bool) -> None:
     if not quiet:
-        subprocess.run(["notify-send", "-a", "Hal", "-i", "audio-input-microphone", title, body], capture_output=True)
+        subprocess.run(["notify-send", "-a", "Hal", "-i", "audio-input-microphone", title, body], capture_output=True,
+                       timeout=NOTIFY_TIMEOUT_S)
 
 
 def off(quiet: bool = False) -> str:

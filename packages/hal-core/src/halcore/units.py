@@ -29,6 +29,7 @@ from pathlib import Path
 from . import config, gpulight
 
 UNIT_DIR = Path(os.environ.get("HAL_UNIT_DIR", "~/.config/systemd/user")).expanduser()
+HELPER_TIMEOUT_S = 10.0  # desktop helpers (xdg-user-dir, gio) answer at once or are stuck
 SYSTEMCTL_TIMEOUT_S = 60.0  # a stuck unit stop must not hang `hal kill`
 UNIT_SUFFIXES = (".service", ".timer", ".target", ".path")
 LIGHT_UNIT = "hal-gpu-light.service"
@@ -154,7 +155,8 @@ def install_desktop(root: Path) -> list[str]:
     folder = root / "desktop"
     if not folder.is_dir():
         return []
-    desktop = Path(subprocess.run(["xdg-user-dir", "DESKTOP"], capture_output=True, text=True).stdout.strip()
+    desktop = Path(subprocess.run(["xdg-user-dir", "DESKTOP"], capture_output=True, text=True,
+                                  timeout=HELPER_TIMEOUT_S).stdout.strip()
                    or Path.home() / "Desktop")
     desktop.mkdir(parents=True, exist_ok=True)
     out = []
@@ -162,7 +164,8 @@ def install_desktop(root: Path) -> list[str]:
         dest = desktop / src.name
         dest.write_text(render(src.read_text(), root))
         dest.chmod(0o755)
-        subprocess.run(["gio", "set", str(dest), "metadata::trusted", "true"], capture_output=True)
+        subprocess.run(["gio", "set", str(dest), "metadata::trusted", "true"], capture_output=True,
+                       timeout=HELPER_TIMEOUT_S)
         out.append(src.name)
     return out
 
