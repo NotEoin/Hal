@@ -70,6 +70,7 @@ privileges. Lowering a level asks you to type the new level back. Checked by
 | `hal console` | The local web console runs on the host, outside any box, against your real calendar, tasks and vault. It listens on loopback only and needs a token, but nothing contains it; the help text and the start-up banner say UNBOXED |
 | `hal connect` | An outside harness gets Hal's tools without Hal's box |
 | Lockdown `off` | No box at all. `hal chat` shows an UNSANDBOXED banner and asks for a typed `y` once per channel (kept in `unboxed-ok.json` in the state dir); without a terminal and without that record it exits 3. If docker answered before and is down now, `hal code`, `hal chat` and `hal acp` exit 3 instead of falling back |
+| Host MCP upstreams | An upstream MCP server runs on the host, outside the box, with your user's rights; the box reaches it only through the broker, and the policy and classifier see each call, but the server itself is not contained. Add only servers you trust, as you would install a program; `strict` lockdown allows none besides `hal-hub` |
 | Settings that name Claude (`[brain].deep_work`, `[memory].answerer`) | Off by default; setting them sends work to Claude Code |
 
 ## Check it yourself
