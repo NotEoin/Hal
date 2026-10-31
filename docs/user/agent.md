@@ -82,6 +82,25 @@ The body is the child's instructions. `tools` can only narrow the parent's tools
 write tool needs auto-edit mode. The number of children that run at once follows the slots the
 gateway reports for the model (2 when unknown); the others wait their turn.
 
+## Model roles
+
+Name more than one model in `[agent.models]`:
+
+```toml
+[agent.models]
+main = "qwen3-coder:30b"    # the model for the conversation
+fast = "gemma4:12b"         # titles and compaction summaries; cheap and quick
+architect = "gpt-oss:20b"   # plans, read-only
+editor = "qwen3-coder:30b"  # applies the plan
+```
+
+Every role is optional. `fast` also writes a short session title after the first turn. With
+`architect` and `editor` set, `hal-agent --split` (or the ACP call `session/set_split`) runs each turn
+as a read-only plan by the architect, then the edits by the editor, and goes back to `main`. A
+role name works anywhere a model id does, for example `session/set_model` with `modelId = "fast"`.
+All roles go through the same endpoint, so the server must serve each model (llama-swap, Ollama or
+the gateway).
+
 ## Hooks
 
 Hooks are commands that run inside the box around tool calls. Put them in `~/.config/hal/hooks.toml`

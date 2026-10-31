@@ -63,6 +63,19 @@ AGENT_TABLE = config.register(
                 "max_output", int, DEFAULT_MAX_OUTPUT, check=_positive, doc="Tokens kept free for a reply"
             ),
             config.Key("broker", str, "", env="HAL_AGENT_BROKER", doc="Hub MCP socket path, empty for none"),
+            config.Key("models", dict, {}, doc="The [agent.models] table"),
+        ),
+    )
+)
+
+ROLES = ("main", "fast", "architect", "editor")
+MODELS_TABLE = config.register(
+    config.Table(
+        name="agent.models",
+        owner="hal-agent",
+        keys=tuple(
+            config.Key(r, str, "", doc=f"Model for the {r} role; empty means the [agent] model")
+            for r in ROLES
         ),
     )
 )
@@ -104,6 +117,7 @@ class AgentSettings:
     max_output: int = DEFAULT_MAX_OUTPUT
     max_wall_s: int = DEFAULT_MAX_WALL_S
     tuning: Tuning = field(default_factory=Tuning)
+    models: Mapping[str, str] = field(default_factory=dict)  # role -> model id, from `[agent.models]`
 
 
 def load_settings(
@@ -115,9 +129,14 @@ def load_settings(
     """Loads settings (cli, env, file, defaults); raises `ConfigError` or `ValueError` if unusable."""
     values = dict(config.load(AGENT_TABLE, path=path, environ=environ, cli=cli))
     endpoint = str(values["endpoint"]) or str(paths.runtime_dir() / "gateway.sock")
+    roles = {k: str(v) for k, v in config.load(MODELS_TABLE, path=path, environ=environ).items() if v}
+    model = str(values["model"])
+    if model == DEFAULT_MODEL and "main" in roles:
+        model = roles["main"]
     return AgentSettings(
+        models=roles,
         endpoint=endpoint,
-        model=str(values["model"]),
+        model=model,
         api_key=str(values["api_key"]),
         api=str(values["api"]),
         stream=bool(values["stream"]),

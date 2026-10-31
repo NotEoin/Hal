@@ -16,6 +16,7 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
+from halagent.architect import run_split
 from halagent.assistant import AssistantOptions
 from halagent.assistant.claims import ClaimsCheck
 from halagent.assistant.prompts import PROFILE_CHARS, system_prompt
@@ -132,6 +133,10 @@ def _now() -> float:
     return time.monotonic()
 
 
+TITLE_PROMPT = "Write a title of at most six words for this coding request. Reply with the title only."
+TITLE_MAX_CHARS = 60
+
+
 class Agent:
     """A conversation with tools. `run` may be called repeatedly; history persists."""
 
@@ -152,6 +157,9 @@ class Agent:
     ) -> None:
         self.hooks = hooks or None
         self._constraint = "none"
+        self._fast: ChatProvider | None = None
+        self._main_model = settings.models.get("main") or settings.model
+        self.split = False  # True: each turn runs architect then editor (see `halagent.architect`)
         if self.hooks:
             self.hooks.lifecycle("session_start")
         self.assistant = assistant
@@ -235,7 +243,7 @@ class Agent:
             {"role": "system", "content": compaction_prompt() + focus},
             {"role": "user", "content": render_for_summary(old)},
         ]
-        return self.provider.complete(request, None).text
+        return self._fast_provider().complete(request, None).text
 
     def _fit(self) -> list[dict]:
         """The history to send; compacts it (and records that) when it is over budget."""
@@ -519,7 +527,12 @@ class Agent:
             raise ValueError("this model or endpoint does not take image input")
         if self.hooks and (reason := self.hooks.user_prompt_submit(prompt)):
             return RunResult(f"Prompt blocked by a hook: {reason}", "blocked", 0, 0)
-        result = self._run(prompt, images or [])
+        if self.split:
+            result = run_split(self, prompt, images or [])
+        else:
+            result = self._run(prompt, images or [])
+        if self.turn == 1:
+            self._retitle(prompt, result.text)
         if self.session:
             stats = {"model_requests": result.turns, "tool_calls": result.tool_calls, **self.counters}
             self.session.write({"type": "turn_end", "turn": self.turn, "stop_reason": result.stopped,
@@ -707,6 +720,7 @@ class Agent:
         Raises `ValueError` for an empty or oversized name; do not call it during a turn. The name
         only reaches the model socket, which forwards to the one configured model server.
         """
+        name = self.resolve_model(name)
         if not name.strip() or len(name) > MAX_MODEL_NAME or any(c.isspace() or ord(c) < 32 for c in name):
             raise ValueError(f"not a model name: {name[:40]!r}")
         requested = replace(self._requested, model=name)
@@ -769,7 +783,34 @@ class Agent:
 
     def resolve_model(self, name: str) -> str:
         """The model id for a role name (`main`, `fast`, ...) or `name` itself when it is not a role."""
-        return name
+        if name == "main":
+            return self._main_model
+        return self._requested.models.get(name, name)
+
+    def _fast_provider(self) -> ChatProvider:
+        """The provider for the `fast` role, or the main one when no fast model is configured."""
+        fast = self._requested.models.get("fast", "")
+        if not fast or fast == self.settings.model or not self._built:
+            return self.provider
+        if self._fast is None:
+            self._fast = make_provider(replace(self._requested, model=fast))
+        return self._fast
+
+    def _retitle(self, prompt: str, answer: str) -> None:
+        """Writes a short title made by the fast model; the first-prompt title stays on any failure."""
+        if not self.session or self._fast_provider() is self.provider:
+            return
+        request = [
+            {"role": "system", "content": TITLE_PROMPT},
+            {"role": "user", "content": f"Request: {prompt[:400]}\n\nAnswer: {answer[:400]}"},
+        ]
+        try:
+            title = self._fast_provider().complete(request, None).text.strip().strip("\"'`").splitlines()[0]
+        except (ProviderError, IndexError):
+            log.info("title generation failed; keeping the first-prompt title", exc_info=True)
+            return
+        if title:
+            self.session.write({"type": "title", "title": title[:TITLE_MAX_CHARS]})
 
     def _constrain(self) -> None:
         """Passes the profile's grammar or schema for tool calls to the provider (text fallback only)."""

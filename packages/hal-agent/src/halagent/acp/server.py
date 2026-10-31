@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import IO, Any
 
 from halagent import __version__
+from halagent.architect import split_ready
 from halagent.loop import Agent, RunResult
 from halagent.provider import ProviderError
 from halagent.sessions import SessionError, check_session_id, finalize_record, new_session_id, replay, utc_now
@@ -214,6 +215,15 @@ class AcpServer:
                 agent.switch_model(str(params.get("modelId", "")))
             except ValueError as exc:
                 raise RpcError(ERR_PARAMS, str(exc)) from exc
+            return {}
+        if method == "session/set_split":
+            agent = self.sessions.get(str(params.get("sessionId")))
+            if agent is None:
+                raise RpcError(ERR_PARAMS, "unknown session")
+            enabled = bool(params.get("enabled"))
+            if enabled and not split_ready(agent):
+                raise RpcError(ERR_PARAMS, "set [agent.models] architect and editor first")
+            agent.split = enabled
             return {}
         if method == "session/compact":
             agent = self.sessions.get(str(params.get("sessionId")))

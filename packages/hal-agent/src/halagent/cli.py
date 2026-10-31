@@ -15,6 +15,7 @@ from pathlib import Path
 
 from halagent import acp, boot, doctor, headless
 from halagent.agentfile import AgentFile, AgentFileError, load_agent_file
+from halagent.architect import split_ready
 from halagent.assistant import AssistantOptions, build_assistant
 from halagent.hooks import Hooks
 from halagent.loop import Agent
@@ -66,6 +67,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--resume", metavar="ID", help="continue a stored session")
     p.add_argument("--fork", action="store_true", help="with --resume or --continue: copy the session first")
     p.add_argument("--continue", dest="cont", action="store_true", help="continue the latest session here")
+    p.add_argument("--split", action="store_true", help="plan with the architect model, edit with the editor")
     p.add_argument("--no-session", action="store_true", help="do not write a transcript")
     p.add_argument("--sessions-dir", help="session store (default: state_dir()/sessions)")
     sub = p.add_subparsers(dest="command")
@@ -163,6 +165,11 @@ def main(argv: list[str] | None = None) -> int:
     except (config.ConfigError, ValueError, McpError, SessionError, AgentFileError) as exc:
         print(f"hal-agent: {exc}", file=sys.stderr)
         return EXIT_CONFIG
+    if args.split:
+        if not split_ready(agent):
+            print("hal-agent: --split needs [agent.models] architect and editor", file=sys.stderr)
+            return EXIT_CONFIG
+        agent.split = True
     if run_file:
         agent.mode = run_file.permissions
     try:
