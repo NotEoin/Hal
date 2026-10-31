@@ -372,3 +372,27 @@ def test_cli_hub_reads_the_floor_from_the_broker_environment(monkeypatch):
         assert hub.paranoia_floor == "high"
     finally:
         hub.close()
+
+
+def _nest(inner: object, depth: int) -> object:
+    for _ in range(depth):
+        inner = {"k": [inner]}
+    return inner
+
+
+def test_a_destructive_string_nested_deeper_than_six_levels_is_still_caught():
+    # regression: string extraction used to stop at depth 6, so deep strings skipped the rules
+    got, labels = rules(req({"a": _nest("sudo reboot", 50)}))
+    assert got == "high" and "shell:privilege escalation" in labels
+
+
+def test_extremely_deep_nesting_does_not_hit_the_recursion_limit():
+    got, labels = rules(req({"a": _nest("sudo reboot", 5000)}))
+    assert "shell:privilege escalation" in labels and got == "high"
+
+
+def test_a_payload_over_the_scan_cap_fails_closed_as_high():
+    from halhub.classifier import MAX_SCAN_CHARS
+
+    got, labels = rules(req({"text": ["x" * 1000] * (MAX_SCAN_CHARS // 1000 + 2)}))
+    assert got == "high" and "args-too-large-to-scan" in labels

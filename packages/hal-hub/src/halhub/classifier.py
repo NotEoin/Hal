@@ -50,6 +50,8 @@ MAX_TOKENS = 120  # the answer is one short JSON object
 TEMPERATURE = 0.0
 MASS_ITEMS = 20  # a list argument longer than this is a mass action
 ANSWER_KEYS = frozenset({"risk", "reason"})
+MAX_SCAN_CHARS = 1_000_000  # total argument text the deterministic rules will scan
+MAX_SCAN_NODES = 100_000  # total values walked; bounds a wide or deeply nested payload
 REASON_CHARS = 300  # same cut as the reviewer's audited reason
 
 # paranoia -> risk -> (effect, reviewer may auto-approve a reviewable ask); RESOLUTIONS I5 table
@@ -189,17 +191,37 @@ class Outcome:
     reason: str = ""
 
 
-def strings(value: object, depth: int = 0) -> list[str]:
-    """Every string inside an argument value, keys of mappings included, to a bounded depth."""
-    if depth > 6:
-        return []
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, Mapping):
-        return [s for k, v in value.items() for s in (*strings(k, depth + 1), *strings(v, depth + 1))]
-    if isinstance(value, (list, tuple)):
-        return [s for v in value for s in strings(v, depth + 1)]
-    return []
+def collect_strings(value: object) -> tuple[list[str], bool]:
+    """Every string inside an argument value (mapping keys included) and whether the cap cut it short.
+
+    Iterative, so nesting depth is unbounded and cannot hit the recursion limit; only the total
+    size is capped (`MAX_SCAN_CHARS`, `MAX_SCAN_NODES`).
+    """
+    out: list[str] = []
+    chars = nodes = 0
+    stack: list[object] = [value]
+    while stack:
+        item = stack.pop()
+        nodes += 1
+        if nodes > MAX_SCAN_NODES:
+            return out, True
+        if isinstance(item, str):
+            chars += len(item)
+            if chars > MAX_SCAN_CHARS:
+                return out, True
+            out.append(item)
+        elif isinstance(item, Mapping):
+            for k, v in item.items():
+                stack.append(v)
+                stack.append(k)
+        elif isinstance(item, (list, tuple)):
+            stack.extend(reversed(item))
+    return out, False
+
+
+def strings(value: object) -> list[str]:
+    """Every string inside an argument value, as far as the scan cap allows."""
+    return collect_strings(value)[0]
 
 
 def _outside(path: str, roots: Sequence[str]) -> bool:
@@ -225,7 +247,11 @@ def rules(req: ClassifyRequest) -> tuple[Risk, tuple[str, ...]]:
         raise_to(floor, f"tier:{req.tool.tier}")
     if req.tool.runs_code:
         raise_to("high", "runs-code")
-    for text in (s for v in req.args.values() for s in strings(v)):
+    texts, truncated = collect_strings(dict(req.args))
+    if truncated:
+        # strings past the cap were never checked, so the call cannot be called safe
+        raise_to("high", "args-too-large-to-scan")
+    for text in texts:
         for pattern, level, label in _PATTERNS:
             if pattern.search(text):
                 raise_to(level, f"shell:{label}")
