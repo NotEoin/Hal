@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import TextIO
 
 from halkit import config as kitconfig
+from halkit import paths
 from halkit import fsafe, llm, proc
 from halsandbox import isolated
 from halsandbox.errors import SandboxError
@@ -34,6 +35,8 @@ from ..acp.client import AcpClient, AcpError
 from ..acp.permissions import PermissionBridge, socket_owned_by_us
 from ..acp.records import RecordRefused, RecordStore
 from ..acp.transport import AgentCrashed
+from ..ide.bridge import IdeBridge
+from ..ide.server import IdeServer
 from .approval import make_asker
 from .keys import KeyWatcher
 from .mentions import attach_mentions
@@ -209,6 +212,35 @@ async def refresh_status(state: TuiState, session: object) -> None:
         log.warning("job count unavailable: %s", exc)
 
 
+async def open_ide(state: TuiState, session: object, project: Path | None, sid: str, renderer: Renderer) -> IdeServer | None:
+    """Opens the editor socket for this session; returns None (with a note) when it cannot be opened."""
+    iso = getattr(session, "iso", None)
+    if project is None or iso is None:
+        return None
+
+    def changed() -> list[str]:
+        try:
+            return [c.path for c in isolated.changes(iso)]
+        except SandboxError as exc:
+            log.warning("ide: cannot list changes: %s", exc)
+            return []
+
+    holder: list[IdeBridge] = []
+
+    async def handler(msg) -> None:  # noqa: ANN001 - a validated `ide.protocol.Message`
+        await holder[0].handle(msg)
+
+    server = IdeServer(sid, project, handler)
+    try:
+        await server.start()
+    except (OSError, ValueError, paths.UnsafePathError, paths.RuntimeDirMissing) as exc:
+        renderer.info(f"ide: channel not opened ({exc})")
+        return None
+    holder.append(IdeBridge(project, server, renderer.info, changed, lambda: iso.work))
+    state.ide = holder[0]
+    return server
+
+
 async def run_tui(box: sessions.BoxedAgent, **kwargs) -> int:  # noqa: ANN003 - same keywords as `_run_tui`
     """Runs the interactive loop with a pid file registered, so `hal kill` can find this process."""
     with pids.registered("tui"):
@@ -270,6 +302,7 @@ async def _run_tui(
     state.user_commands = load_commands(project)
     renderer.status_provider = lambda: to_rich(segments(state.status, look), look)
     await refresh_status(state, session)
+    ide_server = await open_ide(state, session, project, sid, renderer) if interactive else None
 
     def cycle_mode() -> None:
         nxt = MODE_ORDER[(MODE_ORDER.index(state.mode) + 1) % len(MODE_ORDER)]
@@ -375,6 +408,8 @@ async def _run_tui(
     finally:
         watcher.stop()
         approvals.cancel()
+        if ide_server is not None:
+            await ide_server.close()
         await client.close()
 
 
@@ -416,7 +451,8 @@ async def _turn(
     look = look or state.renderer.look
     if session.checkpoints is not None:
         session.checkpoint(f"before: {text[:40]}")
-    blocks: list[dict[str, object]] = [{"type": "text", "text": text}, *state.attachments]
+    ide_blocks = state.ide.blocks() if state.ide is not None else []  # type: ignore[attr-defined]
+    blocks: list[dict[str, object]] = [{"type": "text", "text": text}, *state.attachments, *ide_blocks]
     state.attachments.clear()
     try:
         session.broker.on_human_message(text, sessions.SURFACE_TUI)

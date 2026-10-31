@@ -87,6 +87,7 @@ class TuiState:
     list_models: Callable[[], list[dict[str, object]]] | None = None
     model_choices: list[str] = field(default_factory=list)
     resume_choices: list[str] = field(default_factory=list)
+    ide: object | None = None  # an `IdeBridge` when the IDE channel is open
 
 
 def image_block(path: Path) -> Block:
@@ -334,6 +335,17 @@ async def _jobs(state: TuiState, args: str) -> Result:
     return Result(message="\n".join(f"{j.id}  {j.state:<9} {safe(clip(j.task, 60))}" for j in jobs))
 
 
+async def _ide(state: TuiState, args: str) -> Result:
+    bridge = state.ide
+    if bridge is None:
+        return Result(message="/ide: the IDE channel is not open (it needs a project and a terminal)")
+    if args in ("on", "off"):
+        bridge.ambient_on = args == "on"  # type: ignore[attr-defined]
+    elif args:
+        return Result(message="/ide [on|off]: share the editor's open file and selection with each prompt")
+    return Result(message=bridge.status())  # type: ignore[attr-defined]
+
+
 async def _accept(state: TuiState, args: str) -> Result:
     return await _apply(state, args)
 
@@ -388,6 +400,7 @@ COMMAND_HELP = {
     "diff": ("/diff [N]", "patch of the copy against the real repo"),
     "accept": ("/accept [--allow-flags]", "apply the copy to the real repo"),
     "export": ("/export [FILE]", "write a patch (or .bundle) instead of applying"),
+    "ide": ("/ide [on|off]", "editor connection; share the open file with prompts"),
     "cost": ("/cost", "tokens per turn and session, tok/s (local, no money)"),
     "context": ("/context", "what fills the context window"),
     "todo": ("/todo", "show the todo list (Ctrl-T toggles)"),
@@ -401,7 +414,7 @@ COMMAND_HELP = {
 }
 BUILTINS = {
     "help": _help, "clear": _clear, "mode": _mode, "todo": _todo, "model": _model, "compact": _compact, "resume": _resume, "fork": _fork,
-    "image": _image, "diff": _diff, "rewind": _rewind, "apply": _apply, "accept": _accept, "export": _export, "cost": _cost,
+    "image": _image, "diff": _diff, "rewind": _rewind, "apply": _apply, "accept": _accept, "ide": _ide, "export": _export, "cost": _cost,
     "context": _context, "jobs": _jobs, "init": _init, "theme": _theme, "lockdown": _lockdown, "paranoia": _paranoia, "quit": _quit,
 }  # fmt: skip
 
