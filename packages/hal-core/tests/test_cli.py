@@ -78,3 +78,20 @@ def test_box_passes_everything_after_the_dashes_to_the_box_cli():
     command, args = cli.resolve(["box", "--ask", "--", "crush", "--version"])
     assert command.module == "halsandbox.cli" and args == ["--ask", "--", "crush", "--version"]
     assert callable(cli.load(command))
+
+
+def test_every_command_is_in_exactly_one_help_group():
+    grouped = [name for _, names in cli.GROUPS for name in names]
+    assert sorted(grouped) == sorted(cli.COMMANDS)
+
+
+def test_help_command_asks_the_command_for_its_help(monkeypatch):
+    seen = []
+    monkeypatch.setattr(cli, "load", lambda command: lambda args: seen.append((command.module, args)) or 0)
+    assert cli.main(["help", "doctor"]) == 0
+    assert seen == [("doctor", ["--help"])]
+
+
+def test_version_prints_the_installed_packages(capsys):
+    assert cli.main(["version"]) == 0
+    assert "hal-core" in capsys.readouterr().out

@@ -3,6 +3,9 @@
 `hal --help` lists every command. A bare `hal` runs `hal code` in a project folder and `hal chat`
 elsewhere. Exit codes: 0 ok, 1 failed, 2 usage error, 3 prerequisite missing, 130 interrupted.
 
+`hal --help` groups the commands (work, safety, system). `hal help COMMAND` is the same as
+`hal COMMAND --help`, and `hal version` lists the installed Hal packages.
+
 ## hal doctor
 
 `hal doctor` (also `hal status`) prints one read-only report and starts nothing. It checks the

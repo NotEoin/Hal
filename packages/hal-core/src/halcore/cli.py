@@ -114,13 +114,30 @@ def resolve(argv: list[str]) -> tuple[Command, list[str]] | None:
     return command, [*command.prepend, *rest]
 
 
+# Groups for `hal --help`; a test keeps every command in exactly one group.
+GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("work", ("code", "chat", "acp", "jobs", "sessions", "box", "connect")),
+    ("safety", ("lockdown", "paranoia", "policy", "audit", "guard", "approvals", "approve", "deny", "scratch", "security")),
+    ("system", ("doctor", "status", "kill", "power", "gpulight", "units", "gateway", "migrate", "configure", "console", "eval", "ext")),
+)
+
+
 def usage() -> str:
-    """The command list `hal --help` prints."""
+    """The grouped command list `hal --help` prints."""
     width = max(map(len, COMMANDS))
-    lines = ["usage: hal [COMMAND] [ARGS]", "", "commands:"]
-    lines += [f"  {name:<{width}}  {cmd.help}" for name, cmd in sorted(COMMANDS.items())]
-    lines += ["", "a bare `hal` runs `hal chat`; `hal -p PROMPT` runs headless"]
+    lines = ["usage: hal [COMMAND] [ARGS]", "       hal help COMMAND   (same as hal COMMAND --help)"]
+    for title, names in GROUPS:
+        lines += ["", f"{title}:"]
+        lines += [f"  {n:<{width}}  {COMMANDS[n].help}" for n in names if n in COMMANDS]
+    lines += ["", "a bare `hal` opens `hal code` in a project folder and `hal chat` elsewhere;", "`hal -p PROMPT` runs headless; `hal version` prints the versions"]
     return "\n".join(lines)
+
+
+def version_text() -> str:
+    """One line per installed Hal package, for `hal version`."""
+    from halkit import version  # lazy: importlib.metadata scan
+
+    return "\n".join(f"{name} {ver}" for name, ver in version.versions().items()) or f"hal-kit {version.__version__}"
 
 
 def load(command: Command) -> Callable[[list[str]], int | None]:
@@ -133,9 +150,14 @@ def load(command: Command) -> Callable[[list[str]], int | None]:
 def main(argv: list[str] | None = None) -> int:
     """Runs one `hal` command line and returns the exit status."""
     argv = sys.argv[1:] if argv is None else argv
-    if argv[:1] in (["--help"], ["-h"], ["help"]):
+    if argv in (["--help"], ["-h"], ["help"]):
         print(usage())
         return EXIT_OK
+    if argv[:1] in (["version"], ["--version"], ["-V"]):
+        print(version_text())
+        return EXIT_OK
+    if argv[:1] == ["help"] and len(argv) > 1:
+        argv = [argv[1], "--help"]
     found = resolve(argv)
     if found is None:
         print(f"hal: unknown command {argv[0]!r}; `hal --help` lists the commands", file=sys.stderr)
