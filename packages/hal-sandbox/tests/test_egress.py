@@ -136,3 +136,10 @@ def test_tunnels_past_the_cap_get_503(make):
 
 def test_the_socket_is_private(make):
     assert make().path.stat().st_mode & 0o777 == 0o600
+
+
+def test_connections_past_the_cap_get_503_before_any_head_is_read(make):
+    # regression: only tunnels were capped, so idle sockets could spawn unbounded handler threads
+    h = make(max_connections=2, head_timeout_s=5)
+    with h.client(), h.client():
+        assert h.ask(b"").startswith(b"HTTP/1.1 503")

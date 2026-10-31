@@ -11,7 +11,8 @@ proxy, which runs on the host. Constraints, each with its reason:
   connects to the checked address, so a DNS answer cannot change between check and connect.
 - TLS stays end to end. The proxy never terminates it and holds no CA, so integrity comes from
   TLS plus the hashes in the lockfiles.
-- Every connection is bounded: a head timeout, an idle timeout and a tunnel cap.
+- Every connection is bounded: a connection cap (checked before a thread starts), a head timeout,
+  an idle timeout, a per-write send timeout and a tunnel cap.
 """
 
 from __future__ import annotations
@@ -44,6 +45,8 @@ CONNECT_TIMEOUT_S = 15.0
 MAX_HEAD_BYTES = 8192
 CHUNK_BYTES = 65536
 DEFAULT_MAX_TUNNELS = 16
+DEFAULT_MAX_CONNECTIONS = 64  # open client sockets, tunnels included; far above a package manager's need
+SEND_TIMEOUT_S = 30.0  # a peer that does not drain a write in 30 s is stuck
 Resolver = Callable[[str], list[str]]
 Connector = Callable[[str, int], socket.socket]
 
@@ -62,10 +65,12 @@ class ConnectProxy:
         registries: Collection[str],
         on_event: Callable[[dict[str, object]], None],
         max_tunnels: int = DEFAULT_MAX_TUNNELS,
+        max_connections: int = DEFAULT_MAX_CONNECTIONS,
         resolve: Resolver | None = None,
         connect: Connector = _connect,
         head_timeout_s: float = HEAD_TIMEOUT_S,
         idle_timeout_s: float = IDLE_TIMEOUT_S,
+        send_timeout_s: float = SEND_TIMEOUT_S,
     ) -> None:
         self.path = Path(path)
         self.registries = frozenset(r.strip().rstrip(".").lower() for r in registries)
@@ -75,6 +80,8 @@ class ConnectProxy:
         self._connect = connect
         self._head_timeout = head_timeout_s
         self._idle_timeout = idle_timeout_s
+        self._send_timeout = send_timeout_s
+        self._conns = threading.BoundedSemaphore(max_connections)
         self._slots = threading.BoundedSemaphore(max_tunnels)
         self._server: socket.socket | None = None
         self._threads: list[threading.Thread] = []
@@ -117,6 +124,7 @@ class ConnectProxy:
         self._event("egress.deny", host=host, reason=reason)
         log.warning("egress denied %s: %s", host or "(none)", reason)
         try:
+            client.settimeout(self._send_timeout)
             client.sendall(f"HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".encode())
         except OSError:
             pass
@@ -130,9 +138,21 @@ class ConnectProxy:
                 continue
             except OSError:
                 return
-            thread = threading.Thread(target=self._handle, args=(client,), name="egress-conn", daemon=True)
+            if not self._conns.acquire(blocking=False):
+                self._deny(client, "503 Service Unavailable", "", "too many connections")
+                client.close()
+                continue
+            thread = threading.Thread(
+                target=self._handle_limited, args=(client,), name="egress-conn", daemon=True
+            )
             thread.start()
             self._threads = [t for t in self._threads if t.is_alive()] + [thread]
+
+    def _handle_limited(self, client: socket.socket) -> None:
+        try:
+            self._handle(client)
+        finally:
+            self._conns.release()
 
     def _read_head(self, client: socket.socket) -> tuple[bytes, bytes] | None:
         """The request head and any bytes after it; None when it is late, too long or cut off."""
@@ -193,6 +213,7 @@ class ConnectProxy:
             return
         self._event("egress.allow", host=host, address=address)
         try:
+            client.settimeout(self._send_timeout)
             client.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
             if rest:
                 upstream.sendall(rest)
@@ -203,8 +224,9 @@ class ConnectProxy:
             upstream.close()
 
     def _splice(self, a: socket.socket, b: socket.socket) -> None:
-        a.settimeout(None)
-        b.settimeout(None)
+        # reads wait in `select`; the timeout only bounds a `sendall` to a peer that stopped reading
+        a.settimeout(self._send_timeout)
+        b.settimeout(self._send_timeout)
         pair = {a: b, b: a}
         while not self._closing.is_set():
             ready, _, _ = select.select(list(pair), [], [], self._idle_timeout)
