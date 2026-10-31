@@ -8,9 +8,88 @@ repo = "https://github.com/NotEoin/hal-tools.git"
 tag = "v0.1.0"
 commit = "0000000000000000000000000000000000000000"
 
+[sources.hal-memory]
+repo = "https://github.com/NotEoin/hal-memory.git"
+tag = "v0.1.0"
+commit = "0000000000000000000000000000000000000000"
+
+[sources.hal-voice]
+repo = "https://github.com/NotEoin/hal-voice.git"
+tag = "v0.1.0"
+commit = "0000000000000000000000000000000000000000"
+
 [packs.organiser]
 source = "hal-tools"
 subdirectory = "packs/organiser"
 distribution = "hal-organiser"
 env = "shared"
-summary = "calendar, tasks and notes"
+summary = "Calendar, tasks, clock, notify, briefing and routines"
+
+[packs.life]
+source = "hal-tools"
+subdirectory = "packs/life"
+distribution = "hal-life"
+env = "shared"
+summary = "Habits, ledger, contacts and feeds"
+
+[packs.comms]
+source = "hal-tools"
+subdirectory = "packs/comms"
+distribution = "hal-comms"
+env = "shared"
+summary = "Mail, phone and Telegram"
+
+[packs.online]
+source = "hal-tools"
+subdirectory = "packs/online"
+distribution = "hal-online"
+env = "shared"
+summary = "Web fetch and search"
+
+[packs.desktop]
+source = "hal-tools"
+subdirectory = "packs/desktop"
+distribution = "hal-desktop"
+env = "system"
+summary = "Desktop, screen, media and RGB control; desktop sessions only"
+
+[packs.system]
+source = "hal-tools"
+subdirectory = "packs/system"
+distribution = "hal-system"
+env = "shared"
+summary = "Packages, power, network, devices and shell"
+
+[packs.work]
+source = "hal-tools"
+subdirectory = "packs/work"
+distribution = "hal-work"
+env = "shared"
+summary = "Files, git and project tools"
+
+[packs.jobs]
+source = "hal-tools"
+subdirectory = "packs/jobs"
+distribution = "hal-jobs"
+env = "shared"
+summary = "Job search tools; needs a hal-employment checkout"
+
+[packs.memory]
+source = "hal-memory"
+subdirectory = ""
+distribution = "hal-memory"
+env = "shared"
+summary = "Vault memory: index, search, capture and brief"
+
+[packs.voice]
+source = "hal-voice"
+subdirectory = ""
+distribution = "hal-voice"
+env = "own"
+summary = "Voice: wake word, speech to text, text to speech"
+
+# voice and jobs are in no set: voice downloads several GB of models, jobs needs hal-employment
+[sets]
+assistant = ["organiser", "online", "memory"]
+computer = ["desktop", "system", "work"]
+personal = ["life", "comms"]

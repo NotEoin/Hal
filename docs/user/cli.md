@@ -53,6 +53,8 @@ Packs add tools to Hal. `hal ext` still works and prints a notice, then runs `ha
 | --- | --- |
 | `hal packs list [--available] [--json]` | installed packs, and the catalogue with `--available` |
 | `hal packs add NAME...` | install from the catalogue at its pinned commit |
+| `hal packs add --set NAME` | install every pack of a catalogue set (`assistant`, `computer`, `personal`) |
+| `hal packs add --local PATH` | install a development checkout (editable, unpinned); `[tool.hal-pack]` in its `pyproject.toml` picks `shared`, `own` or `system` |
 | `hal packs add URL@REF --dist NAME` | install from a tag or a full commit after a typed `y`; branches are refused |
 | `hal packs remove NAME` | uninstall; data stores stay, an own-env folder moves to `data_dir()/removed/` |
 | `hal packs enable NAME`, `disable NAME` | edit only `[hub].disabled` in the config file |
@@ -60,7 +62,7 @@ Packs add tools to Hal. `hal ext` still works and prints a notice, then runs `ha
 | `hal packs setup NAME` | run the pack's install steps, each after a typed `y` |
 | `hal packs doctor [NAME...]` | installed commit vs pin, modules, interpreters, setup state; exits 1 on a failure |
 
-Packs install into `data_dir()/envs/packs` and are recorded in `state_dir()/packs.json`, which the
+Packs install into `data_dir()/envs/packs` (a pack with `env = "own"`, such as voice, gets `data_dir()/envs/NAME` built with `uv sync --frozen`) and are recorded in `state_dir()/packs.json`, which the
 hub reads. The installed commit is checked against the pin and the install is rolled back on a
 mismatch. The catalogue ships with placeholder commits until a release fills them, so
 `hal packs add NAME` refuses until then (unverified for a real release: run it against a built wheel).

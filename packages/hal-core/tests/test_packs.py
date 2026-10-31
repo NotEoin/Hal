@@ -159,3 +159,74 @@ def test_packs_doctor_report(home, monkeypatch):
 def test_ext_is_an_alias_for_packs():
     assert cli.ALIASES["ext"].target == ("packs",)
     assert "ext" not in cli.COMMANDS
+
+
+def _local_pack(root: Path, env_table: str = "") -> Path:
+    root.mkdir(parents=True)
+    (root / "pyproject.toml").write_text(f'[project]\nname = "hal-demo"\nversion = "0"\n{env_table}')
+    (root / "src" / "demo").mkdir(parents=True)
+    (root / "src" / "demo" / "hal-module.toml").write_text('[module]\nname = "demo"\n')
+    (root / ".venv" / "x").mkdir(parents=True)
+    (root / ".venv" / "x" / "hal-module.toml").write_text('[module]\nname = "ignored"\n')
+    return root
+
+
+def test_local_install_is_editable_and_marked_unpinned(home, monkeypatch):
+    _env_of[0] = _fake_env(home, "hal-demo", PIN)
+    calls: list = []
+    _stub_uv(monkeypatch, calls, home)
+    root = _local_pack(home / "checkout")
+    assert packs.add_local(root) == "demo"
+    rec = packs.read_record()["packs"]["demo"]
+    assert rec["local"] is True and rec["commit"] == "" and list(rec["modules"]) == ["demo"]
+    assert any(c[-2:] == ["-e", str(root)] for c in calls)
+    monkeypatch.setattr(packs, "catalog_path", lambda: _catalog(home, PIN))
+    assert ("demo", "commit", "dev checkout, unpinned") in packs.doctor()
+
+
+def test_local_own_pack_syncs_its_lockfile_into_its_own_env(home, monkeypatch):
+    _env_of[0] = home / "envs" / "demo"
+    calls: list = []
+    envs: list = []
+    _stub_uv(monkeypatch, calls, home)
+    monkeypatch.setattr(packs.proc, "run", lambda argv, **kw: envs.append(kw.get("env")) or calls.append(list(argv)) or subprocess.CompletedProcess(argv, 0, b"", b""))
+    root = _local_pack(home / "checkout", '[tool.hal-pack]\nenv = "own"\n')
+    packs.add_local(root)
+    assert calls[0][:4] == ["uv", "sync", "--frozen", "--project"]
+    assert envs[0]["UV_PROJECT_ENVIRONMENT"] == str(_env_of[0]) and "PATH" in envs[0]
+
+
+def test_local_install_refuses_an_unknown_env_kind(home):
+    root = _local_pack(home / "checkout", '[tool.hal-pack]\nenv = "weird"\n')
+    with pytest.raises(packs.PackError, match="weird"):
+        packs.install_local(root)
+
+
+def test_a_set_expands_to_its_packs_and_an_unknown_set_fails():
+    assert packs.expand_set("assistant") == ["organiser", "online", "memory"]
+    with pytest.raises(packs.PackError, match="unknown set"):
+        packs.expand_set("nope")
+
+
+def test_own_pack_install_clones_at_the_pin_and_uses_its_own_env(home, monkeypatch):
+    _env_of[0] = home / "data" / "envs" / "voice"
+    (_env_of[0] / "bin").mkdir(parents=True)
+    calls: list = []
+    monkeypatch.setattr(packs, "_uv", lambda: "uv")
+
+    def fake(argv, **kw):
+        calls.append(list(argv))
+        out = (PIN + "\n").encode() if "rev-parse" in argv else b""
+        return subprocess.CompletedProcess(argv, 0, out, b"")
+
+    monkeypatch.setattr(packs.proc, "run", fake)
+    new = packs.install_own("hal-voice", "https://example.invalid/v.git", PIN, {"distribution": "hal-voice"}, "voice")
+    assert new["env"] == "own" and new["python"].endswith("envs/voice/bin/python")
+    assert any(c[:2] == ["git", "clone"] for c in calls) and any(c[:2] == ["uv", "sync"] for c in calls)
+
+
+def test_own_pack_at_the_wrong_commit_is_refused(home, monkeypatch):
+    monkeypatch.setattr(packs, "_uv", lambda: "uv")
+    monkeypatch.setattr(packs.proc, "run", lambda argv, **kw: subprocess.CompletedProcess(argv, 0, b"b" * 40 + b"\n", b""))
+    with pytest.raises(packs.PackError, match="not the pin"):
+        packs.install_own("s", "https://example.invalid/s.git", PIN, {}, "voice")

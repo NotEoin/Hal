@@ -38,6 +38,11 @@ TAG_RE = re.compile(r"^v?[0-9][0-9A-Za-z.+-]*$")
 GIT_ENV = {"GIT_TERMINAL_PROMPT": "0"}
 
 
+def _env(**extra: str) -> dict[str, str]:
+    """The process environment plus git's no-prompt switch; `proc.run` replaces the env it is given."""
+    return {**os.environ, **GIT_ENV, **extra}
+
+
 class PackError(Exception):
     """A pack command refused or failed; the message says why."""
 
@@ -88,7 +93,7 @@ def resolve_ref(url: str, ref: str) -> str:
         return ref
     out = proc.run(
         ["git", "ls-remote", url, f"refs/tags/{ref}", f"refs/tags/{ref}^{{}}"],
-        timeout=LS_REMOTE_TIMEOUT_S, env=GIT_ENV,
+        timeout=LS_REMOTE_TIMEOUT_S, env=_env(),
     ).stdout.decode()  # fmt: skip
     lines = [ln.split() for ln in out.splitlines() if ln.strip()]
     peeled = [c for c, r in lines if r.endswith("^{}")]
@@ -151,7 +156,7 @@ def ensure_env(kind: str, pack: str) -> Path:
         return python
     argv = [_uv(), "venv", str(env)]
     argv += ["--system-site-packages", "--python", "/usr/bin/python3"] if kind == "system" else ["--python", "python3"]
-    proc.run(argv, timeout=QUICK_TIMEOUT_S, env=GIT_ENV)
+    proc.run(argv, timeout=QUICK_TIMEOUT_S, env=_env())
     return python
 
 
@@ -201,12 +206,12 @@ def install_pip(entry: dict[str, Any], repo: str, commit: str, kind: str, pack: 
         raise PackError(f"{reqs.name} has no hashed requirements in this release; refusing an unpinned install")
     uv = _uv()
     base = [uv, "pip", "install", "--python", str(python)]
-    proc.run([*base, "--require-hashes", "-r", str(reqs)], timeout=PACK_INSTALL_TIMEOUT_S, env=GIT_ENV)
+    proc.run([*base, "--require-hashes", "-r", str(reqs)], timeout=PACK_INSTALL_TIMEOUT_S, env=_env())
     dist = str(entry["distribution"])
     sub = f"#subdirectory={entry['subdirectory']}" if entry.get("subdirectory") else ""
     proc.run(
         [*base, "--no-deps", "--no-build-isolation", f"{dist} @ git+{repo}@{commit}{sub}"],
-        timeout=PACK_INSTALL_TIMEOUT_S, env=GIT_ENV,
+        timeout=PACK_INSTALL_TIMEOUT_S, env=_env(),
     )  # fmt: skip
     got = installed_commit(python, dist)
     if got != commit:
@@ -216,6 +221,109 @@ def install_pip(entry: dict[str, Any], repo: str, commit: str, kind: str, pack: 
         "distribution": dist, "commit": commit, "env": kind, "python": str(python),
         "modules": find_modules(python, dist), "setup": "pending", "installed_at": _utc(),
     }  # fmt: skip
+
+
+SCAN_SKIP = frozenset({".git", ".venv", "node_modules", "__pycache__"})
+SCAN_DEPTH = 4  # a pack keeps its manifests near the top of the tree (packs/<name>/src/<pkg>)
+
+
+def scan_modules(root: Path, python: Path) -> dict[str, dict[str, Any]]:
+    """Modules of a source checkout: every `hal-module.toml` under `root`, run with `python`."""
+    out: dict[str, dict[str, Any]] = {}
+    for here, dirs, names in os.walk(root):
+        depth = len(Path(here).relative_to(root).parts)
+        dirs[:] = [d for d in dirs if d not in SCAN_SKIP] if depth < SCAN_DEPTH else []
+        if "hal-module.toml" not in names:
+            continue
+        manifest = Path(here) / "hal-module.toml"
+        try:
+            name = tomllib.loads(manifest.read_text(encoding="utf-8"))["module"]["name"]
+        except (OSError, KeyError, tomllib.TOMLDecodeError):
+            continue
+        out[name] = {"manifest": str(manifest), "interpreter": [str(python)]}
+    return out
+
+
+def pack_settings(root: Path) -> dict[str, Any]:
+    """The `[tool.hal-pack]` table of `root/pyproject.toml` (env, system-site-packages, python)."""
+    try:
+        data = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    return dict(data.get("tool", {}).get("hal-pack", {}))
+
+
+def _sync_own(clone: Path, pack: str) -> Path:
+    """`uv sync --frozen` of the project at `clone` into the pack's own env; returns its python."""
+    env = env_dir("own", pack)
+    proc.run(
+        [_uv(), "sync", "--frozen", "--project", str(clone)],
+        timeout=PACK_INSTALL_TIMEOUT_S, env=_env(UV_PROJECT_ENVIRONMENT=str(env)),
+    )  # fmt: skip
+    return env / "bin" / "python"
+
+
+def install_own(source: str, repo: str, commit: str, entry: dict[str, Any], pack: str) -> dict[str, Any]:
+    """Clones `repo` at `commit` into `data_dir()/packs/<source>` and syncs its lockfile into its own env."""
+    clone = paths.data_dir() / "packs" / source
+    if not clone.exists():
+        clone.parent.mkdir(parents=True, exist_ok=True)
+        proc.run(["git", "clone", "--filter=blob:none", "--no-checkout", repo, str(clone)],
+                 timeout=PACK_INSTALL_TIMEOUT_S, env=_env())  # fmt: skip
+    proc.run(["git", "-C", str(clone), "fetch", "--quiet", "origin", commit], timeout=PACK_INSTALL_TIMEOUT_S, env=_env(), check=False)
+    proc.run(["git", "-C", str(clone), "checkout", "--quiet", "--detach", commit], timeout=QUICK_TIMEOUT_S, env=_env())
+    head = proc.run(["git", "-C", str(clone), "rev-parse", "HEAD"], timeout=QUICK_TIMEOUT_S).stdout.decode().strip()
+    if head != commit:
+        raise PackError(f"{pack}: {repo} is at {head or 'unknown'}, not the pin {commit}")
+    root = clone / str(entry.get("subdirectory", ""))
+    python = _sync_own(root, pack)
+    return {
+        "distribution": str(entry.get("distribution", pack)), "commit": commit, "env": "own", "python": str(python),
+        "modules": scan_modules(root, python), "setup": "pending", "installed_at": _utc(),
+    }  # fmt: skip
+
+
+def install_local(path: Path) -> tuple[str, dict[str, Any]]:
+    """Installs a development checkout (REQ-CLI-63); returns `(pack name, record)` marked `local`."""
+    root = path.resolve()
+    try:
+        project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8")).get("project", {})
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise PackError(f"{root}: no readable pyproject.toml ({exc})") from exc
+    dist = str(project.get("name", ""))
+    if not dist:
+        raise PackError(f"{root}/pyproject.toml has no [project].name")
+    kind = str(pack_settings(root).get("env", "shared"))
+    if kind not in ("shared", "own", "system"):
+        raise PackError(f"[tool.hal-pack].env {kind!r} is not shared, own or system")
+    pack = dist.removeprefix("hal-")
+    if kind == "own":
+        python = _sync_own(root, pack)
+    else:
+        python = ensure_env(kind, pack)
+        proc.run([_uv(), "pip", "install", "--python", str(python), "-e", str(root)], timeout=PACK_INSTALL_TIMEOUT_S, env=_env())
+    record = {
+        "distribution": dist, "commit": "", "env": kind, "python": str(python), "local": True, "path": str(root),
+        "modules": scan_modules(root, python), "setup": "pending", "installed_at": _utc(),
+    }  # fmt: skip
+    return pack, record
+
+
+def add_local(path: Path) -> str:
+    """Installs and records a local pack; returns its name."""
+    pack, new = install_local(path)
+    record = read_record()
+    record["packs"][pack] = new
+    write_record(record)
+    return pack
+
+
+def expand_set(name: str) -> list[str]:
+    """The pack names of catalogue set `name`; raises `PackError` for an unknown set."""
+    sets = load_catalog().get("sets", {})
+    if name not in sets:
+        raise PackError(f"unknown set {name!r}; sets: {', '.join(sorted(sets)) or 'none'}")
+    return list(sets[name])
 
 
 def _utc() -> str:
@@ -236,7 +344,12 @@ def add_catalog(name: str, record: dict[str, Any] | None = None) -> dict[str, An
     have = record["packs"].get(name)
     if have and have.get("commit") == commit:
         return have
-    new = install_pip(entry, mirror(str(source["repo"])), commit, str(entry.get("env", "shared")), name)
+    kind = str(entry.get("env", "shared"))
+    repo = mirror(str(source["repo"]))
+    if kind == "own":
+        new = install_own(str(entry["source"]), repo, commit, entry, name)
+    else:
+        new = install_pip(entry, repo, commit, kind, name)
     new.update(source=entry["source"], tag=source.get("tag", ""))
     record["packs"][name] = new
     write_record(record)
@@ -349,7 +462,9 @@ def main(argv: list[str]) -> int:
     s.add_argument("--available", action="store_true", help="also show catalogue packs")
     s.add_argument("--json", action="store_true")
     s = sub.add_parser("add", help="NAME... from the catalogue, or URL@REF")
-    s.add_argument("names", nargs="+")
+    s.add_argument("names", nargs="*")
+    s.add_argument("--local", metavar="PATH", help="install a development checkout, unpinned")
+    s.add_argument("--set", dest="set_name", metavar="NAME", help="install every pack of a catalogue set")
     s.add_argument("--dist", default="", help="distribution name for URL@REF")
     s.add_argument("--subdirectory", default="")
     for cmd in ("remove", "enable", "disable", "setup"):
@@ -375,7 +490,12 @@ def _run(a: Any) -> int:
     if a.cmd == "list":
         return _list(a.available, a.json)
     if a.cmd == "add":
-        for n in a.names:
+        if not (a.names or a.local or a.set_name):
+            raise PackError("name a pack, or use --set NAME or --local PATH")
+        if a.local:
+            name = add_local(Path(a.local))
+            print(f"  {name}: installed from {a.local} (dev checkout, unpinned); run `hal packs setup {name}`")
+        for n in [*a.names, *(expand_set(a.set_name) if a.set_name else [])]:
             if "@" in n and "://" in n:
                 if not a.dist:
                     raise PackError("URL@REF needs --dist NAME (the distribution to install)")
