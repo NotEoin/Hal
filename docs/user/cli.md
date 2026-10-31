@@ -16,3 +16,9 @@ paranoia lines. Add `--json` for machine output. It exits 1 when a line says FAI
 ```
 
 Verified by `packages/hal-core/tests/test_doctor.py`.
+
+## hal migrate
+
+`hal migrate ecosystem [--from DIR] [--yes]` plans the move from the old layout and applies it
+only with `--yes`. `hal migrate undo JOURNAL` reverts it. See
+[move-from-hal-ecosystem](../howto/move-from-hal-ecosystem.md).

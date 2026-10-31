@@ -14,9 +14,10 @@ written.
 | [user/security.md](user/security.md) | What Hal protects you from, the lockdown and paranoia tables, and which paths are not private |
 | [user/tui.md](user/tui.md) | The terminal UI of `hal code` and `hal chat`: what it shows, approvals, slash commands |
 | [user/sandbox.md](user/sandbox.md) | The box: lockdown levels, what it sees, getting changes out, checkpoints |
-| [user/cli.md](user/cli.md) | The `hal` command: exit codes and `hal doctor` |
+| [user/cli.md](user/cli.md) | The `hal` command: exit codes, `hal doctor` and `hal migrate` |
 | [howto/approve-tool-calls.md](howto/approve-tool-calls.md) | How to see why a call asks, answer it, and make a policy rule last |
 | [howto/check-the-agent-setup.md](howto/check-the-agent-setup.md) | How to run `hal-agent doctor`, read its checks and fix each symptom |
+| [howto/move-from-hal-ecosystem.md](howto/move-from-hal-ecosystem.md) | How to move from the old hal-ecosystem layout with `hal migrate`, and undo it |
 | [howto/connect-a-harness-to-hal-tools.md](howto/connect-a-harness-to-hal-tools.md) | How to give Claude Code or another MCP client Hal's tools, on stdio or HTTP, and answer approvals |
 | [howto/enable-local-guard.md](howto/enable-local-guard.md) | How to install, time and turn on the local prompt-injection guard |
 | [howto/resume-and-export-a-session.md](howto/resume-and-export-a-session.md) | How to list, resume and export `hal-agent` sessions |
