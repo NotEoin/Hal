@@ -19,6 +19,7 @@ from halagent.repair.leaks import PARSERS
 
 SHIPPED = Path(__file__).with_name("model-profiles.toml")
 SCHEMA = 1
+PASS_THROUGH_KEYS = ("cache_prompt", "id_slot")
 SAMPLING_KEYS = ("temperature", "top_p", "top_k", "min_p", "presence_penalty", "repeat_penalty")
 # key -> (allowed types, enum or None)
 KEYS: dict[str, tuple[tuple[type, ...], tuple[str, ...] | None]] = {
@@ -41,6 +42,8 @@ KEYS: dict[str, tuple[tuple[type, ...], tuple[str, ...] | None]] = {
     "strict_alternation": ((bool,), None),
     "max_tools_hint": ((int,), None),
     "stop": ((list,), None),
+    "cache_prompt": ((bool,), None),
+    "id_slot": ((int,), None),
 }
 ENTRY_KEYS = ("match", "family", "notes", "evidence")
 
@@ -63,6 +66,10 @@ class Profile:
         out = {k: self.values[k] for k in SAMPLING_KEYS if k in self.values}
         if self.values.get("stop"):
             out["stop"] = list(self.values["stop"])
+        # llama.cpp server options; Ollama and the gateway ignore keys they do not know
+        for key in PASS_THROUGH_KEYS:
+            if key in self.values:
+                out[key] = self.values[key]
         return out
 
 

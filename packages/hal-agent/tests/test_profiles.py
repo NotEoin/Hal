@@ -58,6 +58,6 @@ def test_invalid_file_fails_loudly_with_file_and_key(tmp_path, body, message):
     assert "model-profiles.toml" in str(exc.value)
 
 
-def test_request_extras_hold_only_sampling_keys():
+def test_request_extras_hold_only_sampling_and_cache_keys():
     extras = resolve_profile("gemma4:12b").request_extras()
-    assert extras == {"temperature": 1.0, "top_p": 0.95, "top_k": 64}
+    assert extras == {"temperature": 1.0, "top_p": 0.95, "top_k": 64, "cache_prompt": True}

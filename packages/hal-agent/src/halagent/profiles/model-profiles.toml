@@ -16,6 +16,7 @@ parallel_tool_calls = false
 first_token_timeout_s = 600
 system_role = "system"
 max_tools_hint = 12
+cache_prompt = true  # llama.cpp reuses the KV cache of the unchanged prompt prefix
 
 [[model]]
 match = ["gemma4:*", "gemma-4-*"]

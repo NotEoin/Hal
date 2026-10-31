@@ -51,6 +51,14 @@ must be listed here in the same commit.
 `session/compact` takes an optional `focus` string that the summary keeps detail on.
 Verified by `tests/test_context.py` and `tests/test_budget.py`.
 
+## Prompt-cache friendliness
+
+The system prompt is built once per session and the tool list has a fixed order, so the prefix of
+every request is byte-identical between compactions (history is append-only; masking and
+summaries run as one sweep). Profiles pass `cache_prompt` (default true) and optionally `id_slot`
+to llama.cpp; other servers ignore them. Verified by `tests/test_context.py`
+(`test_consecutive_turns_share_an_identical_prompt_prefix_and_tool_list`).
+
 ## Tests
 
 ```sh

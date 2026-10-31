@@ -164,3 +164,19 @@ def test_usage_update_reports_context_used_and_tokens_per_second(server, tmp_pat
     agent.run("hi")
     usage = [u for u in updates if u["kind"] == "usage"]
     assert usage and {"context_used", "tokens_per_s", "window"} <= set(usage[0])
+
+
+def test_consecutive_turns_share_an_identical_prompt_prefix_and_tool_list(server, tmp_path):
+    server.script("one", "two")
+    agent = Agent(AgentSettings(endpoint=server.url), Toolset(tmp_path))
+    agent.run("first")
+    agent.run("second")
+    a, b = (r["body"] for r in server.requests[-2:])
+    assert b["messages"][: len(a["messages"])] == a["messages"]  # append-only history
+    assert a["tools"] == b["tools"] and a["messages"][0] == b["messages"][0]
+
+
+def test_requests_ask_llama_cpp_to_reuse_the_prompt_cache(server, tmp_path):
+    server.script("one")
+    Agent(AgentSettings(endpoint=server.url), Toolset(tmp_path)).run("first")
+    assert server.requests[-1]["body"]["cache_prompt"] is True
