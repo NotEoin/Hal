@@ -29,6 +29,7 @@ from halagent.budget import (
     loop_message,
     nudge_text,
 )
+from halagent.constrain import request_keys, unwrap_answer
 from halagent.context import (
     CHARS_PER_TOKEN,
     ContextManager,
@@ -150,6 +151,7 @@ class Agent:
         hooks: Hooks | None = None,
     ) -> None:
         self.hooks = hooks or None
+        self._constraint = "none"
         if self.hooks:
             self.hooks.lifecycle("session_start")
         self.assistant = assistant
@@ -531,6 +533,7 @@ class Agent:
         if self.turn == 1 and self.session:
             self.session.write({"type": "title", "title": title_from_prompt(prompt)})
         self._add({"role": "user", "content": prompt, **({"images": images} if images else {})})
+        self._constrain()
         budget = self._budget()
         clock, dog = BudgetClock(budget), Watchdog(budget)
         turns = nudges = 0
@@ -577,6 +580,8 @@ class Agent:
             calls = list(reply.tool_calls)
             if not calls:
                 calls, text = self._leaked_calls(text, turns)
+            if not calls and self._constraint == "json_schema":
+                text = unwrap_answer(text)
             if self.claims and not calls:
                 verdict = self.claims.decide(text, tools_run=clock.calls_used, retried=retried)
                 if verdict.action == "retry":
@@ -757,6 +762,16 @@ class Agent:
             self.note.observe(name, parse_args(raw) or {}, result)
         self._add(self._result_message(cid, name, result, native))
         return result
+
+    def _constrain(self) -> None:
+        """Passes the profile's grammar or schema for tool calls to the provider (text fallback only)."""
+        mode = str(self.profile.values.get("tool_constraint", "none"))
+        self._constraint = mode if self.settings.tool_format == "prompt" else "none"
+        names = sorted(self._offered())
+        keys = request_keys(self._constraint, names) if names else {}
+        self.provider.extra = {
+            k: v for k, v in self.provider.extra.items() if k not in ("grammar", "response_format")
+        } | keys
 
     def _leak_order(self) -> tuple[str, ...] | None:
         """The profile's parser order, or None for the built-in default."""

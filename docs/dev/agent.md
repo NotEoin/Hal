@@ -71,6 +71,11 @@ of a new session is written as a `title` record (ASCII, 60 characters) and shown
   Web fetch and search stay with the online pack, reached only through the broker.
 - Profile key `tool_set = "compact"` offers only `COMPACT_TOOLS` (read, grep, edit, write, run,
   finish) so small models choose among fewer tools.
+- Profile key `tool_constraint` (`none`, `grammar`, `json_schema`; `halagent.constrain`) applies only
+  with `tool_format = "prompt"`. `grammar` sends a GBNF `grammar` that forces a `<tool_call>` block
+  naming an offered tool (or plain text); `json_schema` sends `response_format` with a schema of a
+  call or `{"answer": text}`, and the answer is unwrapped. Names are sorted so the request stays
+  byte-stable. Servers that ignore the keys (Ollama) fall back to the repair parsers.
 
 ## Prompt-cache friendliness
 

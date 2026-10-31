@@ -43,6 +43,7 @@ KEYS: dict[str, tuple[tuple[type, ...], tuple[str, ...] | None]] = {
     "max_tools_hint": ((int,), None),
     "stop": ((list,), None),
     "tool_set": ((str,), ("full", "compact")),
+    "tool_constraint": ((str,), ("none", "grammar", "json_schema")),
     "cache_prompt": ((bool,), None),
     "id_slot": ((int,), None),
 }
