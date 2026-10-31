@@ -17,6 +17,7 @@ written.
 | [user/sandbox.md](user/sandbox.md) | The box: lockdown levels, what it sees, getting changes out, checkpoints |
 | [user/cli.md](user/cli.md) | The `hal` command: exit codes, `hal doctor` and `hal migrate` |
 | [howto/approve-tool-calls.md](howto/approve-tool-calls.md) | How to see why a call asks, answer it, and make a policy rule last |
+| [howto/approve-a-request-from-another-terminal.md](howto/approve-a-request-from-another-terminal.md) | How to answer a waiting request from a second terminal |
 | [howto/check-the-agent-setup.md](howto/check-the-agent-setup.md) | How to run `hal-agent doctor`, read its checks and fix each symptom |
 | [howto/move-from-hal-ecosystem.md](howto/move-from-hal-ecosystem.md) | How to move from the old hal-ecosystem layout with `hal migrate`, and undo it |
 | [howto/connect-a-harness-to-hal-tools.md](howto/connect-a-harness-to-hal-tools.md) | How to give Claude Code or another MCP client Hal's tools, on stdio or HTTP, and answer approvals |
