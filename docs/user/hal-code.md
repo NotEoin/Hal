@@ -49,7 +49,7 @@ set `[ui].unicode = false` to force the ASCII form shown above.
 | Shift-Tab | Cycle the permission mode: default, auto-edit, plan |
 | Esc | Interrupt the turn (Ctrl-C does too) |
 | Esc Esc | Open `/rewind` |
-| Ctrl-O | Show folded tool output in full |
+| Ctrl-O | Show folded tool output and the last thinking block in full |
 | Ctrl-T | Show or hide the todo panel |
 | Ctrl-L | Clear the screen |
 | Ctrl-D | Leave |

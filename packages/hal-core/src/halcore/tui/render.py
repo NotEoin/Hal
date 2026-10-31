@@ -168,6 +168,7 @@ class Renderer:
         self.show_todo = True
         self.stats = TurnStats()
         self.last_folded = ""  # the full text of the last folded tool output, shown by Ctrl-O
+        self.last_thought = ""  # the last folded thinking block, shown by Ctrl-O too
         self.status_provider: Callable[[], Text | None] | None = None
         self._buffer = ""
         self._thought = ""
@@ -217,9 +218,13 @@ class Renderer:
             return
         tokens = estimate_tokens(len(self._thought))
         pal, g = self.look.palette, self.look.glyphs
-        if self.look.show_thinking or self.verbose:
+        shown = self.look.show_thinking or self.verbose
+        if shown:
             self.console.print(Text(clean(self._thought.strip()), style=f"dim {pal.muted}"))
-        self.console.print(Text(f"{g.think} thought for ~{tokens} tokens", style=f"dim {pal.muted}"))
+        else:
+            self.last_thought = self._thought
+        hint = "" if shown else " (Ctrl-O shows it)"
+        self.console.print(Text(f"{g.think} thought for ~{tokens} tokens{hint}", style=f"dim {pal.muted}"))
         self._thought = ""
 
     # -- live region -------------------------------------------------------------------
@@ -279,11 +284,14 @@ class Renderer:
                 self._live.start()
 
     def toggle_verbose(self) -> bool:
-        """Flips folded tool output on and off; turning it on shows the last folded output in full."""
+        """Flips folded tool output on and off; turning it on shows the last folded output and thinking block in full."""
         self.verbose = not self.verbose
         if self.verbose and self.last_folded:
             self.print_output(self.last_folded, force_full=True)
             self.last_folded = ""
+        if self.verbose and self.last_thought:
+            self.console.print(Text(clean(self.last_thought.strip()), style=f"dim {self.look.palette.muted}"))
+            self.last_thought = ""
         return self.verbose
 
     def toggle_todo(self) -> bool:

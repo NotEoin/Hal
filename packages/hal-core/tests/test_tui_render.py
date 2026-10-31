@@ -109,6 +109,15 @@ def test_thinking_is_collapsed_to_a_token_count():
     assert "thought for ~70 tokens" in out.getvalue() and "secret" not in out.getvalue()
 
 
+def test_ctrl_o_expands_the_last_folded_thinking_block():
+    r, out = make()
+    r.update({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "hidden reasoning"}})
+    r.update(msg("answer\n\n"))
+    assert "hidden reasoning" not in out.getvalue() and "Ctrl-O shows it" in out.getvalue()
+    r.toggle_verbose()
+    assert "hidden reasoning" in out.getvalue()
+
+
 def test_show_thinking_prints_the_reasoning_dimmed():
     r, out = make()
     r.look = theme.load_look({"show_thinking": True, "unicode": False}, stream=out, environ={})
