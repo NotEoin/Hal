@@ -9,6 +9,7 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `hal migrate ecosystem` maps every old hal-ecosystem unit to the pack that now provides it.
 - `hal eval` runs as a gpu-light `batch` job when gpu-light is installed, so chat turns
   (class `interactive`) and the warm base model (class `service`) keep priority.
 - `hal setup` finishes an install in one idempotent step (`--dry-run`, `--enable`), and

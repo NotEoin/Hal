@@ -87,3 +87,12 @@ def test_missing_source_fails_loudly(world, tmp_path, capsys):
 
 def test_migrate_is_a_command():
     assert cli.resolve(["migrate", "undo", "j"])[0].module == "migrate"
+
+
+def test_every_old_unit_is_mapped_to_its_new_source(world):
+    _, home, eco = world
+    notes = "\n".join(s.detail for s in migrate.build_plan(eco, home=home).steps if s.kind == "manual")
+    wanted = ["hal-briefing@", "hal-calendar-reminders", "hal-clock", "hal-rgb-server", "hal-routines", "hal-tasks-reminders"]
+    for name in wanted:
+        assert f"unit {name}" in notes
+    assert "hal-brief.service: retired" in notes

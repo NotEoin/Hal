@@ -37,6 +37,30 @@ the vault or any hal-employment folder.
    hal migrate undo ~/.local/state/hal/migrate/<UTC>/journal.json   # restores config.toml and links
    ```
 
+## Where each old unit went
+
+The unit names did not change. Each file is now rendered from a pack (or core Hal) by
+`hal units install`, not from the old tree, so stop the old unit first and let the new one replace it.
+`hal migrate ecosystem` prints one line per row.
+
+| Old unit | New form |
+| --- | --- |
+| `hal-console.service` | core Hal |
+| `hal-clock.service` | pack `organiser` |
+| `hal-calendar-reminders.service` | pack `organiser` |
+| `hal-tasks-reminders.service` | pack `organiser` |
+| `hal-routines.service` | pack `organiser` |
+| `hal-briefing@.service`, `hal-briefing-morning\|midday\|evening.timer` | pack `organiser` |
+| `hal-rgb-server.service` | pack `desktop` |
+| `hal-telegram.service` | pack `comms` |
+| `hal-employment.service` | pack `jobs` |
+| `hal-habits-nudge`, `hal-ledger-remind` (service and timer) | pack `life` |
+| `hal-memory-idle.service` | pack `memory` |
+| `hal-voice.service`, `hal-tts.service` | pack `voice` |
+| `hal-brief.service`, `hal-brief.timer` (archive) | retired: use `hal-briefing@.service` and its timers |
+
+New in this layout: `hal-gateway.service` and `hal-jobs.service`/`.timer`. `hal setup` writes them.
+
 | Symptom | Fix |
 | --- | --- |
 | `link ...: .../venv/bin/hal is missing` | Run the installer (step 2), then redo step 3 |

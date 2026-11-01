@@ -32,6 +32,31 @@ DEFAULT_JOBHUNT_ROOT = "~/src/employment-helper"  # the old jobs default, writte
 PROTECTED_PREFIXES = ("employment-helper", "wt", "hal-employment")  # never written (REQ-CLI-88)
 EXIT_OK, EXIT_FAILED, EXIT_USAGE = 0, 1, 2
 
+# Every old hal-ecosystem unit and where its new form comes from. The unit names did not change:
+# the file is now rendered from a pack (or core Hal) by `hal units install`, not from the old tree.
+UNIT_MAP: dict[str, str] = {
+    "hal-console.service": "core Hal",
+    "hal-clock.service": "pack organiser",
+    "hal-calendar-reminders.service": "pack organiser",
+    "hal-tasks-reminders.service": "pack organiser",
+    "hal-routines.service": "pack organiser",
+    "hal-briefing@.service": "pack organiser",
+    "hal-briefing-morning.timer": "pack organiser",
+    "hal-briefing-midday.timer": "pack organiser",
+    "hal-briefing-evening.timer": "pack organiser",
+    "hal-rgb-server.service": "pack desktop",
+    "hal-telegram.service": "pack comms",
+    "hal-employment.service": "pack jobs",
+    "hal-habits-nudge.service": "pack life",
+    "hal-habits-nudge.timer": "pack life",
+    "hal-ledger-remind.service": "pack life",
+    "hal-ledger-remind.timer": "pack life",
+    "hal-memory-idle.service": "pack memory",
+    "hal-voice.service": "pack voice",
+    "hal-tts.service": "pack voice",
+}
+RETIRED_UNITS: dict[str, str] = {"hal-brief.service": "hal-briefing@.service", "hal-brief.timer": "hal-briefing-morning.timer"}
+
 
 class MigrateError(Exception):
     """The migration cannot proceed; the message says why."""
@@ -86,6 +111,14 @@ def _config_step(source: Path, cfg_path: Path) -> Step | None:
     return Step("config", cfg_path, detail, new="\n" + "\n".join(chunks))
 
 
+def unit_steps() -> list[Step]:
+    """One manual step per old unit: stop it, then let `hal units install` render the new form."""
+    steps = [Step("manual", None, f"unit {n}: stop and disable it, then it comes back from {src} via `hal units install`")
+             for n, src in UNIT_MAP.items()]  # fmt: skip
+    steps += [Step("manual", None, f"unit {n}: retired, replaced by {new}") for n, new in RETIRED_UNITS.items()]
+    return steps
+
+
 def build_plan(source: Path, *, home: Path) -> Plan:
     """Reads the current machine (never writes) and returns the changes the migration would make."""
     if not source.is_dir():
@@ -109,6 +142,7 @@ def build_plan(source: Path, *, home: Path) -> Plan:
             plan.steps.append(Step("manual", None, f"{link} is a regular file; move it away, then rerun"))
             continue
         plan.steps.append(Step("link", link, f"link {link} -> {want} (was {old or 'absent'})", new=str(want), old=old))
+    plan.steps += unit_steps()
     plan.steps += [
         Step("manual", None, "register packs: hal packs add --local PATH (once pack commands exist)"),
         Step("manual", None, "render units: hal units install (does not start anything)"),
