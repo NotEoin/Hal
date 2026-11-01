@@ -12,7 +12,8 @@ First release of the monorepo (uv workspace on branch `next`).
 - `hal migrate ecosystem` maps every old hal-ecosystem unit to the pack that now provides it.
 - `hal eval` runs as a gpu-light `batch` job when gpu-light is installed, so chat turns
   (class `interactive`) and the warm base model (class `service`) keep priority.
-- `hal setup` finishes an install in one idempotent step (`--dry-run`, `--enable`), and
+- `hal setup` finishes an install in one idempotent step (`--dry-run`, `--enable`; another
+  install's units are only replaced with `--replace`), and
   `hal-core` ships a `hal` entry point so `uv tool install` works.
 - A bare `hal` opens Hal's own interface (`hal code` in a project, else `hal chat`) and never
   Claude Code. `hal claude [model|mode NAME]` is the only way to Claude Code and prints a notice;

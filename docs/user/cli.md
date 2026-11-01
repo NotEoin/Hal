@@ -10,12 +10,15 @@ or `hal claude`), and an unknown command exits 2. Exit codes: 0 ok, 1 failed, 2 
 
 ## hal setup
 
-`hal setup [--dry-run] [--enable] [--no-image] [--from DIR]...` finishes an install from a
+`hal setup [--dry-run] [--enable] [--replace] [--no-image] [--from DIR]...` finishes an install from a
 checkout and is safe to re-run. In order it: syncs the workspace, installs the packs found as
 siblings (`hal-tools`, `hal-memory`, `hal-voice`) and the employment helper when it ships a
 Hal module, installs gpu-light from a sibling checkout when it is missing (an installed one is
 kept), builds the box image when docker exists, writes the hal-* user units, then runs the
-doctor. Units are only enabled with `--enable`. A missing piece is skipped and Hal works without
+doctor. Units are only enabled with `--enable`. Unit files that belong to another install (one
+recorded for a folder this checkout does not load, or an unrecorded file with a name it writes,
+such as the old hal-ecosystem units) are never replaced, stopped or deleted unless you pass
+`--replace`; without it the units step fails and names them, in a dry run too. A missing piece is skipped and Hal works without
 it. `--dry-run` prints each step as `[plan]` and changes nothing. A failed step is shown and the
 rest still run; the exit status is 1 if a step or the doctor failed. Verified by
 `packages/hal-core/tests/test_setup.py`.

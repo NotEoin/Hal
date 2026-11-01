@@ -186,6 +186,7 @@ uv tool install ./packages/hal-core                      # put `hal` on your PAT
 ```
 
 `hal setup` is safe to re-run. It writes the hal-* user units and only enables them with `--enable`.
+It never replaces another install's units (such as hal-ecosystem's) unless you pass `--replace`.
 
 Raw Hal on its own:
 

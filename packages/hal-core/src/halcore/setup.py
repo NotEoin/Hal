@@ -10,6 +10,9 @@ Design decisions:
   changes nothing (the doctor is read-only, so it runs in both).
 - Units are written but never enabled or started unless `--enable` is given; a setup run must
   not change what starts at login by surprise.
+- Unit files of another install (the old hal-ecosystem shares the unit record) are never
+  replaced, stopped or deleted unless `--replace` is given: the units step fails instead and
+  names them, in a dry run too.
 - A missing sibling or a missing gpu-light skips its step. Hal works without both.
 - A failed step is reported and the rest still run, then the exit status is 1, so one broken
   step does not hide the others.
@@ -46,18 +49,15 @@ EXIT_OK, EXIT_FAILED = 0, 1
 STEP_ERRORS = (packs.PackError, subprocess.CalledProcessError, proc.ProcTimeout, OSError)
 
 
-class SetupError(Exception):
-    """A step cannot run; the message says what to do."""
-
-
 @dataclass
 class Step:
-    """One setup step: `skip` is the reason it needs no work, else `run` does it."""
+    """One setup step: `skip` is the reason it needs no work, `blocked` why it must not run, else `run` does it."""
 
     name: str
     detail: str
     run: Callable[[], str] | None = None
     skip: str = ""
+    blocked: str = ""
 
 
 def search_dirs(extra: list[Path]) -> list[Path]:
@@ -105,7 +105,7 @@ def gateway_bin_dir() -> Path | None:
     return Path(found).parent if found else None
 
 
-def plan(dirs: list[Path], *, enable: bool, image: bool) -> list[Step]:
+def plan(dirs: list[Path], *, enable: bool, image: bool, replace: bool = False) -> list[Step]:
     """The steps a run would take, in order, each with the reason it can be skipped."""
     steps = [Step("workspace", "uv sync --all-packages", lambda: _sync())]
     have = packs.read_record().get("packs", {})
@@ -123,7 +123,7 @@ def plan(dirs: list[Path], *, enable: bool, image: bool) -> list[Step]:
     steps.append(_employment_step(dirs, have))
     steps.append(_gpu_light_step(dirs))
     steps.append(_image_step() if image else Step("box image", "--no-image", skip="skipped by option"))
-    steps.append(_units_step(enable))
+    steps.append(_units_step(enable, replace))
     return steps
 
 
@@ -169,11 +169,19 @@ def _image_step() -> Step:
     return Step("box image", "hal box image build", lambda: (_run(argv, IMAGE_TIMEOUT_S), "built")[1])
 
 
-def _units_step(enable: bool) -> Step:
+def _units_step(enable: bool, replace: bool) -> Step:
     if not shutil.which("systemctl"):
         return Step("units", "systemctl not found", skip="systemd is not available; skipped")
     verb = "write and enable" if enable else "write (enable with --enable)"
-    return Step("units", f"{verb} the hal-* user units", lambda: _install_units(enable))
+    detail = f"{verb} the hal-* user units"
+    foreign = units.foreign_units(gateway_bin_dir())
+    if foreign and not replace:
+        return Step("units", detail, blocked=(
+            f"{len(foreign)} unit(s) belong to another install: {', '.join(foreign)}; "
+            "stop and back them up, then rerun with --replace"))
+    if foreign:
+        detail += f", replacing (and stopping) {len(foreign)} of another install: {', '.join(foreign)}"
+    return Step("units", detail, lambda: _install_units(enable))
 
 
 def _install_units(enable: bool) -> str:
@@ -189,6 +197,9 @@ def execute(steps: list[Step], *, dry_run: bool, out: Callable[[str], None] = pr
         label = f"{step.name:<18}"
         if step.skip:
             out(f"[skip] {label} {step.skip}")
+        elif step.blocked:
+            out(f"[FAIL] {label} {step.blocked}")
+            ok = False
         elif dry_run:
             out(f"[plan] {label} {step.detail}")
         else:
@@ -210,8 +221,10 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--from", dest="dirs", action="append", default=[], type=Path, metavar="DIR",
                     help="folder that holds the sibling repos (repeatable; default: the checkout's parent folders)")
     ap.add_argument("--no-image", action="store_true", help="do not build the box image")
+    ap.add_argument("--replace", action="store_true",
+                    help="replace, stop and delete unit files of another install (back them up first)")
     args = ap.parse_args(argv)
-    steps = plan(search_dirs(args.dirs), enable=args.enable, image=not args.no_image)
+    steps = plan(search_dirs(args.dirs), enable=args.enable, image=not args.no_image, replace=args.replace)
     ok = execute(steps, dry_run=args.dry_run)
     checks = doctor.collect()
     print(doctor.render(checks))

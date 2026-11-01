@@ -111,3 +111,42 @@ def test_setup_is_a_listed_command():
     from halcore import cli
 
     assert "setup" in cli.COMMANDS and cli.resolve(["setup", "--dry-run"])[0].module == "setup"
+
+
+@pytest.fixture
+def old_install(tmp_path, monkeypatch):
+    """A checkout with one unit, and a unit folder that holds an older install's units."""
+    root = tmp_path / "next"
+    (root / "systemd").mkdir(parents=True)
+    (root / "systemd" / "hal-console.service").write_text("[Unit]\n")
+    unit_dir = tmp_path / "units"
+    unit_dir.mkdir()
+    (unit_dir / "hal-console.service").write_text("[Unit]\n# old\n")
+    (unit_dir / "hal-clock.service").write_text("[Unit]\n# old\n")
+    monkeypatch.setenv("HAL_STATE", str(tmp_path / "state"))
+    monkeypatch.setattr(units, "UNIT_DIR", unit_dir)
+    monkeypatch.setattr(units, "module_roots", lambda: [root])
+    monkeypatch.setattr(hsetup.shutil, "which", lambda name: "/usr/bin/" + name if name == "systemctl" else None)
+    units._save({"hal-clock.service": str(tmp_path / "hal-ecosystem" / "hal-clock")})
+    return unit_dir
+
+
+def test_setup_refuses_to_replace_another_installs_units_even_in_a_dry_run(old_install):
+    # Regression: `hal setup` overwrote, stopped and deleted the live hal-ecosystem units,
+    # because both installs share the unit record, while its dry run said only "write".
+    step = hsetup._units_step(enable=False, replace=False)
+    lines: list[str] = []
+    assert hsetup.execute([step], dry_run=True, out=lines.append) is False
+    assert lines[0].startswith("[FAIL]") and "hal-clock.service" in lines[0] and "hal-console.service" in lines[0]
+    assert step.run is None and "# old" in (old_install / "hal-console.service").read_text()
+
+
+def test_setup_with_replace_names_the_units_it_will_replace(old_install):
+    step = hsetup._units_step(enable=False, replace=True)
+    assert step.run is not None and not step.blocked
+    assert "replacing" in step.detail and "hal-clock.service" in step.detail
+
+
+def test_units_this_checkout_wrote_are_not_foreign(old_install, tmp_path):
+    units._save({"hal-console.service": str(tmp_path / "next")})
+    assert units.foreign_units() == []

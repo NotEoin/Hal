@@ -204,6 +204,28 @@ def install_gateway(bin_dir: Path, units: dict[str, str]) -> list[str]:
     return [GATEWAY_UNIT]
 
 
+def foreign_units(bin_dir: Path | None = None) -> list[str]:
+    """Unit files `install` would overwrite, or stop and delete, that this checkout does not own.
+
+    The unit record is shared with any older install (hal-ecosystem used the same state folder),
+    so a unit recorded for a folder this checkout does not load, or an unrecorded file with a
+    name this checkout writes, belongs to someone else.
+    """
+    roots = module_roots()
+    live = {str(r) for r in roots}
+    record = installed()
+    found = {name for name, root in record.items() if root not in live}
+    names = {src.name for r in roots if (r / "systemd").is_dir()
+             for src in (r / "systemd").iterdir() if src.suffix in UNIT_SUFFIXES}  # fmt: skip
+    if bin_dir is not None:
+        names.add(GATEWAY_UNIT)
+    for name in names:
+        dest = UNIT_DIR / name
+        if (dest.exists() or dest.is_symlink()) and record.get(name) not in live:
+            found.add(name)
+    return sorted(found)
+
+
 def install(start: bool = False, desktop: bool = True, enable: bool = True, bin_dir: Path | None = None) -> dict:
     """Renders every module's units and, by default, enables them; `start` also starts hal.target.
 

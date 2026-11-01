@@ -68,6 +68,7 @@ New in this layout: `hal-gateway.service` and `hal-jobs.service`/`.timer`. `hal 
 | Config step says `add ... to [compat].hal_conf` | `[compat]` already exists; add the path by hand |
 | `refusing to write inside the source folder` | Point `--from` at the old tree only; your paths overlap it |
 | Undo says `cannot read journal` | Pass the `journal.json` file, not its folder |
+| `hal setup` says `unit(s) belong to another install` | Stop the old units and back them up, then rerun `hal setup --replace` |
 
 Verified by `packages/hal-core/tests/test_migrate.py` on a synthetic layout. The real cutover on
 your machine is unverified: run step 3 and read the plan first.
