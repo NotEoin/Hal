@@ -4,6 +4,7 @@ Run with: uv run pytest packages/hal-core
 """
 import unittest
 from datetime import date
+from unittest import mock
 
 import halcore_env  # noqa: F401  (sets up the import path and a throwaway Hal state)
 from halcore import evaluate
@@ -37,6 +38,24 @@ class EvalTest(unittest.TestCase):
         self.assertEqual(len({c["id"] for c in cases}), len(cases))
         for c in cases:
             self.assertTrue(c.get("ask") or c.get("turns"), c["id"])
+
+
+class EvalBatchTest(unittest.TestCase):
+    """`hal eval` runs as gpu-light class batch when gpu-light is there."""
+
+    def test_eval_is_wrapped_as_a_batch_job_when_gpu_light_is_installed(self):
+        with mock.patch.object(evaluate.gpulight, "binary", return_value="/fake/gpu-light"):
+            argv = evaluate.batch_argv(["--only", "x"], env={})
+        self.assertEqual(argv[:4], ["/fake/gpu-light", "run", "--class", "batch"])
+        self.assertEqual(argv[-2:], ["--only", "x"])
+
+    def test_eval_runs_directly_without_gpu_light(self):
+        with mock.patch.object(evaluate.gpulight, "binary", return_value=None):
+            self.assertIsNone(evaluate.batch_argv([], env={}))
+
+    def test_the_wrapped_child_does_not_wrap_itself_again(self):
+        with mock.patch.object(evaluate.gpulight, "binary", return_value="/fake/gpu-light"):
+            self.assertIsNone(evaluate.batch_argv([], env={evaluate.UNDER_GPU_LIGHT: "1"}))
 
 
 if __name__ == "__main__":

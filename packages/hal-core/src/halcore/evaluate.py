@@ -27,7 +27,7 @@ import tomllib
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import config
+from . import config, gpulight
 
 SCENARIOS = config.ROOT / "eval" / "assistant" / "scenarios.toml"
 # Extensions with effects outside the sandbox: never run unattended.
@@ -233,7 +233,29 @@ def run(model: str | None, cases: list[dict], repeat: int = 1, verbose: bool = T
     return summary
 
 
+UNDER_GPU_LIGHT = "HAL_EVAL_UNDER_GPU_LIGHT"  # set in the child so it does not wrap itself again
+
+
+def batch_argv(argv: list[str], env: dict[str, str] | None = None) -> list[str] | None:
+    """The `gpu-light run --class batch` command that runs this eval, or None to run it directly.
+
+    Evals are throughput work: wrapped as class `batch` they yield the GPU to a chat or voice turn.
+    Without gpu-light (or inside the wrapped child) the eval just runs.
+    """
+    env = os.environ if env is None else env
+    exe = gpulight.binary()
+    if exe is None or env.get(UNDER_GPU_LIGHT):
+        return None
+    return [exe, "run", "--class", "batch", "--name", "hal-eval", "--label", "app=hal", "--",
+            sys.executable, "-m", "halcore", "eval", *argv]  # fmt: skip
+
+
 def main(argv: list[str]) -> int:
+    wrapped = batch_argv(argv)
+    if wrapped is not None:
+        import subprocess
+
+        return subprocess.run(wrapped, env={**os.environ, UNDER_GPU_LIGHT: "1"}, check=False).returncode  # no timeout: an eval runs for as long as its cases take
     ap = argparse.ArgumentParser(prog="hal eval", description="Ask Hal the test cases and check the answers.")
     ap.add_argument("--model", action="append", help="Ollama model; repeat to compare")
     ap.add_argument("--only", help="comma-separated case ids")

@@ -9,6 +9,8 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `hal eval` runs as a gpu-light `batch` job when gpu-light is installed, so chat turns
+  (class `interactive`) and the warm base model (class `service`) keep priority.
 - `hal setup` finishes an install in one idempotent step (`--dry-run`, `--enable`), and
   `hal-core` ships a `hal` entry point so `uv tool install` works.
 - A bare `hal` opens Hal's own interface (`hal code` in a project, else `hal chat`) and never

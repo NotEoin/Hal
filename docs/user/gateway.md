@@ -34,6 +34,15 @@ Nothing here has run against a live llama-server in this checkout (unverified; c
 Exit codes: 0 ok, 3 bad config, 4 refused, 5 gateway down or failed, 6 conflict (HTTP 409 or a
 busy reclaim).
 
+## Sharing the GPU with gpu-light
+
+With gpu-light v2 running, the gateway registers a reclaimer and claims the card per request
+class: chat turns are `interactive`, the warm base model is `service`. `hal jobs` and `hal eval`
+run as class `batch`, so they wait for or yield to a chat turn. gpu-light asks Hal to give VRAM
+back through `hal-gateway release-gpu --reclaim`. Without gpu-light (or with `HAL_GPU_LIGHT=off`)
+none of this happens and Hal uses the GPU directly. Verified by
+`packages/hal-gateway/tests/test_gpu_manager.py` and `packages/hal-core/tests/test_evaluate.py`.
+
 ## Configuration
 
 Keys live under `[gateway]` in `~/.config/hal/config.toml` (`$HAL_CONFIG` overrides). An unknown
