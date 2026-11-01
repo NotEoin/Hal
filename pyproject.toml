@@ -30,6 +30,9 @@ select = [
 # the module that needs it: T201 (print in library modules), E501, I001, UP035, F401.
 "packages/hal-core/src/halcore/*.py" = ["T201", "E501", "I001", "UP035"]
 "packages/hal-core/tests/*.py" = ["E501", "I001", "F401"]
+# Eval task fixtures are the task, byte for byte: their hidden tests and starting repos are
+# written to be graded as they are, not to match this lint.
+"eval/coding/tasks/**" = ["I001", "E501", "B905"]
 
 [tool.ruff.format]
 # Same reason: formatting the moved halcore would bury the move in a rewrite of every line.
