@@ -27,6 +27,8 @@ import tomllib
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from halkit import proc
+
 from . import config, gpulight
 
 SCENARIOS = config.ROOT / "eval" / "assistant" / "scenarios.toml"
@@ -233,6 +235,7 @@ def run(model: str | None, cases: list[dict], repeat: int = 1, verbose: bool = T
     return summary
 
 
+EVAL_TIMEOUT_S = 6 * 3600.0  # a batch eval may wait behind chat turns and then run many cases
 UNDER_GPU_LIGHT = "HAL_EVAL_UNDER_GPU_LIGHT"  # set in the child so it does not wrap itself again
 
 
@@ -253,9 +256,10 @@ def batch_argv(argv: list[str], env: dict[str, str] | None = None) -> list[str] 
 def main(argv: list[str]) -> int:
     wrapped = batch_argv(argv)
     if wrapped is not None:
-        import subprocess
-
-        return subprocess.run(wrapped, env={**os.environ, UNDER_GPU_LIGHT: "1"}, check=False).returncode  # no timeout: an eval runs for as long as its cases take
+        done = proc.run(wrapped, timeout=EVAL_TIMEOUT_S, env={**os.environ, UNDER_GPU_LIGHT: "1"}, check=False)
+        sys.stdout.write(done.stdout.decode(errors="replace"))
+        sys.stderr.write(done.stderr.decode(errors="replace"))
+        return done.returncode
     ap = argparse.ArgumentParser(prog="hal eval", description="Ask Hal the test cases and check the answers.")
     ap.add_argument("--model", action="append", help="Ollama model; repeat to compare")
     ap.add_argument("--only", help="comma-separated case ids")
