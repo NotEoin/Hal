@@ -11,6 +11,9 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = ["hal-kit", "hal-hub", "hal-sandbox", "rich>=15,<16", "prompt-toolkit>=3.0.53,<4"]
 
+[project.scripts]
+hal = "halcore.cli:main"
+
 [tool.uv.sources]
 hal-kit = { workspace = true }
 hal-hub = { workspace = true }

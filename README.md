@@ -174,6 +174,19 @@ git clone https://github.com/NotEoin/hal-ecosystem.git ~/hal-ecosystem
 cd ~/hal-ecosystem && ./install.sh
 ```
 
+Quickstart from a checkout (five commands; put hal-tools, hal-memory, hal-voice and gpu-light
+next to it if you want them):
+
+```bash
+git clone https://github.com/NotEoin/Hal.git && cd Hal   # get Hal
+uv sync --all-packages                                   # install the workspace
+uv run hal setup --dry-run                               # see every step, change nothing
+uv run hal setup --enable                                # packs, gpu-light, box image, units, doctor
+uv tool install ./packages/hal-core                      # put `hal` on your PATH
+```
+
+`hal setup` is safe to re-run. It writes the hal-* user units and only enables them with `--enable`.
+
 Raw Hal on its own:
 
 ```bash

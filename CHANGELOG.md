@@ -9,6 +9,8 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `hal setup` finishes an install in one idempotent step (`--dry-run`, `--enable`), and
+  `hal-core` ships a `hal` entry point so `uv tool install` works.
 - A bare `hal` opens Hal's own interface (`hal code` in a project, else `hal chat`) and never
   Claude Code. `hal claude [model|mode NAME]` is the only way to Claude Code and prints a notice;
   `hal here`, `hal mode` and `hal model` are removed.

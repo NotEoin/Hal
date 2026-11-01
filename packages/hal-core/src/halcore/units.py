@@ -177,8 +177,39 @@ def _enable(names: list[str]) -> None:
             systemctl("enable", name)
 
 
-def install(start: bool = False, desktop: bool = True) -> dict:
-    """Renders every module's units, enables them and, if asked, starts hal.target."""
+GATEWAY_UNIT = "hal-gateway.service"
+
+
+def render_gateway_unit(bin_dir: Path) -> str | None:
+    """The gateway unit text with `@BIN@` filled in, or None when hal-gateway is not installed."""
+    try:
+        from importlib import resources
+
+        template = (resources.files("halgateway") / "data" / GATEWAY_UNIT).read_text(encoding="utf-8")
+    except (ImportError, OSError):
+        return None
+    return template.replace("@BIN@", str(bin_dir))
+
+
+def install_gateway(bin_dir: Path, units: dict[str, str]) -> list[str]:
+    """Writes `hal-gateway.service` into the user unit folder; returns its name, or nothing."""
+    text = render_gateway_unit(bin_dir)
+    if text is None:
+        return []
+    UNIT_DIR.mkdir(parents=True, exist_ok=True)
+    dest = UNIT_DIR / GATEWAY_UNIT
+    dest.unlink(missing_ok=True)
+    dest.write_text(text)
+    units[GATEWAY_UNIT] = str(config.ROOT)
+    return [GATEWAY_UNIT]
+
+
+def install(start: bool = False, desktop: bool = True, enable: bool = True, bin_dir: Path | None = None) -> dict:
+    """Renders every module's units and, by default, enables them; `start` also starts hal.target.
+
+    With `enable=False` the files are written and the daemon reloaded, but nothing is enabled or
+    started, so a setup run never changes what runs at login. `bin_dir` adds the gateway unit.
+    """
     units = installed()
     report = {}
     skipped: list[str] = []
@@ -194,11 +225,16 @@ def install(start: bool = False, desktop: bool = True) -> dict:
             systemctl("disable", "--now", name)
             (UNIT_DIR / name).unlink(missing_ok=True)
             del units[name]
+    if bin_dir is not None:
+        names = install_gateway(bin_dir, units)
+        if names:
+            report["hal-gateway"] = names
     if skipped:
         report["skipped"] = skipped
     _save(units)
     systemctl("daemon-reload")
-    _enable(sorted(units))
+    if enable:
+        _enable(sorted(units))
     if start:
         systemctl("start", "hal.target")
     return report

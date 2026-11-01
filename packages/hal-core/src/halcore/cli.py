@@ -64,6 +64,7 @@ COMMANDS: dict[str, Command] = {
     "status": Command("doctor", "same report as doctor"),
     "power": Command("power", "GPU power state"),
     "gpulight": Command("gpulight", "gpu-light integration"),
+    "setup": Command("setup", "finish an install: packs, gpu-light, box image, units, doctor (--dry-run)"),
     "units": Command("units", "render and install systemd units"),
     "configure": Command("configure", "write the configuration"),
     "console": Command("console", "local web console (UNBOXED: runs on the host, real data)"),
@@ -120,7 +121,7 @@ def resolve(argv: list[str]) -> tuple[Command, list[str]] | None:
 GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("work", ("code", "chat", "acp", "jobs", "sessions", "box", "connect", "ide")),
     ("safety", ("lockdown", "paranoia", "policy", "audit", "guard", "approvals", "approve", "deny", "scratch", "security")),
-    ("system", ("doctor", "status", "kill", "power", "gpulight", "units", "gateway", "migrate", "configure", "console", "eval", "packs")),
+    ("system", ("doctor", "status", "kill", "power", "gpulight", "setup", "units", "gateway", "migrate", "configure", "console", "eval", "packs")),
 )
 
 
