@@ -2080,7 +2080,7 @@ approval per lockfile and manifest set (REQ-SEC-97) and is not part of these ses
   127.0.0.1:11434/api/tags` lists 64-hex digests]. Agent per-model settings are a separate
   file, `~/.config/hal/model-profiles.toml` (03-agent), with no security role.
 - No pickle on the host (REQ-SEC-80). This machine has locally trained GPT-SoVITS weights in
-  pickle formats (`.pth`, `.ckpt`) under `/mnt/data/hal-models/voice/weights/`
+  pickle formats (`.pth`, `.ckpt`) under a local `hal-models/voice/weights/` directory
   [verified: `find`]. They load in a GPU container by default (Decision SD9, G2).
 - Packs: 06-core-cli owns installs (C8). The catalogue `halcore/data/catalog.toml` pins each
   source repo to a tag and a 40-hex commit; `hal packs add` shows the summary required by

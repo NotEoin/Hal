@@ -873,7 +873,7 @@ other backend; window size and residency (`num_ctx`, `keep_alive`) are the gatew
 business (05-gateway), not the agent's.
 
 Gemma 4's template raises on string arguments [verified: `chat_template.jinja` of
-`gemma-4-31B-it-qat-w4a16-ct` lines 248-264, local copy on DRIVE], so the server must turn
+`gemma-4-31B-it-qat-w4a16-ct` lines 248-264, local copy on the build machine], so the server must turn
 the Chat Completions JSON string into an object before rendering. llama-server parses tool
 call arguments before applying the template [unverified for build b11512: check with the live
 test `test_gemma4_history_with_tool_calls_renders`]; providers always send each API's
