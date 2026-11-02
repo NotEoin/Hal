@@ -1741,7 +1741,7 @@ def run_steps(module: ModuleSpec, *, confirm: Callable[[InstallStep], bool],
 
 Units: `ModuleSpec.units` and `ModuleSpec.desktop` give absolute paths (REQ-HUB-60).
 06-core-cli renders and enables them, adds `X-HalGPU=yes` and the off-flag condition for
-`gpu = true` units (compatibility contract item 4 in 00-overview), and takes the pack and
+`gpu = true` units (a template may also carry `X-HalOff=yes` for a unit that only follows `hal off`) (compatibility contract item 4 in 00-overview), and takes the pack and
 module list from `halhub.registry.packs()` instead of its own regex scan
 (`halcore/units.py:module_roots`, which ignores `HAL_MODULE_PATH`).
 

@@ -5,14 +5,16 @@ no pack provides, and nothing else is scanned (an empty list adds nothing). Unit
 rendered, not linked: `@ROOT@` becomes the module's folder, `@CORE@` core hal's and
 `@ECOSYSTEM@` the ecosystem folder and `@PYTHON@` the interpreter of the environment the module's
 pack was installed into (core hal's own venv for core hal), so a checkout works wherever it was cloned. Every
-long-running unit is part of hal.target; units marked `X-HalGPU=yes` are the ones `hal off`
-stops to free the GPU.
+long-running unit is part of hal.target. Two markers make a unit follow `hal off` and `hal on`:
+`X-HalGPU=yes` (the unit uses the GPU) and `X-HalOff=yes` (the unit follows the off switch
+without holding the GPU itself, such as a voice loop that runs on the CPU). A marked service
+gets the off-flag condition, so a login or a timer cannot start it while Hal is off, and
+`hal off` stops it. `X-HalGPU` still means "uses the GPU" for display.
 
-hal.target starts at every login, not only on `hal on`, so core hal's hal-gpu-light.service
-claims the GPU light (see gpulight.py) before the GPU services start: it is rendered with the
-gpu-light executable and ordered before every X-HalGPU service of every module, so the
-extensions' units need no change. Without gpu-light it is not installed, and one left from
-before is removed.
+Hal holds no standing GPU claim. The model gateway claims the GPU light per request (see
+gpulight.py), so a background job is not parked while Hal idles. Core hal used to ship
+hal-gpu-light.service, a boot claim; `install` stops, disables and deletes a copy left from
+before.
 
     hal units install [--start]    render and enable everything, optionally start hal.target
     hal units remove <module>      stop and delete one module's units
@@ -30,7 +32,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import config, gpulight, packs
+from . import config, packs
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +40,7 @@ UNIT_DIR = Path(os.environ.get("HAL_UNIT_DIR", "~/.config/systemd/user")).expand
 HELPER_TIMEOUT_S = 10.0  # desktop helpers (xdg-user-dir, gio) answer at once or are stuck
 SYSTEMCTL_TIMEOUT_S = 60.0  # a stuck unit stop must not hang `hal kill`
 UNIT_SUFFIXES = (".service", ".timer", ".target", ".path")
-LIGHT_UNIT = "hal-gpu-light.service"
+LEGACY_LIGHT_UNIT = "hal-gpu-light.service"  # the boot claim older versions installed
 DEFAULT_PYTHON = "/usr/bin/python3"  # modules outside any pack have no environment of their own
 
 
@@ -169,33 +171,39 @@ def outside_packs() -> list[str]:
             and (root / "systemd").is_dir()]  # fmt: skip
 
 
-def is_gpu(unit_file: Path) -> bool:
+def _marked(unit_file: Path, key: str) -> bool:
     try:
-        return bool(re.search(r"^X-HalGPU\s*=\s*(yes|true|1)\s*$", unit_file.read_text(), re.M | re.I))
+        return bool(re.search(rf"^{key}\s*=\s*(yes|true|1)\s*$", unit_file.read_text(), re.M | re.I))
     except OSError:
         return False
 
 
-def gpu_services(roots: list[Path]) -> list[str]:
-    """Returns the X-HalGPU services in the modules' systemd folders, except the light unit."""
-    names = set()
-    for root in roots:
-        for src in (root / "systemd").glob("*.service"):
-            if src.name != LIGHT_UNIT and "@." not in src.name and is_gpu(src):
-                names.add(src.name)
-    return sorted(names)
+def is_gpu(unit_file: Path) -> bool:
+    """True when the unit file is marked `X-HalGPU=yes` (it uses the GPU)."""
+    return _marked(unit_file, "X-HalGPU")
 
 
-def fill_light_unit(text: str, gpu_light: str, services: list[str]) -> str:
-    """Fills in the light unit: the gpu-light executable and the services it starts before."""
-    text = text.replace("@GPU_LIGHT@", gpu_light)
-    if services:
-        return text.replace("@HAL_GPU_UNITS@", " ".join(services))
-    return re.sub(r"^Before=@HAL_GPU_UNITS@\n", "", text, flags=re.M)
+def follows_off(unit_file: Path) -> bool:
+    """True when `hal off` stops the unit: it is marked `X-HalOff=yes` or `X-HalGPU=yes`."""
+    return _marked(unit_file, "X-HalOff") or is_gpu(unit_file)
 
 
-def gpu_units() -> list[str]:
-    return sorted(name for name in installed() if is_gpu(UNIT_DIR / name))
+def off_units() -> list[str]:
+    """Installed units that follow `hal off`."""
+    return sorted(name for name in installed() if follows_off(UNIT_DIR / name))
+
+
+def remove_legacy_light(units: dict[str, str]) -> bool:
+    """Stops, disables and deletes the boot-claim unit older versions installed; True if one was there.
+
+    Stopping it runs its `ExecStop`, which releases the `hal` claim.
+    """
+    dest = UNIT_DIR / LEGACY_LIGHT_UNIT
+    found = units.pop(LEGACY_LIGHT_UNIT, None) is not None or dest.exists() or dest.is_symlink()
+    if found:
+        systemctl("disable", "--now", LEGACY_LIGHT_UNIT)
+        dest.unlink(missing_ok=True)
+    return found
 
 
 def systemctl(*args: str, check: bool = False, timeout: float = SYSTEMCTL_TIMEOUT_S) -> subprocess.CompletedProcess:
@@ -204,11 +212,8 @@ def systemctl(*args: str, check: bool = False, timeout: float = SYSTEMCTL_TIMEOU
     )
 
 
-def install_module(root: Path, units: dict[str, str], skipped: list[str] | None = None) -> list[str]:
-    """Renders one module's units into the user unit folder; returns their names.
-
-    The light unit is left out, and named in `skipped`, when gpu-light is not installed.
-    """
+def install_module(root: Path, units: dict[str, str]) -> list[str]:
+    """Renders one module's units into the user unit folder; returns their names."""
     names = []
     folder = root / "systemd"
     if not folder.is_dir():
@@ -218,22 +223,11 @@ def install_module(root: Path, units: dict[str, str], skipped: list[str] | None 
         if src.suffix not in UNIT_SUFFIXES:
             continue
         dest = UNIT_DIR / src.name
-        gpu_light = gpulight.binary() if src.name == LIGHT_UNIT else None
-        if src.name == LIGHT_UNIT and gpu_light is None:
-            # Disabled while its file still exists, so systemd finds and drops the login link
-            if units.pop(src.name, None) is not None:
-                systemctl("disable", src.name)
-            dest.unlink(missing_ok=True)
-            if skipped is not None:
-                skipped.append(f"{src.name} (gpu-light is not installed)")
-            continue
         if dest.is_symlink() or dest.exists():
             dest.unlink()
         text = render(src.read_text(), root)
-        if gpu_light:
-            text = fill_light_unit(text, gpu_light, gpu_services(module_roots()))
-        if is_gpu(src) and src.suffix == ".service":
-            # While Hal is off, a timer or a login must not bring a GPU service back.
+        if follows_off(src) and src.suffix == ".service":
+            # While Hal is off, a timer or a login must not bring the service back.
             off_flag = config.state_dir() / "off"
             text = text.replace("[Unit]\n", f"[Unit]\nConditionPathExists=!{off_flag}\n", 1)
         dest.write_text(text)
@@ -326,9 +320,9 @@ def install(start: bool = False, desktop: bool = True, enable: bool = True, bin_
     """
     units = installed()
     report = {}
-    skipped: list[str] = []
+    remove_legacy_light(units)
     for root in module_roots():
-        names = install_module(root, units, skipped)
+        names = install_module(root, units)
         launchers = install_desktop(root) if desktop else []
         if names or launchers:
             report[root.name] = names + launchers
@@ -343,8 +337,6 @@ def install(start: bool = False, desktop: bool = True, enable: bool = True, bin_
         names = install_gateway(bin_dir, units)
         if names:
             report["hal-gateway"] = names
-    if skipped:
-        report["skipped"] = skipped
     _save(units)
     systemctl("daemon-reload")
     if enable:
@@ -388,5 +380,5 @@ def main(argv: list[str]) -> int:
     else:
         for name, root in sorted(installed().items(), key=lambda x: (x[1], x[0])):
             state = systemctl("is-active", name).stdout.strip()
-            print(f"  {Path(root).name:16} {name:36} {state:10} {'gpu' if is_gpu(UNIT_DIR / name) else ''}")
+            print(f"  {Path(root).name:16} {name:36} {state:10} {'gpu' if is_gpu(UNIT_DIR / name) else 'off' if follows_off(UNIT_DIR / name) else ''}")
     return 0

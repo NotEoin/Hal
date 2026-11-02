@@ -29,57 +29,71 @@ class UnitsTest(unittest.TestCase):
         self.assertTrue(units.is_gpu(units.UNIT_DIR / "x.service"))
 
 
-class LightUnitTest(LightCase):
-    """Renders the login unit the way `hal units install` does, into a temporary unit folder."""
+class OffUnitTest(LightCase):
+    """Renders units the way `hal units install` does, into a temporary unit folder."""
 
     def setUp(self):
         super().setUp()
         self.root = self.dir / "core"
         (self.root / "systemd").mkdir(parents=True)
-        (self.root / "systemd" / units.LIGHT_UNIT).write_text((ROOT / "systemd" / units.LIGHT_UNIT).read_text())
         for patch in (mock.patch.object(units, "UNIT_DIR", self.dir / "units"),
-                      mock.patch.object(units, "module_roots", lambda: [self.root]), self.fake_systemctl()):
+                      mock.patch.object(units, "module_roots", lambda: [self.root]),
+                      mock.patch.object(units, "installed", lambda: self.unit_record),
+                      self.fake_systemctl()):
             patch.start()
             self.addCleanup(patch.stop)
+        self.unit_record: dict[str, str] = {}
 
-    def add_service(self, name: str, gpu: bool) -> None:
-        mark = "X-HalGPU=yes\n" if gpu else ""
+    def add_service(self, name: str, mark: str = "") -> None:
         unit = f"[Unit]\nDescription={name}\n{mark}\n[Service]\nExecStart=/bin/true\n"
         (self.root / "systemd" / name).write_text(unit)
 
-    def test_light_unit_is_ordered_before_every_gpu_service(self):
-        self.add_service("voice.service", gpu=True)
-        self.add_service("tts.service", gpu=True)
-        self.add_service("reminders.service", gpu=False)
-        record = {}
-        self.assertIn(units.LIGHT_UNIT, units.install_module(self.root, record))
-        text = (units.UNIT_DIR / units.LIGHT_UNIT).read_text()
-        self.assertIn("\nBefore=tts.service voice.service\n", text)
-        claim = 'claim --name hal --reason "hal.target" --wait --timeout 90'
-        self.assertIn(f"ExecStart={self.dir}/gpu-light {claim}", text)
-        self.assertIn(f"ExecStop={self.dir}/gpu-light release --name hal", text)
-        # While Hal is off, a login must not claim the GPU either
-        self.assertIn("ConditionPathExists=!", text)
-        self.assertNotIn("@", text.replace(".service", ""))
+    def test_x_hal_off_unit_gets_the_off_condition_without_being_a_gpu_unit(self):
+        self.add_service("voice.service", "X-HalOff=yes\n")
+        units.install_module(self.root, self.unit_record)
+        dest = units.UNIT_DIR / "voice.service"
+        self.assertIn("ConditionPathExists=!", dest.read_text())
+        self.assertTrue(units.follows_off(dest))
+        self.assertFalse(units.is_gpu(dest))
 
-    def test_light_unit_without_gpu_services_has_no_before_line(self):
-        units.install_module(self.root, {})
-        self.assertNotIn("Before=", (units.UNIT_DIR / units.LIGHT_UNIT).read_text())
+    def test_plain_unit_gets_no_off_condition(self):
+        self.add_service("reminders.service")
+        units.install_module(self.root, self.unit_record)
+        dest = units.UNIT_DIR / "reminders.service"
+        self.assertNotIn("ConditionPathExists", dest.read_text())
+        self.assertFalse(units.follows_off(dest))
 
-    def test_light_unit_is_skipped_and_removed_without_gpu_light(self):
-        record, skipped = {}, []
-        units.install_module(self.root, record)
-        with mock.patch.dict(os.environ, {"HAL_GPU_LIGHT": "off"}):
-            self.assertEqual(units.install_module(self.root, record, skipped), [])
-        self.assertFalse((units.UNIT_DIR / units.LIGHT_UNIT).exists())
-        self.assertNotIn(units.LIGHT_UNIT, record)
-        self.assertIn(f"systemctl disable {units.LIGHT_UNIT}", self.calls())
-        self.assertEqual(skipped, [f"{units.LIGHT_UNIT} (gpu-light is not installed)"])
+    def test_hal_off_stops_x_hal_off_and_gpu_units_but_not_plain_ones(self):
+        self.add_service("voice.service", "X-HalOff=yes\n")
+        self.add_service("memory.service", "X-HalGPU=yes\n")
+        self.add_service("reminders.service")
+        units.install_module(self.root, self.unit_record)
+        with self.fake_ollama([]), mock.patch.object(power, "_notify", lambda *a: None):
+            power.off(quiet=True)
+        self.assertIn("systemctl stop memory.service voice.service", self.calls())
 
-    def test_status_does_not_count_the_light_unit_as_a_gpu_service(self):
-        with mock.patch.object(units, "gpu_units", lambda: [units.LIGHT_UNIT, "voice.service"]), \
-                mock.patch.object(power, "loaded_models", list):
-            self.assertIn("0 of 1 GPU services running", power.status())
+    def test_status_counts_the_units_that_follow_hal_off(self):
+        self.add_service("voice.service", "X-HalOff=yes\n")
+        self.add_service("reminders.service")
+        units.install_module(self.root, self.unit_record)
+        with mock.patch.object(power, "loaded_models", list):
+            self.assertIn("0 of 1 services running", power.status())
+
+    def test_install_removes_a_left_over_light_unit(self):
+        # Regression: the old boot-claim unit kept a standing `hal` claim after the upgrade.
+        units.UNIT_DIR.mkdir(parents=True)
+        old = units.UNIT_DIR / units.LEGACY_LIGHT_UNIT
+        old.write_text("[Unit]\nDescription=old\n")
+        self.unit_record[units.LEGACY_LIGHT_UNIT] = str(self.root)
+        with mock.patch.object(units, "_save", lambda record: None), \
+                mock.patch.object(units, "install_desktop", lambda root: []):
+            units.install(enable=False)
+        self.assertFalse(old.exists())
+        self.assertNotIn(units.LEGACY_LIGHT_UNIT, self.unit_record)
+        self.assertIn(f"systemctl disable --now {units.LEGACY_LIGHT_UNIT}", self.calls())
+
+    def test_core_hal_no_longer_ships_the_light_unit(self):
+        self.assertFalse((ROOT / "systemd" / units.LEGACY_LIGHT_UNIT).exists())
 
 
 if __name__ == "__main__":

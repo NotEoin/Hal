@@ -415,19 +415,21 @@ codes for `hal-agent -p`.
 - **REQ-CLI-49** (MUST) `hal off` MUST create the off flag at `state_dir()/off` (and at the
   default path when `HAL_STATE_DIR` differs), stop every installed unit recorded as `gpu` in
   `units.json`, unload Ollama models, call `GatewayClient.release_gpu(stop_router=True)`
-  (05-gateway.md, "GatewayClient (halcore only)"), and release the
-  gpu-light v1 claim `hal` last when one is held. Test: unit
+  (05-gateway.md, "GatewayClient (halcore only)"), and release a gpu-light claim named
+  `hal` last when one is held (only a machine upgraded from the old boot claim has one). Test: unit
   `test_off_order_flag_units_models_gateway_light`.
 - **REQ-CLI-50** (MUST) `hal off` MUST NOT stop a managed llama-server that an open
   interactive session holds a lease on (05, D9), and MUST name that session; `hal off --force`
   MUST call `GatewayClient.release_gpu(force=True, stop_router=True)` instead (05 REQ-GW-55).
   Test: unit
   `test_off_keeps_leased_llama_server_and_force_stops_it`.
-- **REQ-CLI-51** (MUST) With gpu-light v2 present, `hal on` MUST hold no persistent claim
-  (the gateway and hal-voice claim per use, D8); with only gpu-light v1, `hal on` MUST claim
-  `hal` (waiting up to `CLAIM_WAIT_S`) before it removes the off flag, as today. Then it MUST
-  unload Ollama models that sit partly in RAM and start `hal.target`. Test: unit
-  `test_on_claims_only_with_gpu_light_v1`, `test_on_claims_before_removing_flag`.
+- **REQ-CLI-51** (MUST) `hal on` MUST make no gpu-light claim and MUST NOT wait for the GPU,
+  with any gpu-light version: Hal holds no claim while idle, and the gateway and hal-voice
+  claim per use (D8), so a parked background job is not kept off the card. It MUST remove the
+  off flag, unload Ollama models that sit partly in RAM and start `hal.target`. Core Hal MUST
+  NOT ship a boot-claim unit, and `hal units install` MUST remove an installed
+  `hal-gpu-light.service`. Test: unit `test_hal_on_makes_no_gpu_light_claim`,
+  `test_install_removes_a_left_over_light_unit`.
 - **REQ-CLI-52** (MUST) gpu-light failures (missing, timeout, error) MUST produce a warning and
   never stop `hal on`, `hal off` or `hal serve`. Test: unit `test_gpu_light_failure_is_a_warning`.
 - **REQ-CLI-53** (MUST) `hal kill` MUST stop `hal.target` and only the units recorded in
@@ -454,8 +456,9 @@ codes for `hal-agent -p`.
   `@HAL_GPU_UNITS@`). Test: unit `test_render_placeholders`,
   `test_removed_placeholder_fails_before_any_write`.
 - **REQ-CLI-57** (MUST) For a `.service` unit whose manifest entry has `gpu = true` (04), or
-  whose template already contains `X-HalGPU=yes`, the renderer MUST emit `X-HalGPU=yes` and
-  insert `ConditionPathExists=!<default state dir>/off` as the first lines after `[Unit]`
+  whose template already contains `X-HalGPU=yes`, the renderer MUST emit `X-HalGPU=yes`; for one
+  that carries `X-HalOff=yes` (it follows `hal off` without using the GPU, such as hal-voice
+  on the CPU) it MUST keep that marker. In both cases it MUST insert `ConditionPathExists=!<default state dir>/off` as the first lines after `[Unit]`
   (F9, compat item 4). Test: unit `test_gpu_unit_gets_marker_and_off_condition`.
 - **REQ-CLI-58** (MUST) Unit names MUST be kept as the template file names, so
   `hal-employment.service` stays `hal-employment.service`, and the jobs pack's template keeps
@@ -1466,36 +1469,34 @@ the user sees the size first (the max profile is about 160 GB).
 
 ### Power and kill
 
-Constants: `CLAIM_WAIT_S = 90` (three gpu-light release deadlines of 30 s, from
-`halcore/gpulight.py`), `SYSTEMCTL_TIMEOUT_S = 30`, `OLLAMA_TIMEOUT_S = 10` (unload 30),
+Constants: `SYSTEMCTL_TIMEOUT_S = 30`, `OLLAMA_TIMEOUT_S = 10` (unload 30),
 `KILL_GRACE_S = 5` (then SIGKILL; matches `hal-kill`'s 10 x 0.5 s loop).
 
-gpu-light: halcore asks `halgateway.gpu` which coordinator is present (05). `gpu-light-v2`:
-`hal on` and `hal off` make no claim; the gateway claims per use and gpu-light reclaims idle
-router models through the `hal gateway release-gpu` command reclaimer (D7, D8). `gpu-light-v1`:
-`hal on` claims `hal` through `halgateway.gpu.lightv1` as `halcore/gpulight.py` does today
-and `hal off` releases it. `none`: no claim.
+gpu-light: `hal on` makes no claim with any coordinator, and Hal holds none while idle. The
+gateway claims per use and gpu-light reclaims idle router models through the
+`hal gateway release-gpu` command reclaimer (D7, D8). `hal off` releases a claim named `hal` when
+one exists, which a machine upgraded from the old boot claim may hold.
 
 `hal off` (order matters):
 
 1. Write the off flag (and the default-path copy, compat item 2).
-2. `systemctl --user stop` every unit that `units.json` records with `gpu: true`.
+2. `systemctl --user stop` every installed unit marked `X-HalGPU=yes` or `X-HalOff=yes`.
 3. Unload every Ollama model (`/api/generate` with `keep_alive: 0`).
 4. `GatewayClient.release_gpu(stop_router=True)`: the gateway unloads its GPU models, stops
    the managed router and releases its claims; while an interactive session holds a lease it
    changes nothing and returns the kept leases (05 REQ-GW-55, D9), which `hal off` prints
    (REQ-CLI-50). With `--force` the call is `release_gpu(force=True, stop_router=True)`.
-5. Release the gpu-light v1 claim `hal` last, because until now Hal still held VRAM.
+5. Release a gpu-light claim named `hal` last, if there is one, because until now Hal still held VRAM.
 6. Desktop notification unless `--quiet` (`notify-send`, timeout 5 s).
 
-`hal on`: with gpu-light v1, claim `hal` (wait up to `CLAIM_WAIT_S`, with `waiting for
-<jobs>` on stderr and as a notification); remove the flag; unload partly offloaded Ollama
-models; `systemctl --user start hal.target`.
+`hal on`: remove the flag; unload partly offloaded Ollama models; `systemctl --user start
+hal.target`. No claim and no wait: the services that need a model go through the gateway, which
+claims the card for the request.
 
 `hal status --json`:
 
 ```json
-{"on": false, "gpu_services": {"running": [], "installed": ["hal-voice.service", "hal-tts.service"]},
+{"on": false, "off_services": {"running": [], "installed": ["hal-voice.service", "hal-tts.service"]},
  "gateway": {"up": true, "tcp": false, "backends": {"ollama": "up", "local": "stopped"},
              "loaded": [{"alias": "hal-chat", "model": "gemma4:12b-it-qat"}]},
  "llama_server": {"mode": null, "pid": null, "leases": []},
@@ -1543,10 +1544,15 @@ Placeholders:
 | `@STATE@` | default state dir | Off flag and logs |
 | `@CORE@`, `@ECOSYSTEM@`, `@GPU_LIGHT@`, `@HAL_GPU_UNITS@` | removed: rendering fails naming module and file | There is no core checkout, ecosystem folder or Hal-shipped light unit any more |
 
+Off markers: `X-HalGPU=yes` means the unit uses the GPU (shown by `hal status`); `X-HalOff=yes`
+means it only follows `hal off` and `hal on`, such as hal-voice and hal-tts, which run on the CPU
+by default and ask gpu-light for room per conversation. A unit with either marker gets the off
+condition, is stopped by `hal off` and is listed by `hal status`.
+
 GPU marker: the manifest's `[[units]] gpu = true` is the source (04); the renderer emits
 `X-HalGPU=yes` and the off condition. A template that already carries `X-HalGPU=yes` (the
 hal-employment unit today, hal-core's console) is treated the same, and the line is not
-duplicated (F9). `units.json` records `gpu` per unit, which `hal off` reads.
+duplicated (F9). `hal off` reads the markers from the installed unit files.
 
 The jobs pack's `hal-employment.service` keeps `@ROOT@` for its `bin/` launcher; the launcher
 reads `[jobs].jobhunt_root` at run time, so no config placeholder is needed (H2). A golden
@@ -2089,7 +2095,7 @@ Checklist (in `docs/howto/move-from-hal-ecosystem.md`):
 | 3 | Register runsc for sockets (sudo, once) | `scripts/host-setup.sh --dry-run`, then without it; `hal doctor --only sandbox` shows runsc ok |
 | 4 | Dry run | `~/.local/share/hal/venv/bin/hal migrate ecosystem --dry-run` lists every change |
 | 5 | Migrate | `hal migrate ecosystem` (prints the journal path) |
-| 6 | Verify units | `systemctl --user cat hal-voice.service hal-employment.service` show new paths, `X-HalGPU=yes` and the off condition |
+| 6 | Verify units | `systemctl --user cat hal-voice.service hal-employment.service` show new paths, the off condition, and `X-HalOff=yes` (hal-voice) or `X-HalGPU=yes` (hal-employment) |
 | 7 | Verify the jobs contract | `grep -A2 '^\[jobs\]' ~/.config/hal/config.toml` shows `jobhunt_root`; `hal doctor --only compat,jobs` has no warning |
 | 8 | Doctor | `hal doctor` has no `fail` |
 | 9 | Turn on | `hal on`; `hal status` shows services running |
@@ -2181,7 +2187,7 @@ What replaces what (paths in `Hal.next` at `6ba8a94` unless noted):
 | `halcore/evaluate.py` | `halcore/evaluate.py` over `halagent.eval` (03) |
 | `halcore/gpulight.py` | `halgateway.gpu.lightv1` (05); halcore calls it only with gpu-light v1 |
 | `systemd/hal.target`, `hal-console.service` | `halcore/data/systemd/`; `hal-gateway.service` comes from hal-gateway (05) |
-| `systemd/hal-gpu-light.service` | not shipped; gpu-light installs its own unit |
+| `systemd/hal-gpu-light.service` | not shipped; `hal units install` and `hal setup` remove an installed copy |
 | `desktop/*.desktop` | `halcore/data/desktop/` with `@HAL@` |
 | `hal-ecosystem/install.sh` | `scripts/install.sh` (the old file stays in the old repo, unused) |
 | `hal-ecosystem/publish.sh` | not ported; publishing is the reviewed release in 00-overview (it would push `hal-private` to `NotEoin/Hal`) |
@@ -2192,7 +2198,7 @@ How existing users and config keep working:
 - `~/.config/hal/config.toml` keeps its path, `[hal]` keys and pack tables; `[brain]` is read
   with a warning until `--migrate` (03 mapping). halcore edits no pack table except writing
   `[jobs].jobhunt_root` once during `--migrate` when `[jobs]` is absent (H1).
-- The off flag, `X-HalGPU`, the off condition in GPU units, unit names and Desktop launcher
+- The off flag, `X-HalGPU`, `X-HalOff`, the off condition in the units that follow `hal off`, unit names and Desktop launcher
   names are unchanged (compatibility contract 2, 4, 5).
 - `hal.conf` lines for hal-employment: the existing file at
   `hal-ecosystem/core/hal/hal.conf` is left in place, listed in `[compat].hal_conf` and only
@@ -2437,7 +2443,7 @@ The cutover (checklist above) is not a commit; the user runs it.
   sandboxed `hal -p` to a cloud upstream behind the gateway (`[long_task].cloud_model`), so
   the box, broker and policy are identical and no unsandboxed `claude -p` runs on the host.
   It is off unless `[agent].cloud_jobs` is true (RESOLUTIONS F2).
-- **D16 The manifest's `gpu` flag carries `X-HalGPU`.** One source (04's `[[units]] gpu`)
+- **D16 The manifest's `gpu` flag carries `X-HalGPU`; `X-HalOff` marks a unit that only follows `hal off`.** One source (04's `[[units]] gpu`)
   that the renderer turns into the marker and the off condition; templates that already have
   the line (hal-employment's unit) keep working without edits (F9).
 - **D17 Catalogue pack code installs without a prompt; install steps always ask.** The

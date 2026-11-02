@@ -1163,8 +1163,8 @@ section 5]. Hal keeps:
    it is generated and that nothing in Hal sources it). A listed file it did not create, such
    as the live `hal-ecosystem/core/hal/hal.conf`, is never rewritten: Hal only verifies its
    three model lines and reports a mismatch (H3).
-4. `X-HalGPU=yes` in rendered GPU units and the `ConditionPathExists=!<state>/off` injection;
-   `hal off` stops those units and unloads Ollama models.
+4. `X-HalGPU=yes` or `X-HalOff=yes` in a unit and the `ConditionPathExists=!<state>/off`
+   injection; `hal off` stops those units and unloads Ollama models.
 5. The unit name `hal-employment.service` (rendered from the `jobs` pack in hal-tools),
    port 8737, `GET /healthz`. Unit templates keep the `@ROOT@` placeholder; the jobs launcher
    reads `[jobs].jobhunt_root` at run time, and a golden test covers the rendered unit (H2).
@@ -1268,7 +1268,7 @@ What replaces what, by path in today's `Hal.next` tree (`6ba8a94`, branch `next`
 | `halcore/evaluate.py`, `eval/scenarios.toml` | `hal eval` (06) over the `halagent` eval library (03); scenarios move to `eval/assistant/scenarios.toml` | 03, 06 |
 | `halcore/ext.py`, `extensions.toml` | `hal packs list|add|remove|enable|disable|doctor` installing hal-tools packs from a pinned tag into the packs environment; `hal ext` stays as an alias for one minor version | 06, 04 |
 | `halcore/hub.py` | removed: hal-core depends on hal-hub directly | this spec |
-| `halcore/power.py`, `halcore/units.py` | halcore power and units; discovery comes from the hub, not a second regex scan (`units.module_roots`); with gpu-light v2, `hal on` holds no persistent claim | 06 |
+| `halcore/power.py`, `halcore/units.py` | halcore power and units; discovery comes from the hub, not a second regex scan (`units.module_roots`); `hal on` holds no claim and does not wait for the GPU | 06 |
 | `halcore/gpulight.py` | `halgateway.gpu.lightv1` and `halgateway.gpu.lightv2` (claims for model serving), used by halcore power | 05 |
 | `deep_work` in `halcore/brain.py` | hub tool `core_long_task` in halcore's built-in module | 06 |
 | `setup.sh` | `scripts/install.sh` (user level, uv, no `curl | sh`), `scripts/host-setup.sh` (sudo), `hal configure`, `hal models pull` with pinned revision and sha256 (`halgateway.models`) | 06, 05 |

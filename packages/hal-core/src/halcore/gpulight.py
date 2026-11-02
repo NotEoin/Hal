@@ -12,8 +12,9 @@ nothing, a wait that times out lets Hal start anyway with a warning, and a faili
 reported as a warning, never raised. HAL_GPU_LIGHT names the gpu-light executable (default:
 `gpu-light` on PATH); `HAL_GPU_LIGHT=off` turns the hook off.
 
-The claim names are `hal` (`hal on` and the login unit), `hal-serve` (the llama.cpp router)
-and `hal-session-<pid>` (a `hal` launcher on an Ollama model).
+Hal holds no claim while idle. The claim names are `hal-serve` (the llama.cpp router) and
+`hal-session-<pid>` (a `hal` launcher on an Ollama model); the gateway claims per request. A claim
+named `hal` is the old boot claim, which `hal off` and `hal units install` still clean up.
 
     python3 -m halcore gpulight claim NAME [--reason R] [--timeout S] [--pid PID] [--no-wait]
                                            [--unload-offloaded]
@@ -32,7 +33,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 
-# How long `hal on` waits for the background jobs to leave. gpu-light gives a background job
+# Default wait of `claim` for the background jobs to leave. gpu-light gives a background job
 # 30 s to free the GPU after red, so this is three release deadlines.
 CLAIM_WAIT_S = 90
 # Extra time a waiting claim gets on top of its own --timeout before Hal stops waiting for it

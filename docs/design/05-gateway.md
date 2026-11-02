@@ -1390,8 +1390,7 @@ a peer as holding the GPU when any entry has `status.value == "loaded"` (b279740
 
 #### Helpers for halcore
 
-halcore keeps its own `hal on` claim when only gpu-light v1 is present (06; RESOLUTIONS D8).
-It uses these instead of `halcore/gpulight.py`:
+halcore holds no `hal on` claim with any gpu-light version (06 REQ-CLI-51). It would use these instead of `halcore/gpulight.py`:
 
 ```python
 def detect(timeout_s: float = 2.0) -> Literal["gpu-light-v2", "gpu-light-v1", "none"]: ...

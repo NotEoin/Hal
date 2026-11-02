@@ -1,15 +1,15 @@
 """Turns Hal on and off, so the GPU can be handed to something else and taken back.
 
-`hal off` stops every Hal service marked X-HalGPU (voice, speech, the memory sorter, the
-chat bridges, briefings) and unloads the models Ollama holds, which frees the VRAM.
+`hal off` stops every Hal service marked X-HalGPU or X-HalOff (voice, speech, the memory
+sorter, the chat bridges, briefings) and unloads the models Ollama holds, which frees the VRAM.
 Reminder daemons that use no model keep running, so phone reminders still arrive.
 The llama.cpp server that `hal claude` uses for coding is not touched. `hal on` starts it
 all again.
 
-With gpu-light installed (see gpulight.py), `hal on` first claims the GPU light as `hal` and
-waits up to 90 s for any background job to leave the GPU, then unloads Ollama models that were
-loaded partly into system RAM while the job held the card. `hal off` releases the claim once the
-models are unloaded, and the background job gets the GPU back after gpu-light's clear period.
+Hal holds no GPU claim while it idles: the model gateway claims the GPU light (see gpulight.py)
+for each request and gives it back, so a background job is not kept off the card. `hal on` makes
+no claim and does not wait for the card. `hal off` still releases a claim named `hal`, which a
+machine upgraded from the old boot claim may hold.
 
     hal on | hal off | hal toggle | hal status        (--quiet: no desktop notification)
 """
@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 import urllib.request
 
 from . import config, gpulight, units
@@ -83,11 +82,12 @@ def _notify(title: str, body: str, quiet: bool) -> None:
 
 def off(quiet: bool = False) -> str:
     (config.state_dir() / FLAG).touch()
-    stopped = units.gpu_units()
+    stopped = units.off_units()
     if stopped:
         units.systemctl("stop", *stopped)
     freed = unload_models()
-    # Released only now: until the models are unloaded, Hal still holds the VRAM.
+    # A claim named `hal` exists only on a machine upgraded from the old boot claim. Released
+    # after the models are unloaded, because until then Hal still holds the VRAM.
     light = gpulight.release("hal")
     msg = (f"Stopped {len(stopped)} services and unloaded {len(freed)} models; the GPU is free. "
            "Reminders still run.")
@@ -98,31 +98,21 @@ def off(quiet: bool = False) -> str:
 
 
 def on(quiet: bool = False) -> str:
-    def waiting(text: str) -> None:
-        print(f"hal: {text}", file=sys.stderr, flush=True)
-        _notify("Hal is waiting for the GPU", text[0].upper() + text[1:] + ".", quiet)
-
-    # Claimed while the off flag still stands, so no timer or login starts a GPU service
-    # before the background job has left.
-    light = gpulight.claim("hal", "hal on", timeout=gpulight.CLAIM_WAIT_S, on_wait=waiting)
     (config.state_dir() / FLAG).unlink(missing_ok=True)
-    if light.ok:
-        unload_offloaded()
+    # Models Ollama loaded partly into RAM while a background job held the card stay slow
+    unload_offloaded()
     units.systemctl("start", "hal.target")
     msg = "Hal's services are starting; the voice is ready in about a minute."
-    if light.warning:
-        msg += f" Warning: {light.warning}."
     _notify("Hal is on", msg, quiet)
     return msg
 
 
 def status() -> str:
-    # The light unit is a claim, not a service that uses the GPU
-    gpu = [n for n in units.gpu_units() if n != units.LIGHT_UNIT]
-    active = [n for n in gpu if units.systemctl("is-active", n).stdout.strip() == "active"]
+    followed = units.off_units()
+    active = [n for n in followed if units.systemctl("is-active", n).stdout.strip() == "active"]
     vram = sum(m.get("size_vram", 0) for m in loaded_models()) / 2**30
     state = "off" if is_off() else "on"
-    lines = [f"Hal is {state}: {len(active)} of {len(gpu)} GPU services running, "
+    lines = [f"Hal is {state}: {len(active)} of {len(followed)} services running, "
              f"{vram:.1f} GB of models loaded in Ollama."]
     lines += [f"  running: {n}" for n in active]
     light = gpulight.status_line()

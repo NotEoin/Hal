@@ -68,6 +68,15 @@ First release of the monorepo (uv workspace on branch `next`).
   under runc and runsc; every attack is contained. See [docs/user/security.md](docs/user/security.md).
 - No-telemetry test (`tests/test_no_telemetry.py`) and a "No telemetry" README section.
 
+### Changed
+
+- Hal holds no GPU claim while idle, so a gpu-light batch job is not parked for as long as Hal
+  is on. `hal on` no longer claims the GPU light or waits for the card, and core Hal no longer
+  ships `hal-gpu-light.service`; `hal setup` and `hal units install` remove an installed copy,
+  and `hal off` still releases a claim named `hal`. The gateway claims the card per request.
+- A unit marked `X-HalOff=yes` follows `hal off` and `hal on` (off condition, stopped by
+  `hal off`, listed by `hal status`) without being marked as a GPU user. hal-voice's units need it.
+
 ### Security
 
 - Units render only from core Hal, the registered packs and `[hub].module_paths`; an empty

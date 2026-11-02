@@ -119,16 +119,20 @@ light is green, and leave within 30 seconds when it turns red. Hal works with it
 Any program on the GPU turns the light red by itself, but only once it has loaded something.
 Ollama, when it finds the VRAM full, quietly puts part of the model in system RAM, where it
 stays slow until it is loaded again. So Hal claims the light first and waits for the
-background jobs to leave:
+background jobs to leave. Hal holds no claim while it idles, so a background job keeps the card
+between requests:
 
 | Command | Claim | What Hal does |
 |---|---|---|
-| `hal on` | `hal` | Claims, waits up to 90 s, unloads any Ollama model already split into RAM, then starts its services. `hal off` releases the claim once the models are unloaded. |
-| Login, while Hal is on | `hal` | `hal.target` starts at every login, so `hal-gpu-light.service` makes the same claim before any of Hal's GPU services start. `hal install` adds it only when gpu-light is installed: run `hal install` again after installing gpu-light. `hal off` stops it, which releases the claim. |
+| Model request through the gateway | `hal-gateway-<class>` | The gateway claims per request and gives the claim back when idle (see the [gateway guide](docs/user/gateway.md#sharing-the-gpu-with-gpu-light)). |
+| `hal on`, login | none | `hal on` removes the off flag, unloads any Ollama model already split into RAM and starts the services. It does not wait for the GPU, and no unit claims it at login. |
 | `hal claude` on an Ollama model | `hal-session-<pid>` | Claims for the whole session, waits up to 60 s and unloads any model already split into RAM. An open session counts as using the GPU, even while Ollama has no model loaded; the claim ends when Claude Code exits, even after a crash. |
 | `hal serve`, and `hal` on the max profile | `hal-serve` | Claims, waits up to 120 s, then starts the llama.cpp server, in every mode (`cpu` mode still uses about 3GB of VRAM for prompt processing). The claim then follows the server, so a server that crashes stops holding the GPU. `hal stop` releases it. |
 
-If the wait times out, Hal starts anyway and says the models may load slowly. A failing
+`hal off` still releases a claim named `hal`, and `hal units install` (and `hal setup`) removes
+`hal-gpu-light.service`, so a machine upgraded from the old boot claim is cleaned up.
+
+If a wait times out, Hal starts anyway and says the models may load slowly. A failing
 `gpu-light` is reported and never stops Hal. `hal status` adds a line with the light and its
 reason; `gpu-light status` shows everything that holds it. `HAL_GPU_LIGHT=off` turns the hook
 off, and `HAL_GPU_LIGHT=/path/to/gpu-light` uses another executable.
@@ -139,7 +143,7 @@ gpu-light's clear period (3 minutes by default).
 ### Deviations from the original plan
 
 The hook speaks gpu-light's file protocol, version 1, through its command line. It was
-planned with `boot` claims for `hal` and `hal-serve` and no claim in `cpu` mode, and differs
+planned with `boot` claims for `hal-serve` and no claim in `cpu` mode, and differs
 in two places, on purpose:
 
 - **`hal-serve` is a `pid` claim once the server runs.** It starts as a `boot` claim, so Hal

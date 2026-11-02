@@ -75,8 +75,9 @@ client, imports a telemetry or analytics SDK, or names an unlisted host. Run it 
   answer, so a model or prompt change shows up as a number. `hal console` lets you try the same
   requests by text or voice and grade them.
 - **The GPU is yours when you want it.** `hal off` (or the desktop launcher) stops everything that uses
-  the GPU and unloads the models; reminders keep running. `hal on` brings it back. With gpu-light
-  installed, background GPU jobs step aside when Hal starts and come back once it stops
+  the GPU and unloads the models; reminders keep running. `hal on` brings it back. Hal holds no GPU
+  claim while it idles: with gpu-light installed, the gateway takes the card only for a request, so
+  background GPU jobs keep it the rest of the time
   ([SETUP.md](SETUP.md#sharing-the-gpu-with-background-jobs)).
 - **Coding on your own hardware.** Claude Code runs against a local model, chosen for your GPU, from a
   24GB card down to none at all.
@@ -155,7 +156,7 @@ hal ide setup zed        # print an editor configuration (zed, jetbrains, neovim
 hal claude               # Claude Code on the local model, in the current directory (not boxed)
 hal ext list             # installed extensions, and the ones you can add
 hal ext add calendar     # add one (or --pack assistant for the everyday set)
-hal off / hal on         # free the GPU, and take it back
+hal off / hal on         # stop the GPU services and unload models, and start them again
 hal status               # what is running
 hal eval                 # check Hal's answers, in a sandbox
 hal console              # try Hal and grade answers; prints a single-use link, the page needs the console token
@@ -254,8 +255,9 @@ Originally built on an RTX 3090; developed since on an RTX 4070.
 
 An extension is a folder with a `hal-module.toml` that declares its tools; hal-hub's README explains
 the format, and the ecosystem's `scaffold.py` creates one. Its services go in `systemd/` and are
-rendered with its own path, so it works wherever it is cloned; a unit marked `X-HalGPU=yes` is one
-`hal off` stops and, with gpu-light installed, one that starts only after Hal has claimed the GPU.
+rendered with its own path, so it works wherever it is cloned; a unit marked `X-HalGPU=yes` (it uses the GPU) or
+`X-HalOff=yes` (it follows the off switch only) is one `hal off` stops and one that does not start at
+login while Hal is off.
 
 ## Privacy
 

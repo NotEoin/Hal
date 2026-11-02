@@ -1,4 +1,4 @@
-"""Tests for `halcore.power`: hal on, off and status claim and release the GPU light.
+"""Tests for `halcore.power`: hal on makes no GPU claim, hal off releases an old one.
 
 systemctl, Ollama and desktop notifications are replaced in-process; nothing here starts a
 service, loads a model or touches a GPU.
@@ -10,7 +10,7 @@ import unittest
 from unittest import mock
 
 from halcore_env import LightCase
-from halcore import power
+from halcore import config, power
 
 
 class PowerTest(LightCase):
@@ -21,50 +21,37 @@ class PowerTest(LightCase):
             patch.start()
             self.addCleanup(patch.stop)
 
-    def test_hal_on_claims_the_light_before_starting_hal_target(self):
+    def test_hal_on_makes_no_gpu_light_claim(self):
+        # Regression: a standing `hal` claim kept gpu-light's batch job parked while Hal idled.
         msg = power.on(quiet=True)
         calls = self.calls()
-        claim = next(i for i, c in enumerate(calls) if c.startswith("gpu-light claim"))
-        self.assertIn("--name hal --reason hal on --wait --timeout 90", calls[claim])
-        self.assertLess(claim, calls.index("systemctl start hal.target"))
+        self.assertFalse([c for c in calls if c.startswith("gpu-light")])
+        self.assertIn("systemctl start hal.target", calls)
         self.assertNotIn("Warning", msg)
 
-    def test_hal_on_starts_hal_anyway_when_the_wait_times_out(self):
-        with mock.patch.dict(os.environ, {"FAKE_GPU_LIGHT_CLAIM_EXIT": "4"}):
-            msg = power.on(quiet=True)
-        self.assertIn("systemctl start hal.target", self.calls())
-        self.assertIn("the GPU is still busy after 90 s", msg)
+    def test_hal_on_removes_the_off_flag(self):
+        (config.state_dir() / power.FLAG).touch()
+        power.on(quiet=True)
+        self.assertFalse(power.is_off())
 
-    def test_hal_on_unloads_models_offloaded_to_ram_after_a_claim(self):
+    def test_hal_on_unloads_models_offloaded_to_ram(self):
         models = [{"name": "split", "size": 10, "size_vram": 6}, {"name": "whole", "size": 10, "size_vram": 10}]
         with self.fake_ollama(models):
             power.on(quiet=True)
         self.assertIn("ollama unload split", self.calls())
         self.assertNotIn("ollama unload whole", self.calls())
 
-    def test_hal_on_keeps_offloaded_models_when_the_gpu_is_still_busy(self):
-        with self.fake_ollama([{"name": "split", "size": 10, "size_vram": 6}]), \
-                mock.patch.dict(os.environ, {"FAKE_GPU_LIGHT_CLAIM_EXIT": "4"}):
-            power.on(quiet=True)
-        self.assertNotIn("ollama unload split", self.calls())
-
-    def test_hal_off_releases_the_light_after_unloading_models(self):
+    def test_hal_off_releases_an_old_hal_claim_after_unloading_models(self):
         with self.fake_ollama([{"name": "chat", "size": 10, "size_vram": 10}]):
             power.off(quiet=True)
         calls = self.calls()
         self.assertLess(calls.index("ollama unload chat"), calls.index("gpu-light release --name hal"))
 
-    def test_hal_on_and_off_are_unchanged_without_gpu_light(self):
+    def test_hal_on_and_off_work_without_gpu_light(self):
         with mock.patch.dict(os.environ, {"HAL_GPU_LIGHT": "off"}):
             on, off = power.on(quiet=True), power.off(quiet=True)
         self.assertEqual(self.calls(), ["systemctl start hal.target"])
         self.assertNotIn("Warning", on + off)
-
-    def test_a_failing_gpu_light_is_a_warning_not_an_error(self):
-        with mock.patch.dict(os.environ, {"FAKE_GPU_LIGHT_CLAIM_EXIT": "1"}):
-            msg = power.on(quiet=True)
-        self.assertIn("systemctl start hal.target", self.calls())
-        self.assertIn("gpu-light claim failed (exit 1)", msg)
 
     def test_status_shows_the_light_and_its_reason(self):
         doc = self.dir / "status.json"
