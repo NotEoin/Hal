@@ -95,13 +95,14 @@ the fit shown is the same arithmetic as the automatic plan.
 
 - The per-layer cost is the average. Embedding and output tensors are larger than a layer, so
   the real GPU share is a little smaller than computed.
-- Sliding-window and hybrid-attention models need less KV than the formula says; the plan is
-  conservative for them.
+- Sliding-window and hybrid-attention models are costed from the metadata keys above. The small
+  fixed state of linear-attention layers is not counted, and a model that hides those keys is
+  planned as full attention, which is conservative.
 - `RUNTIME_OVERHEAD_MIB` is an estimate from llama.cpp logs of 7B to 30B models, not a
   measurement on your card. Unverified: compare `llama-server`'s logged buffer sizes.
 - Each role is planned as if it were the only model loaded. The gateway and gpu-light swap
   roles, so footprints are not added up.
 - An unknown architecture (a server that exposes no metadata) gets 64 KiB of f16 KV per
   token per GiB of weights, 32 layers, and the plan says "architecture unknown".
-- Free memory is read once; another program using the GPU later is not seen. Re-run
-  `hal tune` after changing what shares the GPU.
+- The plan uses total GPU memory, so it does not see what other programs need. `hal tune`
+  warns when something holds a large part of the card at the time it runs.

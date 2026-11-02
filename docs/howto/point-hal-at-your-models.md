@@ -66,7 +66,7 @@ To stop `hal tune` changing the numbers of a role, set `auto = false` in its
 
 | Symptom | Fix |
 | --- | --- |
-| `hal tune` shows no models in the picker | Add a source with `source` (or step 2) and check that its server runs. |
+| `hal tune` shows no models in the picker | Choose Model sources in `hal tune` (or step 2) and check that its server runs. |
 | `context` refuses a number | It must be at least 2048 and at most the model's own limit or `[models] context_cap`. |
 | `effort` says the model has no thinking control | Only models in the effort table can think; pick another model. |
 | `hal tune` says "Nothing to tune yet" | Add a source (step 2). |
@@ -79,4 +79,4 @@ To stop `hal tune` changing the numbers of a role, set `auto = false` in its
 | Plan says "architecture unknown" | The server does not expose layers and heads. The context is a cautious estimate. |
 | GPU not detected on WSL2 or AMD | Run `nvidia-smi` or `rocm-smi` yourself; `hal tune` prints a note saying what it could not read. |
 | Requests fail with `model_unverified` | The model is not pinned. Run `hal tune --auto --write` or `hal models assign`. |
-| Another program uses the GPU | Free memory is read when you run `hal tune`. Close it and run again. |
+| Another program uses the GPU | `hal tune` plans against the whole card and warns how much is held. Close that program before you load a model. |
