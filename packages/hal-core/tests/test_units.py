@@ -93,3 +93,49 @@ class JobsUnitTest(unittest.TestCase):
         self.assertNotIn("X-HalGPU", service)  # jobs ride gpu-light as class batch, so hal off must not stop them
         self.assertIn("Unit=hal-jobs.service", timer)
         self.assertIn("WantedBy=timers.target", timer)
+
+
+def _register_pack(state, name, checkout, python, modules):
+    """Writes a pack record whose modules live under `checkout/<module>/hal-module.toml`."""
+    import json
+
+    mods = {}
+    for module in modules:
+        folder = checkout / module
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "hal-module.toml").write_text(f'[module]\nname = "{module}"\n')
+        mods[module] = {"manifest": str(folder / "hal-module.toml"), "interpreter": [python]}
+    state.mkdir(parents=True, exist_ok=True)
+    record = {"version": 2, "packs": {name: {"python": python, "path": str(checkout), "modules": mods}}}
+    (state / "packs.json").write_text(json.dumps(record))
+
+
+def test_pack_modules_win_over_old_module_paths_and_use_the_pack_python(tmp_path, monkeypatch):
+    # Regression: units rendered into the old hal-ecosystem tree and /usr/bin/python3 after cutover.
+    state, old, new = tmp_path / "state", tmp_path / "old", tmp_path / "new"
+    for folder in (old / "organiser", old / "legacy"):
+        folder.mkdir(parents=True)
+        name = folder.name
+        (folder / "hal-module.toml").write_text(f'[module]\nname = "{name}"\n')
+    _register_pack(state, "organiser", new, "/envs/organiser/bin/python", ["organiser"])
+    (new / "systemd").mkdir()
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(f'[hub]\nmodule_paths = ["{old}"]\n')
+    monkeypatch.setenv("HAL_CONFIG", str(cfg))
+    monkeypatch.setenv("HAL_STATE", str(state))
+    roots = units.module_roots()
+    assert new / "organiser" in roots and old / "organiser" not in roots
+    assert new in roots and old / "legacy" in roots
+    assert units.python_for(new / "organiser") == "/envs/organiser/bin/python"
+    assert units.python_for(old / "legacy") == units.DEFAULT_PYTHON
+    assert units.render("@PYTHON@ -m x", new / "organiser") == "/envs/organiser/bin/python -m x"
+
+
+def test_disabled_pack_modules_get_no_units(tmp_path, monkeypatch):
+    state, new = tmp_path / "state", tmp_path / "new"
+    _register_pack(state, "life", new, "/p/python", ["habits"])
+    cfg = tmp_path / "config.toml"
+    cfg.write_text('[hub]\nmodule_paths = []\ndisabled = ["habits"]\n')
+    monkeypatch.setenv("HAL_CONFIG", str(cfg))
+    monkeypatch.setenv("HAL_STATE", str(state))
+    assert new / "habits" not in units.module_roots()

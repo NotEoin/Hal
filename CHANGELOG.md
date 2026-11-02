@@ -9,6 +9,8 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- Units render from the registered packs: `@ROOT@` is the pack's folder and `@PYTHON@` the
+  interpreter of its environment. `[hub].module_paths` only adds modules no pack provides.
 - `hal migrate ecosystem` maps every old hal-ecosystem unit to the pack that now provides it.
 - `hal eval` runs as a gpu-light `batch` job when gpu-light is installed, so chat turns
   (class `interactive`) and the warm base model (class `service`) keep priority.

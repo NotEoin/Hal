@@ -1,8 +1,10 @@
 """Installs the systemd user units and desktop launchers of core hal and every installed extension.
 
-Units live in each module's `systemd/` folder and launchers in its `desktop/` folder. They are
+Module folders come from the pack registry (`packs.json`); `[hub].module_paths` adds only modules
+no pack provides. Units live in each module's `systemd/` folder and launchers in its `desktop/` folder. They are
 rendered, not linked: `@ROOT@` becomes the module's folder, `@CORE@` core hal's and
-`@ECOSYSTEM@` the ecosystem folder, so a checkout works wherever it was cloned. Every
+`@ECOSYSTEM@` the ecosystem folder and `@PYTHON@` the interpreter of the environment the module's
+pack was installed into, so a checkout works wherever it was cloned. Every
 long-running unit is part of hal.target; units marked `X-HalGPU=yes` are the ones `hal off`
 stops to free the GPU.
 
@@ -20,19 +22,23 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
 from pathlib import Path
 
-from . import config, gpulight
+from . import config, gpulight, packs
+
+log = logging.getLogger(__name__)
 
 UNIT_DIR = Path(os.environ.get("HAL_UNIT_DIR", "~/.config/systemd/user")).expanduser()
 HELPER_TIMEOUT_S = 10.0  # desktop helpers (xdg-user-dir, gio) answer at once or are stuck
 SYSTEMCTL_TIMEOUT_S = 60.0  # a stuck unit stop must not hang `hal kill`
 UNIT_SUFFIXES = (".service", ".timer", ".target", ".path")
 LIGHT_UNIT = "hal-gpu-light.service"
+DEFAULT_PYTHON = "/usr/bin/python3"  # modules outside any pack have no environment of their own
 
 
 def _record() -> Path:
@@ -51,9 +57,41 @@ def _save(units: dict[str, str]) -> None:
     _record().write_text(json.dumps(units, indent=1, sort_keys=True))
 
 
+def _pack_roots() -> tuple[dict[Path, str], set[str]]:
+    """Returns {folder: interpreter} for every registered pack, and the module names packs provide.
+
+    A folder is a module folder (it holds `hal-module.toml`) or a local pack's checkout when that
+    carries `systemd/` (hal-memory and hal-voice keep their units there, beside the modules).
+    """
+    roots: dict[Path, str] = {}
+    provided: set[str] = set()
+    try:
+        record = packs.read_record().get("packs", {})
+    except packs.PackError as exc:
+        log.warning("pack record unreadable, units fall back to [hub].module_paths: %s", exc)
+        return roots, provided
+    off = set(config.load().get("hub", {}).get("disabled", []))
+    for name, entry in sorted(record.items()):
+        if name in off:
+            continue
+        python = str(entry.get("python") or DEFAULT_PYTHON)
+        checkout = Path(entry["path"]) if entry.get("path") else None
+        if checkout is not None and (checkout / "systemd").is_dir():
+            roots[checkout] = python
+        for module, info in sorted(entry.get("modules", {}).items()):
+            provided.add(module)
+            if module in off:
+                continue
+            interp = (info.get("interpreter") or [python])[0]
+            roots.setdefault(Path(info["manifest"]).parent, str(interp))
+    return roots, provided
+
+
 def module_roots() -> list[Path]:
-    """Returns core hal plus every module folder hal-hub would load, minus disabled ones."""
+    """Returns core hal, the registered packs' folders, then `[hub].module_paths` modules no pack provides."""
     roots = [config.ROOT]
+    pack_roots, provided = _pack_roots()
+    roots += [d for d in pack_roots if d.is_dir() and d not in roots]
     hub = config.load().get("hub", {})
     disabled = set(hub.get("disabled", []))
     paths = [Path(p).expanduser() for p in hub.get("module_paths", [])] or [config.ECOSYSTEM / "core",
@@ -65,15 +103,22 @@ def module_roots() -> list[Path]:
             if d == config.ROOT or not (d / "hal-module.toml").exists():
                 continue
             name = re.search(r'^name\s*=\s*"([^"]+)"', (d / "hal-module.toml").read_text(), re.M)
-            if name and name.group(1) in disabled:
+            if name and (name.group(1) in disabled or name.group(1) in provided):
                 continue
             if d not in roots:
                 roots.append(d)
     return roots
 
 
-def render(text: str, root: Path) -> str:
+def python_for(root: Path) -> str:
+    """The interpreter `@PYTHON@` becomes for `root`: its pack's environment, else the system python."""
+    return _pack_roots()[0].get(root, DEFAULT_PYTHON)
+
+
+def render(text: str, root: Path, python: str | None = None) -> str:
+    """Fills the `@...@` placeholders of a unit or launcher template for the module at `root`."""
     return (text.replace("@ROOT@", str(root)).replace("@CORE@", str(config.ROOT))
+            .replace("@PYTHON@", python or python_for(root))
             .replace("@ECOSYSTEM@", str(config.ECOSYSTEM)).replace("@HOME@", str(Path.home())))
 
 
