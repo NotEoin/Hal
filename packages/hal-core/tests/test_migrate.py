@@ -96,3 +96,19 @@ def test_every_old_unit_is_mapped_to_its_new_source(world):
     for name in wanted:
         assert f"unit {name}" in notes
     assert "hal-brief.service: retired" in notes
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        '[voice]\nmodule_paths = ["/v"]\n\n[hub]\nmodule_paths = ["/x/hal-ecosystem/core"]\n',
+        '[hub]\nmodule_paths = ["/x/hal-ecosystem/a]b", "/mine"]\n',
+    ],
+    ids=["another-table-first", "bracket-in-a-path"],
+)
+def test_module_paths_rewrite_that_would_break_the_config_is_left_manual(tmp_path, body):
+    # Regression: the line regex rewrote another table's key, or cut a path at a `]`.
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(body)
+    step = migrate.module_paths_step(tmp_path / "hal-ecosystem", cfg)
+    assert step is not None and step.kind == "manual" and "module_paths" in step.detail

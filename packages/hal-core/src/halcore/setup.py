@@ -147,9 +147,15 @@ def _config_step(replace: bool) -> Step:
     if not plan.steps:
         return Step("config migrate", str(cfg), skip="nothing to add or rewrite")
     detail = "; ".join(s.detail for s in plan.steps)
+    # `apply` skips manual steps, so a real run would print only the journal and hide them
+    by_hand = "; ".join(s.detail for s in plan.steps if s.kind == "manual")
+    plan.steps = [s for s in plan.steps if s.kind != "manual"]
+    if not plan.steps:
+        return Step("config migrate", detail, skip=f"edit by hand: {by_hand}")
     if any(s.replace for s in plan.steps) and not replace:
         return Step("config migrate", detail, skip="module_paths still point into hal-ecosystem; rerun with --replace to rewrite (journaled)")
-    return Step("config migrate", detail, lambda: f"journal {migrate.apply(plan)}")
+    suffix = f"; edit by hand: {by_hand}" if by_hand else ""
+    return Step("config migrate", detail, lambda: f"journal {migrate.apply(plan)}{suffix}")
 
 
 def sandbox_dir() -> Path:

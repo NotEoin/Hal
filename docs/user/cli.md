@@ -23,12 +23,13 @@ from the registered packs (folder and Python environment of each pack); `[hub].m
 adds only modules no pack provides, and no other folder is scanned. When
 `~/src/hal-ecosystem` exists, setup also applies the config part of `hal migrate
 ecosystem` (journaled, so `hal migrate undo` works), with `--replace` it drops `module_paths`
-entries inside hal-ecosystem, and it creates or narrows the sandbox state folder to 0700. The
-employment helper is found through `[jobs].jobhunt_root`, then the siblings. A missing piece is
-skipped and Hal works without it. `--dry-run` prints each step as `[plan]`, including each
-unit's `ExecStart` so you can see where it runs from, and changes nothing. A failed step is
-shown and the rest still run; the exit status is 1 if a step or the doctor failed. Verified by
-`packages/hal-core/tests/test_setup.py`.
+entries inside hal-ecosystem (when the edited file would not parse to the same config with only
+that key changed, it names the edit for you to make by hand instead), and it creates or narrows
+the sandbox state folder to 0700. The employment helper is found through `[jobs].jobhunt_root`,
+then the siblings. A missing piece is skipped and Hal works without it. `--dry-run` prints each
+step as `[plan]`, including each unit's `ExecStart` so you can see where it runs from, and
+changes nothing. A failed step is shown and the rest still run; the exit status is 1 if a step
+or the doctor failed. Verified by `packages/hal-core/tests/test_setup.py`.
 
 ## hal doctor
 

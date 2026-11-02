@@ -240,3 +240,12 @@ def test_dry_run_units_step_shows_each_exec_start(tmp_path, monkeypatch):
     lines: list[str] = []
     hsetup.execute([hsetup._units_step(False, False)], dry_run=True, out=lines.append)
     assert "hal-clock.service: /envs/clock/bin/python -m halclock" in lines[0]
+
+
+def test_config_migrate_names_a_rewrite_it_cannot_do_safely(tmp_path, monkeypatch):
+    # Regression: a manual-only plan ran, wrote an empty journal and printed only its path.
+    body = '[jobs]\njobhunt_root = "/h"\n\n[hub]\nmodule_paths = ["/x/hal-ecosystem/a]b"]\n'
+    cfg = _cfg(tmp_path, monkeypatch, body)
+    step = hsetup._config_step(replace=True)
+    assert step.run is None and "edit by hand" in step.skip and "module_paths" in step.skip
+    assert cfg.read_text() == body

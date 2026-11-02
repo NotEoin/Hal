@@ -24,6 +24,7 @@ import os
 import re
 import shutil
 import sys
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -137,6 +138,20 @@ def _under(path: Path, source: Path) -> bool:
     return source in (expanded, *expanded.parents) or ECOSYSTEM_NAME in expanded.parts
 
 
+def _only_module_paths_changed(before: str, after: str, keep: list) -> bool:
+    """True when `after` parses and differs from `before` only in `[hub].module_paths`, now `keep`.
+
+    The line regex can match a `module_paths` key of another table, or stop at a `]` inside a
+    string; either would write a wrong or broken config, so the text edit is checked by parsing.
+    """
+    try:
+        old, new = tomllib.loads(before), tomllib.loads(after)
+    except tomllib.TOMLDecodeError:
+        return False
+    old.setdefault("hub", {})["module_paths"] = keep
+    return old == new
+
+
 def module_paths_step(source: Path, cfg_path: Path) -> Step | None:
     """A step that drops `[hub].module_paths` entries inside the old ecosystem, or None.
 
@@ -154,7 +169,7 @@ def module_paths_step(source: Path, cfg_path: Path) -> Step | None:
         return None
     line = "module_paths = [" + ", ".join('"' + str(p).replace("\\", "\\\\").replace('"', '\\"') + '"' for p in keep) + "]"
     new, count = MODULE_PATHS_RE.subn(lambda _m: line, text, count=1)
-    if count != 1:
+    if count != 1 or not _only_module_paths_changed(text, new, keep):
         return Step("manual", None, f"remove the hal-ecosystem entries from [hub].module_paths in {cfg_path}")
     dropped = ", ".join(str(p) for p in listed if p not in keep)
     return Step("config", cfg_path, f"drop from [hub].module_paths: {dropped}", new=new, replace=True)
