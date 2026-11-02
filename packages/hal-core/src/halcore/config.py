@@ -20,7 +20,7 @@ def hub():
 
 
 SHARED = {
-    "vault": "~/Documents/vaults/Hal",
+    "vault": "~/notes",
     "ollama_url": "http://localhost:11434",
     "chat_model": "gemma4:12b-it-qat",
     "fast_model": "qwen3.5:4b",

@@ -1058,7 +1058,7 @@ selected profile and can only tighten it. A pack's own `mcp` command run without
 
 | Key | Type | Default | Reason |
 | --- | --- | --- | --- |
-| `vault` | str | `"~/Documents/vaults/Hal"` | Existing default and live value; hal-memory and the briefing read it |
+| `vault` | str | `"~/notes"` | Default notes folder; hal-memory and the briefing read it |
 | `chat_model` | str | `"gemma4:12b-it-qat"` | Chosen by `hal eval` on 2026-10-10: 33/38 and 74/76, the best of 6 models (measured during development, 2026-10); single runs, assistant scenarios only |
 | `fast_model` | str | `"qwen3.5:4b"` | Existing default for classifying and titling |
 | `code_model` | str | `""` (means `chat_model`) | Role for `hal code`; empty keeps one model loaded on a 12 GB card. The coding eval (03-agent) picks the shipped default; until then this alias |

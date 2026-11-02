@@ -2303,7 +2303,7 @@ How existing users keep working:
 - `[hub].disabled` in `config.toml` keeps working and maps to `[packs.<p>] enabled = false`
   (04-hub reads it).
 - `hal configure --migrate` writes a starter `policy.toml` that adds the user's personal
-  deny paths found in today's setup, such as `~/Documents/important` and the config and state
+  deny paths found in today's setup, such as a folder of private documents and the config and state
   folders of other tools (Open question 1). These are
   user-specific and never ship in the built-in list.
 - Existing secret files keep their paths. `config.toml` is mode 0664 today [verified:
@@ -2631,7 +2631,7 @@ and are never read from call arguments. Verified by `hal-hub/tests/test_classifi
 
 1. Default host read roots are your XDG user folders (`~/Documents`, `~/Downloads`,
    `~/Desktop`, `~/Pictures`, `~/Music`, `~/Videos`) with a personal deny list
-   (`~/Documents/important`, the hal-employment folders, `~/.config/jobhunt`). Should
+   (a folder of private documents, the folders of other apps). Should
    `~/Documents` be a read root at all, given it holds every repo and the vault, or should
    file tools start with `~/Downloads` only and ask for the rest?
 2. `strict` already requires a container backend (REQ-SEC-102). Should it go further and
