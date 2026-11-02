@@ -1,6 +1,6 @@
 # Move from hal-ecosystem
 
-`hal migrate ecosystem` moves a machine from the old `hal-ecosystem` layout to this one. It is a
+`hal migrate ecosystem --from PATH` upgrades a machine from the older `hal-ecosystem` layout (Hal before 0.1) to this one. It is a
 dry run unless you pass `--yes`, journals every change, and never writes inside the old folder,
 the vault or any hal-employment folder.
 
@@ -25,8 +25,10 @@ the vault or any hal-employment folder.
 4. Apply it. The journal path is printed.
 
    ```
-   hal migrate ecosystem --yes   # appends [compat] and [jobs] to config.toml, relinks ~/.local/bin
+   hal migrate ecosystem --from ~/src/hal-ecosystem --yes   # appends [compat] to config.toml, relinks ~/.local/bin
    ```
+
+   Then set `[jobs].jobhunt_root` in `config.toml` to your employment helper checkout; the migration never writes it.
 
 5. Run the printed manual steps yourself: `hal units install`, `hal packs add --local PATH`, and
    the vault `.mcp.json` edit (it needs your approval, so the migrator only reports it).
@@ -86,5 +88,5 @@ New in this layout: `hal-gateway.service` and `hal-jobs.service`/`.timer`. `hal 
 | `hal doctor` warns `render from outside the registered packs` | Run `hal setup --replace`; it drops the `hal-ecosystem` entries of `[hub].module_paths` and rewrites the units from the packs |
 | `hal setup` says `unit(s) belong to another install` | Stop the old units and back them up, then rerun `hal setup --replace` |
 
-Verified by `packages/hal-core/tests/test_migrate.py` on a synthetic layout. The real cutover on
-your machine is unverified: run step 3 and read the plan first.
+Verified by `packages/hal-core/tests/test_migrate.py` on a synthetic layout. A real upgrade is
+unverified: run step 3 and read the plan first.

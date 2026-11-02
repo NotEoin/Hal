@@ -14,6 +14,8 @@ Design decisions:
 - Unit files of another install (the old hal-ecosystem shares the unit record) are never
   replaced, stopped or deleted unless `--replace` is given: the units step fails instead and
   names them, in a dry run too.
+- The config part of `hal migrate ecosystem` runs only when an older folder is named (`--migrate-from`
+  or `[migrate].source`); there is no default location.
 - A missing sibling or a missing gpu-light skips its step. Hal works without both.
 - A failed step is reported and the rest still run, then the exit status is 1, so one broken
   step does not hide the others.
@@ -109,7 +111,8 @@ def gateway_bin_dir() -> Path | None:
     return Path(found).parent if found else None
 
 
-def plan(dirs: list[Path], *, enable: bool, image: bool, replace: bool = False) -> list[Step]:
+def plan(dirs: list[Path], *, enable: bool, image: bool, replace: bool = False,
+         migrate_from: Path | None = None) -> list[Step]:
     """The steps a run would take, in order, each with the reason it can be skipped."""
     steps = [Step("workspace", "uv sync --all-packages", lambda: _sync())]
     have = packs.read_record().get("packs", {})
@@ -126,19 +129,29 @@ def plan(dirs: list[Path], *, enable: bool, image: bool, replace: bool = False) 
                 steps.append(Step(f"pack {pack}", f"hal packs add --local {path}", lambda p=path: packs.add_local(p)))
     steps.append(_employment_step(dirs, have))
     steps.append(_gpu_light_step(dirs))
-    steps.append(_config_step(replace))
+    steps.append(_config_step(replace, migrate_from))
     steps.append(_sandbox_step())
     steps.append(_image_step() if image else Step("box image", "--no-image", skip="skipped by option"))
     steps.append(_units_step(enable, replace))
     return steps
 
 
-def _config_step(replace: bool) -> Step:
+def migrate_source(given: Path | None) -> Path | None:
+    """The older hal-ecosystem folder: `--migrate-from`, else `[migrate].source`, else None."""
+    if given is not None:
+        return given.expanduser()
+    configured = config.load().get("migrate", {}).get("source")
+    return Path(configured).expanduser() if configured else None
+
+
+def _config_step(replace: bool, source: Path | None = None) -> Step:
     """The config part of `hal migrate ecosystem`; entries that point into the old tree need `--replace`."""
-    source = migrate.DEFAULT_SOURCE
+    source = migrate_source(source)
     cfg = paths.config_file()
+    if source is None:
+        # A fresh install must not get the old layout's tables; the person names the old folder to opt in
+        return Step("config migrate", str(cfg), skip="no older hal-ecosystem folder given (--migrate-from PATH or [migrate].source)")
     if not source.is_dir():
-        # A fresh install must not get the old layout's tables (`[jobs].jobhunt_root` and so on)
         return Step("config migrate", str(cfg), skip=f"no hal-ecosystem install at {source}")
     try:
         plan = migrate.config_plan(source, cfg)
@@ -289,10 +302,13 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--from", dest="dirs", action="append", default=[], type=Path, metavar="DIR",
                     help="folder that holds the sibling repos (repeatable; default: the checkout's parent folders)")
     ap.add_argument("--no-image", action="store_true", help="do not build the box image")
+    ap.add_argument("--migrate-from", dest="migrate_from", type=Path, metavar="PATH",
+                    help="older hal-ecosystem folder (Hal before 0.1) whose config to carry over; default: [migrate].source")
     ap.add_argument("--replace", action="store_true",
                     help="replace, stop and delete unit files of another install (back them up first)")
     args = ap.parse_args(argv)
-    steps = plan(search_dirs(args.dirs), enable=args.enable, image=not args.no_image, replace=args.replace)
+    steps = plan(search_dirs(args.dirs), enable=args.enable, image=not args.no_image, replace=args.replace,
+                 migrate_from=args.migrate_from)
     ok = execute(steps, dry_run=args.dry_run)
     checks = doctor.collect()
     print(doctor.render(checks))

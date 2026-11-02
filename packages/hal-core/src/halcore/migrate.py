@@ -1,4 +1,4 @@
-"""`hal migrate ecosystem` and `hal migrate undo`: move from the old hal-ecosystem layout.
+"""`hal migrate ecosystem` and `hal migrate undo`: upgrade from the older hal-ecosystem layout (Hal before 0.1).
 
 The default is a read-only dry run that prints every change. With `--yes` it applies them, and
 each change is written to a journal (`state_dir()/migrate/<UTC>/journal.json`, with `backup/`)
@@ -32,11 +32,9 @@ from halkit import config as kitconfig
 from halkit import files, paths, timeutil
 
 LINK_NAMES = ("hal", "hal-hub", "hal-gateway", "hal-remote")  # the console scripts the old install linked
-DEFAULT_SOURCE = Path.home() / "src/hal-ecosystem"  # where the old install lives, read-only
-DEFAULT_JOBHUNT_ROOT = "~/src/employment-helper"  # the old jobs default, written explicitly (H1)
 ECOSYSTEM_NAME = "hal-ecosystem"  # the old install's folder; its modules are replaced by packs
 MODULE_PATHS_RE = re.compile(r"^module_paths\s*=\s*\[[^\]]*\]", re.M)
-PROTECTED_PREFIXES = ("employment-helper", "wt", "hal-employment")  # never written (REQ-CLI-88)
+PROTECTED_PREFIXES = ("employment-helper", "hal-employment")  # never written (REQ-CLI-88)
 EXIT_OK, EXIT_FAILED, EXIT_USAGE = 0, 1, 2
 
 # Every old hal-ecosystem unit and where its new form comes from. The unit names did not change:
@@ -109,8 +107,6 @@ def _config_step(source: Path, cfg_path: Path) -> Step | None:
             manual.append(f"add {hal_conf} to [compat].hal_conf")
         else:
             chunks.append(f'[compat]\nhal_conf = ["{hal_conf}"]\n')
-    if "jobs" not in data:
-        chunks.append(f'[jobs]\njobhunt_root = "{DEFAULT_JOBHUNT_ROOT}"\n')
     if not chunks and not manual:
         return None
     detail = "append to config.toml: " + "; ".join([c.strip().replace("\n", " ") for c in chunks] + manual)
@@ -293,7 +289,8 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="hal migrate", description="move from the old hal-ecosystem layout")
     sub = parser.add_subparsers(dest="cmd", required=True)
     eco = sub.add_parser("ecosystem", help="plan or apply the move; dry run unless --yes")
-    eco.add_argument("--from", dest="source", type=Path, default=DEFAULT_SOURCE)
+    eco.add_argument("--from", dest="source", type=Path, required=True, metavar="PATH",
+                     help="the older hal-ecosystem folder to read (never written)")
     eco.add_argument("--dry-run", action="store_true", help="print the plan only (the default)")
     eco.add_argument("--yes", action="store_true", help="apply the plan and write a journal")
     und = sub.add_parser("undo", help="restore the state recorded in a journal")

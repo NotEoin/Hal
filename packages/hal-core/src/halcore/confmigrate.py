@@ -5,8 +5,7 @@ Design notes:
   bash script's settings and may hold shell syntax.
 - An existing key in `config.toml` is never changed; the change is a pure addition, shown as a
   unified diff before anything is written (REQ-CLI-84).
-- `[jobs].jobhunt_root` is written with today's effective value so the jobs pack can drop its
-  old default later without breaking an existing install (resolution H1).
+- `[jobs].jobhunt_root` is never written: it has no default, so the person sets it themselves.
 """
 
 from __future__ import annotations
@@ -18,7 +17,6 @@ from pathlib import Path
 
 from halkit import files, timeutil
 
-JOBHUNT_ROOT_DEFAULT = "~/src/employment-helper"  # the default the jobs pack uses today
 LINE = re.compile(r'^\s*(?:export\s+)?([A-Z][A-Z0-9_]*)=(?:"([^"]*)"|\'([^\']*)\'|(\S*))\s*(?:#.*)?$')
 
 # old key -> (table path, new key)
@@ -101,7 +99,6 @@ def migrate_text(text: str, conf: dict[str, str], conf_path: str) -> tuple[str, 
         if not changed:
             notes.append(f"[{table}].{key} already set; {old} left out")
     notes += [f"{old} dropped (the gateway modes replace it)" for old in DROPPED if old in conf]
-    text, _ = _add(text, data, "jobs", "jobhunt_root", JOBHUNT_ROOT_DEFAULT)
     compat = _lookup(data, "compat") or {}
     if "hal_conf" not in compat:
         text, _ = _add(text, data, "compat", "hal_conf", [conf_path])

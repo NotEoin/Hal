@@ -69,7 +69,6 @@ def test_dry_run_with_units_creates_no_file_or_folder(world, tmp_path, monkeypat
     # Regression: reading the unit record in a dry run created the state folder.
     sibs, _ = world
     monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "config.toml"))
-    monkeypatch.setattr(hsetup.migrate, "DEFAULT_SOURCE", tmp_path / "hal-ecosystem")
     monkeypatch.setattr(units, "UNIT_DIR", tmp_path / "units")
     monkeypatch.setattr(hsetup.shutil, "which", lambda name: "/usr/bin/" + name if name == "systemctl" else None)
     before = sorted(tmp_path.rglob("*"))
@@ -202,23 +201,35 @@ def _cfg(tmp_path, monkeypatch, body):
     monkeypatch.setenv("HAL_CONFIG", str(cfg))
     monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "state"))
     (tmp_path / "hal-ecosystem").mkdir(exist_ok=True)
-    monkeypatch.setattr(hsetup.migrate, "DEFAULT_SOURCE", tmp_path / "hal-ecosystem")
     return cfg
+
+
+def test_config_migrate_is_skipped_in_one_line_without_a_source(tmp_path, monkeypatch):
+    # Regression: setup looked for a fixed folder in the owner's home and wrote its `[jobs]` default.
+    cfg = _cfg(tmp_path, monkeypatch, '[hub]\nmodule_paths = []\n')
+    step = hsetup._config_step(replace=True)
+    assert "--migrate-from" in step.skip and "[migrate].source" in step.skip and step.run is None
+    assert cfg.read_text() == '[hub]\nmodule_paths = []\n'
+
+
+def test_config_migrate_reads_the_source_from_the_migrate_table(tmp_path, monkeypatch):
+    _cfg(tmp_path, monkeypatch, f'[migrate]\nsource = "{tmp_path / "hal-ecosystem"}"\n[hub]\nmodule_paths = ["/x/hal-ecosystem/c"]\n')
+    assert hsetup._config_step(replace=False).skip.startswith("module_paths still point")
 
 
 def test_config_migrate_writes_nothing_without_an_old_install(tmp_path, monkeypatch):
     # Regression: a fresh install got the old layout's `[jobs].jobhunt_root` written into its config.
     _cfg(tmp_path, monkeypatch, '[hub]\nmodule_paths = []\n')
     (tmp_path / "hal-ecosystem").rmdir()
-    step = hsetup._config_step(replace=True)
+    step = hsetup._config_step(replace=True, source=tmp_path / "hal-ecosystem")
     assert step.skip.startswith("no hal-ecosystem install") and step.run is None
 
 
 def test_module_paths_into_the_old_ecosystem_are_dropped_only_with_replace(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path, monkeypatch, '[jobs]\njobhunt_root = "/h"\n\n[hub]\nmodule_paths = ["/x/hal-ecosystem/core", "/mine"]\n')
-    step = hsetup._config_step(replace=False)
+    step = hsetup._config_step(replace=False, source=tmp_path / "hal-ecosystem")
     assert step.skip and "--replace" in step.skip and "hal-ecosystem" in cfg.read_text()
-    step = hsetup._config_step(replace=True)
+    step = hsetup._config_step(replace=True, source=tmp_path / "hal-ecosystem")
     step.run()
     assert 'module_paths = ["/mine"]' in cfg.read_text()
     assert list((tmp_path / "state" / "migrate").glob("*/journal.json"))
@@ -226,15 +237,18 @@ def test_module_paths_into_the_old_ecosystem_are_dropped_only_with_replace(tmp_p
 
 def test_config_migrate_keeps_rewrite_and_added_tables_together(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path, monkeypatch, '[hub]\nmodule_paths = ["/x/hal-ecosystem/core"]\n')
-    hsetup._config_step(replace=True).run()
+    conf = tmp_path / "hal-ecosystem" / "core" / "hal" / "hal.conf"
+    conf.parent.mkdir(parents=True)
+    conf.write_text('HAL_MODE="local"\n')
+    hsetup._config_step(replace=True, source=tmp_path / "hal-ecosystem").run()
     text = cfg.read_text()
-    assert "module_paths = []" in text and "[jobs]" in text
+    assert "module_paths = []" in text and "[compat]" in text and "[jobs]" not in text
 
 
 def test_config_migrate_rewrite_can_be_undone(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path, monkeypatch, '[hub]\nmodule_paths = ["/x/hal-ecosystem/core"]\n')
     before = cfg.read_text()
-    hsetup._config_step(replace=True).run()
+    hsetup._config_step(replace=True, source=tmp_path / "hal-ecosystem").run()
     journal = next((tmp_path / "state" / "migrate").glob("*/journal.json"))
     hsetup.migrate.undo(journal)
     assert cfg.read_text() == before
@@ -258,6 +272,6 @@ def test_config_migrate_names_a_rewrite_it_cannot_do_safely(tmp_path, monkeypatc
     # Regression: a manual-only plan ran, wrote an empty journal and printed only its path.
     body = '[jobs]\njobhunt_root = "/h"\n\n[hub]\nmodule_paths = ["/x/hal-ecosystem/a]b"]\n'
     cfg = _cfg(tmp_path, monkeypatch, body)
-    step = hsetup._config_step(replace=True)
+    step = hsetup._config_step(replace=True, source=tmp_path / "hal-ecosystem")
     assert step.run is None and "edit by hand" in step.skip and "module_paths" in step.skip
     assert cfg.read_text() == body

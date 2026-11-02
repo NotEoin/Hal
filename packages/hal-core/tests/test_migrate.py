@@ -48,7 +48,7 @@ def test_migrate_then_undo_restores_tree_byte_for_byte(world, monkeypatch):
     before = snapshot(home, eco, h.config.parent)
     journal = migrate.apply(migrate.build_plan(eco, home=home))
     text = h.config.read_text()
-    assert "jobhunt_root" in text and str(eco / "core/hal/hal.conf") in text
+    assert "jobhunt_root" not in text and str(eco / "core/hal/hal.conf") in text
     assert os.readlink(home / ".local/bin/hal") == str(h.data / "venv/bin/hal")
     migrate.undo(journal)
     assert snapshot(home, eco, h.config.parent) == before
@@ -65,7 +65,7 @@ def test_undo_restores_a_symlinked_config_as_the_same_link(world, tmp_path, monk
     h.config.symlink_to(dotfiles / "config.toml")
     before = snapshot(home, eco, h.config.parent, dotfiles)
     journal = migrate.apply(migrate.build_plan(eco, home=home))
-    assert "jobhunt_root" in h.config.read_text()
+    assert "[compat]" in h.config.read_text()
     migrate.undo(journal)
     assert snapshot(home, eco, h.config.parent, dotfiles) == before
 
@@ -94,6 +94,17 @@ def test_cli_defaults_to_dry_run(world, capsys):
     assert migrate.main(["ecosystem", "--from", str(eco)]) == 0
     assert "dry run" in capsys.readouterr().out
     assert not (h.state / "migrate").exists()
+
+
+def test_ecosystem_needs_an_explicit_from(capsys):
+    # Regression: `--from` used to default to a path in the owner's home folder.
+    with pytest.raises(SystemExit) as exc:
+        migrate.main(["ecosystem"])
+    assert exc.value.code == 2 and "--from" in capsys.readouterr().err
+
+
+def test_protected_prefixes_hold_only_generic_names():
+    assert migrate.PROTECTED_PREFIXES == ("employment-helper", "hal-employment")
 
 
 def test_missing_source_fails_loudly(world, tmp_path, capsys):

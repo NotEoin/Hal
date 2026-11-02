@@ -21,12 +21,13 @@ writes, such as the old hal-ecosystem units) are never replaced, stopped or dele
 pass `--replace`; without it the units step fails and names them, in a dry run too. Units render
 from the registered packs (folder and Python environment of each pack); `[hub].module_paths`
 adds only modules no pack provides, and no other folder is scanned. When
-`~/src/hal-ecosystem` exists, setup also applies the config part of `hal migrate
-ecosystem` (journaled, so `hal migrate undo` works), with `--replace` it drops `module_paths`
+you name an older hal-ecosystem folder (Hal before 0.1) with `--migrate-from PATH` or `[migrate].source`,
+setup also applies the config part of `hal migrate ecosystem`; without one it skips that step and says
+so in one line (journaled, so `hal migrate undo` works), with `--replace` it drops `module_paths`
 entries inside hal-ecosystem (when the edited file would not parse to the same config with only
 that key changed, it names the edit for you to make by hand instead), and it creates or narrows
-the sandbox state folder to 0700. The employment helper is found through `[jobs].jobhunt_root`,
-then the siblings. A missing piece is skipped and Hal works without it. `--dry-run` prints each
+the sandbox state folder to 0700. The employment helper is found through `[jobs].jobhunt_root`
+(no default; set it to your checkout), then the siblings. A missing piece is skipped and Hal works without it. `--dry-run` prints each
 step as `[plan]`, including each unit's `ExecStart` so you can see where it runs from, and
 changes nothing. A failed step is shown and the rest still run; the exit status is 1 if a step
 or the doctor failed. Verified by `packages/hal-core/tests/test_setup.py`.
@@ -48,7 +49,7 @@ Verified by `packages/hal-core/tests/test_doctor.py`.
 
 ## hal migrate
 
-`hal migrate ecosystem [--from DIR] [--yes]` plans the move from the old layout and applies it
+`hal migrate ecosystem --from PATH [--yes]` plans the upgrade from the older hal-ecosystem layout (Hal before 0.1) and applies it
 only with `--yes`. `hal migrate undo JOURNAL` reverts it. See
 [move-from-hal-ecosystem](../howto/move-from-hal-ecosystem.md).
 
@@ -112,5 +113,5 @@ Each command also answers `--help`. Verified 2026-10-31 by running `python -m ha
 | `hal audit tail [-n N] [--session ID] [--json]`, `hal audit verify` | Read the audit log, or check its hash chain |
 | `hal units install [--start] [--no-desktop]`, `remove`, `list` | Render and install the systemd user units |
 | `hal console [--port N] [--open]` | UNBOXED local web page for trying Hal; `--open` opens the single-use link (valid 60 s, sets a strict cookie). Broker approvals queue on the page: Allow stays disabled until the whole argument text is scrolled into view. Verified by `test_consolesurface.py` |
-| `hal configure [--profile auto\|max\|24gb\|12gb\|cloud] [--chat-model M] [--vault DIR] [--yes]`, `hal configure --migrate [HAL_CONF] [--yes]` | Create `config.toml` (0600) when it is missing, never overwrite a key. The profile comes from `nvidia-smi` and `/proc/meminfo` (22000 MiB and 60 GiB: `max`; 22000 MiB: `24gb`; 11000 MiB: `12gb`; else `cloud`), is confirmed on a terminal unless `--yes`, and sets `[hal].profile` and the chat model. `--migrate` reads an old `hal.conf` as `KEY="value"` lines only, adds the mapped keys (never changing one that is set) and `[jobs].jobhunt_root`, shows the diff, and writes after a typed y with `config.toml.bak.<UTC stamp>` kept. Verified by `test_profiles.py` and `test_confmigrate.py` |
+| `hal configure [--profile auto\|max\|24gb\|12gb\|cloud] [--chat-model M] [--vault DIR] [--yes]`, `hal configure --migrate [HAL_CONF] [--yes]` | Create `config.toml` (0600) when it is missing, never overwrite a key. The profile comes from `nvidia-smi` and `/proc/meminfo` (22000 MiB and 60 GiB: `max`; 22000 MiB: `24gb`; 11000 MiB: `12gb`; else `cloud`), is confirmed on a terminal unless `--yes`, and sets `[hal].profile` and the chat model. `--migrate` reads an old `hal.conf` as `KEY="value"` lines only, adds the mapped keys (never changing one that is set; `[jobs].jobhunt_root` is never written, set it yourself), shows the diff, and writes after a typed y with `config.toml.bak.<UTC stamp>` kept. Verified by `test_profiles.py` and `test_confmigrate.py` |
 | `hal eval [--model M] [--only IDS] [--category C] [--repeat N]` | Ask Hal the test cases and check the answers; with gpu-light installed it runs as class `batch`, so a chat or voice turn gets the GPU first |

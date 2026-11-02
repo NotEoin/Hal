@@ -29,9 +29,10 @@ def test_migrate_maps_hal_conf_keys():
     assert any("HAL_NUM_CTX dropped" in n for n in notes)
 
 
-def test_migrate_writes_explicit_jobhunt_root():
+def test_migrate_never_writes_a_jobhunt_root_of_its_own():
+    # Regression: the migration used to write a personal default path for `[jobs].jobhunt_root`.
     new, _ = confmigrate.migrate_text("", {}, "/x/hal.conf")
-    assert tomllib.loads(new)["jobs"]["jobhunt_root"] == confmigrate.JOBHUNT_ROOT_DEFAULT
+    assert "jobs" not in tomllib.loads(new)
 
 
 def test_migrate_keeps_a_jobs_table_that_already_sets_the_root():
