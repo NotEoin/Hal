@@ -29,6 +29,9 @@ class ModelInfo:
     head_dim: int | None = None  # size of one key head; the value head is assumed the same
     embedding: int | None = None
     context_native: int | None = None
+    sliding_window: int | None = None  # tokens a sliding-window layer attends to (Gemma 3 and 4)
+    # every Nth layer is full (or global) attention: Gemma's pattern, Qwen3.5's `full_attention_interval`
+    attention_interval: int | None = None
     capabilities: frozenset[str] = field(default_factory=frozenset)
     path: str = ""  # GGUF file path; empty for other kinds
     digest: str = ""  # Ollama digest, when known

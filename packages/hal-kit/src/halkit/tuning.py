@@ -6,6 +6,8 @@ docs/dev/tuning.md. In short, per GPU:
     usable   = free_mib - max(1024, 8 % of total_mib) - RUNTIME_OVERHEAD_MIB
     budget   = sum of usable over all GPUs
     kv/token = 2 x layers x kv_heads x head_dim x bytes(kv type)
+               (only for the full-attention layers; sliding-window layers stop at the window,
+               linear-attention layers of hybrid models cost nothing here)
     context  = floor((budget - weights) / kv/token), rounded down to 1024, clamped to the
                model's native maximum and to the configured cap
 
@@ -97,6 +99,34 @@ def kv_bytes_per_token(layers: int, kv_heads: int, head_dim: int, kv_type: str) 
     return 2 * layers * kv_heads * head_dim * KV_BYTES[kv_type]
 
 
+def attention_layers(layers: int, interval: int | None) -> tuple[int, int]:
+    """`(full, other)` layer counts when every `interval`-th layer is global (or full) attention."""
+    if not interval or interval < 2 or interval > layers:
+        return layers, 0
+    full = layers // interval
+    return full, layers - full
+
+
+def kv_bytes(
+    layers: int,
+    kv_heads: int,
+    head_dim: int,
+    kv_type: str,
+    context: int,
+    *,
+    window: int | None = None,
+    interval: int | None = None,
+) -> float:
+    """KV bytes for `context` tokens: full layers x context + sliding layers x min(context, window).
+
+    Without `interval` every layer is full attention. With `interval` but no `window` the other
+    layers are linear attention and hold no per-token cache (a hybrid such as Qwen3.5).
+    """
+    full, other = attention_layers(layers, interval)
+    per_layer = kv_bytes_per_token(1, kv_heads, head_dim, kv_type)
+    return per_layer * (full * context + (other * min(context, window) if window else 0))
+
+
 def round_context(tokens: float) -> int:
     """Rounds down to a multiple of `CONTEXT_STEP`."""
     return int(tokens // CONTEXT_STEP) * CONTEXT_STEP
@@ -108,18 +138,31 @@ def _weights_mib(model: ModelInfo) -> int:
     return math.ceil(model.size_bytes / MIB)
 
 
-def _kv_per_token(model: ModelInfo, kv_type: str, weights_mib: int) -> tuple[float, int, bool]:
-    """`(bytes per token, layers, estimated)`; the estimate is pessimistic and flagged."""
+def _kv_per_token(model: ModelInfo, kv_type: str, weights_mib: int) -> tuple[float, float, int, bool]:
+    """`(bytes per token, fixed bytes, layers, estimated)`: KV is `per_token * context + fixed`.
+
+    `fixed` is the full window of the sliding layers; it is exact once the context passes the
+    window, and a slight over-estimate below it. The estimate for an unknown model is pessimistic
+    and flagged.
+    """
     if model.has_architecture:
-        layers = int(model.layers or 0)
-        return (
-            kv_bytes_per_token(layers, int(model.kv_heads or 0), int(model.head_dim or 0), kv_type),
-            layers,
-            False,
-        )
+        layers, heads, dim = int(model.layers or 0), int(model.kv_heads or 0), int(model.head_dim or 0)
+        full, other = attention_layers(layers, model.attention_interval)
+        per_layer = kv_bytes_per_token(1, heads, dim, kv_type)
+        fixed = per_layer * other * model.sliding_window if model.sliding_window else 0.0
+        return per_layer * full, fixed, layers, False
     layers = int(model.layers or UNKNOWN_LAYERS)
     f16 = UNKNOWN_KV_KIB_PER_GIB * 1024 * (weights_mib / 1024)
-    return f16 * KV_BYTES[kv_type] / KV_BYTES["f16"], layers, True
+    return f16 * KV_BYTES[kv_type] / KV_BYTES["f16"], 0.0, layers, True
+
+
+def _kv_mib(context: int, per_tok: float, fixed: float) -> int:
+    return math.ceil((context * per_tok + fixed) / MIB)
+
+
+def _context_for(spare_mib: float, per_tok: float, fixed: float) -> int:
+    """Tokens of KV that fit `spare_mib` once the fixed sliding-window part is paid."""
+    return round_context(max(spare_mib * MIB - fixed, 0) / per_tok)
 
 
 def _split(gpus: list[Gpu], override: int) -> tuple[float, ...]:
@@ -136,7 +179,7 @@ def _ceiling(model: ModelInfo, cap: int) -> int:
 
 def _plan_once(model: ModelInfo, hw: Hardware, kv_type: str, cap: int, headroom_override: int) -> Plan:
     weights = _weights_mib(model)
-    per_tok, layers, estimated = _kv_per_token(model, kv_type, weights)
+    per_tok, fixed, layers, estimated = _kv_per_token(model, kv_type, weights)
     ceiling = _ceiling(model, cap)
     notes = []
     if estimated:
@@ -152,7 +195,7 @@ def _plan_once(model: ModelInfo, hw: Hardware, kv_type: str, cap: int, headroom_
     split = _split(gpus, headroom_override)
 
     def make(status: str, ctx: int, gpu_layers: int, why: list[str]) -> Plan:
-        kv = math.ceil(ctx * per_tok / MIB)
+        kv = _kv_mib(ctx, per_tok, fixed)
         return Plan(
             model.name,
             status,
@@ -170,7 +213,7 @@ def _plan_once(model: ModelInfo, hw: Hardware, kv_type: str, cap: int, headroom_
     if gpus:
         spare = budget - weights
         if spare > 0:
-            ctx = min(round_context(spare * MIB / per_tok), ceiling)
+            ctx = min(_context_for(spare, per_tok, fixed), ceiling)
             if ctx >= MIN_CONTEXT:
                 return make(
                     "gpu",
@@ -185,7 +228,7 @@ def _plan_once(model: ModelInfo, hw: Hardware, kv_type: str, cap: int, headroom_
         ctx = round_context(min(SPILL_CONTEXT, ceiling))
         if ctx < MIN_CONTEXT:
             ctx = round_context(ceiling) or CONTEXT_STEP
-        per_layer = (weights + ctx * per_tok / MIB) / layers
+        per_layer = (weights + _kv_mib(ctx, per_tok, fixed)) / layers
         n_gpu = min(int(budget // per_layer), layers - 1)
         cpu_part = (layers - n_gpu) * per_layer
         why = [
@@ -205,14 +248,14 @@ def _plan_once(model: ModelInfo, hw: Hardware, kv_type: str, cap: int, headroom_
             return make("cpu", ctx, NO_GPU_LAYERS, why)
         return make("hybrid", ctx, n_gpu, why)
     ctx = round_context(min(SPILL_CONTEXT, ceiling))
-    need = weights + math.ceil(ctx * per_tok / MIB)
+    need = weights + _kv_mib(ctx, per_tok, fixed)
     why = [
         "no usable GPU: CPU only",
         f"weights {weights} MiB + KV {need - weights} MiB = {need} MiB of {ram} MiB usable RAM",
     ]
     if need > ram:
         spare = ram - weights
-        ctx = round_context(spare * MIB / per_tok) if spare > 0 else 0
+        ctx = _context_for(spare, per_tok, fixed) if spare > 0 else 0
         if ctx < MIN_CONTEXT:
             return make(
                 "does-not-fit", 0, 0, why + [f"RAM is {need - ram} MiB short: use a smaller model or quant"]
@@ -262,8 +305,8 @@ def fit_context(
     if context < MIN_CONTEXT:
         raise ValueError(f"a context below {MIN_CONTEXT} tokens cannot hold a useful chat")
     weights = _weights_mib(model)
-    per_tok, layers, estimated = _kv_per_token(model, kv_type, weights)
-    kv = math.ceil(context * per_tok / MIB)
+    per_tok, fixed, layers, estimated = _kv_per_token(model, kv_type, weights)
+    kv = _kv_mib(context, per_tok, fixed)
     gpus = [g for g in hw.gpus if usable_mib(g, headroom_override_mib) > 0]
     budget = sum(usable_mib(g, headroom_override_mib) for g in gpus)
     ram_keep = max(RAM_HEADROOM_MIN_MIB, math.ceil(hw.ram_total_mib * RAM_HEADROOM_FRACTION))

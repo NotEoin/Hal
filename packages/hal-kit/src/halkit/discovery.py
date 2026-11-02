@@ -41,6 +41,9 @@ ANTHROPIC_VERSION = "2023-06-01"
 SHARD = re.compile(r"-(\d{5})-of-(\d{5})$")
 SIZE_LABEL = re.compile(r"(\d+(?:\.\d+)?)\s*([MBT])", re.IGNORECASE)
 PARAM_UNITS = {"M": 1e-3, "B": 1.0, "T": 1000.0}
+# Gemma 3 mixes 5 sliding-window layers with 1 global layer (Gemma 3 technical report, 2025); used
+# when a Gemma GGUF has a window but no `sliding_window_pattern` key
+GEMMA_DEFAULT_PATTERN = 6
 EMBEDDING_ARCHS = ("bert", "nomic-bert", "jina-bert", "modern-bert", "t5encoder")
 
 
@@ -98,6 +101,19 @@ def _int(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
 
+def _attention_shape(arch: str, get: Callable[[str], int | None]) -> tuple[int | None, int | None]:
+    """`(sliding_window, attention_interval)` from the `<arch>.` metadata keys that `get` reads.
+
+    Keys follow llama.cpp: `attention.sliding_window` with `attention.sliding_window_pattern`
+    (Gemma) and `full_attention_interval` (Qwen3.5 hybrids). Both are None for plain attention.
+    """
+    window = get("attention.sliding_window")
+    interval = get("attention.sliding_window_pattern") or get("full_attention_interval")
+    if window and not interval and arch.startswith("gemma"):
+        interval = GEMMA_DEFAULT_PATTERN
+    return window, interval
+
+
 def _ollama(source: Source, fetch: Fetch) -> Discovery:
     base = source.url.rstrip("/")
     tags = fetch("GET", f"{base}/api/tags", {}, None, HTTP_TIMEOUT_S)
@@ -120,6 +136,7 @@ def _ollama(source: Source, fetch: Fetch) -> Discovery:
         emb = _int(info.get(f"{arch}.embedding_length"))
         kv_heads = _int(info.get(f"{arch}.attention.head_count_kv")) or heads
         head_dim = _int(info.get(f"{arch}.attention.key_length")) or (emb // heads if emb and heads else None)
+        window, interval = _attention_shape(arch, lambda suffix, i=info, a=arch: _int(i.get(f"{a}.{suffix}")))
         wanted = {"tools", "vision", "thinking", "embedding"}
         found = caps & wanted
         if not caps and effort.capability(arch, name).kind != "none":
@@ -139,6 +156,8 @@ def _ollama(source: Source, fetch: Fetch) -> Discovery:
                 head_dim=head_dim,
                 embedding=emb,
                 context_native=_int(info.get(f"{arch}.context_length")),
+                sliding_window=window,
+                attention_interval=interval,
                 capabilities=frozenset(found),
                 digest=str(entry.get("digest") or ""),
             )
@@ -197,6 +216,7 @@ def _gguf_info(source: Source, path: Path, size: int, vision: bool) -> ModelInfo
     heads = head.arch_int("attention.head_count")
     emb = head.arch_int("embedding_length")
     head_dim = head.arch_int("attention.key_length") or (emb // heads if emb and heads else None)
+    window, interval = _attention_shape(arch, head.arch_int)
     template = str(head.metadata.get("tokenizer.chat_template", ""))
     caps = set()
     if "tools" in template:
@@ -221,6 +241,8 @@ def _gguf_info(source: Source, path: Path, size: int, vision: bool) -> ModelInfo
         head_dim=head_dim,
         embedding=emb,
         context_native=head.arch_int("context_length"),
+        sliding_window=window,
+        attention_interval=interval,
         capabilities=frozenset(caps),
         path=str(path),
     )

@@ -154,3 +154,33 @@ def test_fit_context_without_a_gpu_is_cpu_or_does_not_fit():
 def test_fit_context_refuses_a_context_below_the_floor():
     with pytest.raises(ValueError, match="useful chat"):
         tuning.fit_context(model12b(), hw(gpu(24564)), kv_type="f16", context=512)
+
+
+def gemma_like(**over):
+    """A Gemma-style model: 48 layers, every 6th global, a 1024-token window on the rest."""
+    return model12b(sliding_window=1024, attention_interval=6, **over)
+
+
+def test_sliding_window_layers_stop_growing_at_the_window():
+    # regression: every layer was costed at the full context, ~5x too much for a 5:1 Gemma
+    full = tuning.kv_bytes(48, 8, 128, "f16", 32768)
+    gemma = tuning.kv_bytes(48, 8, 128, "f16", 32768, window=1024, interval=6)
+    per_layer = 2 * 8 * 128 * 2
+    assert full == 48 * 32768 * per_layer
+    assert gemma == per_layer * (8 * 32768 + 40 * 1024)
+    assert tuning.kv_bytes(48, 8, 128, "f16", 512, window=1024, interval=6) == 48 * 512 * per_layer
+
+
+def test_hybrid_layers_without_a_window_cost_no_per_token_cache():
+    # regression: a Qwen3.5-style model (full attention every 4th layer) was costed at 4x
+    hybrid = tuning.kv_bytes(48, 8, 128, "f16", 32768, interval=4)
+    assert hybrid == tuning.kv_bytes(48, 8, 128, "f16", 32768) / 4
+
+
+def test_a_gemma_style_model_gets_a_much_larger_context_than_plain_attention():
+    card = hw(gpu(12288))
+    plain = tuning.plan_model(model12b(), card, kv_type="f16")
+    sliding = tuning.plan_model(gemma_like(), card, kv_type="f16")
+    assert sliding.context > 4 * plain.context or sliding.context == 131072
+    exact = tuning.fit_context(gemma_like(), card, kv_type="f16", context=sliding.context)
+    assert exact.status == "gpu" and exact.kv_mib == sliding.kv_mib

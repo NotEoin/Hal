@@ -19,6 +19,23 @@ context  = floor((budget - weights) x 1048576 / kv/token), rounded down to 1024,
 `bytes(kv type)`: f16 = 2, q8_0 = 34/32, q4_0 = 18/32 (ggml block sizes). `weights` is the
 size of the file on disk (Ollama: the blob size).
 
+### Sliding-window and hybrid attention
+
+Not every layer keeps a cache for the whole context. Discovery reads three optional GGUF keys
+(Ollama `model_info` has the same names) into `ModelInfo`:
+
+| Key | Field | Meaning |
+| --- | --- | --- |
+| `<arch>.attention.sliding_window` | `sliding_window` | tokens a local layer attends to |
+| `<arch>.attention.sliding_window_pattern` | `attention_interval` | every Nth layer is global (Gemma) |
+| `<arch>.full_attention_interval` | `attention_interval` | every Nth layer is full attention (Qwen3.5 hybrids) |
+
+With an interval, `layers // interval` layers are full attention. The rest are sliding-window
+layers (cost: `min(context, window)` tokens) or, with no window, linear-attention layers that
+hold a small fixed state, which Hal does not count. A Gemma GGUF with a window but no pattern
+key is taken as 5 local layers to 1 global. When the keys are missing, every layer is costed
+at the full context, as before.
+
 `kv_type = auto` tries f16, q8_0, q4_0 in that order and keeps the first that gives
 `min(32768, ceiling)` tokens; otherwise it keeps the type with the most context.
 

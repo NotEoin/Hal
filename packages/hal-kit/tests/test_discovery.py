@@ -152,3 +152,29 @@ def test_a_split_gguf_is_one_model_with_the_summed_size(tmp_path):
 
 def test_a_missing_gguf_folder_is_an_error_string(tmp_path):
     assert "not a folder" in discovery.discover(Source("w", "gguf", path=str(tmp_path / "nope"))).error
+
+
+def test_ollama_reads_sliding_window_and_hybrid_keys():
+    # regression: the KV maths needs these to avoid costing every layer at full context
+    gemma = {"model_info": {**GEMMA_SHOW["model_info"], "gemma3.attention.sliding_window": 1024}}
+    qwen = {
+        "model_info": {
+            "general.architecture": "qwen35",
+            "qwen35.block_count": 40,
+            "qwen35.full_attention_interval": 4,
+        }
+    }
+    tags = [{"name": "g:1", "size": 1}, {"name": "q:1", "size": 1}]
+    with FakeOllama(tags, {"g:1": gemma, "q:1": qwen}) as server:
+        found = {m.name: m for m in discovery.discover(Source("l", "ollama", server.url)).models}
+    assert (found["g:1"].sliding_window, found["g:1"].attention_interval) == (1024, 6)
+    assert (found["q:1"].sliding_window, found["q:1"].attention_interval) == (None, 4)
+
+
+def test_gguf_reads_the_sliding_window_pattern(tmp_path):
+    meta = {**llama_like(), "general.architecture": "gemma4"}
+    meta = {k.replace("llama.", "gemma4."): v for k, v in meta.items()}
+    meta |= {"gemma4.attention.sliding_window": 512, "gemma4.attention.sliding_window_pattern": 5}
+    write_gguf(tmp_path / "g.gguf", meta, pad_to=100_000)
+    model = discovery.discover(Source("w", "gguf", path=str(tmp_path))).models[0]
+    assert (model.sliding_window, model.attention_interval) == (512, 5)
