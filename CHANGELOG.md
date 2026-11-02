@@ -9,6 +9,9 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `[models.sources.NAME]` and `[models.roles.ROLE]` config tables name where models come from (Ollama,
+  OpenAI-compatible servers, GGUF folders, Anthropic, OpenAI) and which model plays each role. API keys
+  are read from a key file, never from the config.
 - `halkit.effort` maps Hal's effort levels (`off|low|medium|high|max`) to the request fields of Ollama,
   OpenAI-compatible servers, llama.cpp and Anthropic, per model family.
 - `halkit.tuning` computes context length, KV cache type, GPU layers and tensor split from the
