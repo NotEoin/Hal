@@ -6,8 +6,7 @@ PartOf=hal.target
 # --wait keeps the workers inside this unit's cgroup, which systemd would otherwise clean up when a oneshot exits
 Type=oneshot
 WorkingDirectory=@CORE@
-ExecStart=/usr/bin/python3 -m halcore jobs run --wait
+ExecStart=@PYTHON@ -m halcore jobs run --wait
 Environment=PYTHONUNBUFFERED=1
-Environment=PYTHONPATH=@CORE@/packages/hal-core/src:@CORE@/packages/hal-hub/src:@CORE@/packages/hal-kit/src:@CORE@/packages/hal-sandbox/src
 Environment=PATH=%h/.npm-global/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 TimeoutStartSec=infinity

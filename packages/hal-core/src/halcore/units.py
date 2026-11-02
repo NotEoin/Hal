@@ -4,7 +4,7 @@ Module folders come from the pack registry (`packs.json`); `[hub].module_paths` 
 no pack provides, and nothing else is scanned (an empty list adds nothing). Units live in each module's `systemd/` folder and launchers in its `desktop/` folder. They are
 rendered, not linked: `@ROOT@` becomes the module's folder, `@CORE@` core hal's and
 `@ECOSYSTEM@` the ecosystem folder and `@PYTHON@` the interpreter of the environment the module's
-pack was installed into, so a checkout works wherever it was cloned. Every
+pack was installed into (core hal's own venv for core hal), so a checkout works wherever it was cloned. Every
 long-running unit is part of hal.target; units marked `X-HalGPU=yes` are the ones `hal off`
 stops to free the GPU.
 
@@ -27,6 +27,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from . import config, gpulight, packs
@@ -111,8 +112,19 @@ def module_roots() -> list[Path]:
     return roots
 
 
+def core_python() -> str:
+    """The interpreter core hal's units run on: the checkout venv, else the one running hal now."""
+    venv = config.ROOT / ".venv" / "bin" / "python"
+    return str(venv) if venv.exists() else sys.executable
+
+
 def python_for(root: Path) -> str:
-    """The interpreter `@PYTHON@` becomes for `root`: its pack's environment, else the system python."""
+    """The interpreter `@PYTHON@` becomes for `root`: core hal's, its pack's environment, else the system python.
+
+    Core hal needs its own environment: the system python has none of its dependencies.
+    """
+    if root == config.ROOT:
+        return core_python()
     return _pack_roots()[0].get(root, DEFAULT_PYTHON)
 
 

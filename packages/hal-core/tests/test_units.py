@@ -211,3 +211,13 @@ def test_empty_module_paths_render_no_units_from_the_old_ecosystem_folders(tmp_p
     monkeypatch.setenv("HAL_CONFIG", str(cfg))
     monkeypatch.setenv("HAL_STATE", str(tmp_path / "state"))
     assert units.module_roots() == [units.config.ROOT]
+
+
+def test_core_units_run_on_core_hal_environment(tmp_path, monkeypatch):
+    # regression: core units rendered with /usr/bin/python3, which cannot import halcore
+    monkeypatch.setenv("HAL_STATE", str(tmp_path / "state"))
+    python = units.python_for(units.config.ROOT)
+    assert python != units.DEFAULT_PYTHON
+    for name in ("hal-console.service", "hal-jobs.service"):
+        text = units.render((units.config.ROOT / "systemd" / name).read_text(), units.config.ROOT)
+        assert f"ExecStart={python} -m halcore" in text
