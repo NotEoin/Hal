@@ -75,6 +75,8 @@ First release of the monorepo (uv workspace on branch `next`).
 - The `[hub].module_paths` rewrite of `hal setup` and `hal migrate` is checked by parsing; one
   that would change another key or break the file is named for a manual edit instead.
 - `hal setup --dry-run` no longer creates the state folder when it reads the unit record.
+- `hal migrate undo` puts back a config that was a symlink, instead of leaving the copy the
+  migration wrote in its place.
 - The model is treated as hostile: every agent turn runs in a box with no network, a copy of
   the project and a scratchpad. Lockdown and paranoia can be changed only on the host.
 - Security hardening: nested tool arguments are scanned without a depth limit, the broker, egress

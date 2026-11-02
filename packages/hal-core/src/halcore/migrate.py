@@ -241,7 +241,13 @@ def apply(plan: Plan, *, stamp: str | None = None) -> Path:
             existed = step.target.exists()
             if existed:
                 shutil.copy2(step.target, saved)
-            entries.append({"kind": "config", "target": str(step.target), "backup": str(saved) if existed else None})
+            entry: dict[str, str | None] = {"kind": "config", "target": str(step.target),
+                                            "backup": str(saved) if existed else None}
+            if step.target.is_symlink():
+                # The write replaces the link with a file and leaves the linked file alone, so
+                # undo puts the link back instead of writing the backup over it
+                entry["link"] = os.readlink(step.target)
+            entries.append(entry)
             save()
             before = step.target.read_text() if existed else ""
             files.write_atomic(step.target, step.new if step.replace else before.rstrip("\n") + "\n" + step.new)
@@ -266,7 +272,10 @@ def undo(journal: Path) -> list[str]:
     for entry in reversed(entries):
         target = Path(entry["target"])
         if entry["kind"] == "config":
-            if entry["backup"]:
+            if entry.get("link"):
+                target.unlink(missing_ok=True)
+                target.symlink_to(entry["link"])
+            elif entry["backup"]:
                 files.write_atomic(target, Path(entry["backup"]).read_bytes())
             else:
                 target.unlink(missing_ok=True)

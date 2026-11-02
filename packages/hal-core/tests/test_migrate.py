@@ -54,6 +54,22 @@ def test_migrate_then_undo_restores_tree_byte_for_byte(world, monkeypatch):
     assert snapshot(home, eco, h.config.parent) == before
 
 
+def test_undo_restores_a_symlinked_config_as_the_same_link(world, tmp_path, monkeypatch):
+    # Regression: apply replaced the config link with a file and undo left the file there.
+    h, home, eco = world
+    monkeypatch.setenv("HOME", str(home))
+    dotfiles = tmp_path / "dotfiles"
+    dotfiles.mkdir()
+    (dotfiles / "config.toml").write_text(h.config.read_text())
+    h.config.unlink()
+    h.config.symlink_to(dotfiles / "config.toml")
+    before = snapshot(home, eco, h.config.parent, dotfiles)
+    journal = migrate.apply(migrate.build_plan(eco, home=home))
+    assert "jobhunt_root" in h.config.read_text()
+    migrate.undo(journal)
+    assert snapshot(home, eco, h.config.parent, dotfiles) == before
+
+
 def test_migrate_writes_nothing_under_from_vault_or_employment(world, tmp_path):
     h, home, eco = world
     with pytest.raises(migrate.MigrateError):
