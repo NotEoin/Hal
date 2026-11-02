@@ -99,6 +99,10 @@ for GGUF roles to `~/.config/hal/modes/tuned.ini`. The bundled modes keep workin
 config is saved as `config.toml.bak.<UTC time>`. An Anthropic source can be listed and assigned
 but the gateway has no Anthropic backend, so that role is left out of the gateway with a note.
 
+A write is all or nothing. Hal checks the new config and every model before it writes. If a pin
+fails part way (a file that cannot be read, a full disk), it puts the pin list and the mode file back
+and tells you that nothing was written; your config is not touched.
+
 Nothing downloads a model. `hal setup` and `setup.sh` never pull one either; see
 [../howto/point-hal-at-your-models.md](../howto/point-hal-at-your-models.md).
 

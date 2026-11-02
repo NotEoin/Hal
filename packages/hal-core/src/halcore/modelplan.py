@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import re
+import tempfile
 import tomllib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -35,7 +36,7 @@ from halgateway import tunedmode
 from halgateway.config import GATEWAY_TABLE, ROLE_ALIASES
 from halgateway.models.manifest import ManifestError
 from halkit import config as kitconfig
-from halkit import discovery, modelconf, paths, tomledit, tuning
+from halkit import discovery, files, modelconf, paths, tomledit, tuning
 from halkit.hardware import Hardware
 from halkit.modelinfo import ModelInfo
 
@@ -384,16 +385,66 @@ def pin(plans: list[RolePlan], found: Mapping[str, discovery.Discovery], store: 
     return lines
 
 
+class ApplyError(ValueError):
+    """Writing a plan failed; the message says what was rolled back."""
+
+
+def _check_writable(plans: list[RolePlan], found: Mapping[str, discovery.Discovery]) -> None:
+    """Fails before any write when a chosen model cannot be pinned."""
+    listed = {m.name for d in found.values() for m in d.models if m.digest}
+    for rp in plans:
+        if rp.model is None:
+            continue
+        if rp.model.kind == "gguf" and not Path(rp.model.path).is_file():
+            raise ManifestError(f"{rp.model.path} is not a file")
+        if rp.model.kind == "ollama" and rp.model.name not in listed and f"{rp.model.name}:latest" not in listed:
+            raise ManifestError(f"Ollama does not list {rp.model.name} with a digest; pull it first")
+
+
+def _read_bytes(path: Path) -> bytes | None:
+    return path.read_bytes() if path.exists() else None
+
+
+def _put_back(path: Path, data: bytes | None) -> None:
+    if data is None:
+        path.unlink(missing_ok=True)
+    else:
+        files.write_atomic(path, data)
+
+
 def apply(plans: list[RolePlan], found: Mapping[str, discovery.Discovery]) -> list[str]:
-    """Pins the models, writes the tuned mode and the config; returns what it did, line by line."""
+    """Pins the models, writes the tuned mode and the config; returns what it did, line by line.
+
+    Everything is planned and validated first (the new TOML must load, every model must be
+    pinnable). The writes then run pins, mode, config in that order; if one fails, the manifest
+    and the mode file go back to what they were and `ApplyError` says so. The config is written
+    last, so a failure never leaves roles that point at models that are not pinned.
+    """
     target = paths.config_file()
     old = target.read_text(encoding="utf-8") if target.exists() else ""
     wiring = wire(plans, tomllib.loads(old) if old.strip() else {})
     new = edit_config(old, plans, wiring)  # validates the TOML before anything is written
-    done = pin(plans, found, manifest_store())
-    if wiring.presets:
-        done.append(f"wrote {tunedmode.write(wiring.presets, paths.config_dir() / 'modes')}")
-    backup = confmigrate.apply(target, new)
+    with tempfile.TemporaryDirectory(prefix="hal-apply-") as scratch:
+        probe = Path(scratch) / "config.toml"
+        probe.write_text(new, encoding="utf-8")
+        modelconf.load_roles(probe)
+        modelconf.load_sources(probe)
+    _check_writable(plans, found)
+    store = manifest_store()
+    mode_file = paths.config_dir() / "modes" / f"{tunedmode.MODE_NAME}.ini"
+    saved = {store.manifest: _read_bytes(store.manifest), mode_file: _read_bytes(mode_file)}
+    done: list[str] = []
+    try:
+        done = pin(plans, found, store)
+        if wiring.presets:
+            done.append(f"wrote {tunedmode.write(wiring.presets, mode_file.parent)}")
+        backup = confmigrate.apply(target, new)
+    except plain_errors() as exc:
+        changed = [p for p, data in saved.items() if _read_bytes(p) != data]
+        for path, data in saved.items():
+            _put_back(path, data)
+        undone = f"; rolled back the pins and files this run added ({len(changed)})" if changed else ""
+        raise ApplyError(f"nothing was written ({exc}){undone}") from exc
     done.append(f"wrote {target}" + (f" (backup {backup.name})" if old else ""))
     return [*done, *wiring.notes]
 

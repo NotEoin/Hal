@@ -298,3 +298,26 @@ def test_the_text_plan_shows_hardware_numbers_and_the_write_hint(home, ollama, h
     out = capsys.readouterr().out
     assert "RTX 4090 24564 MiB (24000 free)" in out and "local/gemma:12b" in out
     assert "budget" in out and "Run again with --write" in out
+
+
+def test_a_failed_pin_rolls_back_earlier_pins_and_writes_no_config(home, ollama, tmp_path, hw_file, capsys, monkeypatch):
+    # regression: `--write` pinned the Ollama models, then failed on a GGUF file and left them pinned
+    models = tmp_path / "gguf"
+    models.mkdir()
+    write_gguf(models / "coder-Q4_K_M.gguf", llama_like(), pad_to=3 * MIB)
+    home.config.write_text(
+        f'[models.sources.local]\nkind = "ollama"\nurl = "{ollama.url}"\n[models.sources.weights]\nkind = "gguf"\npath = "{models}"\n'
+    )
+    before = home.config.read_text()
+
+    def refuse(store, path, **kwargs):
+        raise modelplan.ManifestError("disk full")
+
+    monkeypatch.setattr(modelplan.gwmodels, "add_local", refuse)
+    status = tune.main(["--auto", "--write", "--role", "chat", "--role", "code", "--hardware", hw_file(CARD_24GB)])
+    err = capsys.readouterr().err
+    assert status == tune.EXIT_ERROR
+    assert "nothing was written" in err and "disk full" in err and "rolled back" in err
+    assert home.config.read_text() == before
+    assert not (home.config.parent / "models.toml").exists()
+    assert not list(home.config.parent.glob("config.toml.bak.*"))

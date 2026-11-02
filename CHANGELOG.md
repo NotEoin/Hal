@@ -9,6 +9,7 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `hal tune --write` and `hal models assign` write all or nothing: a failed pin rolls back the pins of that run.
 - `hal tune` detects the hardware, reads the models of your sources and plans context, KV cache type and
   GPU layers per role; `--write` pins the models, saves the roles and the gateway wiring and generates the
   llama.cpp mode `tuned`. `hal models` lists sources and models, adds or removes a source, and assigns a role.

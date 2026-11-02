@@ -605,6 +605,10 @@ wraps it.
   layers per role, and change nothing without `--write`; `--write` MUST pin each chosen model and
   back up the config. Test: unit `test_without_write_nothing_is_changed`,
   `test_write_saves_roles_pins_digests_and_names_the_models_for_the_gateway`.
+- **REQ-CLI-115** (MUST) A write (`hal tune --write`, `hal models assign`, the tune screen) MUST plan
+  and validate everything first (the new config must load, every model must be pinnable). If a pin,
+  the mode file or the config write then fails, it MUST restore the manifest and the mode file and
+  report that nothing was written. Test: unit `test_a_failed_pin_rolls_back_earlier_pins_and_writes_no_config`.
 - **REQ-CLI-113** (MUST) `hal configure` MUST NOT name or pull a model; it MUST accept `--profile
   max|24gb|12gb|cloud` as a preset for `[models] context_cap` and `kv_type` with a deprecation
   note, and print the `hal tune` plan. Test: unit
