@@ -62,8 +62,14 @@ def brain() -> dict:
     return {**BRAIN, **load().get("brain", {})}
 
 
+def state_path() -> Path:
+    """The state folder, not created: readers use it so a dry run writes nothing."""
+    return Path(os.environ.get("HAL_STATE", "~/.local/state/hal")).expanduser()
+
+
 def state_dir() -> Path:
-    path = Path(os.environ.get("HAL_STATE", "~/.local/state/hal")).expanduser()
+    """The state folder, created when missing."""
+    path = state_path()
     path.mkdir(parents=True, exist_ok=True)
     return path
 

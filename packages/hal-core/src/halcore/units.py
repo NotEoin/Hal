@@ -42,7 +42,7 @@ DEFAULT_PYTHON = "/usr/bin/python3"  # modules outside any pack have no environm
 
 
 def _record() -> Path:
-    return config.state_dir() / "units.json"
+    return config.state_path() / "units.json"
 
 
 def installed() -> dict[str, str]:
@@ -54,6 +54,7 @@ def installed() -> dict[str, str]:
 
 
 def _save(units: dict[str, str]) -> None:
+    config.state_dir()
     _record().write_text(json.dumps(units, indent=1, sort_keys=True))
 
 

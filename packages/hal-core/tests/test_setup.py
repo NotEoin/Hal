@@ -65,6 +65,18 @@ def test_dry_run_prints_every_step_and_runs_none(world, capsys):
     assert any(line.startswith("[plan] pack memory") for line in lines)
 
 
+def test_dry_run_with_units_creates_no_file_or_folder(world, tmp_path, monkeypatch):
+    # Regression: reading the unit record in a dry run created the state folder.
+    sibs, _ = world
+    monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "config.toml"))
+    monkeypatch.setattr(hsetup.migrate, "DEFAULT_SOURCE", tmp_path / "hal-ecosystem")
+    monkeypatch.setattr(units, "UNIT_DIR", tmp_path / "units")
+    monkeypatch.setattr(hsetup.shutil, "which", lambda name: "/usr/bin/" + name if name == "systemctl" else None)
+    before = sorted(tmp_path.rglob("*"))
+    hsetup.execute(hsetup.plan([sibs], enable=False, image=False), dry_run=True, out=lambda _line: None)
+    assert sorted(tmp_path.rglob("*")) == before
+
+
 def test_installed_packs_are_skipped_on_a_second_run(world, monkeypatch):
     sibs, _ = world
     monkeypatch.setattr(hsetup.packs, "read_record", lambda: {"packs": {"memory": {}, "voice": {}}})
