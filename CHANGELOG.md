@@ -9,6 +9,8 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `halkit.hardware` detects GPUs (`nvidia-smi`, `amd-smi`, `rocm-smi`), RAM, CPU threads and WSL2 for
+  model tuning; it never raises and every subprocess has a timeout.
 - `hal doctor` warns when a unit renders outside the registered packs or runs a missing program;
   `docs/howto/move-from-hal-ecosystem.md` documents `hal-hub mcp` for the vault MCP client.
 - With `--migrate-from PATH` or `[migrate].source`, `hal setup` applies the config part of `hal migrate ecosystem`
