@@ -11,9 +11,9 @@ First release of the monorepo (uv workspace on branch `next`).
 
 - `hal doctor` warns when a unit renders outside the registered packs or runs a missing program;
   `docs/howto/move-from-hal-ecosystem.md` documents `hal-hub mcp` for the vault MCP client.
-- `hal setup` applies the config part of `hal migrate ecosystem` and, with `--replace`, drops
-  `[hub].module_paths` entries inside hal-ecosystem (journaled); `--dry-run` prints each unit's
-  `ExecStart`.
+- When hal-ecosystem is present, `hal setup` applies the config part of `hal migrate ecosystem`
+  and, with `--replace`, drops `[hub].module_paths` entries inside hal-ecosystem (journaled);
+  `--dry-run` prints each unit's `ExecStart`.
 - `hal setup` finds the employment helper through `[jobs].jobhunt_root` and creates or narrows
   the sandbox state folder to 0700, so the doctor no longer fails on a 0775 folder.
 - Units render from the registered packs: `@ROOT@` is the pack's folder and `@PYTHON@` the

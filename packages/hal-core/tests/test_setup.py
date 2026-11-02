@@ -189,8 +189,17 @@ def _cfg(tmp_path, monkeypatch, body):
     cfg.write_text(body)
     monkeypatch.setenv("HAL_CONFIG", str(cfg))
     monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "state"))
+    (tmp_path / "hal-ecosystem").mkdir(exist_ok=True)
     monkeypatch.setattr(hsetup.migrate, "DEFAULT_SOURCE", tmp_path / "hal-ecosystem")
     return cfg
+
+
+def test_config_migrate_writes_nothing_without_an_old_install(tmp_path, monkeypatch):
+    # Regression: a fresh install got the old layout's `[jobs].jobhunt_root` written into its config.
+    _cfg(tmp_path, monkeypatch, '[hub]\nmodule_paths = []\n')
+    (tmp_path / "hal-ecosystem").rmdir()
+    step = hsetup._config_step(replace=True)
+    assert step.skip.startswith("no hal-ecosystem install") and step.run is None
 
 
 def test_module_paths_into_the_old_ecosystem_are_dropped_only_with_replace(tmp_path, monkeypatch):

@@ -137,6 +137,9 @@ def _config_step(replace: bool) -> Step:
     """The config part of `hal migrate ecosystem`; entries that point into the old tree need `--replace`."""
     source = migrate.DEFAULT_SOURCE
     cfg = paths.config_file()
+    if not source.is_dir():
+        # A fresh install must not get the old layout's tables (`[jobs].jobhunt_root` and so on)
+        return Step("config migrate", str(cfg), skip=f"no hal-ecosystem install at {source}")
     try:
         plan = migrate.config_plan(source, cfg)
     except migrate.MigrateError as exc:
