@@ -14,6 +14,7 @@ from hubkit import ScriptedApprover, SpyRunner, answer
 
 from halhub.audit import tail
 from halhub.classifier import (
+    GUARDIAN_CRITERIA,
     PARANOIA_LEVELS,
     RISKS,
     TABLE,
@@ -22,8 +23,10 @@ from halhub.classifier import (
     ClassifyRequest,
     effective_paranoia,
     floor_from_env,
+    guardian_messages,
     parse_answer,
     rules,
+    yes_probability,
 )
 from halhub.policy.model import ClassifierSettings, ParamSpec, Taint, Tier, ToolMeta, Verdict
 
@@ -128,6 +131,103 @@ def test_classify_reads_true_sends_an_unflagged_read_to_the_model():
     chat = Chat(reply("medium"))
     c = classifier(chat=chat).classify(req())
     assert c.risk == "medium" and len(chat.calls) == 1
+
+
+# -- the guardian format --
+
+
+def lp(token: str, *alts: tuple[str, float]) -> dict:
+    return {"token": token, "logprob": 0.0, "top_logprobs": [{"token": t, "logprob": v} for t, v in alts]}
+
+
+def yes_logprobs(p_yes: float) -> list[dict]:
+    """Token logprobs of `<score> yes </score>` with `p_yes` on the yes/no token."""
+    import math
+
+    alts = [(" yes", math.log(p_yes)), (" no", math.log(1 - p_yes))] if 0 < p_yes < 1 else [(" yes", 0.0)]
+    return [lp("<"), lp("score"), lp(">"), lp(" yes", *alts), lp(" </"), lp("score"), lp(">")]
+
+
+def guardian(chat=None, **over) -> Classifier:
+    settings = ClassifierSettings(model="ollama/g", timeout_s=9, classify_reads=True, model_format="guardian")
+    from dataclasses import replace
+
+    return Classifier(replace(settings, **over), chat)
+
+
+@pytest.mark.parametrize(
+    ("p_yes", "risk"),
+    [
+        (0.004, "low"),
+        (0.199, "low"),
+        (0.2, "medium"),
+        (0.45, "medium"),
+        (0.5, "high"),
+        (0.89, "high"),
+        (0.9, "critical"),
+    ],
+)
+def test_guardian_probability_maps_to_the_risk_band(p_yes, risk):
+    chat = Chat(("<score> yes </score>", yes_logprobs(p_yes)))
+    c = guardian(chat).classify(req())
+    assert c.risk == risk and c.reason == f"guardian p(yes)={p_yes:.2f}" and c.error is None
+
+
+def test_guardian_asks_for_logprobs_with_few_tokens_and_the_granite_message_layout():
+    chat = Chat(("<score> no </score>", yes_logprobs(0.01)))
+    guardian(chat).classify(req({"text": "hi\x1b[31m"}))
+    _, msgs, kwargs = chat.calls[0]
+    assert kwargs["logprobs"] is True and kwargs["max_tokens"] == 16
+    assert [m["role"] for m in msgs] == ["user", "assistant", "user"]
+    assert msgs[0]["content"] == "say hi"
+    assert (
+        msgs[1]["content"].startswith("Tool call: demo_echo(") and 'trust="untrusted"' in msgs[1]["content"]
+    )
+    assert "\nTool: tier " in msgs[1]["content"] and "Session taint: " in msgs[1]["content"]
+    assert "\x1b" not in msgs[1]["content"]
+    assert msgs[2]["content"].startswith("<guardian>/no_think\n### Criteria: " + GUARDIAN_CRITERIA)
+    assert msgs[2]["content"].endswith("return 'yes'; otherwise, return 'no'.")
+
+
+def test_guardian_sums_every_spelling_of_yes_in_the_top_alternatives():
+    logprobs = [lp("<"), lp(" yes", ("yes", -1.6094), (" Yes", -1.6094), (" no", -0.5))]
+    assert yes_probability(logprobs) == pytest.approx(0.4, abs=1e-3)
+
+
+@pytest.mark.parametrize(("text", "risk"), [("<score> yes </score>", "high"), ("<score> no </score>", "low")])
+def test_guardian_without_logprobs_uses_the_score_text(text, risk):
+    for reply_ in (text, (text, [])):
+        c = guardian(Chat(reply_)).classify(req())
+        assert c.risk == risk and c.error is None and "no logprobs" in c.reason
+
+
+@pytest.mark.parametrize(
+    "bad", ["", "maybe", "yes", "<score> perhaps </score>", ("junk", []), None, ("x", "y")]
+)
+def test_a_garbage_guardian_answer_fails_closed_to_high(bad):
+    c = guardian(Chat(bad)).classify(req())
+    assert c.risk == "high" and c.error
+
+
+def test_a_guardian_timeout_fails_closed_to_high():
+    c = guardian(Chat(TimeoutError("slow"))).classify(req())
+    assert c.risk == "high" and c.error == "classifier error: TimeoutError"
+
+
+def test_guardian_cannot_lower_what_the_rules_found():
+    chat = Chat(("<score> no </score>", yes_logprobs(0.001)))
+    assert guardian(chat).classify(req({"text": "sudo ls"})).risk == "high"
+
+
+def test_guardian_messages_cut_a_long_user_message():
+    long = req(message="x" * 5000)
+    assert len(guardian_messages(long)[0]["content"]) < 5000
+
+
+def test_json_mode_is_unchanged_and_never_asks_for_logprobs():
+    chat = Chat(reply("medium", "ok"))
+    c = classifier(chat=chat).classify(req())
+    assert c.risk == "medium" and "logprobs" not in chat.calls[0][2]
 
 
 # -- the model --
@@ -438,3 +538,47 @@ def test_a_payload_over_the_scan_cap_fails_closed_as_high():
 
     got, labels = rules(req({"text": ["x" * 1000] * (MAX_SCAN_CHARS // 1000 + 2)}))
     assert got == "high" and "args-too-large-to-scan" in labels
+
+
+# -- [policy] guardian settings --
+
+
+def load_policy_text(hal_home, body: str):
+    from halhub import policy
+
+    hal_home.policy.write_text("schema_version = 1\n[policy]\n" + body)
+    return policy.load_policy(hal_home.policy).classifier
+
+
+def test_policy_defaults_keep_json_mode_and_the_documented_guardian_bounds(hal_home):
+    c = load_policy_text(hal_home, "")
+    assert (c.model_format, c.classify_reads, c.gpu) == ("json", False, True)
+    assert (c.guardian_medium, c.guardian_high, c.guardian_critical) == (0.2, 0.5, 0.9)
+
+
+def test_policy_toml_reads_the_guardian_example(hal_home):
+    c = load_policy_text(
+        hal_home, 'model = "ollama/granite4.1-guardian:8b"\nmodel_format = "guardian"\ngpu = false\n'
+    )
+    assert (c.model, c.model_format, c.gpu) == ("ollama/granite4.1-guardian:8b", "guardian", False)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        'model_format = "xml"',
+        "guardian_medium = 0",
+        "guardian_high = 1.5",
+        "guardian_critical = -0.1",
+        'guardian_high = "0.5"',
+        "guardian_high = true",
+        "guardian_medium = 0.6",
+        "guardian_critical = 0.4",
+        "gpu = 1",
+    ],
+)
+def test_a_bad_guardian_setting_in_policy_toml_is_refused(hal_home, body):
+    from halhub import policy
+
+    with pytest.raises(policy.ConfigError):
+        load_policy_text(hal_home, body + "\n")

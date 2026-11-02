@@ -73,21 +73,27 @@ class OllamaBackend(OpenAIBackend):
         native = {"model": body["model"], "messages": body.get("messages") or [], "stream": False}
         if native_options:
             native["options"] = native_options
+        if body.get("logprobs"):
+            # Ollama 0.12.11 and later take these on /api/chat and answer with `logprobs`
+            native["logprobs"] = True
+            native["top_logprobs"] = int(body.get("top_logprobs") or 0)
         reply = relay.call_json(self, "POST", "/api/chat", native, timeout_s=timeout_s)
         message = reply.get("message") if isinstance(reply, dict) else None
         if not isinstance(message, dict):
             raise BadGatewayError(f"backend {self.name} sent no message for /api/chat")
         prompt, completion = int(reply.get("prompt_eval_count") or 0), int(reply.get("eval_count") or 0)
+        choice: dict = {  # type: ignore[type-arg]
+            "index": 0,
+            "message": {"role": "assistant", "content": str(message.get("content", ""))},
+            "finish_reason": "length" if reply.get("done_reason") == "length" else "stop",
+        }
+        native_logprobs = reply.get("logprobs")
+        if isinstance(native_logprobs, list):
+            choice["logprobs"] = {"content": native_logprobs}  # same entry shape as the OpenAI route
         return {
             "object": "chat.completion",
             "model": body["model"],
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": str(message.get("content", ""))},
-                    "finish_reason": "length" if reply.get("done_reason") == "length" else "stop",
-                }
-            ],
+            "choices": [choice],
             "usage": {
                 "prompt_tokens": prompt,
                 "completion_tokens": completion,

@@ -78,3 +78,16 @@ def test_gateway_chat_asks_for_cpu_when_the_gpu_is_busy(home, monkeypatch, tmp_p
         server.script("ok")
         gatewaychat.gateway_chat("hal-fast", [], temperature=0, max_tokens=5, timeout_s=5)
     assert server.requests[0]["body"]["options"] == {"num_gpu": 0}
+
+
+def test_gateway_chat_returns_text_and_logprobs_when_asked(home):
+    from halkit.testing import Reply
+
+    entries = [{"token": " yes", "logprob": -0.2, "top_logprobs": []}]
+    with FakeModelServer(home.runtime / "gateway.sock") as server:
+        server.script(Reply(text="yes", logprobs=entries))
+        got = gatewaychat.gateway_chat(
+            "m", [{"role": "user", "content": "q"}], temperature=0, max_tokens=16, timeout_s=5, logprobs=True
+        )
+    body = server.requests[0]["body"]
+    assert got == ("yes", entries) and body["logprobs"] is True and body["top_logprobs"] == 5

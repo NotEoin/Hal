@@ -73,6 +73,9 @@ _TOP_KEYS = frozenset(
 # (type, check) per key; a check returns an error message or None. Ranges are 01's schema comments.
 
 
+GUARDIAN_BOUNDS = ("guardian_medium", "guardian_high", "guardian_critical")
+
+
 def _range(low: float, high: float) -> Callable[[object], str | None]:
     return lambda v: None if low <= v <= high else f"must be between {low} and {high}"
 
@@ -83,6 +86,11 @@ def _choice(*options: str) -> Callable[[object], str | None]:
 
 def _positive(v: object) -> str | None:
     return None if isinstance(v, int) and v > 0 else "must be a positive integer"
+
+
+def _probability(v: object) -> str | None:
+    ok = isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v <= 1
+    return None if ok else "must be a number above 0 and at most 1"
 
 
 _Spec = Mapping[str, tuple[type | tuple[type, ...], Callable[[object], str | None] | None]]
@@ -122,6 +130,11 @@ _SECTIONS: Mapping[str, _Spec] = {
         "model": (str, None),
         "timeout_s": (int, _positive),
         "classify_reads": (bool, None),
+        "model_format": (str, _choice("json", "guardian")),
+        "guardian_critical": ((int, float), _probability),
+        "guardian_high": ((int, float), _probability),
+        "guardian_medium": ((int, float), _probability),
+        "gpu": (bool, None),
     },
     "paths": {"read_roots": (list, None), "write_roots": (list, None), "deny": (list, None)},
     "egress": {
@@ -250,10 +263,21 @@ class _Loader:
                 value = self.domains(value, dotted)
             elif isinstance(value, list):
                 value = self.str_list(value, dotted)
-            elif section == "guard" and key == "threshold":
+            elif (section == "guard" and key == "threshold") or key.startswith("guardian_"):
                 value = float(value)
             values[key] = value
+        if section == "policy":
+            self.guardian_order(values)
         return _SETTINGS_TYPES[section](**values)
+
+    def guardian_order(self, values: Mapping[str, object]) -> None:
+        """Refuses guardian bounds that are not `medium <= high <= critical`."""
+        defaults = ClassifierSettings()
+        bounds = [float(values.get(k, getattr(defaults, k))) for k in GUARDIAN_BOUNDS]  # type: ignore[arg-type]
+        if bounds != sorted(bounds):
+            raise self.fail(
+                "must satisfy guardian_medium <= guardian_high <= guardian_critical", "policy.guardian_high"
+            )
 
     def rules(self, value: object, key: str, allowed: frozenset[str]) -> dict[str, Rule]:
         rules: dict[str, Rule] = {}

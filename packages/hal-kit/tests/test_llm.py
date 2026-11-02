@@ -115,3 +115,26 @@ def test_chat_sends_ollama_options_only_when_given(home):
         llm.chat(MESSAGES, timeout=5)
     assert server.requests[0]["body"]["options"] == {"num_gpu": 0}
     assert "options" not in server.requests[1]["body"]
+
+
+def test_chat_logprobs_asks_for_logprobs_and_returns_the_token_entries(home):
+    entries = [{"token": "yes", "logprob": -0.1, "top_logprobs": [{"token": "yes", "logprob": -0.1}]}]
+    with FakeModelServer(home.runtime / "gateway.sock") as server:
+        server.script(Reply(text="yes", logprobs=entries))
+        text, got = llm.chat_logprobs(MESSAGES, timeout=5, top_logprobs=5)
+    body = server.requests[0]["body"]
+    assert (text, got) == ("yes", entries)
+    assert (body["logprobs"], body["top_logprobs"]) == (True, 5)
+
+
+def test_chat_logprobs_returns_an_empty_list_when_the_backend_sent_none(home):
+    with FakeModelServer(home.runtime / "gateway.sock") as server:
+        server.script("no")
+        assert llm.chat_logprobs(MESSAGES, timeout=5) == ("no", [])
+
+
+def test_plain_chat_never_asks_for_logprobs(home):
+    with FakeModelServer(home.runtime / "gateway.sock") as server:
+        server.script("a")
+        llm.chat(MESSAGES, timeout=5)
+    assert "logprobs" not in server.requests[0]["body"]

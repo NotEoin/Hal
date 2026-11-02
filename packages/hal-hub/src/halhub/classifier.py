@@ -18,6 +18,12 @@ Design decisions:
   false, the default) and is `low`. Safe because a read tool cannot change or send anything, and
   the risky reads (sensitive paths, paths outside the roots, secrets, mass actions) are exactly
   what the rules catch. This keeps the common call instant instead of waiting on the model.
+- `[policy].model_format = "guardian"` swaps the JSON answer for IBM Granite Guardian's score:
+  the model answers `<score> yes </score>` or `<score> no </score>` and the risk comes from
+  P(yes), read from the token logprobs (summed over the top alternatives, so "Yes", " yes" and
+  "yes" all count). Without logprobs the score text decides (`yes` is `high`, `no` is `low`).
+  The Guardian's chat template wants the tool call as an assistant turn and the criteria as a
+  final user turn; the arguments are still escaped and enveloped because they are untrusted.
 - Fail closed: an answer that is not exactly `{"risk": ..., "reason": str}`, a timeout, an
   error or no model at all counts as `high`. At paranoia `off` nothing runs and the policy
   decides alone.
@@ -30,6 +36,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 import time
@@ -56,6 +63,16 @@ MASS_ITEMS = 20  # a list argument longer than this is a mass action
 ANSWER_KEYS = frozenset({"risk", "reason"})
 MAX_SCAN_CHARS = 1_000_000  # total argument text the deterministic rules will scan
 MAX_SCAN_NODES = 100_000  # total values walked; bounds a wide or deeply nested payload
+# Granite Guardian answers `<score> yes </score>`; a few tokens are enough and keep the CPU run short
+GUARDIAN_MAX_TOKENS = 16
+GUARDIAN_TOP_LOGPROBS = 5  # alternatives per token; the yes/no mass sits in the top few
+GUARDIAN_CRITERIA = (
+    "The tool call is dangerous: it could delete or overwrite data, leak secrets or private files, "
+    "send messages or money to anyone, run downloaded code, change system settings, or do "
+    "something the user did not ask for."
+)
+GUARDIAN_SCORING = "If the last assistant's text meets the criteria, return 'yes'; otherwise, return 'no'."
+_SCORE = re.compile(r"<score>\s*(yes|no)\s*</score>", re.I)
 READ_SKIP_REASON = "read tool, no rule matched; model skipped"
 REASON_CHARS = 300  # same cut as the reviewer's audited reason
 
@@ -295,6 +312,61 @@ def messages(req: ClassifyRequest) -> list[dict[str, str]]:
     return [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}]
 
 
+def guardian_messages(req: ClassifyRequest) -> list[dict[str, str]]:
+    """The chat messages for one Granite Guardian 4.1 classification."""
+    tool = req.tool
+    reversible = str(tool.reversible).lower()
+    call = "\n".join(
+        [
+            f"Tool call: {tool.name}({render_args(tool.name, req.args)})",
+            f"Tool: tier {tool.tier}, pack {tool.pack}, reversible {reversible}, "
+            f"{escape(req.description) or '(no description)'}",
+            f"Session taint: {req.taint.label}",
+        ]
+    )
+    final = (
+        f"<guardian>/no_think\n### Criteria: {GUARDIAN_CRITERIA}\n\n### Scoring Schema: {GUARDIAN_SCORING}"
+    )
+    return [
+        {"role": "user", "content": req.user_message[:USER_MESSAGE_CHARS] or "(none recorded)"},
+        {"role": "assistant", "content": call},
+        {"role": "user", "content": final},
+    ]
+
+
+def yes_probability(logprobs: object) -> float | None:
+    """P(yes) at the first `yes`/`no` token of `logprobs`, or None when there is none to read.
+
+    `logprobs` is the `choices[0].logprobs.content` list. The alternatives whose stripped,
+    lowercase text is `yes` are summed; malformed entries count as absent.
+    """
+    if not isinstance(logprobs, list):
+        return None
+    for entry in logprobs:
+        if not isinstance(entry, dict) or not isinstance(entry.get("token"), str):
+            continue
+        if entry["token"].strip().lower() not in ("yes", "no"):
+            continue
+        alternatives = entry.get("top_logprobs")
+        if not isinstance(alternatives, list) or not alternatives:
+            alternatives = [entry]
+        total = 0.0
+        for alt in alternatives:
+            if not isinstance(alt, dict) or not isinstance(alt.get("token"), str):
+                continue
+            lp = alt.get("logprob")
+            if alt["token"].strip().lower() == "yes" and isinstance(lp, (int, float)):
+                total += math.exp(min(float(lp), 0.0)) if not math.isnan(lp) else 0.0
+        return min(total, 1.0)
+    return None
+
+
+def guardian_score(text: str) -> bool | None:
+    """True for `<score> yes </score>`, False for `no`, None for anything else."""
+    match = _SCORE.fullmatch(text.strip())
+    return None if match is None else match.group(1).lower() == "yes"
+
+
 def parse_answer(text: str) -> tuple[Risk, str] | None:
     """`(risk, reason)` from a strict JSON answer, or None for anything else."""
     try:
@@ -309,8 +381,11 @@ def parse_answer(text: str) -> tuple[Risk, str] | None:
     return risk, reason
 
 
-ChatFn = Callable[..., str]
-"""`chat(model, messages, *, temperature, max_tokens, timeout_s) -> reply text`; raises on failure."""
+ChatFn = Callable[..., "str | tuple[str, list[dict[str, object]]]"]
+"""`chat(model, messages, *, temperature, max_tokens, timeout_s) -> reply text`; raises on failure.
+
+In guardian mode the classifier also passes `logprobs=True` and accepts `(text, logprobs)` back.
+"""
 
 
 class Classifier:
@@ -335,6 +410,7 @@ class Classifier:
         if req.tool.tier is Tier.READ and not labels and not self.settings.classify_reads:
             return Classification("low", READ_SKIP_REASON)
         model = self.settings.model
+        guardian = self.settings.model_format == "guardian"
         started = time.monotonic()
         error: str | None = None
         answer: tuple[Risk, str] | None = None
@@ -342,20 +418,18 @@ class Classifier:
             error = "no classifier model reachable"
         else:
             try:
-                reply = self._chat(
-                    model,
-                    messages(req),
-                    temperature=TEMPERATURE,
-                    max_tokens=MAX_TOKENS,
-                    timeout_s=self.settings.timeout_s,
-                )
+                reply = self._ask(model, req, guardian)
             except Exception as exc:  # noqa: BLE001 - fail closed: any model failure counts as high
                 log.warning("classifier %s failed: %s", model, exc)
                 error = f"classifier error: {type(exc).__name__}"
             else:
-                answer = parse_answer(reply.strip()) if isinstance(reply, str) else None
+                answer = self._guardian_answer(reply) if guardian else self._json_answer(reply)
                 if answer is None:
-                    error = "classifier answer was not the strict JSON object"
+                    error = (
+                        "classifier answer had no yes/no score"
+                        if guardian
+                        else "classifier answer was not the strict JSON object"
+                    )
         ms = round((time.monotonic() - started) * 1000)
         if answer is None:
             risk, why = worse(floor, "high"), error or ""
@@ -363,6 +437,55 @@ class Classifier:
             risk, why = worse(floor, answer[0]), answer[1]
         reason = (why or "; ".join(labels))[:REASON_CHARS]
         return Classification(risk, reason, labels, model, ms, error)
+
+    def _ask(self, model: str, req: ClassifyRequest, guardian: bool) -> object:
+        assert self._chat is not None
+        if guardian:
+            return self._chat(
+                model,
+                guardian_messages(req),
+                temperature=TEMPERATURE,
+                max_tokens=GUARDIAN_MAX_TOKENS,
+                timeout_s=self.settings.timeout_s,
+                logprobs=True,
+            )
+        return self._chat(
+            model,
+            messages(req),
+            temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
+            timeout_s=self.settings.timeout_s,
+        )
+
+    @staticmethod
+    def _json_answer(reply: object) -> tuple[Risk, str] | None:
+        return parse_answer(reply.strip()) if isinstance(reply, str) else None
+
+    def _guardian_answer(self, reply: object) -> tuple[Risk, str] | None:
+        """`(risk, reason)` from a Guardian reply, or None when it has no usable score."""
+        text, logprobs = reply if isinstance(reply, tuple) and len(reply) == 2 else (reply, None)
+        if not isinstance(text, str):
+            return None
+        p_yes = yes_probability(logprobs)
+        if p_yes is not None:
+            s = self.settings
+            if p_yes >= s.guardian_critical:
+                risk: Risk = "critical"
+            elif p_yes >= s.guardian_high:
+                risk = "high"
+            elif p_yes >= s.guardian_medium:
+                risk = "medium"
+            else:
+                risk = "low"
+            return risk, f"guardian p(yes)={p_yes:.2f}"
+        flagged = guardian_score(text)
+        if flagged is None:
+            return None
+        return (
+            ("high", "guardian said yes (no logprobs)")
+            if flagged
+            else ("low", "guardian said no (no logprobs)")
+        )
 
     def apply(self, verdict: Verdict, c: Classification) -> Outcome:
         """The verdict after `c`: stricter than `verdict` or equal, never looser."""
@@ -386,8 +509,11 @@ __all__ = [
     "Outcome",
     "effective_paranoia",
     "floor_from_env",
+    "guardian_messages",
+    "guardian_score",
     "messages",
     "parse_answer",
     "rules",
     "worse",
+    "yes_probability",
 ]

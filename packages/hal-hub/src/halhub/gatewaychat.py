@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 
 GPU_LIGHT_TIMEOUT_S = 5  # `gpu-light status` reads a file or one socket call; longer means stuck
 GPU_CHOICE_TTL_S = 10.0  # one classifier verdict per tool call must not fork gpu-light each time
+LOGPROBS_TOP = 5  # alternatives per token; Guardian's yes/no mass sits in the top few
 CPU_OPTIONS: dict[str, object] = {"num_gpu": 0}  # Ollama option: offload no layers to the GPU
 
 _choice: tuple[float, dict[str, object]] = (0.0, {})
@@ -72,11 +73,23 @@ def gateway_chat(
     temperature: float,
     max_tokens: int,
     timeout_s: float,
-) -> str:
+    logprobs: bool = False,
+) -> str | tuple[str, list[dict[str, object]]]:
     """Sends one chat request to the gateway alias `model` (GPU or CPU per `gpu_options`).
 
-    Raises `halkit.llm.GatewayError`.
+    Returns the text, or `(text, token logprobs)` when `logprobs` is true (the Guardian classifier
+    reads P(yes) from them). Raises `halkit.llm.GatewayError`.
     """
+    if logprobs:
+        return llm.chat_logprobs(
+            messages,
+            model=model,
+            timeout=timeout_s,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            options=gpu_options(),
+            top_logprobs=LOGPROBS_TOP,
+        )
     return llm.chat(
         messages,
         model=model,

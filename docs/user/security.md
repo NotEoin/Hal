@@ -61,6 +61,47 @@ roots, secrets, mass actions) are caught by the rules, which still send those to
 other kind of tool always goes to the model. Set `[policy].classify_reads = true` to have the
 model rate every read as well; the default is `false`.
 
+### A purpose-built classifier: IBM Granite Guardian
+
+By default the classifier asks a general model (`hal-fast`) for a JSON answer, which is slow on
+a CPU. `[policy].model_format = "guardian"` instead asks IBM Granite Guardian 4.1 8B on Ollama,
+a model built to judge whether a tool call is dangerous. It answers `<score> yes </score>` or
+`<score> no </score>`, and Hal turns the probability of `yes` (read from the token logprobs) into
+a risk:
+
+| P(yes) at or above | Risk | Setting (default) |
+| --- | --- | --- |
+| 0.9 | `critical` | `guardian_critical` (0.9) |
+| 0.5 | `high` | `guardian_high` (0.5) |
+| 0.2 | `medium` | `guardian_medium` (0.2) |
+| below 0.2 | `low` | |
+
+The bounds must be above 0, at most 1 and ordered (`guardian_medium <= guardian_high <=
+guardian_critical`). The 0.2 floor comes from a local trial on 2026-11-02: two dangerous calls
+scored 0.25 and 0.45, and safe calls scored at most 0.004. If the backend sends no logprobs, the
+score text decides (`yes` is `high`, `no` is `low`). Anything else, or a timeout, counts as
+`high`, as with the JSON format. The audit reason shows the probability, for example
+`guardian p(yes)=0.83`.
+
+```toml
+[policy]
+model = "ollama/granite4.1-guardian:8b"  # backend/model: the gateway sends it to the "ollama" backend
+model_format = "guardian"
+gpu = false                              # always run on the CPU, so it never takes VRAM
+```
+
+- `model` must name the gateway backend and the model, as `ollama/granite4.1-guardian:8b`
+  (`backend/model` is resolved by the gateway, so the model need not be an alias). A bare
+  `granite4.1-guardian:8b` also works when exactly one backend serves it. Pull the model into
+  Ollama yourself; Hal does not.
+- `gpu = false` sends `num_gpu` 0 on every classifier call, whatever `gpu-light` says. The default
+  is `true`: use the GPU while the light is green.
+- On the CPU it takes about 5 to 6 s per call (measured on 2026-11-02 for a 230-token prompt), so
+  the read fast path above matters: most calls skip the model.
+- It is English only. Arguments and messages in other languages are rated less reliably.
+- Ollama needs logprobs support on `/api/chat` (0.12.11 or later); older versions fall back to
+  the score text.
+
 ## Changing a level
 
 Run `hal lockdown` or `hal paranoia` to see the current level and what each level means. Add a

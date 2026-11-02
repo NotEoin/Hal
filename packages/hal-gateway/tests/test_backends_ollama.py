@@ -46,6 +46,8 @@ class FakeOllama(http.server.BaseHTTPRequestHandler):
         FakeOllama.seen.append(("POST", self.path, body))
         if self.path == "/api/chat" and "options" in body:
             reply = {"message": {"role": "assistant", "content": "pong"}, "done_reason": "stop"}
+            if body.get("logprobs"):
+                reply["logprobs"] = [{"token": "yes", "logprob": -0.1, "top_logprobs": []}]
             return self._reply(200, {**reply, "prompt_eval_count": 7, "eval_count": 2})
         self._reply(200, {"ok": True}) if self.path.startswith("/api/") else self._reply(404, {"error": "x"})
 
@@ -233,6 +235,16 @@ def test_chat_options_reach_ollama_through_the_native_route(gateway):
             "options": {"num_gpu": 0, "num_predict": 5},
         },
     )
+
+
+def test_chat_logprobs_ride_the_native_route_and_come_back_in_openai_shape(gateway):
+    body = {"model": "coder", "messages": [{"role": "user", "content": "x"}], "options": {"num_gpu": 0}}
+    resp, raw = call(gateway, "POST", "/v1/chat/completions", {**body, "logprobs": True, "top_logprobs": 5})
+    choice = json.loads(raw)["choices"][0]
+    assert resp.status == 200
+    assert choice["logprobs"]["content"][0]["token"] == "yes"
+    sent = FakeOllama.seen[-1][2]
+    assert (sent["logprobs"], sent["top_logprobs"]) == (True, 5)
 
 
 @pytest.mark.parametrize(

@@ -281,6 +281,16 @@ class ClassifierSettings:
     # False skips the model for a read-tier call that no deterministic rule flagged (the name says
     # "classify reads with the model": the default is the fast path)
     classify_reads: bool = False
+    # "json": the model answers {"risk", "reason"}; "guardian": IBM Granite Guardian's yes/no score
+    model_format: Literal["json", "guardian"] = "json"
+    # guardian only: P(yes) at or above each bound gives that risk; below `guardian_medium` is low.
+    # 0.2 comes from a local trial on 2026-11-02: two dangerous calls scored 0.25 and 0.45, safe
+    # calls scored at most 0.004.
+    guardian_critical: float = 0.9
+    guardian_high: float = 0.5
+    guardian_medium: float = 0.2
+    # False always runs the model on the CPU (`num_gpu` 0), whatever gpu-light says
+    gpu: bool = True
 
 
 DEFAULT_READ_ROOTS = ("~/Documents", "~/Downloads", "~/Desktop", "~/Pictures", "~/Music", "~/Videos")

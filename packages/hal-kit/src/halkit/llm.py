@@ -158,6 +158,37 @@ def _json(resp: http.client.HTTPResponse) -> dict[str, object]:
     return data
 
 
+def _chat_data(
+    messages: Sequence[Mapping[str, object]],
+    *,
+    model: str,
+    timeout: float,
+    max_tokens: int | None,
+    temperature: float | None,
+    options: Mapping[str, object] | None,
+    top_logprobs: int | None,
+) -> dict[str, object]:
+    body: dict[str, object] = {"model": model, "messages": list(messages)}
+    if max_tokens is not None:
+        body["max_tokens"] = max_tokens
+    if temperature is not None:
+        body["temperature"] = temperature
+    if options:
+        body["options"] = dict(options)
+    if top_logprobs is not None:
+        body["logprobs"] = True
+        body["top_logprobs"] = top_logprobs
+    return _json(_post("/v1/chat/completions", body, timeout))
+
+
+def _content(data: dict[str, object]) -> str:
+    try:
+        content = data["choices"][0]["message"]["content"]  # type: ignore[index]  # shape checked by the except
+    except (KeyError, IndexError, TypeError) as exc:
+        raise GatewayError("gateway reply has no choices[0].message.content", 200) from exc
+    return content if isinstance(content, str) else ""
+
+
 def chat(
     messages: Sequence[Mapping[str, object]],
     *,
@@ -172,19 +203,50 @@ def chat(
     `options` is sent as the Ollama `options` object (for example `{"num_gpu": 0}`); the gateway
     drops it for backends that do not take it.
     """
-    body: dict[str, object] = {"model": model, "messages": list(messages)}
-    if max_tokens is not None:
-        body["max_tokens"] = max_tokens
-    if temperature is not None:
-        body["temperature"] = temperature
-    if options:
-        body["options"] = dict(options)
-    data = _json(_post("/v1/chat/completions", body, timeout))
+    data = _chat_data(
+        messages,
+        model=model,
+        timeout=timeout,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        options=options,
+        top_logprobs=None,
+    )
+    return _content(data)
+
+
+def chat_logprobs(
+    messages: Sequence[Mapping[str, object]],
+    *,
+    model: str = "hal-chat",
+    timeout: float,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    options: Mapping[str, object] | None = None,
+    top_logprobs: int = 5,
+) -> tuple[str, list[dict[str, object]]]:
+    """Like `chat`, also returning the token logprobs: `choices[0].logprobs.content` of the reply.
+
+    Each entry has `token`, `logprob` and `top_logprobs` (a list of `{token, logprob}`). The list
+    is empty when the backend sent none, so a caller must cope with that.
+    """
+    data = _chat_data(
+        messages,
+        model=model,
+        timeout=timeout,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        options=options,
+        top_logprobs=top_logprobs,
+    )
+    entries: list[dict[str, object]] = []
     try:
-        content = data["choices"][0]["message"]["content"]  # type: ignore[index]  # shape checked by the except
-    except (KeyError, IndexError, TypeError) as exc:
-        raise GatewayError("gateway reply has no choices[0].message.content", 200) from exc
-    return content if isinstance(content, str) else ""
+        content = data["choices"][0]["logprobs"]["content"]  # type: ignore[index]  # shape checked by the except
+    except (KeyError, IndexError, TypeError):
+        content = None
+    if isinstance(content, list):
+        entries = [e for e in content if isinstance(e, dict)]
+    return _content(data), entries
 
 
 def stream_chat(

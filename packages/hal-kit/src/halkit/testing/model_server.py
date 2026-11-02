@@ -43,6 +43,7 @@ class Reply:
     delay: float = 0.0
     prompt_tokens: int = 10
     completion_tokens: int = 5
+    logprobs: list[dict[str, object]] | None = None  # choices[0].logprobs.content, when set
 
 
 def fake_embedding(text: str) -> list[float]:
@@ -174,11 +175,14 @@ def _chat_body(reply: Reply, model: str) -> dict:
         "completion_tokens": reply.completion_tokens,
         "total_tokens": reply.prompt_tokens + reply.completion_tokens,
     }
+    choice: dict[str, object] = {"index": 0, "message": message, "finish_reason": finish}
+    if reply.logprobs is not None:
+        choice["logprobs"] = {"content": reply.logprobs}
     return {
         "id": "chatcmpl-fake",
         "object": "chat.completion",
         "model": model,
-        "choices": [{"index": 0, "message": message, "finish_reason": finish}],
+        "choices": [choice],
         "usage": usage,
     }
 
