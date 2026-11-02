@@ -7,7 +7,7 @@ client over SSH stdio, and prints the settings each harness needs. The desktop n
 on anything but loopback and sshd; every request still carries a Hal token.
 
 Status: draft 2026-10-23, revised 2026-10-24 to follow
-`~/src/.dev-notes/specs/RESOLUTIONS.md` (binding) and the brief's host facts.
+the design resolutions of 2026-10-23 (binding) and the brief's host facts.
 
 ## Scope and non-goals
 
@@ -167,7 +167,7 @@ job), **manual** (checklist in `docs/dev/remote.md`). Test files live in
 
 - **REQ-RMT-25** In an MCP session with channel `remote`, a policy `ask` MUST be resolved the
   way 01-security defines for host harnesses using `hal-hub mcp` (01-security.md, sections
-  "Approval binding" and "Approval surfaces and protocol"; RESOLUTIONS B1, B2, B4): by MCP
+  "Approval binding" and "Approval surfaces and protocol"; resolution B1, B2, B4): by MCP
   elicitation when the laptop client declares it, else out of band through `hal approve` on
   the desktop; bound to 01's approval key and `apr_` request id; scopes limited to those the
   `remote` profile offers (never "always"); expiring after 01's `approval.timeout_s`. A
@@ -234,14 +234,14 @@ job), **manual** (checklist in `docs/dev/remote.md`). Test files live in
 ### Gateway and desktop exposure
 
 - **REQ-RMT-40** A request through the tunnel without the client's token MUST get 401 from
-  the gateway, and one with a foreign `Host` MUST get 403 (05-gateway, RESOLUTIONS D4).
+  the gateway, and one with a foreign `Host` MUST get 403 (05-gateway, resolution D4).
   Test: sshd (`test_sshd_tunnel.py` against `FakeModelServer` behind a token check) and unit
   (server-check SC17).
 - **REQ-RMT-41** `server-check` MUST fail when any Hal port in 00-overview's ports table
   (8740, 8741, 8742, 8080, 9880, 8737) or Ollama's 11434 listens on a non-loopback address.
   Test: unit (`test_servercheck.py` with fixture `ss` output).
 - **REQ-RMT-46** `authorize` MUST turn on the desktop gateway's loopback TCP listener the way
-  05-gateway defines (`[gateway].tcp`, off by default; RESOLUTIONS D4) when it is off, MUST
+  05-gateway defines (`[gateway].tcp`, off by default; resolution D4) when it is off, MUST
   say so in its output, and MUST NOT change `tcp_host` or `tcp_port`. Test: unit
   (`test_authorize.py` with a fake `hal`).
 - **REQ-RMT-47** The laptop end of the gateway forward MUST use the same port number as the
@@ -263,13 +263,13 @@ job), **manual** (checklist in `docs/dev/remote.md`). Test files live in
 
 - **REQ-RMT-44** After `setup`, a Linux laptop's `hal code` MUST reach models only through the
   tunnel endpoint with the client token, through 05-gateway's client mode (`[gateway].url`
-  plus the client token file; the forwarder targets a TCP URL, RESOLUTIONS D5/D6). Test:
+  plus the client token file; the forwarder targets a TCP URL, resolution D5/D6). Test:
   docker (`tests/e2e/test_flow_remote.py::test_laptop_hal_code_uses_tunnel`, marked `docker`
   and `slow`).
 - **REQ-RMT-45** `setup` SHOULD offer the desktop's tools to laptop sessions by writing a
   `[mcp.servers.hal-<profile>]` entry with `host = true` (03-agent owns the table), which the
   laptop broker runs as an upstream over `ssh -T <mcp alias>` (02-sandbox, "Broker
-  upstreams"; RESOLUTIONS E6). The desktop's policy stays authoritative and its approval
+  upstreams"; resolution E6). The desktop's policy stays authoritative and its approval
   requests are shown by the laptop's host UI, never the box. Test: docker
   (`test_flow_remote.py::test_desktop_tool_through_laptop_broker`).
 
@@ -365,7 +365,7 @@ S/remote/desktop/
 ```
 
 On Windows, `C` and `S` are whatever `halkit.paths.config_dir()` and `state_dir()` return
-there; 00-overview.md (section `halkit.paths`, RESOLUTIONS F6) owns the Windows defaults
+there; 00-overview.md (section `halkit.paths`, resolution F6) owns the Windows defaults
 (runtime dir `%LOCALAPPDATA%\hal\run`, TCP only). The client never needs `runtime_dir()`.
 This spec asks 00 for home-based XDG-style defaults (`%USERPROFILE%\.config\hal`,
 `%USERPROFILE%\.local\state\hal`) so the layout and the docs are the same on both OSes
@@ -481,7 +481,7 @@ with the installed `/usr/sbin/sshd` (OpenSSH_10.2p1 Ubuntu-2ubuntu3.8) for the
   request failed ("remote port forwarding failed for listen path") [verified: the 2026-10-24
   experiment]. `AllowStreamLocalForwarding no` turns off unix-socket forwarding in both
   directions (sshd_config(5)), so it also refuses that request [unverified: the experiment
-  ran `local`, not `no`; the sshd test in the Test plan covers `no`]. Per RESOLUTIONS,
+  ran `local`, not `no`; the sshd test in the Test plan covers `no`]. Per resolution,
   `AllowTcpForwarding local` and `AllowStreamLocalForwarding no` are recommended by
   `server-check` with a warning, not required (SC07, SC08), because they change sshd for the
   user's other keys. The remaining risk (a stolen tunnel key, used from inside the `from=`
@@ -599,7 +599,7 @@ Choices:
 | `gateway` | `[gateway].tcp_port`, 8741 | the same number (REQ-RMT-47) | always |
 
 The laptop uses the same port number for two reasons: the gateway answers 403 to any `Host`
-other than its own `127.0.0.1:<port>` (05-gateway, RESOLUTIONS D4), and `hal connect` output
+other than its own `127.0.0.1:<port>` (05-gateway, resolution D4), and `hal connect` output
 written for the desktop then works unchanged on the laptop. A laptop that already has a
 listener on that port gets a permanent tunnel error from `ExitOnForwardFailure` with a clear
 message. Tools go over MCP on SSH stdio only; the hub's HTTP port 8742 is not forwarded
@@ -879,7 +879,7 @@ WantedBy=default.target
 
 `envout` builds a `halkit.harness` endpoint description and calls the shared renderer that
 `hal connect` uses, so the two commands never drift. 00-overview.md (section "halkit API",
-module `halkit.harness`, RESOLUTIONS C6) owns the types and signatures; `envout` uses them
+module `halkit.harness`, resolution C6) owns the types and signatures; `envout` uses them
 as defined there and adds nothing to them. What this spec needs the endpoint to carry: the
 base URL (`http://127.0.0.1:8741`), the token file path (never the token itself), the model
 names per role alias, an MCP stdio entry (absolute `ssh` path plus
@@ -931,8 +931,8 @@ per-harness formats (Qwen `modelProviders`, opencode `provider` with
 are owned by the shared renderer; each renderer states the harness version it was checked
 against.
 
-`ANTHROPIC_BASE_URL` is the gateway root URL, as for `hal claude` (RESOLUTIONS F7); `hal-code`
-is one of the role aliases the gateway resolves from `[hal].*_model` (RESOLUTIONS D1).
+`ANTHROPIC_BASE_URL` is the gateway root URL, as for `hal claude` (resolution F7); `hal-code`
+is one of the role aliases the gateway resolves from `[hal].*_model` (resolution D1).
 
 `hal remote connect claude -- --resume` checks `status` (exit 4 if the tunnel is down),
 builds `env_vars`, adds `--mcp-config '<json>'` for Claude Code (the flag accepts JSON
@@ -953,8 +953,8 @@ Severity `critical` blocks `authorize`; `warn` and `info` do not. Each check ret
 | SC04 | `KbdInteractiveAuthentication no` | critical | reader (Ubuntu's main file sets `no`) |
 | SC05 | `PermitRootLogin no` or `prohibit-password` | warn | reader |
 | SC06 | `AllowUsers` set and contains the current user | warn | reader |
-| SC07 | `AllowTcpForwarding local` (or `no` with no Hal clients) | warn | reader; recommended, not required: the tunnel key's `permitlisten="127.0.0.1:1"` already refuses TCP `-R`, and this line would also change the user's other keys (RESOLUTIONS) |
-| SC08 | `AllowStreamLocalForwarding no` (recommended; `local` also passes and keeps `-L` to sockets for the user's other keys) | warn | reader; recommended, not required (RESOLUTIONS); without it a stolen tunnel key can bind unix sockets with `-R` [verified: the 2026-10-24 experiment]; the fix text names `host-setup.sh --ssh --ssh-forwarding-limits` |
+| SC07 | `AllowTcpForwarding local` (or `no` with no Hal clients) | warn | reader; recommended, not required: the tunnel key's `permitlisten="127.0.0.1:1"` already refuses TCP `-R`, and this line would also change the user's other keys (the resolutions) |
+| SC08 | `AllowStreamLocalForwarding no` (recommended; `local` also passes and keeps `-L` to sockets for the user's other keys) | warn | reader; recommended, not required (the resolutions); without it a stolen tunnel key can bind unix sockets with `-R` [verified: the 2026-10-24 experiment]; the fix text names `host-setup.sh --ssh --ssh-forwarding-limits` |
 | SC09 | `PermitUserEnvironment no` | critical | reader; `environment=` or `~/.ssh/environment` could inject `LD_PRELOAD` into the forced command |
 | SC10 | `AuthorizedKeysFile` includes `.ssh/authorized_keys` | critical | reader |
 | SC11 | home not group or world writable; `~/.ssh` 0700; `authorized_keys` 0600, owned by the user | critical | `os.stat` (StrictModes would reject the keys otherwise) |
@@ -1027,10 +1027,10 @@ AllowStreamLocalForwarding no
   2026-10-24]; the port keeps the name and adds `PermitUserEnvironment no`. openssh-server
   is already installed and active here, so on this desktop the script only rewrites the
   drop-in, runs `sshd -t` and reloads `ssh`.
-- The forwarding lines are opt-in (RESOLUTIONS): they also stop `ssh -R` for the user's own
+- The forwarding lines are opt-in (the resolutions): they also stop `ssh -R` for the user's own
   unrestricted keys, and hal-employment's own remote feature may use `-R` [unverified: its
   launcher was not read, per the no-touch rule]. The script writes
-  `AllowStreamLocalForwarding no`, the value RESOLUTIONS and 00-overview (Flow 6) name; it
+  `AllowStreamLocalForwarding no`, the value resolution and 00-overview (Flow 6) name; it
   also stops `-L` to unix sockets for the user's own keys. A user who needs those can set
   `local` by hand, which SC08 also accepts and which blocks only remote socket listens
   [verified: the 2026-10-24 experiment refused `-R <path>` with `local`].
@@ -1045,7 +1045,7 @@ remote:<client>`. 04-hub owns the server, the MCP wire format of approvals and t
 "Approvals over MCP"); 01-security owns the `remote` channel profile, the approval data
 model, surfaces and audit (01-security.md, sections "`policy.toml` schema", "Approval
 binding", "Approval surfaces and protocol" and "Audit log"). Because the guard and reviewer
-live in `halhub` (RESOLUTIONS A4), `hal-hub mcp` applies them to remote sessions exactly as
+live in `halhub` (resolution A4), `hal-hub mcp` applies them to remote sessions exactly as
 to local ones. This spec states only what remote use needs from them (REQ-RMT-23, 25, 26):
 
 | Tier | Selected profile `default` | With channel `remote` | Reason |
@@ -1057,7 +1057,7 @@ to local ones. This spec states only what remote use needs from them (REQ-RMT-23
 | `system` | ask (shell: deny) | deny | power, services and process control on a machine the user is not in front of |
 | pack `desktop` | as tier | deny | screen, clipboard and media of a desktop someone else may be using |
 
-How an `ask` is answered (RESOLUTIONS B4):
+How an `ask` is answered (resolution B4):
 
 - When the laptop client declares MCP elicitation, the hub sends the approval request through
   it. The request is rendered by the hub from the canonical arguments and carries 01's
@@ -1090,13 +1090,13 @@ token_file = "/home/me/.config/hal/remote/desktop/gateway-token"
 ```
 
 - These are 05-gateway's client-mode keys (`url`, `token_file`), defined in 05-gateway.md,
-  sections "Client tokens and client mode" and "Configuration" (RESOLUTIONS D5/D6). In
+  sections "Client tokens and client mode" and "Configuration" (resolution D5/D6). In
   client mode `token_file` names the client token, not an owner token.
 - The laptop's model forwarder (05-gateway `SessionForwarder` targeting a TCP URL with the
   client token, started by halcore as 02-sandbox describes) and `halkit.llm` send model calls
   to `url` with the token; the box never sees the token (REQ-SYS-12).
 - With `[remote].desktop_tools = true` (default true when a profile exists), `setup` also
-  writes a user MCP server entry (03-agent owns `[mcp.servers.<name>]`; RESOLUTIONS E6):
+  writes a user MCP server entry (03-agent owns `[mcp.servers.<name>]`; resolution E6):
 
   ```toml
   [mcp.servers.hal-desktop]
@@ -1112,7 +1112,7 @@ token_file = "/home/me/.config/hal/remote/desktop/gateway-token"
   prompts appear in the laptop's host UI (the TUI) and the model in the box can answer
   neither. `setup` prints, as an optional next step, the `hal policy allow` command that lets
   the desktop's policy alone decide for pack `mcp-hal-desktop`; it never writes that rule
-  itself (durable allows come only from the user, RESOLUTIONS B2).
+  itself (durable allows come only from the user, resolution B2).
 
 ### Python interfaces
 
@@ -1324,14 +1324,14 @@ matching implementation step uses a fake.
 
 | Owner | Interface | Used for |
 | --- | --- | --- |
-| 00 (`halkit`) | `halkit.harness`, the renderer shared with `hal connect` (RESOLUTIONS C6; 00-overview.md, section "halkit API") | `env`, `connect` |
-| 00 (`halkit`) | `halkit.paths` on Windows (no `os.getuid` at import; `ensure_private_dir` skips POSIX mode checks; config and state defaults, see Decision D14) and the one runtime-dir rule (RESOLUTIONS F6) | Windows client, `serve` |
-| 05-gateway | named client tokens: `hal gateway token issue`, `revoke` and `list`, persisted hashed, surviving restarts; requests carry the name for audit and gpu-light ownership (RESOLUTIONS D5/D6). This spec calls `issue` with a name and reads the token from its JSON output, `revoke` with the name, `list` for SC19 | per-client tokens (REQ-RMT-10, 11) |
-| 05-gateway | `[gateway].tcp` switch (off by default, RESOLUTIONS D4), 401 without a token and 403 for a foreign `Host` | REQ-RMT-40, 46, 47 |
-| 05-gateway | client mode: `[gateway].url` plus a client token file, honoured by `halkit.llm` and by a `SessionForwarder` that targets a TCP URL (RESOLUTIONS D5/D6) | laptop `hal code` (REQ-RMT-44) |
-| 04-hub | `hal-hub mcp --transport stdio --channel remote --origin remote:<client>`; reads `HAL_REMOTE_ADDR` into the audit record; MCP elicitation and out-of-band approvals for `ask` (RESOLUTIONS F5, B4) | forced command |
-| 01-security | `remote` channel profile meeting REQ-RMT-26; approval key, ids, scopes, surfaces and timeout (RESOLUTIONS B1 to B4); audit fields `remote_addr` and origin `remote:<client>` (B8) | remote policy and approvals |
-| 03-agent | `[mcp.servers.<name>]` with `host = true` (RESOLUTIONS E6) | desktop tools on a laptop (REQ-RMT-45) |
+| 00 (`halkit`) | `halkit.harness`, the renderer shared with `hal connect` (resolution C6; 00-overview.md, section "halkit API") | `env`, `connect` |
+| 00 (`halkit`) | `halkit.paths` on Windows (no `os.getuid` at import; `ensure_private_dir` skips POSIX mode checks; config and state defaults, see Decision D14) and the one runtime-dir rule (resolution F6) | Windows client, `serve` |
+| 05-gateway | named client tokens: `hal gateway token issue`, `revoke` and `list`, persisted hashed, surviving restarts; requests carry the name for audit and gpu-light ownership (resolution D5/D6). This spec calls `issue` with a name and reads the token from its JSON output, `revoke` with the name, `list` for SC19 | per-client tokens (REQ-RMT-10, 11) |
+| 05-gateway | `[gateway].tcp` switch (off by default, resolution D4), 401 without a token and 403 for a foreign `Host` | REQ-RMT-40, 46, 47 |
+| 05-gateway | client mode: `[gateway].url` plus a client token file, honoured by `halkit.llm` and by a `SessionForwarder` that targets a TCP URL (resolution D5/D6) | laptop `hal code` (REQ-RMT-44) |
+| 04-hub | `hal-hub mcp --transport stdio --channel remote --origin remote:<client>`; reads `HAL_REMOTE_ADDR` into the audit record; MCP elicitation and out-of-band approvals for `ask` (resolution F5, B4) | forced command |
+| 01-security | `remote` channel profile meeting REQ-RMT-26; approval key, ids, scopes, surfaces and timeout (resolution B1 to B4); audit fields `remote_addr` and origin `remote:<client>` (B8) | remote policy and approvals |
+| 03-agent | `[mcp.servers.<name>]` with `host = true` (resolution E6) | desktop tools on a laptop (REQ-RMT-45) |
 | 02-sandbox | broker upstreams for `host = true` servers, approval requests from the upstream shown through the session's approver | desktop tools on a laptop (REQ-RMT-45) |
 | 06-core-cli | `hal remote` delegation; `hal policy allow`; `scripts/install.sh` links `hal`, `hal-remote` and `hal-hub` into `~/.local/bin`; `host-setup.sh --ssh` (and `--ssh-forwarding-limits`) with the content from "Host setup"; `hal code` message on Windows | install and CLI |
 
@@ -1350,10 +1350,10 @@ and token.
 | Malicious process on the laptop (same user) | laptop | nothing beyond the stolen-key rows: it can read the keys | documented: the laptop account is trusted like the desktop account; keys have no passphrase (Decision D8) |
 | Other local users or browser pages on the laptop | `127.0.0.1:8741` on the laptop | gateway token, Host and Origin checks (REQ-SYS-10) | none known |
 | Rogue model on the desktop | model output streamed to the laptop | the model only emits tokens; laptop `hal code` runs tools in the laptop box | unsandboxed harnesses on the laptop (`env`, `connect`) run model-chosen commands with laptop privileges, as `hal connect` does on the desktop; labelled "unsandboxed" |
-| Prompt injection through desktop tool output | MCP results | same as local: 01's untrusted-content envelope and, when enabled, the guard and reviewer, which `hal-hub mcp` applies (RESOLUTIONS A4, B11) | as local; with the guard off the defence is `ask` on `act`/`send` plus the domain allowlist (RESOLUTIONS F5) |
+| Prompt injection through desktop tool output | MCP results | same as local: 01's untrusted-content envelope and, when enabled, the guard and reviewer, which `hal-hub mcp` applies (resolution A4, B11) | as local; with the guard off the defence is `ask` on `act`/`send` plus the domain allowlist (resolution F5) |
 | Compromised desktop attacks the laptop | SSH connection back | no agent forwarding, no X11, `ClearAllForwardings`, no `-R` requested by the client, `PermitLocalCommand no` | MCP and model results are untrusted input to the laptop harness |
 | Desktop TCP port squatting via `-R` | tunnel key | `permitlisten="127.0.0.1:1"` (verified); optionally `AllowTcpForwarding local` (SC07) | none known |
-| Desktop unix socket squatting via `-R` (for example a Hal socket path while its service is stopped, to collect tokens or prompts from clients that connect to it) | tunnel key, from inside the `from=` range | `AllowStreamLocalForwarding no` when the user opts in (SC08 warns otherwise; `local` verified to block it, `no` covered by the sshd test); `from=`; revoke | without the opt-in line: open, accepted by RESOLUTIONS as a warning; see Decision D7 |
+| Desktop unix socket squatting via `-R` (for example a Hal socket path while its service is stopped, to collect tokens or prompts from clients that connect to it) | tunnel key, from inside the `from=` range | `AllowStreamLocalForwarding no` when the user opts in (SC08 warns otherwise; `local` verified to block it, `no` covered by the sshd test); `from=`; revoke | without the opt-in line: open, accepted by resolution as a warning; see Decision D7 |
 | Unix socket access via `-L` (docker.sock, session bus, broker sockets) | tunnel key | `permitopen` refuses socket targets (verified) | none known |
 | Forced command bypass through env or rc files | sshd session | `restrict` (no `~/.ssh/rc`), `PermitUserEnvironment no`, SC15 for `/etc/ssh/sshrc`, minimal env in `serve` | a user rc file that misbehaves for non-interactive shells: SC14 |
 | Replay or swap of an approval | MCP retry | 01's approval key over pack, tool and canonical arguments, `apr_` ids, scopes and timeout (REQ-RMT-25) | an unsandboxed laptop harness or a malicious laptop client can approve its own requests (advisory approvals, 01 residual risk R-new-4) |
@@ -1365,8 +1365,7 @@ and token.
 `docs/howto/use-hal-away-from-home.md` describes, without code in `hal-remote`, running the
 same pairing over a Tailscale tailnet:
 
-1. Install Tailscale on both machines (not installed on this desktop today [verified:
-   understand/critic.md V6]).
+1. Install Tailscale on both machines (not installed on this desktop today (measured during development, 2026-10)).
 2. Pair with the desktop's tailnet name or address: `hal remote setup user@desk.<tailnet>`.
    The `from=` derivation gives the laptop's tailnet address as `/32` (100.64.0.0/10 row of
    "from= derivation"); everything else (restricted keys, forced command, tunnel, tokens)
@@ -1388,7 +1387,7 @@ Stance per layer: **closed** means the action does not happen.
 | --- | --- | --- | --- |
 | sshd | not installed or not running | `server-check` SC01/SC02 fail; `setup` reports "Connection refused" with the host-setup command | Closed |
 | sshd | password login still on | SC03 critical; `authorize` refuses unless `--accept-risk SC03` | Closed |
-| sshd | `AllowTcpForwarding` or `AllowStreamLocalForwarding` not limited | SC07/SC08 warn; `authorize` proceeds and records the warnings; TCP `-R` is still refused by `permitlisten`, socket `-R` is not (threat model) | Open (warned; RESOLUTIONS) |
+| sshd | `AllowTcpForwarding` or `AllowStreamLocalForwarding` not limited | SC07/SC08 warn; `authorize` proceeds and records the warnings; TCP `-R` is still refused by `permitlisten`, socket `-R` is not (threat model) | Open (warned; the resolutions) |
 | sshd | config not readable or `Match` blocks | checks `unknown`; critical ones block `authorize`; `--sshd-t` resolves | Closed |
 | Pairing | bootstrap login fails | `setup` exits 3 and suggests `--manual` | Closed |
 | Pairing | host key fingerprint not confirmed | nothing pinned, keys kept, exit 3 | Closed |
@@ -1399,7 +1398,7 @@ Stance per layer: **closed** means the action does not happen.
 | Forced command | `hal-hub` missing or moved (reinstall) | `check` reports it; `mcp-stdio` exits 127 with a JSON error; SC13 fails | Closed |
 | Forced command | unknown verb | JSON error, exit 64 | Closed |
 | Forced command | session cap reached | JSON `busy`, exit 75 | Closed |
-| MCP | client has no elicitation | request waits for `hal approve` on the desktop (01, RESOLUTIONS B4); unanswered within 01's timeout: deny, audited with 01's reason | Closed |
+| MCP | client has no elicitation | request waits for `hal approve` on the desktop (01, resolution B4); unanswered within 01's timeout: deny, audited with 01's reason | Closed |
 | MCP | client declines, times out, or retries with other arguments | deny, audited with 01's reason; changed arguments are a new request | Closed |
 | MCP | policy file malformed | hub does not start the session (04-hub); harness sees the server exit with the error on stderr | Closed |
 | Tunnel | network down, desktop asleep | transient: backoff 2 to 60 s, state `backoff`; clients get connection refused | Closed |
@@ -1414,14 +1413,14 @@ Stance per layer: **closed** means the action does not happen.
 
 ## Migration
 
-There is no remote code in Hal today: `grep -ri "ssh\|remote"` over `Hal.next` finds only
+There is no remote code in Hal today: `grep -ri "ssh\|remote"` over the repo finds only
 download-size checks in `setup.sh:264-274` [verified: grep on 2026-10-23]. What this spec
 replaces or touches:
 
 | Today | Becomes |
 | --- | --- |
 | `repos/hal-host-setup.sh --ssh` writing `/etc/ssh/sshd_config.d/10-hal-hardening.conf` (five lines, live on this desktop) | `scripts/host-setup.sh --ssh` writing the same file plus `PermitUserEnvironment no`; forwarding limits only with `--ssh-forwarding-limits` |
-| hal-hub's documented use `"hal-hub": {"command": "hal-hub", "args": ["mcp"]}` and the idea `ssh desktop hal-hub mcp` (understand/hal-hub-eco.md section 5), which needs `PATH` and offers `_confirmed` to the model | forced command `hal-remote serve` -> `hal-hub mcp --transport stdio --channel remote --origin remote:<client>`; approvals per 01 (elicitation, else `hal approve`); `_confirmed` stripped |
+| hal-hub's documented use `"hal-hub": {"command": "hal-hub", "args": ["mcp"]}` and the idea `ssh desktop hal-hub mcp` (measured during development, 2026-10), which needs `PATH` and offers `_confirmed` to the model | forced command `hal-remote serve` -> `hal-hub mcp --transport stdio --channel remote --origin remote:<client>`; approvals per 01 (elicitation, else `hal approve`); `_confirmed` stripped |
 | nothing (planned item 4) | `packages/hal-remote` |
 
 Existing users and config:
@@ -1599,14 +1598,14 @@ step.
 - **D6 Own `ssh_config` and `known_hosts` per profile, used with `-F`.** Reason: the user's SSH
   configuration cannot change Hal's connection, and Hal never edits the user's `~/.ssh`.
 - **D7 The tunnel key carries `permitlisten="127.0.0.1:1"`; the server-wide forwarding
-  limits are recommended, not required.** Reason (RESOLUTIONS, open questions settled): the
+  limits are recommended, not required.** Reason (resolution, open questions settled): the
   key option refuses every usable TCP `-R` listener without changing sshd for the user's
   other keys (hal-employment's remote feature may use `-R`). SC07 and SC08 warn, and
   `host-setup.sh --ssh --ssh-forwarding-limits` writes the lines. The 2026-10-24 experiment
   showed `permitlisten` does not stop unix-socket `-R`. Residual risk: without the opt-in
   line, a stolen tunnel key used from inside the `from=` range can bind a unix socket at a
   free path the user can write (for example a Hal socket while its service is stopped).
-  This is accepted as a warning (SC08) per RESOLUTIONS; the threat model lists it, and
+  This is accepted as a warning (SC08) per resolution; the threat model lists it, and
   `revoke` plus `from=` bound it.
 - **D8 Keys have no passphrase.** Reason: the tunnel and MCP start unattended (logon task,
   harness spawning ssh); a passphrase would need an agent, which `IdentityAgent none` keeps
@@ -1614,7 +1613,7 @@ step.
   `--expires` exist.
 - **D9 Remote approvals are 01's host-harness approvals, nothing more.** A remote `ask` goes
   to MCP elicitation when the client supports it, else waits for `hal approve` on the
-  desktop, with 01's key, ids, scopes and timeout (RESOLUTIONS B1 to B4). Reason: one
+  desktop, with 01's key, ids, scopes and timeout (resolution B1 to B4). Reason: one
   approval implementation; the brief allows approvals only from a host surface, never from
   the model. They are advisory against a compromised laptop (R-new-4).
 - **D10 The `remote` profile denies `system` and pack `desktop`.** Reason: the user is not in
@@ -1634,7 +1633,7 @@ step.
   and gets both. SC16 still checks 8742 is loopback-only.
 - **D14 Windows config and state paths are XDG-style under the home directory.** Reason: one
   layout on both OSes is easier to document. 00-overview owns the final Windows defaults
-  (RESOLUTIONS F6 fixes only the runtime dir, which the client does not use); if 00 picks
+  (resolution F6 fixes only the runtime dir, which the client does not use); if 00 picks
   others, this spec follows.
 - **D15 sshd integration tests use an unprivileged sshd, marked `slow`.** Reason: no root,
   no container image download, and the same binary Ubuntu ships; the marker list is fixed by
@@ -1645,11 +1644,11 @@ step.
   put a non-loopback path in front of the gateway, whose `Host` check accepts only
   `127.0.0.1:<port>`, and would bypass the restricted keys; running the same pairing over
   the tailnet keeps one transport and one threat model.
-- **D18 Install from git tags.** Reason: RESOLUTIONS (no PyPI in this release); the Windows
+- **D18 Install from git tags.** Reason: resolution (no PyPI in this release); the Windows
   how-to uses `uv tool install` with a `git+https://...@v0.1.0#subdirectory=packages/hal-remote`
-  source, with `hal-kit` pinned `>=0.1,<0.2` (RESOLUTIONS C3).
+  source, with `hal-kit` pinned `>=0.1,<0.2` (resolution C3).
 - **D19 Manual Windows checks run on the user's own Windows machine, not the hal-vm.**
-  Reason: RESOLUTIONS ("It does not use the hal-vm"); the VM belongs to the hal-employment
+  Reason: resolution ("It does not use the hal-vm"); the VM belongs to the hal-employment
   session.
 
 ## Open questions

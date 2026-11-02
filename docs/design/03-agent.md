@@ -8,13 +8,13 @@ agent, `--toolset coding`) and the assistant that `hal chat`, hal-voice and the 
 reach through `hal acp --channel <name> --toolset assistant`. Every
 front end talks to the agent over ACP; nothing outside Hal imports `halagent`.
 
-Status: draft 2026-10-23, revised 2026-10-24 to match `RESOLUTIONS.md`.
+Status: draft 2026-10-23, revised 2026-10-24 to match the design resolutions.
 
 Requirement ids in this document are `REQ-AGT-NN`. Withdrawn ids stay listed as withdrawn and
 are never reused. Facts carry `[verified: how]` or `[unverified]`; "relayed" means a number
 reported by the development runs from forum posts or papers and not reproduced here. Binding
-inputs, in priority order: `~/src/.dev-notes/specs/RESOLUTIONS.md`, then
-`~/src/.dev-notes/BRIEF.md` (2026-10-23, including "Host facts"). Where this
+inputs, in priority order: the design resolutions of 2026-10-23, then
+the project brief (2026-10-23, including "Host facts"). Where this
 spec and either of them disagree, they win. Experiment scripts cited as `spec-tmp/agent/...`
 lived in a scratch directory that was wiped on 2026-10-23; the results stand as recorded on
 that date, and each such fact names how to re-check it.
@@ -56,7 +56,7 @@ In scope (package `packages/hal-agent`, import name `halagent`):
 - Providers for OpenAI Chat Completions (streaming SSE), OpenAI/Open Responses and Anthropic
   Messages, behind one internal message and event model, over a stdlib HTTP transport that
   also speaks HTTP over unix sockets. The agent reaches models only through the gateway and
-  only with these wire formats (RESOLUTIONS D3, G5); there is no Ollama-native provider.
+  only with these wire formats (resolution D3, G5); there is no Ollama-native provider.
 - The agent loop: events, cancellation, sequential execution of multiple calls, budgets,
   watchdog, nudges, and a hook for the assistant's claims check.
 - The tool-call repair layer for leaked, truncated, misnamed and mistyped calls.
@@ -65,15 +65,15 @@ In scope (package `packages/hal-agent`, import name `halagent`):
   `assistant` (host tools through the broker only, selected per turn with `hal_find_tools`).
 - Context management: token counting, window check, observation masking, summary compaction,
   a harness-maintained state note.
-- Sessions: the transcript record schema (RESOLUTIONS E2/E3: 03 owns it), resume, export.
+- Sessions: the transcript record schema (resolution E2/E3: 03 owns it), resume, export.
 - Prompts for the coding agent and the assistant; AGENTS.md / CLAUDE.md loading; Agent Skills.
 - MCP client for user servers (in the box only) and a stdlib client for Hal's broker.
 - ACP v1 agent server (`hal-agent --acp`, and `halagent.acp.serve` for the unboxed fallback).
 - Headless mode (`hal-agent -p`) and the headless output schema for `--json` and
-  `--stream-json` (RESOLUTIONS F1: 03 owns the schema, 06 owns the flags and exit codes).
+  `--stream-json` (resolution F1: 03 owns the schema, 06 owns the flags and exit codes).
 - A TOML model-profile catalogue (`model-profiles.toml`) seeded from the models on this
   machine.
-- The evaluation library and its task formats (RESOLUTIONS F4): assistant scenarios, a small
+- The evaluation library and its task formats (resolution F4): assistant scenarios, a small
   coding task set, statistics. `hal eval` (06-core-cli) wraps it.
 - The `[brain]` to `[agent.assistant]` key mapping that `hal configure --migrate` applies.
 
@@ -85,13 +85,12 @@ Non-goals (owned elsewhere, or deliberately left out):
 - The sandbox, the broker, the policy engine, approvals and their surfaces, audit log, Prompt
   Guard and the untrusted-content envelope (02-sandbox, 01-security, 04-hub). halagent is a
   client of the broker and never decides host policy or carries an approval.
-- Long jobs: the hub tool `core_long_task` in halcore's built-in module (RESOLUTIONS F2,
+- Long jobs: the hub tool `core_long_task` in halcore's built-in module (resolution F2,
   06-core-cli). To the agent it is one more broker tool.
 - The model gateway, presets, role aliases, routing, `hal-route.py` effort and swap policies
   (05-gateway). halagent is a client of the gateway.
 - Sub-agents, multi-agent topologies and A2A. Evidence: no multi-agent topology beat a
-  single budget-fit agent at matched compute (relayed, `understand/gemma-agent.md` 3.6;
-  `dev-notes.md` lesson 3). Revisit only with an eval result.
+  single budget-fit agent at matched compute (relayed from the development runs). Revisit only with an eval result.
 - ACP v2 (still draft), ACP client `fs/*` and `terminal/*` methods, ACP authentication.
 - Image and audio input. `promptCapabilities.image` and `.audio` are false in v1.
 - Training, LoRA, fine-tuning.
@@ -104,7 +103,7 @@ Each requirement names the test that proves it. Test kinds:
 - **unit**: hermetic pytest, no network, no GPU, no docker; runs by default.
 - **live**: needs a real model server reached through the gateway; marker `live`,
   deselected by default (markers are 00-overview's set `gpu docker network slow bwrap systemd
-  live`, RESOLUTIONS E12).
+  live`, resolution E12).
 - **docker**: needs docker; marker `docker`, deselected by default. Tests that touch the
   broker socket run twice, on `runc` and on `runsc` (runsc needs `--host-uds=open` to reach
   the bind-mounted sockets; brief "Host facts").
@@ -157,13 +156,13 @@ MUST ids without a test.
   `function_call_output` items; Anthropic `tools[]` with `input_schema` and `tool_result`
   blocks. Test: unit golden JSON.
 - **REQ-AGT-11** Providers MUST request only the routes of the forwarder allowlist defined in
-  01-security (REQ-SEC-66 as amended by RESOLUTIONS D3: chat completions, responses and
+  01-security (REQ-SEC-66 as amended by resolution D3: chat completions, responses and
   `input_tokens`, messages and `count_tokens`, embeddings, `GET /v1/models`) and never an
   `/api/*` path. Test: unit, every request a provider builds is checked against that list.
 - **REQ-AGT-12** Providers SHOULD count prompt tokens with the server when it offers an endpoint
   (`/v1/responses/input_tokens`, `/v1/messages/count_tokens`, and
   `/v1/chat/completions/input_tokens` where the server and forwarder allow it), return `None`
-  when the endpoint is missing, treat 403 like 404 and 405 (RESOLUTIONS D3), and remember a
+  when the endpoint is missing, treat 403 like 404 and 405 (resolution D3), and remember a
   missing endpoint for the rest of the process. Test: unit (403 and 404 paths), live
   (llama-server through the gateway).
 
@@ -215,7 +214,7 @@ MUST ids without a test.
   untrusted-content envelope defined in 01-security ("Taint, guard and reviewer", untrusted
   result envelope) with `trust="untrusted"` and `guard="off"` before they reach the model.
   Broker results MUST be passed to the model unchanged (the hub already applied the envelope;
-  RESOLUTIONS B11). Test: unit (`test_mcp_result_uses_security_envelope`,
+  resolution B11). Test: unit (`test_mcp_result_uses_security_envelope`,
   `test_broker_text_is_passed_through_unchanged`).
 
 ### 2.3 Tool-call repair
@@ -256,7 +255,7 @@ MUST ids without a test.
   with `realpath`, and refuse any result outside the root, the scratch dir and the read-only
   dirs (`outside_workspace`); writes into read-only dirs and into `protect` globs (default
   `.git/**`) MUST be refused (`protected`). With backend `none`, file tools MUST open every
-  path through `halkit.fsafe.open_beneath` (the one implementation, RESOLUTIONS C10; see 02
+  path through `halkit.fsafe.open_beneath` (the one implementation, resolution C10; see 02
   "Backend none") and MUST refuse a path whose resolved target matches a `masked` entry in
   `session.json` (`protected`). Test: unit, including a symlink escape and, for `none`,
   `test_none_mode_refuses_masked_path_and_symlink_to_it`.
@@ -282,7 +281,7 @@ MUST ids without a test.
   escapes removed, plus exit code and duration. Test: unit.
 - **REQ-AGT-44** `run` MUST NOT be offered when no sandbox backend is active (settings
   `sandbox = "none"`). There is no opt-out: `[agent].allow_host_run` does not exist, and the
-  strict config loader rejects it as an unknown key (RESOLUTIONS G4, F4). Test: unit
+  strict config loader rejects it as an unknown key (resolution G4, F4). Test: unit
   (`test_run_is_not_offered_without_sandbox`, `test_allow_host_run_key_is_rejected`, ATK-41).
 - **REQ-AGT-45** The harness MUST cap every tool result at `max_result_chars` (default 12,000)
   after the tool's own caps, whatever the tool. Test: unit with an oversized fake tool.
@@ -299,7 +298,7 @@ MUST ids without a test.
 
 ### 2.5 Assistant
 
-- **REQ-AGT-50** Withdrawn (RESOLUTIONS A1): there is no `halcore.brain.Brain` shim and no
+- **REQ-AGT-50** Withdrawn (resolution A1): there is no `halcore.brain.Brain` shim and no
   Python contract for hal-voice or Telegram; they are ACP clients. Replaced by REQ-AGT-102.
 - **REQ-AGT-51** The claims check MUST behave as today: the first sentence is held until it
   matches neither `SUSPECT` nor `<think>`; a suspect reply with no tool run gets one silent
@@ -309,17 +308,17 @@ MUST ids without a test.
   tools chosen by the broker's `hal_find_tools` on the user text, plus `hal_find_tools`.
   Tools found by the model during the turn MUST be added for the turn's remaining rounds, up
   to 16 offered tools. Test: unit.
-- **REQ-AGT-53** Withdrawn (RESOLUTIONS B5, F1; security review F1): no yes matcher, no held
+- **REQ-AGT-53** Withdrawn (resolution B5, F1; security review F1): no yes matcher, no held
   calls, no grants from the agent. Replaced by REQ-AGT-98.
 - **REQ-AGT-54** A failed or denied host tool result MUST carry the note "This did NOT happen.
   Fix the arguments and call again, or tell the user it failed." (for `denied`: "This did NOT
   happen: it was not approved. Tell the user; do not call it again unless they ask.").
   Test: unit.
-- **REQ-AGT-55** Withdrawn (RESOLUTIONS F2): there is no agent built-in `deep_work`. Long jobs
+- **REQ-AGT-55** Withdrawn (resolution F2): there is no agent built-in `deep_work`. Long jobs
   are the broker tool `core_long_task` (06-core-cli).
 - **REQ-AGT-56** Host tools MUST go only through the broker named in the settings. halagent
   MUST NOT import `halhub` or run host tools in its own process; there is no local hub backend
-  and no `tools_via` key (RESOLUTIONS A2). When the broker is unreachable, its tools fail with
+  and no `tools_via` key (resolution A2). When the broker is unreachable, its tools fail with
   `unavailable` and the session continues. Test: unit with a fake broker; root
   `tests/test_layering.py` (00-overview REQ-SYS-04) finds no `halhub` import.
 
@@ -356,12 +355,12 @@ MUST ids without a test.
 - **REQ-AGT-66** When the ACP client advertises `clientCapabilities._meta.hal.records = true`
   (halcore always does), the agent MUST send every record as a `_hal/record` notification and
   write no transcript file; the host writes `state_dir()/sessions/<sid>/transcript.jsonl`
-  (06-core-cli; RESOLUTIONS E2/E3). Without that capability the agent writes the same path
+  (06-core-cli; resolution E2/E3). Without that capability the agent writes the same path
   itself, but only when `sandbox = "none"`; in box mode it keeps no transcript and says so in
   a `notice`. Test: unit (all three cases).
 - **REQ-AGT-67** Resume MUST rebuild the exact message list, compactions included, and continue
   the session; ACP `session/load` MUST replay it as `session/update` notifications. Test: unit.
-- **REQ-AGT-68** Export MUST produce `md` and `jsonl` (RESOLUTIONS E3); reasoning is left out
+- **REQ-AGT-68** Export MUST produce `md` and `jsonl` (resolution E3); reasoning is left out
   unless asked for; argument names matching the secret pattern are masked. Test: unit.
 - **REQ-AGT-69** Loading MUST skip a torn last line with a warning and fail loudly on any other
   invalid line. Test: unit.
@@ -389,7 +388,7 @@ MUST ids without a test.
 - **REQ-AGT-75** The MCP client for user servers MUST use the official `mcp` SDK
   (`>=2.3,<3`) and connect stdio servers as subprocesses of the agent inside the box. With
   `sandbox = "none"` the agent MUST NOT start any user MCP server that is not marked
-  `host = true` (those run on the host through the broker, RESOLUTIONS E6, F4), and MUST say
+  `host = true` (those run on the host through the broker, resolution E6, F4), and MUST say
   so in a `notice`. Entries with a `url` (Streamable HTTP) MUST be rejected with a config
   error in v1, because the box has no network and on the host they would bypass the broker.
   The client MUST NOT advertise the `elicitation` capability. Test: unit with an in-process
@@ -402,8 +401,8 @@ MUST ids without a test.
   framing over the broker's unix socket, using the `initialize` handshake at protocol
   `2025-11-25`; it MUST support `tools/list`, `tools/call`, `ping` and
   `notifications/cancelled`; it MUST refuse a message over 4 MiB in either direction (the
-  broker cap, RESOLUTIONS E9) and MUST advertise no client capabilities, so the broker can
-  never route an approval to the box (RESOLUTIONS B4). Test: unit with a fake broker.
+  broker cap, resolution E9) and MUST advertise no client capabilities, so the broker can
+  never route an approval to the box (resolution B4). Test: unit with a fake broker.
 - **REQ-AGT-78** A crashed or unreachable MCP server or broker MUST only make its own tools fail
   with `unavailable`; the session continues; a stdio server is restarted at most once per
   session. Test: unit.
@@ -435,7 +434,7 @@ MUST ids without a test.
 - **REQ-AGT-86** Without a format flag the run MUST print only the final text; `--json` MUST
   print one result object; `--stream-json` MUST print one JSON object per line, flushed per
   line, each with a UTC `Z` `ts`, as specified in 3.15. `hal -p` renders the same schema on
-  the host (RESOLUTIONS F1). Test: unit snapshots.
+  the host (resolution F1). Test: unit snapshots.
 - **REQ-AGT-87** SIGINT or SIGTERM MUST cancel the run and exit 130 after printing a result
   marked `error_cancelled` (json and stream-json). Test: unit (signal sent to a subprocess).
 
@@ -444,11 +443,11 @@ MUST ids without a test.
 - **REQ-AGT-88** Profiles MUST be read from the shipped `halagent/profiles/model-profiles.toml`
   and the user's `~/.config/hal/model-profiles.toml` with the schema of 3.4; unknown keys and
   wrong types MUST fail loudly with file and key. halagent MUST NOT read
-  `~/.config/hal/models.toml`, which is the gateway's model manifest (RESOLUTIONS D2). Test:
+  `~/.config/hal/models.toml`, which is the gateway's model manifest (resolution D2). Test:
   unit.
 - **REQ-AGT-89** Resolution order MUST be: `[defaults]` < shipped entry < user entry <
   `config.toml` overrides < CLI flags. The entry is chosen by the gateway's
-  `meta.hal_profile` for the model when present (05-gateway `GET /v1/models`, RESOLUTIONS
+  `meta.hal_profile` for the model when present (05-gateway `GET /v1/models`, resolution
   D5), else by the first glob match within each file. `hal-agent profiles show MODEL` MUST
   print each value with its source. Test: unit.
 - **REQ-AGT-90** The shipped catalogue MUST contain the seeded entries of 3.4.3, and these
@@ -457,7 +456,7 @@ MUST ids without a test.
   `qwen3.5:4b`, `qwen3.6:27b-coding-mtp-q4_K_M`, `qwen3.8:27b`, `qwen3-coder:30b`,
   `gpt-oss:20b`, `ministral-3:14b`, `mistral-small3.2:24b`, `devstral-small-2:24b`,
   `magistral:24b`, `glm-4.7-flash:latest`, `granite4.2:8b`, `phi4-mini:latest`. Gateway role
-  aliases (`hal-chat`, `hal-code`, ...; RESOLUTIONS D1) resolve through their
+  aliases (`hal-chat`, `hal-code`, ...; resolution D1) resolve through their
   `meta.hal_profile`, and to the defaults when the gateway gives none. Test: unit.
 - **REQ-AGT-91** An unknown model MUST run with `[defaults]` and one `notice` saying so. Test:
   unit.
@@ -469,7 +468,7 @@ MUST ids without a test.
 
 - **REQ-AGT-93** The assistant scenario library MUST accept `eval/assistant/scenarios.toml`
   with the fields and check semantics of 3.18.1, run each case through an `AssistantRunner`
-  that halcore implements with an in-process broker (RESOLUTIONS A2; 06-core-cli "Eval"),
+  that halcore implements with an in-process broker (resolution A2; 06-core-cli "Eval"),
   pass `confirm_first` only when the broker requested approval for that tool (06 REQ-CLI-79),
   and write a report with per-case results and Wilson intervals. Test: unit with a scripted
   runner.
@@ -488,18 +487,18 @@ MUST ids without a test.
 - **REQ-AGT-98** The agent MUST NOT hold, replay, grant or deny host tool calls, and MUST NOT
   read approval from any text, model output or user message. A broker call that policy sends
   to `ask` simply waits until the broker answers; the approval is a host-originated request
-  rendered by a host surface (01-security "Approval surfaces and protocol", RESOLUTIONS B5).
+  rendered by a host surface (01-security "Approval surfaces and protocol", resolution B5).
   The model may say it asked; it never carries the approval. Test: unit
   (`test_broker_ask_call_waits_for_broker_answer`, `test_user_yes_text_is_not_an_approval`,
   ATK-36).
 - **REQ-AGT-99** `hal-agent --acp --toolset coding|assistant` and
   `halagent.acp.serve(reader, writer, *, toolset, workdir, settings)` (3.14.8) MUST run the
-  same server code, so the unboxed fallback (RESOLUTIONS A1) behaves like the box apart from
-  the `sandbox = "none"` rules. Modes are `auto` and `review` only (RESOLUTIONS F3). Test:
+  same server code, so the unboxed fallback (resolution A1) behaves like the box apart from
+  the `sandbox = "none"` rules. Modes are `auto` and `review` only (resolution F3). Test:
   unit (`test_serve_and_cli_send_identical_messages`).
 - **REQ-AGT-100** Every session id MUST be 12 lowercase hex characters, and the same string
   MUST serve as the ACP `sessionId`, the transcript directory name and the checkpoint ref
-  component (RESOLUTIONS E2). The agent MUST take it from `session/new` `_meta.hal.sessionId`
+  component (resolution E2). The agent MUST take it from `session/new` `_meta.hal.sessionId`
   when present, else from `agent.json` `session_id` for the first session of the process,
   else generate it with `secrets.token_hex(6)`. Test: unit.
 - **REQ-AGT-101** `halagent.settings.map_brain(brain: Mapping[str, object]) -> MappedConfig`
@@ -518,7 +517,7 @@ MUST ids without a test.
 ```text
 packages/hal-agent/
   pyproject.toml            name "hal-agent"; requires-python ">=3.11";
-                            dependencies: hal-kit>=0.1,<0.2 (RESOLUTIONS C3), mcp>=2.3,<3
+                            dependencies: hal-kit>=0.1,<0.2 (resolution C3), mcp>=2.3,<3
                             scripts: hal-agent = "halagent.cli:main"
   src/halagent/
     __init__.py             version, public re-exports (Agent, Event, ...)
@@ -599,9 +598,9 @@ also use `jsonschema`, which is already in the dependency closure of `mcp` [veri
 Layering (00-overview "Allowed imports"): of Hal's packages, `halagent` imports only
 `halkit`. It never imports `halhub`, `halsandbox`, `halgateway` or `halcore`, not even lazily
 inside a function
-(RESOLUTIONS A2; REQ-SYS-04 scans function-level imports). halcore spawns `hal-agent --acp`
-(RESOLUTIONS A7) or, for the unboxed fallback, calls `halagent.acp.serve`; no package outside
-Hal imports `halagent` (RESOLUTIONS A1, A3).
+(resolution A2; REQ-SYS-04 scans function-level imports). halcore spawns `hal-agent --acp`
+(resolution A7) or, for the unboxed fallback, calls `halagent.acp.serve`; no package outside
+Hal imports `halagent` (resolution A1, A3).
 
 ### 3.2 Internal message and event model
 
@@ -806,7 +805,7 @@ class ProviderError(Exception):
 ```
 
 The `first_byte_s` default matches the slow-prefill reason `hal-route.py` raised
-`API_TIMEOUT_MS` for the orchestrate modes (`understand/hal-core.md` section 3); the profile
+`API_TIMEOUT_MS` for the orchestrate modes (measured during development, 2026-10); the profile
 can raise it.
 
 #### 3.3.2 Transport
@@ -860,8 +859,7 @@ attempt; the loop is told with a `notice` so a UI can clear the partial reasonin
 `content_filter` and `refusal` become `FinishReason` `filtered` and `refusal`; the loop ends
 the turn with stop reason `refusal` (3.5.6).
 
-Sources: llama-server README (downloaded 2026-10-23 into `understand/dl-interop/`, which is no
-longer kept; re-check against the README of the pinned llama.cpp release), Open Responses spec
+Sources: llama-server README (downloaded 2026-10-23; re-check against the README of the pinned llama.cpp release), Open Responses spec
 (`openresponses.org/specification`, fetched 2026-10-23). The Responses reasoning event names
 were not confirmed against a live llama-server, so the provider treats any event whose type
 starts with `response.reasoning` and ends with `.delta` as reasoning [unverified against
@@ -931,9 +929,9 @@ class TokenCounter:
   `POST /v1/messages/count_tokens`. All three llama-server endpoints exist in the installed
   build [verified: `strings libllama-server-impl.so` in
   `~/.local/share/hal/llama.cpp/llama-b11512`, 2026-10-23], but the forwarder allowlist
-  (01-security REQ-SEC-66, RESOLUTIONS D3) names only the `responses` and `messages` count
+  (01-security REQ-SEC-66, resolution D3) names only the `responses` and `messages` count
   routes, so in the box the `openai` count gets 403. A 403, 404 or 405 marks the endpoint
-  missing for the process (RESOLUTIONS D3). Counting is skipped (estimate used) when the last
+  missing for the process (resolution D3). Counting is skipped (estimate used) when the last
   exact count is less than 50% of the window, because each count costs a template render on
   the server.
 - Estimate: `ceil(chars * ratio * 1.15)`, `ratio = 0.25` until the first response, then
@@ -959,7 +957,7 @@ class TokenCounter:
 
 #### 3.3.7 Endpoint resolution
 
-The agent reaches models only through the gateway (RESOLUTIONS G5). In box mode the endpoint
+The agent reaches models only through the gateway (resolution G5). In box mode the endpoint
 comes from `agent.json` (3.16.3): `unix:///run/hal/model.sock`, no token (the host forwarder
 adds the session token; 02-sandbox "Model socket and forwarder"). Out of the box (backend
 `none` started by halcore, the unboxed assistant fallback, or a standalone `hal-agent` run),
@@ -976,7 +974,7 @@ configuration error that names `hal on` and `[gateway].url`.
 
 The file name is `model-profiles.toml` in both places (shipped data file and
 `~/.config/hal/model-profiles.toml`), because `~/.config/hal/models.toml` is the gateway's
-model manifest (RESOLUTIONS D2, 05-gateway).
+model manifest (resolution D2, 05-gateway).
 
 ```toml
 schema = 1                    # required; any other value fails loudly
@@ -1005,7 +1003,7 @@ evidence = "free text: what was measured, when, how"
 
 | Key | Type | Default | Meaning and reason |
 | --- | --- | --- | --- |
-| `context` | int | 32768 | Window Hal plans with; the gateway's `context_length` caps it (3.9.1). 32k ran end to end without overflow where 12k overflowed both tasks [verified locally, `understand/gemma-agent.md` section 2]. |
+| `context` | int | 32768 | Window Hal plans with; the gateway's `context_length` caps it (3.9.1). 32k ran end to end without overflow where 12k overflowed both tasks (measured during development, 2026-10). |
 | `max_output` | int | 8192 | Output cap per request. 8,192 of 32,768 gave fewer overflows than 16k or 32k [relayed]. |
 | `temperature`, `top_p`, `top_k`, `min_p`, `presence_penalty`, `repeat_penalty` | float/int | vendor values per family | Low temperature caused "spinning" [relayed], so families keep their published defaults. |
 | `thinking` | str | `"on"` | `on`, `off`, or an effort name. Thinking on solved 48 vs 23 of 129 tasks [relayed]. |
@@ -1013,7 +1011,7 @@ evidence = "free text: what was measured, when, how"
 | `reasoning_replay` | str | `"tool_turns"` | 3.3.4. |
 | `tool_format` | str | `"native"` | `native`: server parser; `prompt`: Hal describes tools in the system prompt and parses text (REQ-AGT-92); `auto`: `prompt` when the server says the model has no tool capability. |
 | `leak_parsers` | list[str] | see above | Parsers tried on text, in order (3.6.2). |
-| `parallel_tool_calls` | bool | false | Gemma made 0 multi-call responses in 2,872 steps [relayed, `dev-notes.md`]; asking for one call at a time keeps parsers simple. |
+| `parallel_tool_calls` | bool | false | Gemma made 0 multi-call responses in 2,872 steps (measured during development, 2026-10); asking for one call at a time keeps parsers simple. |
 | `first_token_timeout_s` | int | 600 | 3.3.1. |
 | `system_role` | str | `"system"` | `system`, `developer` or `user` (prepended to the first user message) for templates that reject a system role. |
 | `strict_alternation` | bool | false | Merge consecutive same-role messages for templates that require alternation. |
@@ -1044,7 +1042,7 @@ Order (REQ-AGT-89): `[defaults]` of the shipped file, then `[defaults]` of the u
 the matching shipped entry, then the matching user entry, then `[agent.overrides]` (and
 `[agent.assistant]` keys for the assistant, 3.17.3), then CLI flags. The gateway's `GET
 /v1/models` entry for the model carries `context_length` and an optional `meta.hal_profile`
-(05-gateway, RESOLUTIONS D5); when `meta.hal_profile` names a family, the entry with that
+(05-gateway, resolution D5); when `meta.hal_profile` names a family, the entry with that
 `family` is used instead of glob matching. This is how role aliases such as `hal-code`, whose
 backend model is a local choice, get the right profile. In box mode halcore resolves the
 profile on the host and writes the resolved values into `agent.json`, so the box never reads
@@ -1273,7 +1271,7 @@ reply), `loop`, `nudge_limit`, `tool_errors`, `context_overflow`, `cancelled`, `
 `unknown_tools`, `truncated_calls`, `nudges`, `compactions`, `overflows`, `prompt_tokens`
 (sum), `completion_tokens` (sum), `peak_prompt_tokens`, `wall_s`, `first_edit_call` (index of
 the first successful `edit` or `write`, or null), `loop_refusals`, `denied_calls`. These are
-the per-run metrics the gemma harness logged (`understand/gemma-agent.md` 3.9).
+the per-run metrics the gemma harness logged.
 
 #### 3.5.8 Watchdog
 
@@ -1303,7 +1301,7 @@ is `edit`, `delete`, `move` or `execute` call `permission(call, spec)` first. In
 function sends `session/request_permission` with options `allow-once`, `allow-always`,
 `reject-once` (kinds `allow_once`, `allow_always`, `reject_once`); ACP's `allow_always` kind
 here means "for this session" and covers in-box actions only. It is unrelated to broker
-approval scopes, which offer only `once` and `session` (RESOLUTIONS B2). Review mode is a
+approval scopes, which offer only `once` and `session` (resolution B2). Review mode is a
 usability feature for watching the agent work; it is not a security boundary, because
 everything it guards is already inside the box. Host exits are guarded by the broker's own approval
 request, which the host renders (01-security "Approval surfaces and protocol"); review mode
@@ -1430,7 +1428,7 @@ text (`[hal] ignored unknown argument 'foo'`). A missing required argument gives
 `invalid_args`: `"edit needs path, old_string and new_string; got path."` Host tools from the
 broker use the same rules with the broker's schemas. The agent is the only place where
 near-miss names are repaired: the broker applies only the `aliases` a manifest declares and
-logs nothing else as a repair (01-security REQ-SEC-05, RESOLUTIONS B7), so a call that reaches
+logs nothing else as a repair (01-security REQ-SEC-05, resolution B7), so a call that reaches
 the broker already has its final argument names, and the agent coerces only to the JSON types
 the schema names.
 
@@ -1487,7 +1485,7 @@ def render_for_model(result: ToolResult, steering: Sequence[str], cap: int) -> s
 
 `render_for_model`: success -> `text`; error -> `json.dumps({"status": "error", "error_type":
 ..., "message": ...})`; then the steering lines, each on its own line, at the end, because the
-tail of a tool result is the part every layer keeps (relayed, `dev-notes.md` lesson 4). The
+tail of a tool result is the part every layer keeps (relayed from the development runs). The
 whole string is cut to `max_result_chars` (12,000) keeping the first 4,000 and last 8,000
 characters with a `[... N characters cut ...]` line (REQ-AGT-45).
 
@@ -1517,11 +1515,11 @@ command can still change files the mounts allow, which is why the eval grader re
 paths itself (3.18.3) and why `.git` is a read-only mount.
 
 With `sandbox = "none"` (`confined = True`), file tools open paths with
-`halkit.fsafe.open_beneath` (02-sandbox "Backend none"; one implementation, RESOLUTIONS C10);
+`halkit.fsafe.open_beneath` (02-sandbox "Backend none"; one implementation, resolution C10);
 `resolve` only computes the display path and the `readonly`/`protect` checks and has no path
 walker of its own. The shared vectors are
 `packages/hal-kit/tests/data/path_cases.json`. Files that 02-sandbox
-masks in the box (`[sandbox].mask`, for example `.env`; RESOLUTIONS "Masking") appear to the
+masks in the box (`[sandbox].mask`, for example `.env`; resolution "Masking") appear to the
 file tools as empty read-only files; the tools treat them like any read-only path.
 
 #### 3.7.2 Schemas (exact)
@@ -1636,8 +1634,7 @@ and "read the lines again and copy them exactly"; `old_string == new_string` or 
 Syntax guard (`[agent.tools].syntax_guard`, default true): for `.py` (`compile(text, path,
 "exec")`), `.json` (`json.loads`) and `.toml` (`tomllib.loads`), when the file parsed before
 the edit and fails after, the edit is not written and the result is `syntax` with the parser's
-line and message. tk's `edit` refuses syntax-breaking edits for the same reason (relayed,
-`dev-notes.md`).
+line and message. tk's `edit` refuses syntax-breaking edits for the same reason (relayed from the development runs).
 
 Success: `Edited src/app.py (tier: whitespace).` followed by a unified diff with 3 context
 lines, capped at 40 lines and 3,000 characters. Writes are atomic (temp file in the same
@@ -1661,7 +1658,7 @@ subprocess.Popen(["bash", "-c", command], cwd=workspace.root, stdin=subprocess.D
 
 - `clean_env`: the box environment that 02-sandbox sets (already an allowlist, "Environment";
   it carries for example `HOME` on the box tmpfs and the dependency-prep paths such as
-  `UV_PROJECT_ENVIRONMENT=/work/.hal/venv`, RESOLUTIONS F3 architect) minus every variable
+  `UV_PROJECT_ENVIRONMENT=/work/.hal/venv`, resolution F3 architect) minus every variable
   that starts with `HAL_`, plus `LANG=C.UTF-8`, `TERM=dumb`, `PYTHONDONTWRITEBYTECODE=1`,
   `PAGER=cat`, `GIT_PAGER=cat`, `NO_COLOR=1`, `CI=1`. Inheriting 02's set keeps a venv built
   by `hal code --deps` usable by `run`; dropping `HAL_` keeps socket paths and settings out of
@@ -1711,14 +1708,14 @@ permission decisions do not trust in-box text (3.14.6).
 #### 3.8.1 Where the assistant runs
 
 The assistant is the same agent started with `--toolset assistant`. There is no Python API
-for it and no `halcore.brain.Brain` shim (RESOLUTIONS A1):
+for it and no `halcore.brain.Brain` shim (resolution A1):
 
 - Each channel (`hal chat`, voice, Telegram, the console) gets a long-lived *assistant box*,
   reached only through `hal acp --channel <name> --toolset assistant` (00-overview Flow 2 to
   4; launch owned by 06-core-cli). The box has a scratch `/work`
   (`$STATE/assistant/<channel>/work`), never the vault. The vault is reachable only through
   hal-memory tools on the broker.
-- hal-voice and the Telegram pack are ACP clients of that command (RESOLUTIONS A1, B9, E1).
+- hal-voice and the Telegram pack are ACP clients of that command (resolution A1, B9, E1).
   They import nothing from Hal. Their approvals arrive as host-originated
   `session/request_permission` requests (06-core-cli "Approvals").
 - When no container backend is available, halcore runs the agent in the `hal` process with
@@ -1736,7 +1733,7 @@ project to run one against); `host = true` MCP servers are broker tools like any
 
 - provider: from `agent.json` (3.3.7), api `openai` through the gateway. halcore fills
   `agent.json` from `[agent.assistant]` (3.17.3): `model` (default the role alias `hal-chat`,
-  RESOLUTIONS D1), and profile values with thinking off (`think = false`, as today: voice
+  resolution D1), and profile values with thinking off (`think = false`, as today: voice
   latency), temperature 0.4 and a planning window of 8192 (`context`, the measured baseline),
   capped by the gateway's `context_length`;
 - budgets: `max_model_requests = max_tool_rounds + 1` (5 + 1: the claims retry),
@@ -1795,7 +1792,7 @@ through `hal_find_tools` (pinned ones excepted, `[mcp.servers.<name>].pinned`).
 
 #### 3.8.4 Approvals
 
-The model never approves, and neither does the agent (REQ-AGT-98, RESOLUTIONS B5):
+The model never approves, and neither does the agent (REQ-AGT-98, resolution B5):
 
 1. The model calls a host tool. The agent sends `tools/call` to the broker and waits.
 2. If policy says `ask`, the broker sends a host-originated approval request to the
@@ -1817,7 +1814,7 @@ permission that never covers host tools.
 
 There is no agent built-in for long jobs. The hub tool `core_long_task` in halcore's built-in
 module (tier `act`, runs a sandboxed `hal -p`; `[agent].cloud_jobs = false` by default;
-RESOLUTIONS F2, owner 06-core-cli) reaches the assistant through the broker and is selected
+resolution F2, owner 06-core-cli) reaches the assistant through the broker and is selected
 by `hal_find_tools` like any other tool. Its approval and its completion notice are host
 concerns.
 
@@ -1826,7 +1823,7 @@ concerns.
 #### 3.9.1 Input budget
 
 `window` = the smallest known of: profile `context`, the gateway's `context_length` for the
-model (`Provider.context_window`, from `GET /v1/models`; 05-gateway, RESOLUTIONS D5), the
+model (`Provider.context_window`, from `GET /v1/models`; 05-gateway, resolution D5), the
 `n_ctx` learned from an overflow error, and `[agent.context].window` when set. The agent never
 asks llama-server's `/props`, which the forwarder refuses (01-security REQ-SEC-66).
 `input_budget = window - max_output - safety_tokens` (512).
@@ -1886,7 +1883,7 @@ compaction never loses the work (REQ-AGT-60).
 
 Maintained by the harness from tool calls and results, not written by the model (a model-
 written notes slot cost the 31B the time it needed for its first edit: `toolbelt-notes`
-killed 2026-10-22, relayed in `dev-notes.md`). At most 3,000 characters:
+killed 2026-10-22, relayed from the development runs). At most 3,000 characters:
 
 ```text
 [hal state note]
@@ -1905,13 +1902,13 @@ Recent errors: edit src/app.py not_found (x2)
 #### 3.10.1 Ids and locations
 
 Session id: 12 lowercase hex characters (`secrets.token_hex(6)`), one id for the runtime
-directory, checkpoint refs, the ACP `sessionId` and the transcript (RESOLUTIONS E2,
+directory, checkpoint refs, the ACP `sessionId` and the transcript (resolution E2,
 REQ-AGT-100). halcore chooses it and passes it in `session/new` `_meta.hal.sessionId` (or in
 `agent.json` `session_id` for the first session of a box); the agent generates one only when
 neither is given, for example in a standalone `hal-agent -p`. Creation time lives in the
 `session` record, not in the id.
 
-Layout (RESOLUTIONS E3; 03 owns the record schema, 06-core-cli writes `meta.json` and handles
+Layout (resolution E3; 03 owns the record schema, 06-core-cli writes `meta.json` and handles
 `_hal/record`):
 
 ```text
@@ -1927,7 +1924,7 @@ state_dir()/sessions/<sid>/
 | No such capability, in the box | nobody; the agent sends a `notice` once |
 
 In the box the agent writes no transcript file: it has no writable path the host reads (`/run/hal`
-is a read-only mount, RESOLUTIONS E10), and a file under `/work` would land in the user's
+is a read-only mount, resolution E10), and a file under `/work` would land in the user's
 project where any `run` command could alter it. The host validates each record against the
 schema, accepts only the record types below (never `checkpoint`, which only the host writes),
 and caps a session file at 256 MiB.
@@ -2194,7 +2191,7 @@ class Instructions:
 - Directories from `workspace_root` down to `cwd`, root first. In each, use `AGENTS.md`; if
   absent, use `CLAUDE.md`. Later (nearer) files come after earlier ones and the rendered text
   says "When these files disagree, the later one wins", which is the AGENTS.md rule that the
-  nearest file takes precedence [verified: agents.md, in `understand/research-interop.md` 5].
+  nearest file takes precedence (measured during development, 2026-10).
 - The user-global file goes first: `~/.config/hal/AGENTS.md` out of the box, or its copy at
   `/run/hal/user/AGENTS.md` in the box (the host copies it at session start).
 - A line that is only `@relative/path.md` (the Claude Code import form) is replaced by that
@@ -2214,8 +2211,7 @@ by the host to `/run/hal/skills/` in the box and mounted read-only to the tools 
 
 Frontmatter is the block between the first two `---` lines, parsed by a small stdlib parser
 that accepts `key: value` scalars (plain, single- or double-quoted) and one level of nested
-`metadata:` mapping. Validation per the Agent Skills specification [verified:
-agentskills.io/specification, in `understand/research-interop.md` 5]: `name` required, 1 to 64
+`metadata:` mapping. Validation per the Agent Skills specification (measured during development, 2026-10): `name` required, 1 to 64
 characters of lowercase letters, digits and hyphens, equal to the directory name;
 `description` required, at most 1,024 characters; optional `license`, `compatibility` (at most
 500 characters), `metadata`, `allowed-tools`. Invalid skills are skipped with a `notice`.
@@ -2238,7 +2234,7 @@ other command.
 
 #### 3.13.1 User MCP servers
 
-03 owns the user-facing table `[mcp.servers.<name>]` (RESOLUTIONS E6). Configuration,
+03 owns the user-facing table `[mcp.servers.<name>]` (resolution E6). Configuration,
 `~/.config/hal/config.toml`:
 
 ```toml
@@ -2268,7 +2264,7 @@ args = []
 | `project_servers` | `"box"` | A project `.mcp.json` runs project code; inside the box that is no worse than `run`. With `sandbox = "none"` it is never read. |
 | `timeout_s` | 60 | hal-hub's subprocess tool default. |
 | `restart_limit` | 1 | One restart covers a crash; a crash loop should surface. |
-| `host` | false | Stdio servers run in the box unless marked `host`. A `host = true` entry is not started by the agent: the broker reads it as an upstream (02-sandbox "Broker upstreams", argv = `command` + `args`), as pseudo-pack `mcp-<name>` with tools named `<name>__<tool>`, tier `act` unless `policy.toml` says otherwise (RESOLUTIONS E6; 01-security REQ-SEC-88). The agent sees them as broker tools. |
+| `host` | false | Stdio servers run in the box unless marked `host`. A `host = true` entry is not started by the agent: the broker reads it as an upstream (02-sandbox "Broker upstreams", argv = `command` + `args`), as pseudo-pack `mcp-<name>` with tools named `<name>__<tool>`, tier `act` unless `policy.toml` says otherwise (resolution E6; 01-security REQ-SEC-88). The agent sees them as broker tools. |
 | `url`, `headers` | none | Not accepted in v1: an entry with `url` is a config error naming this reason (REQ-AGT-75). |
 
 Sources merged in order: `[mcp.servers]`, project `.mcp.json` (`{"mcpServers": {name:
@@ -2278,7 +2274,7 @@ name: the later source wins and a `notice` says so. A project file or an ACP cli
 set `host = true`: only `config.toml` can, because both of the others are under the model's
 or the editor's control.
 
-With `sandbox = "none"` the agent starts none of these servers (REQ-AGT-75, RESOLUTIONS F4,
+With `sandbox = "none"` the agent starts none of these servers (REQ-AGT-75, resolution F4,
 ATK-40): without a box a stdio server would run on the host as the user with no broker
 policy or audit. `host = true` servers still work, because the broker runs them. With
 `--toolset assistant` no in-box server is started (REQ-AGT-102).
@@ -2319,14 +2315,14 @@ class LiteMcpClient:
     def ping(self) -> None: ...
     def close(self) -> None: ...
 
-MAX_MESSAGE_BYTES = 4 * 2**20   # the broker's per-message cap (RESOLUTIONS E9, 02-sandbox)
+MAX_MESSAGE_BYTES = 4 * 2**20   # the broker's per-message cap (resolution E9, 02-sandbox)
 ```
 
 Wire: newline-delimited JSON-RPC 2.0 over the unix socket (MCP stdio framing; 02-sandbox
 "Broker socket transport"). Handshake: `initialize` with `protocolVersion: "2025-11-25"`,
 `capabilities: {}`, `clientInfo: {name, version}`, then `notifications/initialized`. The empty
 capabilities mean no elicitation: the broker can never ask the box to approve anything
-(RESOLUTIONS B4). The broker is Hal's own server on the official SDK, which still accepts
+(resolution B4). The broker is Hal's own server on the official SDK, which still accepts
 handshake versions [verified: `HANDSHAKE_PROTOCOL_VERSIONS` in `mcp_types` 2.3.0 ends at
 `2025-11-25`], so a 200-line stdlib client is enough and keeps the broker path free of SDK
 version churn.
@@ -2342,7 +2338,7 @@ Example (result text abbreviated; the hub has already applied 01's envelope to i
 ```
 
 Hal-specific outcome data travels in `result._meta.hal`, defined by 02-sandbox with the keys
-`status`, `untrusted` and `guard` and no approval id (RESOLUTIONS E7). The agent maps
+`status`, `untrusted` and `guard` and no approval id (resolution E7). The agent maps
 `status` to `BackendOutcome.status` (`ok`, `denied`, `unavailable`; any other value is
 `error`), uses `untrusted` and `guard` for display only, and passes the text content to the
 model unchanged (REQ-AGT-26). A missing `_meta.hal` is read as `ok` or `error` from
@@ -2383,7 +2379,7 @@ JSON schema. Reasons:
 | `session/load` | client -> agent | Params `sessionId`, `cwd`, `mcpServers`, optional `_meta.hal.records` (transcript records from the host). Replays history as `session/update` (`user_message_chunk`, `agent_message_chunk`, `tool_call` with final status), then replies `{}`. Unknown id: error -32602. |
 | `session/prompt` | client -> agent | Runs one turn; streams `session/update`; replies `{stopReason}` when the turn ends. A second prompt while one runs: error -32002 "a prompt is already running". A prompt whose whole text is `/compact` runs summary compaction (3.9.4) instead of a model turn and ends with `end_turn` (06-core-cli forwards `/compact` as prompt text). |
 | `session/cancel` | client -> agent (notification) | Sets the turn's cancel event (REQ-AGT-82). |
-| `session/set_mode` | client -> agent | `auto` or `review` (coding toolset; the assistant toolset offers only `auto`, since it has no in-box tools to review); replies `{}`; sends `current_mode_update`. Any other id, including `plan`, is error -32602 (RESOLUTIONS F3). |
+| `session/set_mode` | client -> agent | `auto` or `review` (coding toolset; the assistant toolset offers only `auto`, since it has no in-box tools to review); replies `{}`; sends `current_mode_update`. Any other id, including `plan`, is error -32602 (resolution F3). |
 | `session/update` | agent -> client (notification) | 3.14.3. |
 | `session/request_permission` | agent -> client | Review mode (3.5.10). No answer within 3,600 s counts as `reject_once`. |
 | `_hal/record` | agent -> client (notification) | Transcript record (3.10.2); sent only when the client advertised `clientCapabilities._meta.hal.records = true`. |
@@ -2458,7 +2454,7 @@ from the box as untrusted text: permission requests from the box only gate in-bo
 which the box already contains, and host exits use the broker's own host-originated approval
 request with the exact canonical arguments (06-core-cli REQ-CLI-38: the proxy strips any
 `hal/`-prefixed `_meta` key from agent messages, so the agent cannot forge one). halcore calls
-the broker's `on_human_message` for every prompt it sends (01-security, RESOLUTIONS F5); the
+the broker's `on_human_message` for every prompt it sends (01-security, resolution F5); the
 agent plays no part in taint.
 `fs/*` and `terminal/*` client methods are not used (REQ-AGT-84): using them would let the
 in-box agent act on the host outside the box.
@@ -2495,7 +2491,7 @@ def serve(reader: BinaryIO, writer: BinaryIO, *, toolset: Literal["coding", "ass
           workdir: Path | None, settings: AgentSettings) -> None:
     """Serves ACP v1 on a byte-stream pair until EOF; the same code as hal-agent --acp.
 
-    Used by halcore for the unboxed assistant fallback (RESOLUTIONS A1) over two os.pipe()
+    Used by halcore for the unboxed assistant fallback (resolution A1) over two os.pipe()
     pairs. `settings` carries the endpoint, the broker socket path and the session id exactly
     as agent.json would (sandbox "none"); `workdir` None means the assistant's scratch
     directory from settings. Blocks the calling thread; never prints; logs through logging.
@@ -2505,11 +2501,11 @@ def serve(reader: BinaryIO, writer: BinaryIO, *, toolset: Literal["coding", "ass
 `hal-agent --acp` is `serve(sys.stdin.buffer, sys.stdout.buffer, ...)` with the settings
 read from `--config`. Because halagent never imports halsandbox, the in-process agent still
 reaches the broker through its unix socket (02-sandbox: with backend `none` the socket paths
-are host paths under `$R/s/<sid>/run/`), not through a Python object (RESOLUTIONS E5).
+are host paths under `$R/s/<sid>/run/`), not through a Python object (resolution E5).
 
 ### 3.15 Headless mode
 
-06-core-cli owns the `hal -p` flags and exit codes; 03 owns the output schema (RESOLUTIONS
+06-core-cli owns the `hal -p` flags and exit codes; 03 owns the output schema (resolution
 F1). `hal-agent -p` uses 06's flag names and exit codes, so the two commands differ only in
 who starts the sandbox.
 
@@ -2616,7 +2612,7 @@ and errors go to stderr.
 
 ```text
 hal-agent --acp [--config FILE] [--host-root DIR] [--toolset coding|assistant]
-    Serve ACP v1 on stdin/stdout (the in-box agent; halcore spawns it, RESOLUTIONS A7).
+    Serve ACP v1 on stdin/stdout (the in-box agent; halcore spawns it, resolution A7).
 hal-agent -p TASK [options of 3.15.1]
     Run one task headless.
 hal-agent profiles list
@@ -2645,7 +2641,7 @@ the host writes the file before the container starts and the agent reads it once
 #### 3.16.3 `agent.json` (schema 1)
 
 03 owns this schema; halcore renders it with `AgentSettings.to_json()` and passes it to the
-session as a run file (06-core-cli; RESOLUTIONS E4, E5). It lands at
+session as a run file (06-core-cli; resolution E4, E5). It lands at
 `$R/s/<sid>/run/agent.json`, which is `/run/hal/agent.json` in the box (read-only mount,
 02-sandbox "Session runtime directory"). The agent reads it with `AgentSettings.from_json()`,
 strict. With backend `none` and for the unboxed assistant the same object is used with host
@@ -2696,17 +2692,17 @@ agent never reads `config.toml`.
 
 | Key | Default | Reason |
 | --- | --- | --- |
-| `model` | `"hal-code"` | The gateway's coding role alias (RESOLUTIONS D1). The default coding model is chosen by the coding eval; until then it is whatever the user's `hal-code` alias resolves to (RESOLUTIONS, settled questions). |
-| `api` | `"openai"` | Chat Completions is the lowest common denominator; `responses` and `anthropic` are also allowed (the gateway serves all three, RESOLUTIONS D3). |
+| `model` | `"hal-code"` | The gateway's coding role alias (resolution D1). The default coding model is chosen by the coding eval; until then it is whatever the user's `hal-code` alias resolves to (the resolutions, settled questions). |
+| `api` | `"openai"` | Chat Completions is the lowest common denominator; `responses` and `anthropic` are also allowed (the gateway serves all three, resolution D3). |
 | `permissions` | `"auto"` | The box is the permission boundary (brief). |
 | `thinking` | `""` | Empty: profile. |
 | `broker_call_timeout_s` | 3900 | 3.13.2. |
-| `cloud_jobs` | `false` | Read by halcore's `core_long_task`, not by halagent (RESOLUTIONS F2; 01-security REQ-SEC-54 treats a cloud job as `send`). Defined here because 03 owns `[agent]`. |
+| `cloud_jobs` | `false` | Read by halcore's `core_long_task`, not by halagent (resolution F2; 01-security REQ-SEC-54 treats a cloud job as `send`). Defined here because 03 owns `[agent]`. |
 
 There is no `endpoint`, `endpoint_token_file` or `allow_host_run` key: the endpoint is always
-the gateway (3.3.7, RESOLUTIONS G5) and there is no host shell (RESOLUTIONS G4). Because the
+the gateway (3.3.7, resolution G5) and there is no host shell (resolution G4). Because the
 loader is strict, a leftover `allow_host_run` fails loudly (ATK-41). Transcripts always go to
-`state_dir()/sessions/` (RESOLUTIONS E3), so there is no `sessions_dir` key either.
+`state_dir()/sessions/` (resolution E3), so there is no `sessions_dir` key either.
 
 `[agent.overrides]`: any profile key (3.4.1), applied for every model.
 
@@ -2741,7 +2737,7 @@ the owner of the mapping):
 
 | Key | Default | Note |
 | --- | --- | --- |
-| `model` | `"hal-chat"` | The gateway's chat role alias, which resolves `[hal].chat_model` (`gemma4:12b-it-qat`) (RESOLUTIONS D1). |
+| `model` | `"hal-chat"` | The gateway's chat role alias, which resolves `[hal].chat_model` (`gemma4:12b-it-qat`) (resolution D1). |
 | `history_turns` | 10 | As today. |
 | `max_tool_rounds` | 5 | As today. |
 | `tools_per_turn` | 8 | As today. |
@@ -2763,9 +2759,9 @@ migrates, halcore reads `[brain]` through the same function and logs one warning
 | `num_ctx` | `[agent.assistant].context` | The agent plans a window; the gateway owns the server's context |
 | `user_name` | `[hal].user_name` when that is empty, else dropped | One source of truth (00-overview) |
 | `keep_alive` | dropped | Model residency is the gateway's (05-gateway) |
-| `ollama_url` | dropped | The agent reaches models only through the gateway (RESOLUTIONS G5); the gateway reads `[hal].ollama_url` |
-| `deep_work = "off"` or `"hal"` or `"local"` | dropped (`[agent].cloud_jobs` stays `false`) | Long jobs are `core_long_task` (RESOLUTIONS F2) |
-| `deep_work = "claude"` or `"cloud"` | dropped, `[agent].cloud_jobs` stays `false`, one warning naming the key | Cloud jobs are off by default and an explicit opt-in (RESOLUTIONS, settled questions; brief) |
+| `ollama_url` | dropped | The agent reaches models only through the gateway (resolution G5); the gateway reads `[hal].ollama_url` |
+| `deep_work = "off"` or `"hal"` or `"local"` | dropped (`[agent].cloud_jobs` stays `false`) | Long jobs are `core_long_task` (resolution F2) |
+| `deep_work = "claude"` or `"cloud"` | dropped, `[agent].cloud_jobs` stays `false`, one warning naming the key | Cloud jobs are off by default and an explicit opt-in (the resolutions, settled questions; brief) |
 | `deep_work_dir` | dropped, with a warning that names 06-core-cli's long-task settings | The long-task workspace belongs to `core_long_task` |
 | anything else | error naming the key | Strict config |
 
@@ -2781,7 +2777,7 @@ an ACP client (08-packs-and-flagships); the same values go in `[agent.assistant]
 #### 3.18.1 Assistant scenarios
 
 03 owns the library and the task formats; `hal eval` (06-core-cli "Eval") wraps them and
-supplies the runner (RESOLUTIONS F4). The case file is `eval/assistant/scenarios.toml` (00's
+supplies the runner (resolution F4). The case file is `eval/assistant/scenarios.toml` (00's
 layout follows this path). It keeps today's schema [verified: header comment and key counts of
 `core/hal/eval/scenarios.toml`: 50 cases, 12 `live`, so 38 run unattended]: `id`, `category`,
 `ask` or `turns`, `needs`, `setup`, `tools`, `any_tools`, `forbid`, `no_tools`, `args`,
@@ -2816,7 +2812,7 @@ def run_scenarios(cases: Sequence[Case], runner: AssistantRunner, *, model: str,
 halcore's runner opens the assistant through its normal ACP path with an in-process broker
 inside a temporary Hal home, a generated policy that denies tiers `act`, `send` and `system`
 and every network tool, and an approver that records requests and answers per `approve`
-(06-core-cli REQ-CLI-78, RESOLUTIONS A2). halagent never builds a hub or a broker for eval.
+(06-core-cli REQ-CLI-78, resolution A2). halagent never builds a hub or a broker for eval.
 `--model` may be any gateway model or alias. Reports go to the directory 06 names
 (`state_dir()/eval/<YYYYmmddTHHMMSSZ>-<model slug>/`, REQ-CLI-80) with the fields of 5.2.
 
@@ -2924,7 +2920,7 @@ def promote(b: int, c: int) -> bool: ...
 
 - Noise is large: byte-identical payloads scored 0.18, 0.17 and 0.15; one local re-run went
   from 55 to 48 of 129 (relayed). At n = 38 a single run's minimum detectable effect is about
-  17.6 points (relayed, `dev-notes.md`). The 2026-10-10 assistant comparisons are single runs,
+  17.6 points (relayed from the development runs). The 2026-10-10 assistant comparisons are single runs,
   so differences of a few cases between models are not evidence.
 - Every comparison runs both arms on the same cases, same repeats and same seeds where the
   server honours seeds, and reports `b`, `c`, the McNemar p value, the bootstrap interval and
@@ -2965,7 +2961,7 @@ def promote(b: int, c: int) -> bool: ...
 | Context | Still over window | `context_overflow` | Closed |
 | Broker | Socket missing in the box | Broker tools offered as unavailable; calls return `unavailable`; coding tools work | Closed: no exit |
 | Broker | Approval denied or timed out | The broker answers `denied`; the model is told it did NOT happen and not to retry (REQ-AGT-54) | Closed |
-| Broker | Broker unreachable (any toolset) | Its tools return `unavailable`; the assistant says the tool service is down; there is no in-process fallback (RESOLUTIONS A2) | Closed |
+| Broker | Broker unreachable (any toolset) | Its tools return `unavailable`; the assistant says the tool service is down; there is no in-process fallback (resolution A2) | Closed |
 | Broker | No answer within `broker_call_timeout_s` | `notifications/cancelled`, `unavailable` result | Closed |
 | Broker | Message over 4 MiB | Refused by the client; the call fails with `too_large` | Closed |
 | MCP | Server fails to start or crashes | Its tools return `unavailable`; one restart; `notice` | Closed |
@@ -2998,7 +2994,7 @@ hub and no approval path through the agent.
 | `_confirmed` property injected into schemas | `brain.py:161-165` | removed; REQ-AGT-35 strips it if a model invents it |
 | `deep_work` with `claude -p` by default | `brain.py:203-227`, `config.py:34` | the broker tool `core_long_task` (06-core-cli); cloud only with `[agent].cloud_jobs = true` |
 | Claims check and prompts | `brain.py:32-87, 260-331` | `halagent.assistant.claims`, `.prompts` (verbatim except 3.11.5) |
-| `Brain` class, imported by hal-voice and hal-telegram through `sys.path` | `brain.py:113`, `halvoice/brain.py:43-51`, `haltelegram/config.py:68-73` | `hal acp --channel <name> --toolset assistant`; hal-voice and the Telegram pack are ACP clients (RESOLUTIONS A1, E1, B9; 08-packs-and-flagships). No shim |
+| `Brain` class, imported by hal-voice and hal-telegram through `sys.path` | `brain.py:113`, `halvoice/brain.py:43-51`, `haltelegram/config.py:68-73` | `hal acp --channel <name> --toolset assistant`; hal-voice and the Telegram pack are ACP clients (resolution A1, E1, B9; 08-packs-and-flagships). No shim |
 | `evaluate.py` checks, placeholders | `core/hal/halcore/evaluate.py` | `halagent.eval.scenarios` (loader, checks, report); the sandbox and approver move to halcore's `AssistantRunner` (06-core-cli) |
 | `eval/scenarios.toml` | `core/hal/eval/` | `eval/assistant/scenarios.toml` (same schema plus `approve`; ASCII fixes on the 3 non-ASCII lines) |
 | `[brain]` table | `config.toml` | `[agent.assistant]` through `map_brain()` (3.17.3) |
@@ -3039,7 +3035,7 @@ hub and no approval path through the agent.
 
 ### 5.4 Order of cut-over
 
-1. halagent lands in `Hal.next`; `core/hal` in `hal-ecosystem` stays live, and hal-voice and
+1. halagent lands in the Hal monorepo; `core/hal` in `hal-ecosystem` stays live, and hal-voice and
    Telegram keep using it until their ACP versions land.
 2. The old `hal eval` (in `hal-ecosystem`) and the new `hal eval --suite assistant` run the
    same 38 cases with `--repeat 3`; `halagent.eval.report.compare` pairs the reports, and the
@@ -3079,9 +3075,9 @@ proposed for 01-security's attack list; 01 owns the final numbering):
 | `test_mcp_result_uses_security_envelope`, `test_broker_text_is_passed_through_unchanged` | Double or divergent untrusted wrappers, consistency review B11 |
 | `test_count_endpoint_403_marks_missing` | A forwarder 403 surfacing as a session error, consistency review D3 |
 | `test_every_provider_request_is_on_the_forwarder_allowlist` | `/api/*` or admin paths from the agent, REQ-SEC-66 |
-| `test_assistant_toolset_has_only_broker_tools` | Coding tools in the assistant box, RESOLUTIONS A1 |
+| `test_assistant_toolset_has_only_broker_tools` | Coding tools in the assistant box, resolution A1 |
 | `test_session_id_is_twelve_hex_from_host_meta` | Two session id formats, consistency review E2 |
-| `test_url_mcp_entries_are_rejected` | HTTP MCP servers bypassing the broker, RESOLUTIONS F4 |
+| `test_url_mcp_entries_are_rejected` | HTTP MCP servers bypassing the broker, resolution F4 |
 | `test_map_brain_drops_keys_with_reasons` | Silent loss of `[brain]` settings at migration |
 | `test_lite_client_refuses_message_over_4_mib` | Mismatched message caps, consistency review E9 |
 
@@ -3185,11 +3181,11 @@ Each step is one commit, tests included and passing, subject in the Hal style (`
 
 Steps 1 to 35 build the coding agent; 36 and 37 add the assistant toolset and its eval; 38 to 41
 add evaluation and docs. Steps 25 to 28 run against `FakeBroker` until 02-sandbox's broker
-lands; the `_meta.hal` field names follow 02-sandbox (RESOLUTIONS E7).
+lands; the `_meta.hal` field names follow 02-sandbox (resolution E7).
 
 ## 8. Decisions
 
-Choices made where the brief and `RESOLUTIONS.md` are silent, with reasons.
+Choices made where the brief and the design resolutions are silent, with reasons.
 
 1. **Hand-rolled ACP, schema-validated.** 3.14.1. The SDK is 0.x with a pydantic dependency;
    the protocol surface Hal needs is small; conformance comes from the vendored schema.
@@ -3222,10 +3218,10 @@ Choices made where the brief and `RESOLUTIONS.md` are silent, with reasons.
 14. **`tool_format = "prompt"` fallback** for models without native tool support, parsed with
     the Hermes parser, so "works across many models" includes models whose server has no tool
     parser.
-15. **`deep_work = "claude"` maps to cloud jobs off**, with a warning. RESOLUTIONS makes cloud
+15. **`deep_work = "claude"` maps to cloud jobs off**, with a warning. The resolutions make cloud
     jobs off by default and the brief makes cloud an explicit opt-in; the old value was a
     template default, not a choice made with the new risk in view.
-16. **The assistant has no host-tool path except the broker** (RESOLUTIONS A2): a broker that
+16. **The assistant has no host-tool path except the broker** (resolution A2): a broker that
     is down means no tools, stated in the reply, rather than tools without the broker's rate
     limits, taint, guard and audit.
 17. **ATIF export deferred.** Markdown and JSONL cover sharing and tooling now; ATIF v1.7 is a
@@ -3237,7 +3233,7 @@ Choices made where the brief and `RESOLUTIONS.md` are silent, with reasons.
 20. **Schedule numbers scale as fractions of the gemma schedule.** The only evidence is at N =
     28; the coding eval is how this gets checked.
 21. **Gateway interface used:** the forwarder allowlist routes only (01-security REQ-SEC-66 as
-    amended by RESOLUTIONS D3), `context_length` and optional `meta.hal_profile` in `GET
+    amended by resolution D3), `context_length` and optional `meta.hal_profile` in `GET
     /v1/models` (05-gateway), and the gateway's overflow rewrites. No Ollama-native path and
     no direct model URL.
 22. **No Streamable HTTP user MCP servers in v1.** The box has no network, and with backend

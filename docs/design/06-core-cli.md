@@ -3,14 +3,14 @@
 This spec defines `halcore`, the package behind the `hal` command: the command tree, the
 terminal UI, headless mode, the `hal acp` proxy, the launch of assistant channels, the
 built-in `core` tool module, power and unit management, pack installs, eval, console,
-configure, doctor, the installer, and the cutover of this machine from `hal-ecosystem` to the
+configure, doctor, the installer, and the cutover of a machine from `hal-ecosystem` to the
 new repos. It replaces the bash launcher `hal`, `setup.sh`, `hal-kill`, `halcore/*.py` and
 `hal-ecosystem/install.sh`. The agent, sandbox, broker, hub, policy and gateway are specified
 elsewhere; this spec fixes what `halcore` needs from them and how the user reaches them.
 
 Status: draft 2026-10-23, revised 2026-10-24 to match
-`~/src/.dev-notes/specs/RESOLUTIONS.md` (cited below by finding id, such as A1
-or B3). Where this text and RESOLUTIONS.md disagree, RESOLUTIONS.md wins.
+the design resolutions of 2026-10-23 (cited below by finding id, such as A1
+or B3). Where this text and the resolutions disagree, the resolutions win.
 
 ## Scope and non-goals
 
@@ -74,9 +74,9 @@ can be repeated.
 | Python 3.13.11, uv 0.11.19, systemd 259 | [verified: `--version`] |
 | `gpu-light` is not on PATH, so no gpu-light unit is installed | [verified 2026-10-24: `which gpu-light`; `~/.config/systemd/user` listing] |
 | `~/.local/state/hal/off` exists; `units.json` lists 20 units, all under `hal-ecosystem/{core,extensions}` | [verified: `cat units.json`] |
-| `~/.local/bin`: `hal`, `hal-hub`, `hal-voice`, `hal-employment` point into `hal-ecosystem`; `hal-private` into `core/hal-private`; `hal-old` and `a-bot` dangle | [verified: `ls -la ~/.local/bin`] |
+| `~/.local/bin`: `hal`, `hal-hub`, `hal-voice`, `hal-employment` point into `hal-ecosystem`; some links to old folders may dangle | [verified: `ls -la ~/.local/bin`] |
 | Desktop: `hal-console.desktop`, `hal-toggle.desktop`, `hal-kill.desktop`, `hal-employment.desktop` | [verified: `ls ~/Desktop`] |
-| Vault `.mcp.json` servers: `obsidian` (env key is a `${OBSIDIAN_API_KEY}` placeholder), `hal` (`uv run --with mcp .../Hal/hal-mcp.py`, file exists today), `hal-hub` (`~/.local/bin/hal-hub mcp`); the vault is not a git repo | [verified: JSON keys read with python, values not printed] |
+| Vault `.mcp.json` servers: `obsidian` (env key is a `${OBSIDIAN_API_KEY}` placeholder), `hal` (`uv run --with mcp <old checkout>/hal-mcp.py`, file exists today), `hal-hub` (`~/.local/bin/hal-hub mcp`); the vault is not a git repo | [verified: JSON keys read with python, values not printed] |
 | `~/.config/hal/config.toml` is mode 0664; `[hub].module_paths` names the two `hal-ecosystem` folders; it has no `[jobs]` table | [verified: `ls -la`, `sed -n 24,28p`; `[jobs]` absence from review-consistency H1] |
 | hal-voice and hal-telegram today locate core hal by `HAL_CORE`, `<ecosystem>/core/hal` or `[hal].core` and build `halcore.brain.Brain`; the released versions are ACP clients of `hal acp` instead (A1, B9) | [verified: `halvoice/brain.py:43-70`, `haltelegram/config.py:68-71`] |
 | hal-memory's install step merges the vault `.mcp.json` (adds `obsidian`, points `hal-hub` at its launcher, removes the old `hal` server, keeps `.mcp.json.bak`) | [verified: `hal-memory/README.md:48`] |
@@ -255,7 +255,7 @@ renders prompts; it defines no second data model.
 - **REQ-CLI-93** (MUST) Every halcore surface MUST declare `shows_all_args`; a request whose
   tool has a parameter with `content = true` MUST never be offered to a surface without it
   (the `voice` channel, desktop notifications) and MUST go to the TUI, Telegram, the console
-  or `hal approve` instead (RESOLUTIONS "Surfaces"). Test: unit
+  or `hal approve` instead (resolution "Surfaces"). Test: unit
   `test_content_request_never_routed_to_voice_or_notify`.
 - **REQ-CLI-94** (MUST) halcore MUST call `Broker.on_human_message(session, text, surface)`
   (01-security, F5) with the prompt text before it sends every `session/prompt` that a human
@@ -340,7 +340,7 @@ codes for `hal-agent -p`.
   uses 02's per-project consent (02-sandbox.md REQ-BOX-68, recorded as `allow_none` in
   `$STATE/sandbox/projects.json` by REQ-BOX-70): halcore passes
   `interactive=<stdin is a TTY>` to `Session.start` and keeps no record of its own, and
-  exits 3 with 02's reason when 02 refuses (RESOLUTIONS "Fallback"). `unboxed-ok.json`
+  exits 3 with 02's reason when 02 refuses (resolution "Fallback"). `unboxed-ok.json`
   (REQ-CLI-96) is for assistant channels only. Test: unit
   `test_docker_seen_then_down_refuses_to_start`,
   `test_code_session_passes_interactive_to_session_start`.
@@ -1878,7 +1878,7 @@ Profile to settings:
 | `cloud` | `qwen3.5:2b` | none local; `hal claude --cloud` or a cloud upstream opt-in | Ollama for chat only |
 
 These are today's `pick_profile` values (`setup.sh`). The default coding model is chosen by
-the coding eval; until then it is the user's `hal-code` alias (RESOLUTIONS, settled
+the coding eval; until then it is the user's `hal-code` alias (the resolutions, settled
 questions).
 
 Configuration migration (`--migrate`), read-only parse of `KEY="value"` lines:
@@ -1893,7 +1893,7 @@ Configuration migration (`--migrate`), read-only parse of `KEY="value"` lines:
 | `HAL_NUM_CTX`, `HAL_BACKEND`, `HAL_OLLAMA_URL` | dropped (gateway modes; `[hal].ollama_url`) |
 | `[brain]` | `[agent]` (mapping owned by 03) |
 | `[hub].module_paths` naming `hal-ecosystem` folders | removed after the cutover registers the packs |
-| no `[jobs]` table | `[jobs].jobhunt_root = "<current effective value>"`, today `~/src/employment-helper` (H1) |
+| no `[jobs]` table | `[jobs].jobhunt_root = "<current effective value>"`, today the old default checkout location (H1) |
 | the path of the migrated `hal.conf` | appended to `[compat].hal_conf` |
 
 The migrator prints a unified diff of `config.toml` and asks y/N, then writes atomically with
@@ -2031,7 +2031,7 @@ Steps; each checks state first and is skipped when already done:
 `--dry-run` wraps every mutating command in `run()`, which prints `would run: <argv>`; the
 probes in step 1 still run. A full log goes to `<state>/logs/install-<UTC>.log`.
 
-`scripts/host-setup.sh` (sudo, from `~/src/hal-host-setup.sh` and
+`scripts/host-setup.sh` (sudo, from an existing host-setup script and
 `system/ollama-store.sh`):
 
 - `--dry-run` prints every step.
@@ -2077,10 +2077,9 @@ restored by undoing links, units and config.
    comes from the jobs pack and keeps its name.
 7. Links: `~/.local/bin/hal`, `hal-hub`, `hal-gateway`, `hal-remote` -> the venv; `hal-voice` ->
    the voice pack's env launcher; `hal-employment` -> the jobs pack's launcher.
-   `hal-private`, `hal-old` and `a-bot` are not touched (the last two dangle; see
-   open question 3).
+   Other links in `~/.local/bin` are not touched (some may dangle; see open question 3).
 8. Print the vault step, never performed by the migrator: the vault `.mcp.json` `hal` server
-   points at `Hal/hal-mcp.py`, which disappears when that checkout moves to the
+   points at `<old checkout>/hal-mcp.py`, which disappears when that checkout moves to the
    monorepo. The fix is hal-memory's install step (it removes the `hal` entry and keeps
    `.mcp.json.bak`), run by the user with `hal packs setup memory`, which shows the step and
    needs a typed `y`. **This edit needs the user's explicit approval**; the migrator only
@@ -2161,7 +2160,7 @@ uninstall the venv or the pack envs (harmless when nothing links to them).
 
 ## Migration
 
-What replaces what (paths in `Hal.next` at `6ba8a94` unless noted):
+What replaces what (paths in the repo at `6ba8a94` unless noted):
 
 | Today | Becomes |
 | --- | --- |
@@ -2190,7 +2189,7 @@ What replaces what (paths in `Hal.next` at `6ba8a94` unless noted):
 | `systemd/hal-gpu-light.service` | not shipped; `hal units install` and `hal setup` remove an installed copy |
 | `desktop/*.desktop` | `halcore/data/desktop/` with `@HAL@` |
 | `hal-ecosystem/install.sh` | `scripts/install.sh` (the old file stays in the old repo, unused) |
-| `hal-ecosystem/publish.sh` | not ported; publishing is the reviewed release in 00-overview (it would push `hal-private` to `NotEoin/Hal`) |
+| `hal-ecosystem/publish.sh` | not ported; publishing is the reviewed release in 00-overview (it would push a private fork to `NotEoin/Hal`) |
 | `models/build-roles.sh` | not ported; the Ollama models `hal-coder`, `hal-writer`, `hal-fast` it created stay in Ollama and keep serving hal-employment |
 
 How existing users and config keep working:
@@ -2393,7 +2392,7 @@ The cutover (checklist above) is not a commit; the user runs it.
 ## Decisions
 
 - **D1 Assistant channels run in a long-lived assistant box; in-process is only the
-  fallback.** Settled by RESOLUTIONS A1. The box contains bugs in the agent's own parsing of
+  fallback.** Settled by resolution A1. The box contains bugs in the agent's own parsing of
   model output, gives the assistant the same process model as `hal code`, and keeps the vault
   out of reach (scratch `/work`). The in-process design of the first draft survives as the
   backend-`none` fallback (REQ-CLI-96), with a banner and a recorded consent.
@@ -2401,7 +2400,7 @@ The cutover (checklist above) is not a commit; the user runs it.
   random directory read-write into the box would break the sandbox's "nothing else from the
   host" rule, so auto mode only picks code where a project is evident. The old behaviour
   (Claude Code in the vault) stays one flag away as `hal claude --vault`.
-- **D3 Approval scopes are `once` and `session`; never "always".** Settled by RESOLUTIONS B2.
+- **D3 Approval scopes are `once` and `session`; never "always".** Settled by resolution B2.
   `session` binds exact arguments for one session id, so repeated identical calls in a
   session cost one prompt; anything durable is a rule the user writes with `hal policy allow`
   after a typed confirmation, where it is visible and reviewable.
@@ -2410,7 +2409,7 @@ The cutover (checklist above) is not a commit; the user runs it.
   broker session at `runtime_dir()/control/<sid>.sock` (B3).
 - **D5 The gateway unit is not `X-HalGPU`; `hal off` releases the GPU through the gateway.**
   The gateway holds no VRAM itself and must stay up for harness auth; leased sessions are
-  exempt (D9 of RESOLUTIONS), which keeps today's rule that `hal off` does not kill a running
+  exempt (D9 of the resolutions), which keeps today's rule that `hal off` does not kill a running
   coding session (`power.py` header) while still freeing the GPU from the assistant.
 - **D6 `hal claude` injects `--permission-mode default`, not `acceptEdits`.** The old reason
   (auto mode's approver timing out) is satisfied by `default`, which also stops unasked edits
@@ -2442,7 +2441,7 @@ The cutover (checklist above) is not a commit; the user runs it.
 - **D15 "Cloud" long jobs change only the model.** `where = "cloud"` routes the same
   sandboxed `hal -p` to a cloud upstream behind the gateway (`[long_task].cloud_model`), so
   the box, broker and policy are identical and no unsandboxed `claude -p` runs on the host.
-  It is off unless `[agent].cloud_jobs` is true (RESOLUTIONS F2).
+  It is off unless `[agent].cloud_jobs` is true (resolution F2).
 - **D16 The manifest's `gpu` flag carries `X-HalGPU`; `X-HalOff` marks a unit that only follows `hal off`.** One source (04's `[[units]] gpu`)
   that the renderer turns into the marker and the off condition; templates that already have
   the line (hal-employment's unit) keep working without edits (F9).
@@ -2465,7 +2464,7 @@ The cutover (checklist above) is not a commit; the user runs it.
 2. **Vault `.mcp.json`.** The cutover leaves the stale `hal` server entry until you run
    `hal packs setup memory` and approve it (it removes the entry and keeps a backup). Approve
    that edit at cutover time?
-3. **Dangling links.** `~/.local/bin/hal-old` and `a-bot` point at folders that no longer
+3. **Dangling links.** Old links in `~/.local/bin` may point at folders that no longer
    exist. Remove them during the cutover, or leave them?
 4. **Plain `hal` default.** Today `hal` opens Claude Code in your vault. The new default opens
    Hal's own TUI (code in a project, chat elsewhere). Keep the new default, or set

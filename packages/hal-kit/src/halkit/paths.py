@@ -5,8 +5,8 @@ read at call time, never at import, so tests and daemons see the current environ
 user id is read on first use, never at import, so this module imports on Windows.
 
 `HAL_STATE_DIR`, `HAL_DATA_DIR` and `HAL_RUNTIME_DIR` move a whole install, so two installs with
-different values share nothing (ported from the per-install state directory of hal-private,
-commit b279740). The older `HAL_STATE` and `HAL_DATA` still work and log one warning.
+different values share nothing (ported from an earlier per-install state directory).
+The older `HAL_STATE` and `HAL_DATA` still work and log one warning.
 
 Runtime directory (resolution F6), first match wins: `HAL_RUNTIME_DIR`, then
 `$XDG_RUNTIME_DIR/hal`, then

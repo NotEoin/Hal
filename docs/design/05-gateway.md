@@ -6,7 +6,7 @@ OpenAI-compatible server. It replaces `hal-serve`, `hal-route.py` and the GPU-li
 today's Hal with one stdlib Python service, owns the model manifest (`models.toml`) and model
 downloads, and adds the per-session forwarders the sandbox uses to reach models.
 
-Status: draft 2026-10-23, revised 2026-10-24 against `RESOLUTIONS.md` (binding) and the brief's
+Status: draft 2026-10-23, revised 2026-10-24 against the design resolutions (binding) and the brief's
 host facts.
 
 ## Scope and non-goals
@@ -40,7 +40,7 @@ In scope:
   reclaimer (`hal-gateway release-gpu --reclaim`) so gpu-light can free the gateway's idle
   VRAM, gpu-light v1 file claims as a fallback, or none; idle release, the off flag with
   lease exemptions, and the peer-GPU guard and per-install state directory taken from
-  `hal-private` commit `b279740`.
+  an earlier private fork.
 - Per-session forwarders for the sandbox (session tokens, route allowlist, size and
   concurrency caps), which can also target a remote gateway URL with a client token.
 - Named client tokens (`hal-gateway token issue|revoke|list`), persisted hashed, and client
@@ -55,7 +55,7 @@ Non-goals:
   Completions or back. A route that a backend does not serve returns a clear error. llama.cpp
   and Ollama serve all three model APIs [verified: section "Verified facts"], so local use
   needs no translation.
-- The GPU scheduler itself (gpu-light v2, `~/src/gpu-light/docs/design-v2.md`,
+- The GPU scheduler itself (gpu-light v2, `gpu-light/docs/design-v2.md`,
   "GL" below). The gateway is a client and follows GL's wire protocol exactly.
 - A request queue across clients. Priority between workloads is gpu-light's job.
 - TLS on the gateway listener. Remote access goes through SSH (07-remote), which forwards the
@@ -72,7 +72,7 @@ Non-goals:
 
 | Owner | Interface | Used for |
 | --- | --- | --- |
-| 00-overview | `halkit.paths.runtime_dir/state_dir/config_dir/ensure_private_dir/check_socket_path` (one runtime-dir rule, RESOLUTIONS F6), `halkit.config`, the `[hal]` table (`chat_model`, `fast_model`, `code_model`, `writer_model`, `embed_model`, `vision_model`, `ollama_url`), REQ-SYS-09 to REQ-SYS-12, the ports table | paths, role aliases, listener rules |
+| 00-overview | `halkit.paths.runtime_dir/state_dir/config_dir/ensure_private_dir/check_socket_path` (one runtime-dir rule, resolution F6), `halkit.config`, the `[hal]` table (`chat_model`, `fast_model`, `code_model`, `writer_model`, `embed_model`, `vision_model`, `ollama_url`), REQ-SYS-09 to REQ-SYS-12, the ports table | paths, role aliases, listener rules |
 | 01-security | REQ-SEC-66 (forwarder route allowlist), REQ-SEC-75 (TCP listener), REQ-SEC-76 and `llama_server_command(...)` (managed llama-server argv and environment), REQ-SEC-78 (llama.cpp lock), REQ-SEC-79 to REQ-SEC-82 (model manifest, pickle refusal, templates, downloads), ATK-09, ATK-32, ATK-33 | security requirements this spec implements |
 | 02-sandbox | the session socket directory, the bind mount of `model.sock` at `/run/hal`, `hal-relay`, and the `start_model` callable that halcore supplies (02 "Model socket and forwarder") | where the forwarder listens |
 | 03-agent | treats 403 like 404 on count endpoints; reads `context_length` and `meta.hal_profile` from `/v1/models`; agent profiles live in `~/.config/hal/model-profiles.toml` (not this spec's `models.toml`) | agent client behaviour |
@@ -101,7 +101,7 @@ The docker rows were re-checked on 2026-10-24.
 | Ollama's `/api/tags` returns a 64-hex digest per model | `curl 127.0.0.1:11434/api/tags` (01-security, "Supply chain") |
 | `SO_PEERCRED` on an `AF_UNIX` socket returns the peer pid and uid in Python 3.13; the accepted socket's address is the empty string | Python experiment |
 | The legacy `hal-route.py` policies ran for real: `~/.local/state/hal/route.log` has 1895 lines, 223 `effort xhigh` decisions, 5 classifier turns and 3 swaps (16.2 s, 47.2 s, 19.2 s); `~/.local/state/hal/slots/` holds `hal-hybrid-0.bin` and `hal-hybrid-1.bin` | `grep -c` on the log, no message text read |
-| gpu-light v1 code exists in `~/src/gpu-light` but is not installed (`~/.local/state/gpu-light` absent); gpu-light v2 exists as a design (`docs/design-v2.md`) with no code yet | `ls`, `git log` in `~/src/gpu-light`, 2026-10-24 |
+| gpu-light v1 code existed but was not installed; gpu-light v2 existed as a design (`docs/design-v2.md`) with no code yet | measured during development, 2026-10-24 |
 | Docker lists runtimes `io.containerd.runc.v2`, `nvidia`, `runc`, `runsc`, `runsc-gpu`; `/etc/docker/daemon.json` registers `runsc` without `--host-uds` and `runsc-gpu` with `--nvproxy` | `docker info --format '{{range $k,$v := .Runtimes}}{{$k}} {{end}}'` and `cat /etc/docker/daemon.json`, 2026-10-24 |
 | `--runtime=nvidia --gpus all` sees the RTX 3090; `--runtime=runsc-gpu --gpus all` fails with "cannot create sandbox: cannot read client sync file: EOF"; runsc refuses a bind-mounted host unix socket unless registered with `--host-uds=open` | Brief, "Host facts" (verified 2026-10-23) |
 
@@ -136,7 +136,7 @@ Test kinds: **unit** (hermetic, in-process fakes), **integration** (real sockets
 subprocesses with fake backends; hermetic, runs by default), **slow** (real llama-server
 binary with the GPU hidden; marked `slow`, skipped when the binary is absent), **docker**
 (marked `docker`), **gpu** (marked `gpu`, real models), **manual**. Markers follow 00-overview
-(RESOLUTIONS E12).
+(resolution E12).
 
 ### Listeners and authentication (REQ-GW-0x)
 
@@ -492,7 +492,7 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
   `test_hash_mismatch_is_refused`, `test_changed_inode_forces_rehash`,
   `test_pickle_format_is_refused`.
 - **REQ-GW-76** `GET /health` MUST answer `{"status":"ok"}` without authentication and
-  without touching any backend (one of the two REQ-SYS-10 exceptions, RESOLUTIONS G6). Test:
+  without touching any backend (one of the two REQ-SYS-10 exceptions, resolution G6). Test:
   unit `test_health_is_public_and_local`.
 - **REQ-GW-77** A request to an Ollama backend MUST get 503 `model_unverified` unless
   `models.toml` has an `ollama:` entry for the upstream model whose digest equals the digest
@@ -626,7 +626,7 @@ packages/hal-gateway/
 ```
 
 `halgateway` imports only `halkit` and the standard library. Nothing in Hal imports
-`gpu_light`; `gpu/lightv2.py` speaks GL's socket protocol itself (RESOLUTIONS A6).
+`gpu_light`; `gpu/lightv2.py` speaks GL's socket protocol itself (resolution A6).
 
 Runtime files:
 
@@ -650,7 +650,7 @@ Runtime files:
 | `<state>/off` | any | `hal off` (halcore) | off flag, read only |
 
 `<state>` is `halkit.paths.state_dir()`: `$HAL_STATE_DIR`, else `$XDG_STATE_HOME/hal`, else
-`~/.local/state/hal`. This is the per-install state dir of `b279740` made generic. `$R` is
+`~/.local/state/hal`. This is the per-install state dir of an earlier private fork made generic. `$R` is
 `halkit.paths.runtime_dir()` (00-overview, one rule for all components).
 
 ### Listeners
@@ -956,7 +956,7 @@ against REQ-GW-78 before it writes the file, so a refused mode never reaches lla
 Modes are the INI files of today's `modes/` plus one Hal section. Discovery order:
 `router.modes_dirs` (default `["~/.config/hal/modes"]`), then the bundled
 `halgateway/modes/`. A user file with the same name replaces the bundled one, which is how a
-second install swaps models without a fork (the `hal-private` model swap). A mode is
+second install swaps models without a fork (as an earlier private fork did). A mode is
 what 06 and 00 call a preset in `hal serve [PRESET]`; inside a mode, each INI section is a
 llama-server preset.
 
@@ -1069,7 +1069,7 @@ docker run --rm --name hal-llama-<instance> --runtime=<container_runtime> --gpus
 The preset is rendered with container paths (`@MODELS@=/models`, `@HAL@=/hal`,
 `@STATE@=/state`). `<image>` comes from `router.container_image`; there is no default image in
 this spec (02-sandbox owns image builds). `router.container_runtime` is `nvidia` by default
-(RESOLUTIONS D12; the NVIDIA Container Toolkit 1.20.1 is installed and `--runtime=nvidia
+(resolution D12; the NVIDIA Container Toolkit 1.20.1 is installed and `--runtime=nvidia
 --gpus all` sees the RTX 3090), `runc` for CPU-only modes (`--gpus` is then left out), or
 `runsc-gpu`, which fails on this machine today ("cannot read client sync file: EOF", brief
 "Host facts"). Under runsc the host must connect to a socket the container creates in a
@@ -1201,7 +1201,7 @@ for these modes, `hal:148`).
 - The scheduler holds the claim of the class that triggered the swap for the whole swap; a swap counts
   as activity for the idle timers, and a reclaim (REQ-GW-55) is answered `busy` while a swap
   runs, so the scheduler's view of what is loaded stays right (the reason for the `command`
-  reclaimer, RESOLUTIONS D7).
+  reclaimer, resolution D7).
 
 Stop reasons are found by scanning the response with the regexes
 `"stop_reason"\s*:\s*"(\w+)"` and `"finish_reason"\s*:\s*"(\w+)"` over each chunk plus the
@@ -1267,7 +1267,7 @@ class GpuManager:
 
 A **lease** is a session minted with `lease = true` (REQ-GW-60). It exists from mint to
 revoke or expiry. Leases do two things only: requests from a leased session pass the off flag
-(RESOLUTIONS D9), and `release` without `force` keeps the GPU state while any lease exists
+(resolution D9), and `release` without `force` keeps the GPU state while any lease exists
 (06 REQ-CLI-50, `hal off` keeps an open coding session's server). A reclaim from gpu-light
 ignores leases: an idle leased session gets its model reloaded on the next request, which is
 gpu-light's anti-thrash trade (GL `idle_after_s`).
@@ -1340,14 +1340,14 @@ The gateway follows GL "Socket API" exactly; `gpu/lightv2.py` is a stdlib client
   reclaimer for them (GL "Hal gateway", step 4). `timeout_s = 60` covers unloading two presets. `idle_after_s = 120` equals
   `idle_release_s`. This replaces GL's recipe item 4 (a `llama-router` reclaimer calling the
   router directly), because a direct unload would bypass the swap scheduler's bookkeeping
-  (RESOLUTIONS D7). `hal-gateway release-gpu --reclaim` posts `/hal/v1/gpu/release` with
+  (resolution D7). `hal-gateway release-gpu --reclaim` posts `/hal/v1/gpu/release` with
   `{"reclaim": true}` and exits 0 when released, 3 when busy.
 
 #### gpu-light v1 (file claims)
 
-With only gpu-light v1, today's behaviour stays (RESOLUTIONS D8): one gateway-wide lease. The
+With only gpu-light v1, today's behaviour stays (resolution D8): one gateway-wide lease. The
 gateway writes the claim itself (no `gpu-light` binary needed), per
-`~/src/gpu-light/docs/protocol.md`:
+`gpu-light/docs/protocol.md`:
 
 ```json
 {"protocol": 1, "name": "hal-gateway", "lifetime": "pid", "pid": 41234, "pid_start": 5551234,
@@ -1383,9 +1383,9 @@ gateway writes the claim itself (no `gpu-light` binary needed), per
 
 #### Peer guard
 
-Ported and generalised from `b279740` (`HAL_PEER_LLAMA_URL`): `[[gateway.gpu.peers]]` with
+Ported and generalised from an earlier private fork (`HAL_PEER_LLAMA_URL`): `[[gateway.gpu.peers]]` with
 `url` and optional `api_key_file`. The check runs `GET <url>/models`, parses JSON, and counts
-a peer as holding the GPU when any entry has `status.value == "loaded"` (b279740 used a
+a peer as holding the GPU when any entry has `status.value == "loaded"` (the fork used a
 `grep` on the body). It runs before router start, before `load`, and before each claim.
 
 #### Helpers for halcore
@@ -1506,7 +1506,7 @@ class ClientTokens:
   on the next request (REQ-GW-66).
 - `hal-gateway token show | rotate` keep handling the owner token; they work on the file
   directly, and the gateway re-reads the owner token file on a changed mtime the same way, so
-  a rotation needs no restart. RESOLUTIONS D6 writes these
+  a rotation needs no restart. resolution D6 writes these
   commands as `hal gateway token ...`; 06's command tree maps `hal gateway <args>` to
   `hal-gateway <args>`.
 
@@ -1542,14 +1542,14 @@ class GatewayClient:
 ```
 
 `SessionGrant` has `id`, `token`, `expires`. halcore is the only importer (00 layering;
-RESOLUTIONS A5); halsandbox gets the forwarder through 02's `start_model` callable. 06's
+resolution A5); halsandbox gets the forwarder through 02's `start_model` callable. 06's
 calls map as: `llama_start(preset, wait_s)` -> `set_mode`, `llama_stop()` -> `stop_router`,
 `llama_status()` -> `status()["backends"]`, `release_gpu(force)` and `leases()` as named.
 
 ### Model manifest
 
 `~/.config/hal/models.toml` (`config_dir()/models.toml`) is the gateway's model manifest
-(RESOLUTIONS D2). It is user config: `serve` only reads it; `halgateway.models` writes it
+(resolution D2). It is user config: `serve` only reads it; `halgateway.models` writes it
 (atomic replace, 0600) when the user pulls or adds a model. Agent profiles are a different
 file (`model-profiles.toml`, 03).
 
@@ -1686,7 +1686,7 @@ wrong type is an error naming the key, and the gateway does not start. Role alia
 [gateway]
 url = ""                    # client mode: "http://127.0.0.1:8741" on a laptop (07); "" = local gateway
 unix_path = ""              # "" = halkit.paths.runtime_dir() + "/gateway.sock"
-tcp = false                 # off until `hal connect` or `hal remote authorize` turns it on (RESOLUTIONS D4)
+tcp = false                 # off until `hal connect` or `hal remote authorize` turns it on (resolution D4)
 tcp_host = "127.0.0.1"      # "127.0.0.1" or "::1" only
 tcp_port = 8741             # brief, "Ports and paths"
 token_file = "~/.config/hal/gateway-token"   # owner token; in client mode, the client token
@@ -1724,7 +1724,7 @@ idle_release_s = 120.0      # v2: release the claim 2 min after the last request
 idle_unload_s = 900.0       # v1 and none: unload and release after 15 min; 0 = hold until stop
 owner_unix_class = "service"      # host packs through halkit.llm
 owner_tcp_class = "interactive"   # host harnesses through hal connect
-respect_off_flag = true     # leased sessions are exempt (RESOLUTIONS D9)
+respect_off_flag = true     # leased sessions are exempt (resolution D9)
 peer_timeout_s = 3.0
 v2_socket = ""              # "" = $GPU_LIGHT_SOCKET, else $XDG_RUNTIME_DIR/gpu-light/daemon.sock (GL)
 reclaimer_name = "hal-gateway"
@@ -1830,7 +1830,7 @@ investigation of a rogue box or a stolen client token needs.
 ### systemd unit
 
 This spec ships the template as `halgateway/data/hal-gateway.service`; 06 renders it with its
-placeholders (RESOLUTIONS F8) and ships no second copy.
+placeholders (resolution F8) and ships no second copy.
 
 ```ini
 [Unit]
@@ -1894,7 +1894,7 @@ the managed router die with the gateway and keeps it in the cgroup gpu-light's
 | GPU | Gateway not run by `hal-gateway.service` (detached `serve`) | `match_unit` does not match, so gpu-light sees llama-server as a foreign process and treats it as exclusive; status warns | Open |
 | GPU | Reclaim while a request or swap runs | `release-gpu --reclaim` exits 3 (`busy`); gpu-light retries after `preempt.retry_s` | Closed |
 | GPU | Off flag present, no lease | 503 `hal_off` for GPU backends | Closed |
-| GPU | Off flag present, leased session | Served (RESOLUTIONS D9) | Open by design |
+| GPU | Off flag present, leased session | Served (resolution D9) | Open by design |
 | GPU | Peer holds the GPU | 409 `gpu_busy_peer` | Closed |
 | GPU | Peer unreachable | Treated as not holding, warning | Open (a down peer holds no VRAM; a hung one is the residual risk) |
 | GPU | Idle unload fails to unload a model | Logged; lease released anyway, so background jobs may find VRAM still held and wait | Open |
@@ -1914,12 +1914,12 @@ the managed router die with the gateway and keeps it in the cgroup gpu-light's
 | `hal-route.py` (567 lines, port 8079) | `halgateway.policies.*` on the gateway's own port | Port 8079 and `route.pid` go away; decisions move from `route.log` to `requests.jsonl` |
 | `hal-route.py` `--policy route/effort/swap`, `--fast`, `--strong`, `--classifier`, `--prompt`, `--slots`, `--default`, `--force` | `[hal]` section keys of each mode; `route.default` and `route.force` on aliases | `hal-serve:180-191` case statement becomes data in the INI |
 | `modes/*.ini`, `modes/*.txt`, `modes/qwen3.8-chat.jinja` | `packages/hal-gateway/src/halgateway/modes/` with a `[hal]` section each | `git mv`, then add `[hal]`; `@HAL@` semantics kept; user overrides in `~/.config/hal/modes/` |
-| `hal-private` model swaps (`b279740`) | A user mode file in `~/.config/hal/modes/` | No fork |
-| `HAL_STATE_DIR` (`b279740`) | `halkit.paths.state_dir()` honouring `HAL_STATE_DIR`; gateway state under `<state>/gateway/` | Plus `HAL_RUNTIME_DIR` for the socket |
-| `HAL_PEER_LLAMA_URL` (`b279740`) | `[[gateway.gpu.peers]]` | JSON parse instead of `grep` |
-| `halcore/gpulight.py` (CLI wrapper of `gpu-light`) | `halgateway.gpu` (`detect`, `status_line`, `lightv1.FileClaim`, `lightv2`) | With v2 the gateway claims per use and `hal on` holds no claim (RESOLUTIONS D8); with v1, halcore's `hal on` claim uses `FileClaim` |
+| Earlier private-fork model swaps | A user mode file in `~/.config/hal/modes/` | No fork |
+| `HAL_STATE_DIR` (earlier fork) | `halkit.paths.state_dir()` honouring `HAL_STATE_DIR`; gateway state under `<state>/gateway/` | Plus `HAL_RUNTIME_DIR` for the socket |
+| `HAL_PEER_LLAMA_URL` (earlier fork) | `[[gateway.gpu.peers]]` | JSON parse instead of `grep` |
+| `halcore/gpulight.py` (CLI wrapper of `gpu-light`) | `halgateway.gpu` (`detect`, `status_line`, `lightv1.FileClaim`, `lightv2`) | With v2 the gateway claims per use and `hal on` holds no claim (resolution D8); with v1, halcore's `hal on` claim uses `FileClaim` |
 | `halcore/power.py:32-74` (Ollama ps/unload) | `halgateway.backends.ollama` helpers | `power.py` imports them; `hal off` also calls `GatewayClient.release_gpu(stop_router=True)` |
-| `hal:124-178` max-profile env block | `hal connect claude` / `hal claude` (06) from `GET /hal/v1/aliases` | `ANTHROPIC_BASE_URL` is the gateway root `http://127.0.0.1:8741` (RESOLUTIONS F7); models `hal/main` and `hal/agent`; `CLAUDE_CODE_MAX_CONTEXT_TOKENS` from `context_window`; `API_TIMEOUT_MS` from `client_timeout_ms` |
+| `hal:124-178` max-profile env block | `hal connect claude` / `hal claude` (06) from `GET /hal/v1/aliases` | `ANTHROPIC_BASE_URL` is the gateway root `http://127.0.0.1:8741` (resolution F7); models `hal/main` and `hal/agent`; `CLAUDE_CODE_MAX_CONTEXT_TOKENS` from `context_window`; `API_TIMEOUT_MS` from `client_timeout_ms` |
 | `hal:150-151` dummy tokens `ANTHROPIC_AUTH_TOKEN=hal` | The owner token, or a leased session token minted by 06 | Real auth |
 | `HAL_CHAT_URL=$LLAMA_URL` for Python tools (`hal:176-178`) | Gateway (through `halkit.llm`) | Direct use of 8080 fails once the router has a key |
 | `models/catalog.txt`, `pull-all.sh`, `build-roles.sh` | `models.toml` entries and `halgateway.models.pull` (via `hal models pull`) | Each entry gains a pinned commit and sha256 |
@@ -1935,10 +1935,10 @@ Keeping existing users working:
   alias step 3, so a Claude Code config that names them keeps working once its base URL points
   at the gateway.
 - hal-employment is unaffected: it talks to Ollama directly (`ai.ollama_url`) or to
-  `ai.openai_url` (it is not a Hal component, so RESOLUTIONS G5 does not bind it), reads
+  `ai.openai_url` (it is not a Hal component, so resolution G5 does not bind it), reads
   `hal.conf` model lines (still written by halcore, not by the gateway), and self-gates on
   `nvidia-smi`. Its `OWN` list does not include `llama-server`, so it waits while the managed
-  router holds VRAM, as it does today with `hal-serve` (employment-iface section 5).
+  router holds VRAM, as it does today with `hal-serve`.
 - `~/.local/state/hal/off` keeps its meaning and gains one: the gateway honours it for
   principals without a lease.
 - `X-HalGPU=yes` stays on the units that have it; the gateway unit does not get it.
@@ -2012,7 +2012,7 @@ Benchmark (not a test): `packages/hal-gateway/scripts/bench_relay.py`, re-writte
 
 ## Implementation plan
 
-Each step is one commit in the Hal monorepo (`Hal.next`, branch `next`), with its tests and
+Each step is one commit in the Hal monorepo (branch `next`), with its tests and
 the matching section of `docs/dev/gateway.md`, and passes `ruff`, the ASCII gate and the
 test suite. Subjects follow the brief: `<Verb> <object>`, no article after the verb, at most
 60 characters, no body.
@@ -2105,7 +2105,7 @@ gpu-light v2's daemon only for its manual check; its tests use `FakeGpuLightV2`.
    case statements (`hal-serve:142-145, 180-191`, `hal:127-139`, `hal:159-168`) become data.
    A user mode file in `~/.config/hal/modes/` replaces the bundled one of the same name.
 5. **Two kinds of built-in alias.** Role aliases (`hal-chat` ... `hal-vision`) follow the
-   `[hal]` table, which stays the single source of truth for model roles (RESOLUTIONS D1);
+   `[hal]` table, which stays the single source of truth for model roles (resolution D1);
    mode aliases (`hal/main`, `hal/agent`) follow the active router mode. The slash form cannot
    collide with a preset name, and `hal` is reserved as a backend name. Preset names stay
    valid for compatibility.
@@ -2116,7 +2116,7 @@ gpu-light v2's daemon only for its manual check; its tests use `FakeGpuLightV2`.
    bound.
 8. **Swap waits are bounded** (`swap_wait_s = 7200`); today a request can wait forever.
 9. **With gpu-light v2, at most two claims, one per class, held per use** (GL "Hal gateway"
-   step 2, RESOLUTIONS D7, D8): `hal-gateway-interactive` and `hal-gateway-service` follow
+   step 2, resolution D7, D8): `hal-gateway-interactive` and `hal-gateway-service` follow
    requests, are released two minutes after the last one,
    and models stay loaded until gpu-light reclaims them. With v1, one gateway-wide lease bound
    to the gateway's pid, as today. Either way the gateway, not each launcher, owns the claim;
@@ -2126,9 +2126,9 @@ gpu-light v2's daemon only for its manual check; its tests use `FakeGpuLightV2`.
     request path.
 11. **gpu-light v2 is reached with an own stdlib JSON-RPC client and frees the gateway's VRAM
     through a `command` reclaimer** (`hal-gateway release-gpu --reclaim`). Importing
-    `gpu_light` would break the layering (nothing in Hal imports it, RESOLUTIONS A6); a
+    `gpu_light` would break the layering (nothing in Hal imports it, resolution A6); a
     `llama-router` reclaimer would unload models behind the swap scheduler's back
-    (RESOLUTIONS D7). GL is the source of truth for the wire format.
+    (resolution D7). GL is the source of truth for the wire format.
 12. **GPU coordination fails open** (proceed without a claim), matching today's hooks and
     v1's intent; peers that hold the GPU and the off flag fail closed. `on_busy = "fail"`
     exists for users who prefer closed.
@@ -2136,7 +2136,7 @@ gpu-light v2's daemon only for its manual check; its tests use `FakeGpuLightV2`.
     a remote client should use models, not switch modes or mint sessions.
 14. **Sessions live in memory; client tokens on disk as hashes.** Sessions are per process
     and re-minted cheaply, so no token is at rest; client tokens must survive restarts for
-    `hal remote` (RESOLUTIONS D6), so only their sha256 is stored.
+    `hal remote` (resolution D6), so only their sha256 is stored.
 15. **Remote backends must use https and be opted in per backend**, and sessions and client
     tokens exclude them by default. LAN servers go through an SSH tunnel (07-remote), which
     makes them loopback.
@@ -2152,17 +2152,17 @@ gpu-light v2's daemon only for its manual check; its tests use `FakeGpuLightV2`.
     add code for no measured gain.
 20. **Session request cap 8 MiB, owner cap 32 MiB.** A full 256K-token prompt is about 1 MiB
     of JSON (measured: 1,000 messages of 200 words plus 40 tools is 1.0 MiB).
-21. **TCP listener off by default, foreign `Host` gets 403** (RESOLUTIONS D4, REQ-SYS-10).
+21. **TCP listener off by default, foreign `Host` gets 403** (resolution D4, REQ-SYS-10).
     `hal connect` and `hal remote authorize` turn it on; the owner token file exists from the
     first start so `halkit.llm` and `hal connect` never race its creation.
 22. **The manifest is mandatory for what the gateway loads or serves from Ollama**
-    (RESOLUTIONS D2, REQ-SEC-79): router files by sha256, Ollama models by digest. External
+    (resolution D2, REQ-SEC-79): router files by sha256, Ollama models by digest. External
     servers load their own files and are shown as unverified rather than refused, because the
     gateway cannot see their files; refusing them would only push users around the gateway.
 23. **`models.toml` is user config, verification state is gateway state.** `serve` never
     writes the user's file; `verified_at`, size, mtime_ns and inode live in
     `<state>/gateway/verified.json`.
-24. **Leases exempt from the off flag but not from reclaim** (RESOLUTIONS D9). The off flag
+24. **Leases exempt from the off flag but not from reclaim** (resolution D9). The off flag
     is a person saying "stop the assistant"; a reclaim is gpu-light making room after an
     idle period, and reloading on the next request is the price GL already weighs.
 25. **Claim class follows the principal, not a client header.** Clients cannot set it (every

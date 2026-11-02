@@ -8,14 +8,14 @@ loop written by hand) with manifest v2, entry-point discovery, warm worker proce
 MCP server on the official Python SDK.
 
 Status: draft 2026-10-23, revised 2026-10-24 to match
-`~/src/.dev-notes/specs/RESOLUTIONS.md` (binding).
+the design resolutions of 2026-10-23 (binding).
 
 ## Scope and non-goals
 
 This spec owns (see the index in [00-overview.md](00-overview.md)):
 
 - the manifest v2 schema (`hal-module.toml`, `schema = 2`) and loading v1 manifests
-  (RESOLUTIONS C1 makes this spec the single schema owner);
+  (resolution C1 makes this spec the single schema owner);
 - discovery through the entry-point group `hal.packs`, the installed-pack record and path
   scanning, and the registry;
 - argument normalisation before policy: declared aliases, type coercion, bounds and list
@@ -30,7 +30,7 @@ This spec owns (see the index in [00-overview.md](00-overview.md)):
 - tool search;
 - the MCP server (stdio, streamable HTTP, and a stream API the broker reuses);
 - the external tool provider interface (host MCP servers that 02-sandbox's broker runs);
-- the pack-facing API: `halhub.client.call` and `halhub.pack.main` (RESOLUTIONS C9);
+- the pack-facing API: `halhub.client.call` and `halhub.pack.main` (resolution C9);
 - the `hal-hub` CLI;
 - the library side of the pack lifecycle: declared install steps and declared units.
 
@@ -44,16 +44,16 @@ It uses, and does not redefine:
   `halhub.approvals`; the audit schema and `AuditLog` in `halhub.audit`; the untrusted-content
   envelope; `halhub.guard` and `halhub.reviewer`; taint rules; routine grants; the pack
   secrets declaration; redaction rules. 01 owns those modules even though they live in the
-  `hal-hub` distribution (RESOLUTIONS A4, B1 to B11);
+  `hal-hub` distribution (resolution A4, B1 to B11);
 - `halkit` (00-overview, "halkit API"): `paths`, `config`, `files`, `timeutil`, `log`,
   `proc`, `secrets`, `redact`, `canon`, `termsafe`, `notify`, `harness`, `testing`;
 - 02-sandbox: the broker process, session sockets and session ids, running host MCP servers
-  as upstreams, and `result._meta.hal` (RESOLUTIONS E7);
+  as upstreams, and `result._meta.hal` (resolution E7);
 - 03-agent: the `[mcp.servers.<name>]` table whose `host = true` entries become broker
-  upstreams (RESOLUTIONS E6);
-- 06-core-cli: pack installation and its record `state_dir()/packs.json` (RESOLUTIONS C8),
+  upstreams (resolution E6);
+- 06-core-cli: pack installation and its record `state_dir()/packs.json` (resolution C8),
   unit rendering and enabling, and the `hal approve`, `hal deny`, `hal approvals` commands
-  (RESOLUTIONS B12);
+  (resolution B12);
 - 07-remote: the SSH forced command that starts `hal-hub mcp` for a laptop;
 - 08-packs-and-flagships: the pack list and the per-tool tiers. The hal-tools, hal-memory and
   hal-voice repos convert their manifests to v2.
@@ -83,7 +83,7 @@ unless stated. Ids are stable: requirements added in the 2026-10-24 revision use
   its allowed set with `ManifestError` naming the file, the table path and the key. Test: unit
   (`test_manifest.py`, one case per rule).
 - **REQ-HUB-02** A manifest without `schema` MUST load as v1 with every tool at tier `act` and
-  `reviewable = false`, whether or not it sets `confirm` (RESOLUTIONS B6, 01 REQ-SEC-01),
+  `reviewable = false`, whether or not it sets `confirm` (resolution B6, 01 REQ-SEC-01),
   unless `policy.toml` sets the verdict by name, and MUST log one warning per module naming
   the file. Test: unit (`test_policy_meta.py::test_v1_tool_without_tier_registers_as_act`, the
   test 01 names).
@@ -98,7 +98,7 @@ unless stated. Ids are stable: requirements added in the 2026-10-24 revision use
 - **REQ-HUB-06** A module whose `requires_hal` excludes the running hub version MUST be
   rejected with an error naming both versions. Test: unit.
 - **REQ-HUB-63** `[module] pack` MUST match `^[a-z][a-z0-9-]{0,31}$`, MUST NOT start with
-  `mcp-` (reserved for host MCP servers, RESOLUTIONS E6), and defaults to the module name;
+  `mcp-` (reserved for host MCP servers, resolution E6), and defaults to the module name;
   `[[module.secrets]]` entries MUST have unique `name`s and the keys 01-security defines;
   `domains` entries MUST be lowercase IDNA host names or `*.` wildcards. For a module listed
   in `packs.json`, the declared `pack` MUST equal the pack name that record files it under
@@ -106,7 +106,7 @@ unless stated. Ids are stable: requirements added in the 2026-10-24 revision use
   module not listed there (path-scanned, or an entry point `packs.json` does not record) MUST
   run with pack equal to its module name whatever it declares, and a different declared value
   MUST be reported in `Registry.problems`. The reason: `pack` feeds the approval key and the
-  `[packs.<p>]` policy rules (RESOLUTIONS C7), and a third-party pack must not claim another
+  `[packs.<p>]` policy rules (resolution C7), and a third-party pack must not claim another
   pack's rules and grants by declaring its name. Test: unit (`test_manifest.py`;
   `test_registry.py::test_pack_name_not_matching_packs_json_is_excluded`,
   `test_registry.py::test_path_scanned_module_uses_module_name_as_pack`).
@@ -154,7 +154,7 @@ unless stated. Ids are stable: requirements added in the 2026-10-24 revision use
 - **REQ-HUB-15** Declared `aliases` MUST be applied for every front end. Near-miss argument
   names MUST be mapped only for the `hal-hub` CLI front end, only when exactly one parameter
   matches and that parameter is not also present, and each mapping MUST be logged and returned
-  in the result's `warnings` (RESOLUTIONS B7, 01 REQ-SEC-05). Test: unit
+  in the result's `warnings` (resolution B7, 01 REQ-SEC-05). Test: unit
   (`test_args.py::test_near_miss_name_is_mapped_on_the_cli_only`: `when` maps to `when_text`
   on the CLI and is `invalid_arguments` over MCP and the broker).
 - **REQ-HUB-16** Arguments whose names start with `_` MUST reach 01's `decide` untouched, so
@@ -176,12 +176,12 @@ unless stated. Ids are stable: requirements added in the 2026-10-24 revision use
   result in a deny with `error_type = "policy_error"` and rule `internal-error`. Test: unit.
 - **REQ-HUB-20** An `ask` verdict MUST run the tool only after a matching grant (01 grant
   store) or an approver answer `allow` whose scope is one of the request's scopes (`once` or
-  `session`, RESOLUTIONS B2), and MUST run it with exactly `Decision.args`, the arguments whose
+  `session`, resolution B2), and MUST run it with exactly `Decision.args`, the arguments whose
   key was computed (01 REQ-SEC-18). Test: unit (reuse of a `once` grant, changed argument,
   expired grant, scope not offered: each refused).
 - **REQ-HUB-21** The hub MUST NOT write approval files. A pending request lives only in the
   process that made it and is reachable from other processes only through 01's control socket
-  `runtime_dir()/control/<sid>.sock` (RESOLUTIONS B3). Test: unit
+  `runtime_dir()/control/<sid>.sock` (resolution B3). Test: unit
   (`test_session.py::test_pending_request_writes_no_files`).
 - **REQ-HUB-22** `hal-hub approve ID`, `hal-hub deny ID` and `hal-hub approvals` MUST call the
   same `halhub.approvals` client functions as 06's `hal approve`, `hal deny` and
@@ -287,7 +287,7 @@ unless stated. Ids are stable: requirements added in the 2026-10-24 revision use
   `notifications/progress` every 15 s when the request carried a progress token; mode
   `elicit` MUST deny with rule `no-approver`. Test: unit.
 - **REQ-HUB-42** In mode `callback` (the broker), elicitation MUST NOT be used even when the
-  client declares it; only the broker's approver answers (RESOLUTIONS B4). Test: unit.
+  client declares it; only the broker's approver answers (resolution B4). Test: unit.
 - **REQ-HUB-43** The HTTP transport MUST bind only `127.0.0.1` or `::1`; any other host MUST
   be a `ConfigError` (exit 2). Test: unit.
 - **REQ-HUB-44** Every HTTP request MUST carry `Authorization: Bearer <token>` compared in
@@ -308,9 +308,9 @@ unless stated. Ids are stable: requirements added in the 2026-10-24 revision use
   surface (`hal approve` on the desktop); the `notify` surface MUST NOT be offered, and an
   explicit `--approvals` other than `auto` with `--channel remote` MUST be a usage error
   (exit 2). A client without elicitation MUST wait for `hal approve` up to 01's
-  `approval.timeout_s` (RESOLUTIONS B4; 07 REQ-RMT-25). `--origin` MUST be accepted only as
+  `approval.timeout_s` (resolution B4; 07 REQ-RMT-25). `--origin` MUST be accepted only as
   `remote:<client>` together with `--channel remote` (else exit 2); `HAL_REMOTE_ADDR` MUST be
-  recorded as `remote_addr` in every audit record of that session (RESOLUTIONS B8, F5). Test:
+  recorded as `remote_addr` in every audit record of that session (resolution B8, F5). Test:
   unit (`test_mcp_remote.py`, the test 07 REQ-RMT-25 names:
   `test_remote_client_without_elicitation_waits_for_hal_approve`).
 - **REQ-HUB-72** Tools from a registered `ToolProvider` MUST be listed, searched and called
@@ -338,7 +338,7 @@ unless stated. Ids are stable: requirements added in the 2026-10-24 revision use
 - **REQ-HUB-50** Every front end MUST write 01's audit records (`decision`,
   `self_approval_attempt`, `approval_request`, `approval`, `approval_mismatch`, `review`,
   `guard_scan`, `result`) through the session's `EventSink`; the hub MUST NOT write
-  `hub-calls.jsonl` or any other log of its own (RESOLUTIONS B8). Test: unit
+  `hub-calls.jsonl` or any other log of its own (resolution B8). Test: unit
   (`test_audit_sink.py`, one case per front end).
 - **REQ-HUB-51** When a record before execution cannot be written, the call MUST be refused
   with `error_type = "audit_unavailable"`; there is no setting that changes this. When the
@@ -350,7 +350,7 @@ unless stated. Ids are stable: requirements added in the 2026-10-24 revision use
 
 - **REQ-HUB-52** `hal-hub call` with no tool name MUST print usage and exit 2. Test: unit.
 - **REQ-HUB-53** `--json` and `--yes` MUST work together, and `--yes` MUST be refused with
-  exit 2 unless stdin is a terminal and `HAL_HARNESS` is unset (RESOLUTIONS B4). Test: unit.
+  exit 2 unless stdin is a terminal and `HAL_HARNESS` is unset (resolution B4). Test: unit.
 - **REQ-HUB-54** A subcommand MUST NOT shadow a tool: subcommand names contain no underscore,
   tool names always do. Test: unit.
 - **REQ-HUB-55** A malformed `config.toml` or `policy.toml` MUST make every subcommand exit 2
@@ -367,7 +367,7 @@ unless stated. Ids are stable: requirements added in the 2026-10-24 revision use
 ### Install steps and units
 
 - **REQ-HUB-59** Declared install steps MUST run only after a `y` typed on a terminal for each
-  step (no `--yes`, refused without a TTY; RESOLUTIONS B4, 01 REQ-SEC-84), each with its
+  step (no `--yes`, refused without a TTY; resolution B4, 01 REQ-SEC-84), each with its
   timeout, stopping at the first non-zero exit; a step that already succeeded with the same
   digest MUST be skipped. Test: unit.
 - **REQ-HUB-60** `ModuleSpec.units` MUST list the declared unit files as absolute paths; for a
@@ -383,7 +383,7 @@ unless stated. Ids are stable: requirements added in the 2026-10-24 revision use
   `sys.modules`).
 - **REQ-HUB-74** The hub's argument normalisation followed by 01's key function MUST
   reproduce every entry of the shared vectors file `tests/data/approval_vectors.json`
-  (RESOLUTIONS B1), which the tests of 01 and 06 also read. Test: unit
+  (resolution B1), which the tests of 01 and 06 also read. Test: unit
   (`test_approval_vectors.py`).
 
 ## Design
@@ -449,11 +449,11 @@ prefix except the hub's own; no parameter is named `confirm`, `confirmed` or sta
 #### Sources
 
 1. **Entry points.** `importlib.metadata.entry_points(group="hal.packs")` in the hub's own
-   environment (the shared packs venv, RESOLUTIONS C8). Each entry point's value is a package
+   environment (the shared packs venv, resolution C8). Each entry point's value is a package
    name (`halcal`, or dotted `hal_organiser.calendar`); a value with `:attr` is an error. The
    entry point name is shown by `doctor` and SHOULD equal the module name.
 2. **Installed-pack record.** `state_dir()/packs.json`, written by 06-core-cli's installer
-   (RESOLUTIONS C8). For each module of each pack it records the manifest path and the
+   (resolution C8). For each module of each pack it records the manifest path and the
    interpreter argv of the pack's environment (shared, own, or the `system-site-packages` env
    of `desktop`). This is how
    packs outside the hub's environment are found without importing their metadata.
@@ -744,7 +744,7 @@ or `name.startswith(p + "_")` (the v1 rule, `runner.py:45-52`). The name is mapp
 there is exactly one candidate and the candidate is not also present in the call. The mapping
 is logged at INFO and listed in the result as `warnings: ["argument 'when' read as
 'when_text'"]`. Model-facing front ends (MCP, broker, nested, client) never map near misses:
-01 REQ-SEC-05 puts argument repair in the agent (RESOLUTIONS B7).
+01 REQ-SEC-05 puts argument repair in the agent (resolution B7).
 
 ```python
 # halhub/args.py
@@ -779,7 +779,7 @@ vectors).
 class HubSession:
     """Per-connection state that 01-security's policy reads; one per MCP connection, CLI
     process, client process or broker session."""
-    id: str                                  # 12 hex chars (02/06 session id rule, RESOLUTIONS E2)
+    id: str                                  # 12 hex chars (02/06 session id rule, resolution E2)
     kind: Literal["code", "box", "chat", "headless", "routine", "remote", "hub"]   # 01 Context.session_kind
     origin: str                              # 01 Origin value, or "remote:<client>"
     channel: str | None                      # 01 channel profile: "voice", "telegram", "remote"
@@ -831,7 +831,7 @@ host front ends reads the session records under `runtime_dir()/s/*/` with owner-
    message; `approve` creates a `once` grant with source `reviewer`. Otherwise, or on
    `escalate`, build 01's `ApprovalRequest` from `d` and the tool metadata and call
    `session.approver.decide(request, timeout_s=policy.approval.timeout_s)`. The answer carries
-   a verdict and a scope (RESOLUTIONS B1 names it `Decision(verdict, scope)`; 01 publishes the
+   a verdict and a scope (resolution B1 names it `Decision(verdict, scope)`; 01 publishes the
    class). `allow` adds the grant for that scope to `session.grants`; a `once` grant is
    consumed under the store's lock in the same step that starts the call. `deny` returns
    `approval_declined`; a timeout returns `policy_denied` with rule `approval-timeout`; no
@@ -884,17 +884,17 @@ Surfaces per front end:
 
 Each `hal-hub mcp` connection and each CLI or client process with an approver owns one
 control socket, `runtime_dir()/control/<sid>.sock`, through 01's `halhub.approvals.control`;
-`hal approvals` lists its pending requests and `hal approve ID` answers them (RESOLUTIONS B3).
+`hal approvals` lists its pending requests and `hal approve ID` answers them (resolution B3).
 
 Elicitation answers on a host harness connection are advisory: the harness runs as the user
 and could answer its own dialog or run `hal approve`. 01 records this as residual risk R-new-4
-(RESOLUTIONS B4). A sandboxed CLI (`hal box`) reaches tools only through the broker, whose mode
+(resolution B4). A sandboxed CLI (`hal box`) reaches tools only through the broker, whose mode
 is `callback`, so an in-box client can never answer its own elicitation.
 
 #### Routine-defining tools
 
 A tool with `routine = {id = "<p>", steps = "<q>"}` (the routines pack's save, schedule and
-trigger tools, RESOLUTIONS B10) works as 01-security, section "Routines", describes. The hub's
+trigger tools, resolution B10) works as 01-security, section "Routines", describes. The hub's
 part:
 
 1. Before any prompt, parse parameter `q` as a JSON list of `{"tool": str, "args": object}`
@@ -912,7 +912,7 @@ part:
    the routine id and stored steps; the hub recomputes `steps_sha256` and passes it in 01's
    `Context.routine_steps_sha256`. An unattended step that needs approval and has no matching
    grant is denied (`ToolDenied`), and the routines pack skips it and notifies the user
-   (08, RESOLUTIONS B10).
+   (08, resolution B10).
 
 ### Runner
 
@@ -1117,7 +1117,7 @@ class Runner:
 ### External tool providers
 
 Host MCP servers from 03-agent's `[mcp.servers.<name>]` with `host = true`, which 02's broker
-runs as upstreams (RESOLUTIONS E6), add tools that no manifest declares. They join the registry and the pipeline through one interface:
+runs as upstreams (resolution E6), add tools that no manifest declares. They join the registry and the pipeline through one interface:
 
 ```python
 # halhub/providers.py
@@ -1244,7 +1244,7 @@ The v1 `CORE` tuple is removed; its role is taken by `always_offer` (the hub's
 their manifests). `Registry` refreshes on a miss only when 30 s have passed since the last
 load (`REFRESH_MIN_INTERVAL`), so a long-lived process sees a newly installed pack without
 rescanning on every typo. The v1 `needs_confirmation` key and its retry protocol are gone:
-approvals are host-originated requests (RESOLUTIONS B5).
+approvals are host-originated requests (resolution B5).
 
 ### Search
 
@@ -1408,9 +1408,9 @@ reads them back. The meta tools use: `hal_find_tools` and `hal_modules` `readOnl
   (`ensure_ascii=False`). Results over `max_output` are cut: the first 70 % and the last 30 %
   of the allowed characters with `\n[... 12345 characters cut ...]\n` between (REQ-HUB-33).
 - `untrusted_output` tools: the text is wrapped in 01's untrusted-content envelope (01-security,
-  section "Taint, guard and reviewer"; RESOLUTIONS B11) with the guard label of step 11.
+  section "Taint, guard and reviewer"; resolution B11) with the guard label of step 11.
 - Every result carries `_meta.hal` as 02-sandbox defines it: `status`, `untrusted`, `guard`
-  (RESOLUTIONS E7); no approval id.
+  (resolution E7); no approval id.
 - Errors: `isError: true` and the text is the JSON of `CallResult.to_dict()` without the v1
   `error` key: `{"status":"error","error_type":"timeout","message":"jobs_pack took longer than 1800 s"}`.
   No traceback (REQ-HUB-47).
@@ -1496,12 +1496,12 @@ test shows the effect; nothing depends on it.
 #### Remote sessions
 
 07-remote's forced command execs `hal-hub mcp --transport stdio --channel remote --origin
-remote:<client>` with `HAL_REMOTE_ADDR` set (RESOLUTIONS F5). The hub then: opens a session
+remote:<client>` with `HAL_REMOTE_ADDR` set (resolution F5). The hub then: opens a session
 with `kind = "remote"`, channel `remote` (01's channel profile, which only tightens, denies
 tier `system` and pack `desktop`), origin `remote:<client>`; uses approval mode `auto` with
 the `elicitation` and `control` surfaces and never `notify` (REQ-HUB-71), so a laptop client
 that declares elicitation gets the dialog, and one that does not waits for `hal approve` on
-the desktop up to 01's `approval.timeout_s` (RESOLUTIONS B4; 07 REQ-RMT-25); and records
+the desktop up to 01's `approval.timeout_s` (resolution B4; 07 REQ-RMT-25); and records
 `remote_addr` in every audit record of the session. `--origin` without `--channel remote`,
 or with a value not matching `^remote:[a-z0-9][a-z0-9-]{0,31}$`, is a usage error (exit 2).
 
@@ -1510,7 +1510,7 @@ or with a value not matching `^remote:[a-z0-9][a-z0-9-]{0,31}$`, is a usage erro
 - `hal-hub mcp --transport http` serves `http://127.0.0.1:8742/mcp` through the SDK's
   `streamable_http_app(json_response=False, stateless_http=False)` under uvicorn (an SDK
   dependency). Sessions stay on so handshake-era clients can receive `elicitation/create`.
-  The port is in 00-overview's ports table (RESOLUTIONS D14).
+  The port is in 00-overview's ports table (resolution D14).
 - Bind: `127.0.0.1` (default) or `::1`; anything else is a `ConfigError` before binding
   (REQ-HUB-43, REQ-SYS-09).
 - An ASGI guard runs before the SDK app, in this order (REQ-HUB-44, REQ-SYS-10):
@@ -1532,7 +1532,7 @@ or with a value not matching `^remote:[a-z0-9][a-z0-9-]{0,31}$`, is a usage erro
   with curl against a prototype; `test_mcp_http.py` re-checks each case]. The hub's guard
   turns the last case into 403 before the SDK sees it.
 - Request bodies are capped at the SDK default of 4 MiB, the same cap as the broker's
-  messages (RESOLUTIONS E9).
+  messages (resolution E9).
 
 Harness configuration examples:
 
@@ -1559,7 +1559,7 @@ timeout for long tools.
 
 ### Pack entry point
 
-A pack runs as its own MCP server and CLI without Hal core (RESOLUTIONS A3: packs may import
+A pack runs as its own MCP server and CLI without Hal core (resolution A3: packs may import
 `halhub`, client and pack CLI only):
 
 ```python
@@ -1615,16 +1615,16 @@ raises `ValueError` at start.
 `pack.main(...)` loads only the manifests of the named modules
 (found by the same rules as entry-point discovery, plus the built-in module), and runs the
 same subcommands as `hal-hub` with `packs={pack}`. The default profile is `standalone`
-(01-security: the `default` profile minus `system` tools; RESOLUTIONS C9). Approvals follow
+(01-security: the `default` profile minus `system` tools; resolution C9). Approvals follow
 the front-end table: elicitation when the harness supports it, else the control socket and a
 notification; `call` uses the `tty` surface. hal-memory uses `pack.main` for its `mcp`
 subcommand. hal-voice does not: it imports nothing from Hal, registers an `exec` manifest and
-keeps its own MCP server (RESOLUTIONS A3; 08 fixes its FastMCP import).
+keeps its own MCP server (resolution A3; 08 fixes its FastMCP import).
 
 ### Audit
 
 The hub writes no log of its own. Every front end writes 01's audit records through the
-session's `EventSink` (RESOLUTIONS B8):
+session's `EventSink` (resolution B8):
 
 ```python
 # halhub/session.py
@@ -1675,7 +1675,7 @@ hal-hub [--config PATH] [--policy PATH] [-v|-q] COMMAND
   whole argument object; both may not be mixed (exit 2).
 - `--yes` answers `once` for the one call, through the `tty` surface; it is refused (exit 2)
   when stdin is not a terminal or `HAL_HARNESS` is set (`halkit.harness`), so a harness that
-  shells out cannot use it (RESOLUTIONS B4, REQ-HUB-53).
+  shells out cannot use it (resolution B4, REQ-HUB-53).
 - `approvals`, `approve` and `deny` call the `halhub.approvals` client functions that 06's
   `hal approvals`, `hal approve` and `hal deny` call; they exist so a standalone pack user
   without Hal core can answer a request. Same checks, same output (REQ-HUB-22).
@@ -1685,8 +1685,7 @@ hal-hub [--config PATH] [--policy PATH] [-v|-q] COMMAND
   default; near-miss names are mapped on this front end only.
 - `HAL_HARNESS` set does not stop `call` itself: the call is decided as any other, and an
   `ask` waits for a host surface.
-- Fixes for the v1 bugs [verified in `~/src/.dev-notes/understand/hal-hub-eco.md`
-  section 3]:
+- Fixes for the v1 bugs (measured during development, 2026-10):
 
 | v1 bug | v2 behaviour |
 | --- | --- |
@@ -1732,12 +1731,12 @@ def run_steps(module: ModuleSpec, *, confirm: Callable[[InstallStep], bool],
   step through `halkit.proc.run(argv, timeout=step.timeout, cwd=...)` and stops at the first
   failure. State lives in `state_dir()/hub/install.json` (atomic writes).
 - `hal-hub setup MODULE` refuses without a terminal and asks for a typed `y` per step; there
-  is no `--yes` (RESOLUTIONS B4, 01 REQ-SEC-84). `--dry-run` prints the plan. 06-core-cli's
+  is no `--yes` (resolution B4, 01 REQ-SEC-84). `--dry-run` prints the plan. 06-core-cli's
   `hal packs add` calls `run_steps` with its own typed confirmation and shows the steps as part
   of the REQ-SEC-84 summary.
 - This replaces `halcore/ext.py:_install_step`, which ran the argv with no confirmation, no
   timeout and no exit check, and repeated it for packs already installed
-  [verified: `~/src/.dev-notes/understand/hal-hub-eco.md` section 4].
+  (measured during development, 2026-10).
 
 Units: `ModuleSpec.units` and `ModuleSpec.desktop` give absolute paths (REQ-HUB-60).
 06-core-cli renders and enables them, adds `X-HalGPU=yes` and the off-flag condition for
@@ -1799,7 +1798,7 @@ instead, for packs that must not import Hal (the hal-voice shape).
 | Key | Type | Default | Reason |
 | --- | --- | --- | --- |
 | `mode` | str | `"meta"` | v1 behaviour; small context for any client |
-| `approvals` | str | `"auto"` | Elicitation where the client has it, host surfaces otherwise (RESOLUTIONS B4) |
+| `approvals` | str | `"auto"` | Elicitation where the client has it, host surfaces otherwise (resolution B4) |
 | `http_host` | str | `"127.0.0.1"` | Loopback only (REQ-SYS-09) |
 | `http_port` | int | `8742` | Next to the console (8740) and gateway (8741); free on this machine [verified: `ss -ltn` showed no listener on 8742 on 2026-10-23] |
 | `allow_origins` | list of str | `[]` | Harness clients send no Origin; a browser client must be named explicitly |
@@ -1909,7 +1908,7 @@ What replaces what [paths in `hal-ecosystem/core/hal-hub` at `5aede59`, `hal-eco
 | --- | --- |
 | `halhub/registry.py` (discovery one level deep, first name wins silently, prints to stdout, config path fixed at import) | `manifest.py`, `discovery.py`, `registry.py` |
 | `halhub/runner.py` (in-process `fn(**args)` with `sys.path` injection, timeout only for subprocess tools, `_confirmed` honoured, `_alias` near-miss mapping for every caller, local-time log, top-level-only redaction, traces to clients) | `args.py`, `runner.py`, `_worker/hal_worker.py`, `hub.py`; policy and audit in 01's `halhub.policy` and `halhub.audit` |
-| `state_dir()/hub-calls.jsonl` call log | not written; 01's audit log (RESOLUTIONS B8) |
+| `state_dir()/hub-calls.jsonl` call log | not written; 01's audit log (resolution B8) |
 | `halhub/search.py` (60-entry synonym table naming packs) | `search.py` with generic synonyms; pack words move to manifests |
 | `halhub/mcp.py` (hand-rolled stdio loop, echoes any protocol version, `-32603` for parse errors, any tool callable) | `mcp.py` on the SDK |
 | `halhub/tools.py`, `hal-module.toml` (hub module) | `builtin/tools.py`, `builtin/hal-module.toml` (schema 2) |
@@ -1918,10 +1917,10 @@ What replaces what [paths in `hal-ecosystem/core/hal-hub` at `5aede59`, `hal-eco
 | `halcore/hub.py` (finds hal-hub by path) | removed by 00-overview commit 13 |
 | `halcore/ext.py:_install_step` | `halhub.install.run_steps`, called by 06-core-cli |
 | `halcore/units.py:module_roots` (second discovery by regex) | `halhub.registry.packs()` and `ModuleSpec.units` (06-core-cli) |
-| `halcore/brain.py` `_confirmed` flow (keyed by tool name, previous turn) | host-originated approvals bound to 01's key (RESOLUTIONS B5) |
+| `halcore/brain.py` `_confirmed` flow (keyed by tool name, previous turn) | host-originated approvals bound to 01's key (resolution B5) |
 | `hal-ecosystem/scaffold.py` | `hal-hub new` |
 | pack `_hub` / `call_tool` helpers that shell out to `hal-hub` | `halhub.client.call` (08) |
-| `halvoice/mcp_server.py` (FastMCP import, broken on mcp 2.x [verified: `~/src/.dev-notes/understand/critic.md` V5]) | fixed inside hal-voice, which imports nothing from Hal (RESOLUTIONS A3; 08) |
+| `halvoice/mcp_server.py` (FastMCP import, broken on mcp 2.x (measured during development, 2026-10)) | fixed inside hal-voice, which imports nothing from Hal (resolution A3; 08) |
 
 Search vocabulary moved out of the hub (the hal-tools, hal-memory and hal-voice manifests add
 these words to `keywords` of the named module):
@@ -1979,7 +1978,7 @@ How existing users keep working:
   `hub-calls.jsonl`; `[hub].v1_default_tier`, `[hub.log]`, `[hub.approvals]` and
   `[hub.mcp].approval_timeout` (they existed only in the 2026-10-23 draft).
 - **Cutover:** `~/.local/bin/hal-hub` points at `core/hal-hub/bin/hal-hub` today
-  [verified: `~/src/.dev-notes/understand/hal-hub-eco.md` section 1]. The
+  (measured during development, 2026-10). The
   installer (06-core-cli) replaces it with the console script; until then the old hub keeps
   serving.
 
@@ -2155,7 +2154,7 @@ and keeps its own MCP server.
 
 ## Decisions
 
-- **D1 Entry-point group `hal.packs`.** 00-overview fixes it and RESOLUTIONS C2 confirms it
+- **D1 Entry-point group `hal.packs`.** 00-overview fixes it and resolution C2 confirms it
   everywhere. One constant (`ENTRY_POINT_GROUP`) holds it. The manifest file name and
   `[module]` table keep "module" so the 33 existing manifests stay valid.
 - **D2 Low-level SDK `Server`, not `MCPServer`.** Tool schemas come from manifests at run
@@ -2166,7 +2165,7 @@ and keeps its own MCP server.
 - **D3 A duplicate module name stops the registry.** Silent first-wins (v1) hides which code
   runs; failing loudly is the brief's rule. `doctor` still reports, and `ignore_paths` fixes it
   without uninstalling.
-- **D4 v1 tools load as `act`.** RESOLUTIONS B6: fail closed. Every shipped pack has v2
+- **D4 v1 tools load as `act`.** resolution B6: fail closed. Every shipped pack has v2
   manifests, so the cost falls only on third-party v1 packs, whose tools ask until they ship
   a v2 manifest or the user allows them by name in `policy.toml`.
 - **D5 Warm workers, one call at a time each, two per pool.** A process per call costs an
@@ -2180,30 +2179,30 @@ and keeps its own MCP server.
   and integer arguments, no arrays, and 01's canonical form takes flat scalars. Five existing
   parameters are arrays; `list = true` keeps the function's `list[str]` while the model and
   the approval key see one string.
-- **D8 No approval store in the hub.** RESOLUTIONS B1 and B3: one approval module
+- **D8 No approval store in the hub.** resolution B1 and B3: one approval module
   (`halhub.approvals`, 01) with one key, request ids `apr_` + 16 hex, scopes `once` and
   `session`, and one control socket per session. The 2026-10-23 draft's file store, 6-hex ids
   and single-use grants are gone; `hal approvals` lists the pending ids to type.
-- **D9 Elicitation for host harnesses, advisory.** RESOLUTIONS B4: a harness's dialog is the
+- **D9 Elicitation for host harnesses, advisory.** resolution B4: a harness's dialog is the
   most usable surface where the user already is, but an unsandboxed harness could answer it,
   so it is documented as advisory (R-new-4). The broker never uses it. `--channel remote`
   offers it first, because the user is at the laptop, with `hal approve` as the fallback; the
   desktop notification is left out because nobody is expected at the desk.
-- **D10 `--yes` only from a person at a terminal.** RESOLUTIONS B4. Checking stdin and
+- **D10 `--yes` only from a person at a terminal.** resolution B4. Checking stdin and
   `HAL_HARNESS` stops harnesses that shell out; a harness that allocates a pseudo-terminal
   (for example `script`) is outside what the hub can protect, which 01 records (R-new-4).
   Install steps never take `--yes`.
-- **D11 One audit log for every front end.** RESOLUTIONS B8. The hub runs outside the broker
+- **D11 One audit log for every front end.** resolution B8. The hub runs outside the broker
   too (CLI, harness MCP server, client) and writes 01's records there through the same
   `EventSink` the broker uses, so one tool call has one record format wherever it ran.
 - **D12 HTTP on 127.0.0.1:8742 with a static bearer token.** The MCP auth spec is OAuth and
   optional for local servers; a token file like the gateway's is enough on loopback and works
-  with `claude mcp add --header`. 00-overview's ports table carries the row (RESOLUTIONS D14).
+  with `claude mcp add --header`. 00-overview's ports table carries the row (resolution D14).
 - **D13 Text results only.** No tool declares an output schema; `structuredContent` without a
   schema adds nothing for clients and doubles the payload.
 - **D14 Progress notifications, not the Tasks extension, for long tools.** Tasks moved out of
   core in 2026-07-28 and few clients support it; long jobs go through the `core_long_task`
-  tool, which runs a sandboxed `hal -p` (RESOLUTIONS F2).
+  tool, which runs a sandboxed `hal -p` (resolution F2).
 - **D15 Nested calls allow-only and declared.** A pack must not launder approvals (the v1
   routines pack auto-confirmed inner calls); an `ask` cannot be shown to a human from inside
   another tool's run.
@@ -2211,7 +2210,7 @@ and keeps its own MCP server.
   in site-packages or the user's current directory.
 - **D17 Parameter `default` is documentation, checked by `doctor`; no per-tool verdict
   default.** Filling defaults in the hub would let the manifest and the function disagree
-  silently; a per-tool verdict would let a pack relax policy for itself (RESOLUTIONS C1).
+  silently; a per-tool verdict would let a pack relax policy for itself (resolution C1).
 - **D18 `format`, `access`, `content`, `reversible`, `runs_code` and `routine` are manifest
   flags.** The policy needs to know which arguments are paths, URLs and bodies, which tools
   are undoable, which run code and which define routines without parsing descriptions.
@@ -2225,11 +2224,11 @@ and keeps its own MCP server.
 - **D21 The hub normalises, 01 validates.** Coercion and aliases are front-end concerns (CLI
   strings, declared synonyms) and must happen before the key is computed; type, enum, length
   and NUL checks stay in 01's pure `decide`, the one validator of record. Near-miss mapping
-  is CLI-only (RESOLUTIONS B7).
+  is CLI-only (resolution B7).
 - **D22 Packs outside the hub's environment are found through `packs.json`.** Entry points are
   visible only in the hub's own environment; reading another environment's metadata would mean
   running its interpreter at every load. 06's installer already knows each module's manifest
-  and interpreter (RESOLUTIONS C8).
+  and interpreter (resolution C8).
 - **D23 Network drop per pool, not per tool.** Workers are warm and shared by a module's
   tools; splitting a mixed module into an offline and an online pool gives the drop to every
   `network = false` tool at the cost of at most one extra worker.
@@ -2240,7 +2239,7 @@ and keeps its own MCP server.
 
 ## Open questions
 
-These are for the owners named; RESOLUTIONS.md does not settle them.
+These are for the owners named; the resolutions do not settle them.
 
 1. **Origin of pack daemons (01).** 01's `Origin` enum has no value for a pack process that
    calls `halhub.client.call` outside a routine (a reminders unit, the briefing timer). This

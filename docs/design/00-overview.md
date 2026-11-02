@@ -6,7 +6,7 @@ It also defines the shared `halkit` library, the cross-cutting requirements ever
 meet, the release plan for `NotEoin/Hal`, and the index of the component specs `01` to `08`.
 
 Status: draft 2026-10-24 (revised to match the binding resolutions of 2026-10-23,
-`~/src/.dev-notes/specs/RESOLUTIONS.md`; ids such as A1, B4, F6, R-new-9 below
+the design resolutions of 2026-10-23; ids such as A1, B4, F6, R-new-9 below
 refer to that file and its reviews; "architect F3" means the security-architect finding, a
 bare F-id the CLI section, and "resolution D4" a gateway resolution rather than this spec's
 own Decisions D1 to D17)
@@ -44,8 +44,8 @@ Non-goals for this release (`0.1.0`):
 - Protection against a compromised host kernel, GPU driver, Docker daemon or user account.
   These are documented as residual risks (01-security).
 - Changes to hal-employment. Hal keeps the contract in section "Compatibility contract".
-- Publishing `core/hal-private`, `archive/old-home`, any vault, voice data or model weights.
-- Changing the live runtime under `~/src/hal-ecosystem` before the final cutover.
+- Publishing any private repo, any vault, voice data or model weights.
+- Changing an existing `hal-ecosystem` install before the final cutover.
 - Publishing to PyPI. Hal, hal-kit, hal-hub and the packs install from git tags in this
   release.
 
@@ -156,7 +156,7 @@ REQ-SYS requirements are cross-cutting: every package must meet them. Each names
 ### Requirements index
 
 Each topic has one owner. When two specs disagree, the owner's text wins and the other spec is
-fixed in the same commit. RESOLUTIONS.md overrides any spec text that disagrees with it.
+fixed in the same commit. The design resolutions override any spec text that disagrees with it.
 Requirement prefixes are fixed here so IDs stay unique inside the Hal repo; 08 and GL live in
 other repos with their own prefixes.
 
@@ -170,7 +170,7 @@ other repos with their own prefixes.
 | [05-gateway.md](05-gateway.md) | REQ-GW | Gateway API surface and auth, session tokens, named client tokens, client mode (`[gateway].url`), upstreams, role aliases, presets, router policies, managed llama-server, model manifest `models.toml` and `halgateway.models`, gpu-light integration (`halgateway.gpu`), `hal gateway release-gpu`, `hal-gateway.service`, optional GPU container for inference |
 | [06-core-cli.md](06-core-cli.md) | REQ-CLI | `hal` command tree (including `hal policy`, `hal approvals`, `hal approve`, `hal deny`, `hal audit`, `hal guard`, `hal secrets`), TUI, headless `hal -p` flags and exit codes, launch of code and assistant sessions (including the unboxed fallback), `agent.json` and run files, `_hal/record` handling, `hal acp` proxy, console, on/off/status/kill, unit rendering and desktop files, pack installs and environments (`packs.json`), long-job tool `core_long_task`, `hal eval` front end, configure and migrate, install scripts |
 | [07-remote.md](07-remote.md) | REQ-RMT | SSH setup and key restrictions, `hal-remote up|down|env|connect`, MCP over SSH, Windows client, `remote` profile |
-| `08-packs-and-flagships.md` (hal-tools; working copy in `~/src/.dev-notes/specs/`) | REQ-PACK, REQ-MEM, REQ-VOICE | The pack list (`organiser`, `life`, `comms`, `online`, `desktop`, `system`, `work`, `jobs`), the per-tool table, hal-memory and hal-voice designs, the Telegram bridge |
+| `08-packs-and-flagships.md` (hal-tools) | REQ-PACK, REQ-MEM, REQ-VOICE | The pack list (`organiser`, `life`, `comms`, `online`, `desktop`, `system`, `work`, `jobs`), the per-tool table, hal-memory and hal-voice designs, the Telegram bridge |
 | `gpu-light/docs/design-v2.md` (GL, gpu-light repo) | its own | gpu-light v2: scheduler, JSON-RPC socket API, claims, reclaimers, recipes for the gateway and hal-voice |
 
 Cross-spec decisions this overview fixes, which the owners must not contradict:
@@ -235,7 +235,7 @@ does not touch. Each stands on its own and states its own install and test comma
 
 | Repo | Final path | Role | Depends on at install | Talks to at run time |
 | --- | --- | --- | --- | --- |
-| Hal (headline) | `~/src/Hal` (work in worktree `Hal.next`, branch `next`) | The monorepo: `hal` command, agent, sandbox, broker, hub, gateway, remote | `mcp`, `rich`, `prompt_toolkit` | llama-server or Ollama, gpu-light (optional), packs through the hub |
+| Hal (headline) | `~/src/Hal` (branch `next`) | The monorepo: `hal` command, agent, sandbox, broker, hub, gateway, remote | `mcp`, `rich`, `prompt_toolkit` | llama-server or Ollama, gpu-light (optional), packs through the hub |
 | hal-tools | `~/src/hal-tools` (new) | The small extensions as eight packs: `organiser`, `life`, `comms`, `online`, `desktop`, `system`, `work`, `jobs` (08), history imported | `hal-kit`, `hal-hub` (`>=0.1,<0.2`, git tag) | Hal's hub (discovery), gateway through `halkit.llm` |
 | hal-memory | `~/src/hal-memory` | Vault memory: index, search, capture, brief; MCP server | `hal-kit`, `hal-hub` (`>=0.1,<0.2`, git tag) | Hal's hub, gateway |
 | hal-voice | `~/src/hal-voice` | Voice loop (wake word or push-to-talk, STT, TTS on :9880); film pipeline published with a disclaimer | none from Hal (own venv: torch, GPT-SoVITS) | `hal acp --channel voice --toolset assistant` for the agent, its own MCP server for `speak` and `listen`, gpu-light claims (GL recipe) |
@@ -252,7 +252,7 @@ How they combine:
   `state_dir()/packs.json`, which the hub reads (C8, 06 owns the details). hal-voice keeps its
   own environment because its torch and CUDA dependencies weigh several GB; the uv
   documentation advises separate environments for members with heavy or conflicting
-  requirements [verified: understand/research-interop.md section 7]. gpu-light installs with
+  requirements (measured during development, 2026-10). gpu-light installs with
   its own `scripts/install.sh`.
 - **At discovery.** Packs register with the hub through the Python entry-point group
   `hal.packs`; each entry point names a pack manifest (manifest v2, 04-hub). A pack with heavy
@@ -463,7 +463,7 @@ Behaviour:
 - A deprecated variable (`HAL_STATE`, `HAL_DATA`) is honoured when the new one is unset, and
   logs one warning per process naming the replacement.
 - `HAL_STATE_DIR` and `HAL_DATA_DIR` are the generic port of the per-install state directory
-  from `core/hal-private` (`b279740`): two installs with different values and different
+  from an earlier private fork: two installs with different values and different
   ports in their config do not share state.
 - `check_socket_path`: a `sockaddr_un` path holds at most 107 bytes plus the terminator. A
   bind on a 125-byte path failed with `OSError: AF_UNIX path too long` [verified: bind
@@ -600,7 +600,7 @@ def scrub_text(text: str, *, secrets: Collection[str] = ()) -> str: ...      # s
 
 The rule set (key patterns, value patterns such as bearer tokens) is defined in 01-security
 "Redaction rules". It walks nested dicts and lists, unlike hal-hub's top-level-only redaction
-today [verified by probe: understand/hal-hub-eco.md section 3]. `secrets` adds exact values (such as a pack's
+today (measured during development, 2026-10). `secrets` adds exact values (such as a pack's
 own secrets) that are replaced wherever they appear; `scrub_text` applies the value patterns
 and `secrets` to free text such as worker stderr and tool output (04-hub).
 
@@ -751,7 +751,7 @@ translation, the briefing, vault search). Endpoint resolution, first match wins:
    stopped never falls back to a direct URL (REQ-SYS-27).
 
 It replaces the per-extension `llm.py` copies that call Ollama directly and the `gpu_busy()`
-guard duplicated in 8 extensions [verified: understand/critic.md section 2]; GPU contention is
+guard duplicated in 8 extensions (measured during development, 2026-10); GPU contention is
 the gateway's job. Model names are gateway role aliases (05-gateway), not backend model ids.
 
 #### `halkit.version` and `halkit.testing`
@@ -1059,7 +1059,7 @@ selected profile and can only tighten it. A pack's own `mcp` command run without
 | Key | Type | Default | Reason |
 | --- | --- | --- | --- |
 | `vault` | str | `"~/Documents/vaults/Hal"` | Existing default and live value; hal-memory and the briefing read it |
-| `chat_model` | str | `"gemma4:12b-it-qat"` | Chosen by `hal eval` on 2026-10-10: 33/38 and 74/76, the best of 6 models [verified: understand/critic.md section 3]; single runs, assistant scenarios only |
+| `chat_model` | str | `"gemma4:12b-it-qat"` | Chosen by `hal eval` on 2026-10-10: 33/38 and 74/76, the best of 6 models (measured during development, 2026-10); single runs, assistant scenarios only |
 | `fast_model` | str | `"qwen3.5:4b"` | Existing default for classifying and titling |
 | `code_model` | str | `""` (means `chat_model`) | Role for `hal code`; empty keeps one model loaded on a 12 GB card. The coding eval (03-agent) picks the shipped default; until then this alias |
 | `writer_model` | str | `""` (means `chat_model`) | Prose role; also feeds `HAL_WRITER_MODEL` in the compat file |
@@ -1100,10 +1100,9 @@ deleted; packs read `[hal]` through `halkit.config.hal()`.
 | `writer_model` | str | `""` (means `[hal].writer_model`) | `HAL_WRITER_MODEL` line, role "writer" |
 | `fast_model` | str | `""` (means `fast_model`) | `HAL_FAST_MODEL` line, role "quick" |
 
-hal-employment calls Ollama with these names, so they must be Ollama model names. The live
-`hal.conf` has `HAL_MODEL="hal-coder"`, `HAL_WRITER_MODEL="hal-writer"`,
-`HAL_FAST_MODEL="hal-fast"` [verified: read of `hal-ecosystem/core/hal/hal.conf`, model lines
-only]. `hal configure --migrate` copies those three values into `[compat]` so nothing changes
+hal-employment calls Ollama with these names, so they must be Ollama model names. A hal-ecosystem
+`hal.conf` typically has `HAL_MODEL="hal-coder"`, `HAL_WRITER_MODEL="hal-writer"`,
+`HAL_FAST_MODEL="hal-fast"` (measured during development, 2026-10). `hal configure --migrate` copies those three values into `[compat]` so nothing changes
 for hal-employment.
 
 ### Ports and sockets
@@ -1149,8 +1148,7 @@ Rules:
 
 ### Compatibility contract
 
-hal-employment must keep working with no change [source: understand/employment-iface.md
-section 5]. Hal keeps:
+hal-employment must keep working with no change (measured during development, 2026-10). Hal keeps:
 
 1. `~/.config/hal/config.toml` at that path. `HAL_CONFIG` may move it for tests only; the
    installer never changes it.
@@ -1161,7 +1159,7 @@ section 5]. Hal keeps:
 3. `hal.conf` with the three model lines. `hal configure` writes a generated file only to a
    path in `[compat].hal_conf` that it created itself (the file starts with its header saying
    it is generated and that nothing in Hal sources it). A listed file it did not create, such
-   as the live `hal-ecosystem/core/hal/hal.conf`, is never rewritten: Hal only verifies its
+   as the `hal.conf` of a hal-ecosystem install, is never rewritten: Hal only verifies its
    three model lines and reports a mismatch (H3).
 4. `X-HalGPU=yes` or `X-HalOff=yes` in a unit and the `ConditionPathExists=!<state>/off`
    injection; `hal off` stops those units and unloads Ollama models.
@@ -1169,7 +1167,7 @@ section 5]. Hal keeps:
    port 8737, `GET /healthz`. Unit templates keep the `@ROOT@` placeholder; the jobs launcher
    reads `[jobs].jobhunt_root` at run time, and a golden test covers the rendered unit (H2).
 6. `[jobs].jobhunt_root` semantics: while `[jobs]` is absent the old default
-   (`~/src/employment-helper`) applies with a one-time warning, and
+   (the old default location) applies with a one-time warning, and
    `hal configure --migrate` writes the explicit value (H1).
 7. `hal kill` stops only units recorded in `units.json` plus `hal.target`, never a
    `hal-*` glob that would reach hal-employment's own units (H4).
@@ -1183,28 +1181,24 @@ section 5]. Hal keeps:
 
 ### Release plan
 
-Facts [verified: `git rev-parse`, `git merge-base --is-ancestor`, `git rev-list --count` in
-`Hal.next` on 2026-10-23]:
+Facts (measured during development, 2026-10-23):
 
 - `origin` is `https://github.com/NotEoin/Hal.git`; GitHub `main` is `03b8652`.
 - `03b8652` is an ancestor of `next`, and `next` is 27 commits ahead of it. A PR from `next`
   into `main` merges without a rewrite, so no force push is ever needed.
-- `max-profile` (`d1117d8`) in the main checkout and `backup/portfolio-max-profile` hold no
-  unique work [verified: understand/hal-core.md section 1].
-- The repo has no tags [verified: `git tag` in `Hal.next` printed nothing on 2026-10-23].
+- The repo has no tags (measured during development, 2026-10-23).
 
 Steps:
 
-1. Build on `next` in the worktree `Hal.next`, one logical change per commit,
+1. Build on `next`, one logical change per commit,
    tests passing at every commit, commit subjects `<Verb> <object>` (60 characters or fewer, no
    body, no trailers).
 2. Before the push: CI green locally (`uv run ruff check`, `scripts/check-ascii.sh`,
-   `uv run pytest`), `gitleaks git --log-opts=--all` on the repo (installed at
-   `~/.local/bin/gitleaks` [verified: `command -v`]), and a check that no commit adds
+   `uv run pytest`), `gitleaks git --log-opts=--all` on the repo (a local install is enough), and a check that no commit adds
    `hal.conf`, vault content, audio or weights.
 3. Push `next` to `origin` with an explicit refspec (`git push origin next:next`) only after
-   the user says so. `hal-ecosystem/publish.sh` is never used: it would push `hal-private`
-   to `NotEoin/Hal` [verified: understand/critic.md V2].
+   the user says so. `hal-ecosystem/publish.sh` is never used: it would push a private fork's history
+   to `NotEoin/Hal` (measured during development, 2026-10).
 4. Open a PR `next` -> `main` on `NotEoin/Hal` with a Summary and a checklist (tests and lint
    green, docs updated, no secrets or generated files).
 5. Merge with a merge commit, which keeps the per-commit history (each commit is reviewed and
@@ -1251,7 +1245,7 @@ backends.
 
 ## Migration
 
-What replaces what, by path in today's `Hal.next` tree (`6ba8a94`, branch `next`):
+What replaces what, by path in today's tree (`6ba8a94`, branch `next`):
 
 | Today | Becomes | Spec |
 | --- | --- | --- |
@@ -1294,7 +1288,7 @@ How existing users keep working:
   explicit value (H1).
 - Rendered units under `~/.config/systemd/user` keep their names; `hal units install`
   re-renders them with the new paths. Desktop launchers keep their names.
-- The live runtime under `hal-ecosystem/` keeps running unchanged until the cutover, which the
+- An existing `hal-ecosystem` install keeps running unchanged until the cutover, which the
   user runs: install from the new repos, `hal configure --migrate`, `hal units install`,
   repoint `~/.local/bin/hal`, and stop the old units.
 
@@ -1303,9 +1297,9 @@ trick as a security claim; `_confirmed`, `confirmed` and `confirm` as meaningful
 broker strips and logs them); "always allow" approvals (durable allows are `policy.toml` rules
 written by the user, B2); `hub-calls.jsonl` (one audit log, B8); `hal-route.py` on :8079;
 `extensions.toml` per-repo URLs; the `.mcp.json` `hal` server pointing at
-`Hal/hal-mcp.py` (the vault config is the user's; `hal doctor` reports the
+`<old checkout>/hal-mcp.py` (the vault config is the user's; `hal doctor` reports the
 stale entry and the user removes it after the cutover, because that clone is load-bearing
-until then [verified: understand/critic.md section 2.3]).
+until then (measured during development, 2026-10)).
 
 ## Test plan
 
@@ -1384,7 +1378,7 @@ Commits owned by this spec, in order, on branch `next` (each one sitting, each g
    `.venv/`, `*.bak`).
 2. `Add hal-kit package with paths and time helpers` - `halkit.paths` (XDG and the F6
    runtime-dir rule), `halkit.timeutil`, tests; version `0.1.0`.
-3. `Port HAL_STATE_DIR override from hal-private` - `HAL_STATE_DIR`, `HAL_DATA_DIR`,
+3. `Add HAL_STATE_DIR override` - `HAL_STATE_DIR`, `HAL_DATA_DIR`,
    `HAL_RUNTIME_DIR` and the deprecated aliases, tests.
 4. `Add strict TOML config loader to hal-kit` - `halkit.config` including `hal()`, tests.
 5. `Add atomic writes and JSONL append to hal-kit` - `halkit.files`, tests.
@@ -1442,7 +1436,7 @@ open the PR, merge, tag `v0.1.0`.
 - **D1 halkit API lives in this spec.** Every repo depends on it, so one owner avoids drift
   between specs. Reason: today a near-identical `config.py` is copied into each extension
   (8 of the 9 surveyed), each repeating the shared model defaults, so changing a default
-  touches about 30 repos [verified: understand/ext-a.md].
+  touches about 30 repos (measured during development, 2026-10).
 - **D2 Packs may import `halkit` and `halhub` (client and pack CLI only); channels use
   `hal acp`; hal-voice imports nothing from Hal.** Reason: a pack's standalone `mcp` then uses
   the same validator and policy engine as Hal's hub instead of a second copy (A3). hal-voice

@@ -9,15 +9,15 @@ third-party agent CLIs in the same box. Broker policy, approvals and audit belon
 everything between the box and those two components.
 
 Status: draft 2026-10-23, revised 2026-10-24 to match
-`~/src/.dev-notes/specs/RESOLUTIONS.md` (binding; ids such as E6 or F3 below
+the design resolutions of 2026-10-23 (binding; ids such as E6 or F3 below
 refer to it), and revised 2026-10-29 for the security gaps review
-(`~/src/.dev-notes/specs/review-security-gaps.md`; ids G01 to G21 below refer to
+(the security gaps review; ids G01 to G21 below refer to
 it).
 
 Evidence labels: `[verified: how]` means checked on this machine on 2026-10-23 (or the date
 given) with the command or experiment named; `[unverified]` means not checked, with the way to
 check it. Throwaway experiments ran in a scratch directory that has since been removed
-(working files now live in `~/src/.dev-notes/`); their images and containers
+; their images and containers
 were removed afterwards.
 
 ## Scope and non-goals
@@ -59,7 +59,7 @@ Non-goals:
   socket, wires it into the session and tests the path end to end.
 - GPU containers for inference (05-gateway).
 - The agent's tools and ACP server (03-agent); this spec only builds `agent_argv`, and
-  halcore spawns it (RESOLUTIONS A7, Decision D20).
+  halcore spawns it (resolution A7, Decision D20).
 - Windows or macOS hosts, Podman, Firecracker or VM backends. Podman through its docker
   shim may work but is not tested [unverified].
 - Per-project sandbox config files inside the workspace. The workspace is writable by the
@@ -74,7 +74,7 @@ sockets and subprocesses, no docker; runs by default), **docker** (marker `docke
 (marker `bwrap`, needs unprivileged user namespaces), **systemd** (marker `systemd`, needs a
 user manager), **network** (marker `network`, reaches the real package registries), **slow**,
 **manual**. The marker set `gpu docker network slow bwrap systemd live` is registered by
-00-overview (RESOLUTIONS E12). Docker tests marked `runtime` run twice, once per runtime
+00-overview (resolution E12). Docker tests marked `runtime` run twice, once per runtime
 (`runc`, `runsc`); the `runsc` run is skipped with the probe's reason when the runsc probe
 fails. Each requirement names the test that proves it. Test files are under
 `packages/hal-sandbox/tests/` unless a path says otherwise.
@@ -89,7 +89,7 @@ fails. Each requirement names the test that proves it. Test files are under
   `$STATE/sandbox/last-backend`, which does not expire with the probe cache) and docker does
   not answer now, `auto` MUST refuse to start with an error naming the cause and the fixes
   (start the daemon, or pass `--backend bwrap` or `--backend none` for this run) instead of
-  degrading silently (RESOLUTIONS "Fallback"). Test: unit
+  degrading silently (resolution "Fallback"). Test: unit
   `test_detect.py::test_auto_prefers_docker_then_bwrap_then_none`,
   `test_detect.py::test_docker_down_after_docker_was_used_refuses` (fake `docker` and `bwrap`
   binaries through `HAL_DOCKER` and `HAL_BWRAP`).
@@ -108,7 +108,7 @@ fails. Each requirement names the test that proves it. Test files are under
 - **REQ-BOX-68** Before the first session with backend `none` in a project, Hal MUST ask once
   on a terminal and record a yes per project (REQ-BOX-70); without a terminal and without
   a recorded yes, the session MUST refuse to start. A banner alone is not consent
-  (RESOLUTIONS "Fallback"). Test: unit `test_projects.py::test_none_asks_once_per_project`,
+  (resolution "Fallback"). Test: unit `test_projects.py::test_none_asks_once_per_project`,
   `test_projects.py::test_none_without_terminal_refuses`.
 - **REQ-BOX-06** Probe results MUST be cached in `$STATE/sandbox/probe.json` for at most
   24 h, keyed by docker server version and runtime list; `hal-sandbox doctor` and
@@ -116,7 +116,7 @@ fails. Each requirement names the test that proves it. Test files are under
 - **REQ-BOX-07** With backend `none`, the session capabilities MUST say
   `isolation = "none"`, `run = false`, `paths = "confined"`, and the agent MUST NOT be offered
   the `run` tool; the agent then refuses user MCP servers not marked `host` (03-agent,
-  RESOLUTIONS F4). Test: unit `test_backend_none.py::test_none_disables_run_and_confines_paths`;
+  resolution F4). Test: unit `test_backend_none.py::test_none_disables_run_and_confines_paths`;
   the banner itself is tested in 06.
 
 ### Docker hardening
@@ -178,7 +178,7 @@ fails. Each requirement names the test that proves it. Test files are under
   `remote.origin.url` of `https://user:tok123@example.org/r.git` and an `extraHeader`: `cat
   /work/.git/config` and `git config --list` in the box never print `tok123`).
 - **REQ-BOX-16** `/run/hal` MUST be mounted read-only; connecting to its sockets MUST still
-  work, on runc and on runsc registered with `--host-uds=open` (RESOLUTIONS E10, G1). Test:
+  work, on runc and on runsc registered with `--host-uds=open` (resolution E10, G1). Test:
   docker, runtime `test_docker_live.py::test_sockets_connect_through_read_only_bind`.
 - **REQ-BOX-17** Every docker box MUST get `--oom-score-adj 500`, so the kernel kills a box
   before the desktop or the inference server. Test: unit golden argv; docker
@@ -234,14 +234,14 @@ fails. Each requirement names the test that proves it. Test files are under
 
 - **REQ-BOX-28** Each session MUST own `$R/s/<sid>/` (0700) with `run/` (0700), `etc/`,
   `empty` (the mask source) and `owner.json`, where `$R` is `halkit.paths.runtime_dir()`
-  (00-overview, one rule per RESOLUTIONS F6); sockets MUST be 0600; every socket path MUST
+  (00-overview, one rule per resolution F6); sockets MUST be 0600; every socket path MUST
   pass `check_socket_path` (107 bytes). Test: unit
   `test_session.py::test_runtime_dir_layout_and_modes`.
 - **REQ-BOX-29** The broker socket MUST carry MCP messages framed as newline-delimited UTF-8
   JSON-RPC (the MCP stdio framing), one MCP client per connection, at most
   `max_message_bytes` (default 4 MiB) per message in each direction. An oversize message MUST
   get one JSON-RPC error `-32600` with `id: null`, then the connection MUST close. This spec
-  owns the 4 MiB cap; 01-security's broker limits refer to it (RESOLUTIONS E9). Test: unit
+  owns the 4 MiB cap; 01-security's broker limits refer to it (resolution E9). Test: unit
   `test_transport.py::test_oversize_message_gets_error_then_close`.
 - **REQ-BOX-30** The broker transport MUST time out a partial message after 30 s and MUST
   refuse connections beyond `max_connections` (default 8) with an error frame and close.
@@ -250,7 +250,7 @@ fails. Each requirement names the test that proves it. Test files are under
 - **REQ-BOX-31** The transport MUST hand each complete message to the broker unchanged and
   MUST NOT apply policy itself. The broker MUST serve every box connection with
   `approvals = "callback"`, so no MCP elicitation is ever sent to a client inside a box
-  (RESOLUTIONS B4). Test: unit `test_transport.py::test_messages_pass_unchanged`,
+  (resolution B4). Test: unit `test_transport.py::test_messages_pass_unchanged`,
   `test_broker_wiring.py::test_box_connections_never_get_elicitation`.
 - **REQ-BOX-32** `Session.start` MUST NOT spawn the box; it MUST return `model_socket` and
   `agent_argv`, and `box.run` MUST call its `start_model` callable before the box starts and
@@ -258,9 +258,9 @@ fails. Each requirement names the test that proves it. Test files are under
   (REQ-GW-63). Test: unit `test_session.py::test_start_prepares_without_spawning`,
   `test_box.py::test_model_service_wraps_box_lifetime` (fake callable).
 - **REQ-BOX-76** `Session.broker` MUST be the session's `halsandbox.broker.Broker`, so that
-  halcore can call `Broker.on_human_message(session, text, surface)` (01-security, RESOLUTIONS
+  halcore can call `Broker.on_human_message(session, text, surface)` (01-security, resolution
   F5) for every prompt it sends; with backend `none` and with the unboxed assistant fallback
-  (RESOLUTIONS A1) the same broker serves the same socket. Test: unit
+  (resolution A1) the same broker serves the same socket. Test: unit
   `test_session.py::test_session_exposes_its_broker`.
 - **REQ-BOX-33** No token, secret file or secret value MUST appear in the box: not in its
   environment, `session.json`, the home seed, the generated `/etc` files or the argv. Test:
@@ -314,7 +314,7 @@ fails. Each requirement names the test that proves it. Test files are under
   appended as JSONL with UTC `Z` timestamps to `$STATE/sandbox/events.jsonl` through
   `halkit.files.append_jsonl`. This is an operational log, not a second audit log: every
   policy or approval decision (including the dependency-prep approval) goes to 01-security's
-  audit log through its `EventSink` (RESOLUTIONS B8). Test: unit `test_events.py`.
+  audit log through its `EventSink` (resolution B8). Test: unit `test_events.py`.
 
 ### Checkpoints
 
@@ -365,7 +365,7 @@ fails. Each requirement names the test that proves it. Test files are under
   `keep_sessions` (20) sessions MUST be deleted when a session starts in that repository.
   Test: integration `test_checkpoints.py::test_prune_retention`.
 - **REQ-BOX-52** For a non-git work tree, checkpoints MUST use a shadow repository under
-  `$STATE/shadow/` with the same API and the same `GitRunner` (RESOLUTIONS E8: no tar
+  `$STATE/shadow/` with the same API and the same `GitRunner` (resolution E8: no tar
   checkpoints anywhere); when the non-ignored content exceeds
   `nongit_max_total_bytes` (512 MiB) the session MUST refuse to start without `--isolated` or
   `--no-checkpoint`. Test: integration `test_shadow.py`.
@@ -399,7 +399,7 @@ fails. Each requirement names the test that proves it. Test files are under
 - **REQ-BOX-57** Host code in halsandbox that opens a path inside the work tree (checkpoint
   helpers, diff viewers, mask discovery, dependency-prep lockfile reads) MUST open it with
   `halkit.fsafe.open_beneath` (one implementation, owned by 00-overview with the semantics in
-  01-security "Proposed halkit additions", RESOLUTIONS C10), MUST refuse non-regular files for
+  01-security "Proposed halkit additions", resolution C10), MUST refuse non-regular files for
   reading, and MUST show a symlink as a link and its target, never its content. halsandbox
   has no second path walker. Test: unit `test_paths.py` (cases listed in "Test plan").
 - **REQ-BOX-58** Translation from box paths (`/work/...`) to host paths MUST go through
@@ -412,11 +412,11 @@ fails. Each requirement names the test that proves it. Test files are under
   `[sandbox].mask` pattern MUST be bound over inside the box by an empty read-only file, on
   the docker and bwrap backends, and the backend `none` path confinement (03-agent
   REQ-AGT-37) MUST refuse those paths; the session MUST show a notice naming the count and
-  listing the paths, and `session.json` MUST list them (RESOLUTIONS "Masking", 01-security
+  listing the paths, and `session.json` MUST list them (resolution "Masking", 01-security
   REQ-SEC-98, security review R-new-6). The default list `MASK_DEFAULT` MUST be imported from
   01-security, which defines it once as its hard-deny file patterns plus `.npmrc`, `.pypirc`,
   `.netrc`, `.git-credentials`, `*.p12`, `*.pfx` and `*.tfstate` (a superset of the six
-  RESOLUTIONS names; Decision D31). The walk MUST descend into directories git ignores,
+  the resolutions name; Decision D31). The walk MUST descend into directories git ignores,
   skipping only `.git`, `.hal`, `node_modules`, `.venv` and `venv`, within `MASK_MAX_FILES`
   and `MASK_WALK_TIMEOUT_S`, because a secret under an ignored `secrets/` is the common case.
   Test: unit `test_mask.py::test_matches_and_mount_list`,
@@ -436,7 +436,7 @@ fails. Each requirement names the test that proves it. Test files are under
 - **REQ-BOX-71** `halsandbox.deps.prepare` (behind `hal code --deps`, 06-core-cli) MUST run
   the install for each detected lockfile (`uv.lock` -> `uv sync --frozen`,
   `package-lock.json` -> `npm ci`, `Cargo.lock` -> `cargo fetch --locked`) in a separate prep
-  box of kind `deps` that has no broker socket and no model socket (RESOLUTIONS F3), on the
+  box of kind `deps` that has no broker socket and no model socket (resolution F3), on the
   docker backend only (any other backend is an error naming docker). Test: unit
   `test_deps.py::test_commands_per_lockfile`, `test_deps.py::test_requires_docker`,
   `test_docker_argv.py::test_deps_box_mounts`.
@@ -475,7 +475,7 @@ fails. Each requirement names the test that proves it. Test files are under
   `hal-mcp-bridge`, MUST turn off telemetry and update checks per the "Per-CLI templates"
   table, MUST disable the CLI's own sandbox, and MUST map `[box].auto_approve` (default true)
   to the CLI's own auto-approve setting. The CLI's auto-approve covers in-box work only:
-  broker `ask` decisions still go to host surfaces (RESOLUTIONS B4). Test: unit
+  broker `ask` decisions still go to host surfaces (resolution B4). Test: unit
   `test_boxcli_<cli>.py` golden files.
 - **REQ-BOX-61** For each CLI, a docker test MUST show that the CLI starts offline in a
   hardened box and lists the `hal` MCP server, and a slow test MUST complete one prompt
@@ -532,11 +532,11 @@ fails. Each requirement names the test that proves it. Test files are under
   pseudo-pack `mcp-<name>`, which 01-security REQ-SEC-88 gives tier `act`,
   `untrusted_output = true` and `reviewable = false` unless `policy.toml` says otherwise;
   annotations from the upstream MUST NOT change any of these; and a failed upstream MUST yield
-  error results without stopping the broker (RESOLUTIONS E6). Test: unit `test_upstreams.py`
+  error results without stopping the broker (resolution E6). Test: unit `test_upstreams.py`
   (a stub upstream script speaking MCP on stdio).
 - **REQ-BOX-67** Every broker `tools/call` result MUST carry `result._meta.hal` exactly as
   defined in "Broker result metadata": `status`, `untrusted` and `guard`, and no approval id
-  (RESOLUTIONS E7, B5). Test: unit `test_broker_meta.py::test_meta_shape_per_status`.
+  (resolution E7, B5). Test: unit `test_broker_meta.py::test_meta_shape_per_status`.
 - **REQ-BOX-77** The broker MUST forward an elicitation from a `host = true` upstream to the
   session's `Approver` only when the elicitation's `_meta` carries `hal/approval_id`
   (`apr_` + 16 hex) and `hal/key` (`sha256:` + 64 hex), as 04-hub's elicitation surface sends
@@ -586,7 +586,7 @@ gives it, and the image installs `halagent` from its wheel. For the same reason 
 eval `BoxRunner` is implemented in halcore on top of `Session`, not in halsandbox, because its
 signature uses halagent types.
 
-Assistant channels (RESOLUTIONS A1, 00-overview Flow 2): `hal chat`, voice and Telegram run
+Assistant channels (resolution A1, 00-overview Flow 2): `hal chat`, voice and Telegram run
 the agent in a long-lived session of kind `chat` per channel, with `--toolset assistant` and
 `/work` bound to the per-channel scratch directory `$STATE/assistant/<channel>/work`, never
 the vault. `Session.start(kind="chat")` refuses any `project` outside
@@ -679,14 +679,14 @@ $R/s/<sid>/                 0700, created by halkit.paths.ensure_private_dir
 ```
 
 `lifeline.sock` is not the approval control socket. That socket is 01-security's
-(`halhub.approvals`, RESOLUTIONS B3) at `runtime_dir()/control/<sid>.sock`, outside the
+(`halhub.approvals`, resolution B3) at `runtime_dir()/control/<sid>.sock`, outside the
 session directory, so the box cannot reach it.
 
 - `<sid>` is 12 lowercase hex characters from `secrets.token_hex(6)` (00-overview fixes this),
   so `/run/user/1000/hal/s/0123456789ab/run/broker.sock` is 50 bytes. `RuntimeDir.create`
   calls `check_socket_path` on every socket and fails before anything starts. The same id is
   the checkpoint ref component, the container name suffix, the ACP `sessionId` and the
-  transcript directory `state_dir()/sessions/<sid>/` (RESOLUTIONS E2/E3; the record schema is
+  transcript directory `state_dir()/sessions/<sid>/` (resolution E2/E3; the record schema is
   03-agent's).
 - The directory lives under `$XDG_RUNTIME_DIR` because a unix socket path is limited to 107
   bytes: binding a socket under a deep scratch directory failed with `OSError: AF_UNIX path
@@ -731,7 +731,7 @@ session directory, so the box cannot reach it.
   can tell the model why; `masked_tracked` is the subset that git tracks, whose history the
   box can still read; `git_config_sanitized` is true when the box sees a sanitized copy of the
   repository config (REQ-BOX-15). The agent reads its own settings, including the broker URL, from
-  `agent.json` (03-agent 3.16.3), which halcore renders (06-core-cli, RESOLUTIONS E4/E5) and
+  `agent.json` (03-agent 3.16.3), which halcore renders (06-core-cli, resolution E4/E5) and
   passes to the session as a run file; halsandbox never parses it.
   With backend `none` the socket paths are host paths under `$R/s/<sid>/run/`.
 
@@ -766,7 +766,7 @@ def backend_for(probe: Probe, cfg: SandboxConfig) -> Backend: ...
      driver [verified: `docker info`]; runtimes `runc`, `nvidia` (NVIDIA Container Toolkit
      1.20.1), `runsc` and `runsc-gpu` (gVisor release-20261019.0) [verified: brief "Host
      facts", 2026-10-23]. `/etc/docker/daemon.json` registers `runsc` with no `runtimeArgs`
-     [verified: read on 2026-10-24]; the user is adding `--host-uds=open` (RESOLUTIONS G1).
+     [verified: read on 2026-10-24]; the user is adding `--host-uds=open` (resolution G1).
      halsandbox never uses `nvidia` or `runsc-gpu`: boxes get no GPU (REQ-BOX-08).
    - Runtime: when `runsc` is listed and `[sandbox].runtime` is `auto` or `runsc`, run the
      runsc probe: start `docker run --rm --runtime runsc <hardened flags> <image>
@@ -1006,12 +1006,12 @@ on the host with `cwd = <work>`, the
 same environment allowlist (sockets as host paths, `HAL_SANDBOX=none`,
 `HAL_WORKSPACE=<work>`) and `start_new_session=True`. `session.json` says `run: false` and
 `paths: "confined"`; the agent then omits `run` and opens files through
-`halkit.fsafe.open_beneath` (the one implementation, RESOLUTIONS C10; halagent imports halkit),
+`halkit.fsafe.open_beneath` (the one implementation, resolution C10; halagent imports halkit),
 refusing the masked paths listed in `session.json`. The shared path vectors live with halkit
 (`packages/hal-kit/tests/data/path_cases.json`). There is no network isolation: the agent
 process is Hal's own code and has no tool that opens a socket, so the model reaches the
 network only through the broker; the agent refuses user MCP servers not marked `host`
-(03-agent, RESOLUTIONS F4), and there is no host `run` at all (RESOLUTIONS G4: no
+(03-agent, resolution F4), and there is no host `run` at all (resolution G4: no
 `allow_host_run`). The session starts only after the one-time per-project consent of
 REQ-BOX-68, and the UI shows a persistent banner (06). 01-security lists this mode as a
 residual risk (security review R-new-8).
@@ -1301,13 +1301,12 @@ hal box image status [--json]
 
 The broker (host, halsandbox, policy in 01-security) serves MCP on `run/broker.sock`. The
 transport carries the MCP stdio framing over the socket, as the MCP spec allows for custom
-byte-stream transports [source: understand/research-interop.md section 1]:
+byte-stream transports (measured during development, 2026-10):
 
 - each message is one JSON-RPC object, UTF-8, terminated by `\n`, with no embedded newline;
 - one connection is one MCP client: `hal-mcp-bridge` opens one connection per process, and
   the broker keys client state by `(sid, conn_id)`; there is no multiplexing;
-- at most `max_message_bytes` (4 MiB, the request cap of the `mcp` 2.x SDK [source:
-  understand/research-interop.md section 1]) per message, both directions;
+- at most `max_message_bytes` (4 MiB, the request cap of the `mcp` 2.x SDK (measured during development, 2026-10)) per message, both directions;
 - a partial message older than 30 s is a slowloris: error frame, close;
 - at most `max_connections` (8) concurrent connections per session.
 
@@ -1355,9 +1354,9 @@ official SDK server per connection while the size cap stays in the transport
 `(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.AsyncFile[str] | None = None)`;
 explicit streams skip its fd claim]. The broker passes `ServeOptions(approvals="callback",
 approver=...)` (04-hub "Entry points and options"), where the approver is the session's
-01-security `halhub.approvals.Approver` (RESOLUTIONS B1). Mode `callback` never sends an
+01-security `halhub.approvals.Approver` (resolution B1). Mode `callback` never sends an
 elicitation to the client (04-hub REQ-HUB-42), which is what REQ-BOX-31 needs: an in-box
-client could otherwise answer its own approval (RESOLUTIONS B4).
+client could otherwise answer its own approval (resolution B4).
 
 Access control, two layers (REQ-SEC-64):
 
@@ -1377,7 +1376,7 @@ Access control, two layers (REQ-SEC-64):
 ### Broker upstreams
 
 Host-side MCP servers that the box may use through the broker. There is one user-facing
-table, 03-agent's `[mcp.servers.<name>]` (03-agent 3.13.1, RESOLUTIONS E6); this spec owns
+table, 03-agent's `[mcp.servers.<name>]` (03-agent 3.13.1, resolution E6); this spec owns
 only what the broker does with entries marked `host = true`. Examples are a user's mail MCP
 server and the desktop hub reached over SSH from a laptop, which 07-remote's setup writes as
 an ordinary entry (07-remote REQ-RMT-45):
@@ -1445,7 +1444,7 @@ handles it like this:
    upstream id, the upstream tool and `halkit.termsafe.escape(message, multiline=True)`;
    `summary` = "Approve a request from host MCP server <name>" (host-made, no upstream text);
    `content = True`, so the request goes only to surfaces with `shows_all_args`
-   (RESOLUTIONS "Surfaces"); `scopes = (ONCE,)`, because the far side accepts `once` only;
+   (resolution "Surfaces"); `scopes = (ONCE,)`, because the far side accepts `once` only;
    `reason = "upstream elicitation"`.
 3. Ask the session's `Approver`; the request takes the same timeout as any other.
 4. Answer the upstream: on `allow`, `{"action": "accept", "content": {"decision": "once"},
@@ -1460,7 +1459,7 @@ the tool. They answer different questions, so neither replaces the other.
 ### Broker result metadata
 
 Every `tools/call` result the broker returns carries Hal outcome data in `result._meta.hal`
-(RESOLUTIONS E7). This spec owns the shape; 03-agent reads it.
+(resolution E7). This spec owns the shape; 03-agent reads it.
 
 ```json
 {"jsonrpc":"2.0","id":2,"result":{
@@ -1477,15 +1476,15 @@ Every `tools/call` result the broker returns carries Hal outcome data in `result
 
 `isError` is `false` only for `ok`. There is no approval id and no `approval_required`
 status: an `ask` decision blocks the call until a host surface answers or the request times
-out, so the agent never sees a pending approval (RESOLUTIONS B5). The text content is passed
+out, so the agent never sees a pending approval (resolution B5). The text content is passed
 through unchanged: untrusted results already carry 01-security's envelope, which 04-hub emits
-(RESOLUTIONS B11), and the broker adds no second wrapping. `halsandbox.broker.meta` builds
+(resolution B11), and the broker adds no second wrapping. `halsandbox.broker.meta` builds
 the object; `test_broker_meta.py` checks one case per status.
 
 ### Model socket and forwarder
 
 The model socket is served by `halgateway.SessionForwarder` (05-gateway REQ-GW-63). halcore
-starts it, because halsandbox may not import halgateway (RESOLUTIONS A5):
+starts it, because halsandbox may not import halgateway (resolution A5):
 
 1. `Session.start(...)` returns `model_socket` = `$R/s/<sid>/run/model.sock`; nothing listens
    there yet.
@@ -1493,14 +1492,14 @@ starts it, because halsandbox may not import halgateway (RESOLUTIONS A5):
    token stays in host process memory.
 3. halcore starts `SessionForwarder(listen_path=session.model_socket, ...)` with the
    arguments 05-gateway's "Python API" defines: the local `gateway.sock` and the session
-   token, or, in client mode on a laptop, `[gateway].url` and a client token (RESOLUTIONS
+   token, or, in client mode on a laptop, `[gateway].url` and a client token (resolution
    D6). Only then does it spawn `agent_argv`.
 4. At teardown halcore closes the forwarder after `session.close()` and calls
    `GatewayClient.revoke_session(id)`.
 
 `hal box` follows the same order through the `start_model` callable it receives
 (`halsandbox.box.run`). The forwarder's route allowlist is 01-security's (REQ-SEC-66,
-RESOLUTIONS D3) and 05-gateway implements it, with credential stripping, the size cap (8 MiB
+resolution D3) and 05-gateway implements it, with credential stripping, the size cap (8 MiB
 default, `[gateway.sessions]`), the concurrency cap and timeouts. This spec
 requires that the path works end to end with streaming (REQ-BOX-37, REQ-SYS-16). Inside the
 box the agent sends HTTP/1.1 directly over `/run/hal/model.sock`; third-party CLIs go
@@ -1573,7 +1572,7 @@ hal-relay [--port 8741] [--socket /run/hal/model.sock] [--max-conns 32]
 Listens on `127.0.0.1:<port>` only (never `0.0.0.0`; under `--network none` loopback is the
 only interface anyway). It takes no token: it is reachable only from inside one box, and the
 host forwarder behind it injects the session token. 00-overview lists it as one of the two
-exceptions to REQ-SYS-10 (RESOLUTIONS G6). In the prep box the same program runs as
+exceptions to REQ-SYS-10 (resolution G6). In the prep box the same program runs as
 `hal-relay --port 3128 --socket /run/hal/egress.sock`, so uv, npm and cargo use it as their
 HTTPS proxy. Per accepted TCP connection it opens one unix connection to its
 socket and splices bytes both ways with two threads (`recv(65536)`/`sendall`),
@@ -1704,12 +1703,12 @@ class Session:
 ```
 
 `Approver` is 01-security's single approval protocol in `halhub.approvals` (it returns a
-`Decision(verdict, scope)`; RESOLUTIONS B1); halsandbox only passes it to the broker and to
+`Decision(verdict, scope)`; resolution B1); halsandbox only passes it to the broker and to
 the dependency-prep request. `mask = None` takes the per-project choice (REQ-BOX-70), `True`
 or `False` overrides it for this session; `interactive` says whether a terminal is attached,
 which the backend-`none` consent (REQ-BOX-68) needs. `run_files` are written into `run/`
 before the box starts: halcore renders `agent.json`, `user/AGENTS.md` and `skills/...`
-(06-core-cli, schemas in 03-agent, RESOLUTIONS E4); `home_seed` goes to `run/home-seed/`.
+(06-core-cli, schemas in 03-agent, resolution E4); `home_seed` goes to `run/home-seed/`.
 `run_files` is either a mapping or a callable that `start` calls once with the new session
 id after the runtime dir exists and before the box starts, because `agent.json` carries the
 id that `start` generates (06-core-cli launch sequence, step 3); a callable that raises stops
@@ -1728,10 +1727,10 @@ and labels" except the forwarder, which halcore closes and whose token halcore r
 `hal code` (06): `Session.start(...)`, then the forwarder on `session.model_socket`, then
 `subprocess.Popen(session.agent_argv, stdin=PIPE, stdout=PIPE)` and ACP over the pipes;
 `session.checkpoint()` and `session.broker.on_human_message(...)` before each
-`session/prompt` (RESOLUTIONS F5). Long-lived assistant boxes (00-overview Flow 2) are
+`session/prompt` (resolution F5). Long-lived assistant boxes (00-overview Flow 2) are
 sessions of kind `chat` that halcore keeps open, started with
 `child_argv = ("hal-agent", "--acp", "--toolset", "assistant", "--config",
-"/run/hal/agent.json")` (03-agent, RESOLUTIONS F3). Long jobs (`core_long_task`, RESOLUTIONS
+"/run/hal/agent.json")` (03-agent, resolution F3). Long jobs (`core_long_task`, resolution
 F2) run `hal -p`, whose session has kind `job`.
 
 ### Checkpoints
@@ -1944,7 +1943,7 @@ tree's own `.gitignore` files which git reads anyway. Before the first checkpoin
 sums regular file sizes under the tree (excluding those patterns); over
 `nongit_max_total_bytes` it refuses to start unless `--isolated` or `--no-checkpoint` is
 given (REQ-BOX-52). The shadow repo lives outside the work tree, so the box never sees it.
-This replaces the brief's tarball checkpoint (Decision D6, settled by RESOLUTIONS E8); every
+This replaces the brief's tarball checkpoint (Decision D6, settled by resolution E8); every
 shadow-repo call goes through `GitRunner`.
 
 ### Isolated mode
@@ -2025,7 +2024,7 @@ Rules:
   component-wise walk with `O_NOFOLLOW` relative to an already-open directory fd, which
   refuses `..`, absolute components and any symlink with `UnsafePathError`. That avoids the
   check-then-open race of `realpath` checks. halsandbox keeps no walker of its own
-  (RESOLUTIONS C10).
+  (resolution C10).
 - `read_beneath` is the halsandbox wrapper: it calls `open_beneath`, then `fstat`s and refuses
   anything but a regular file (a FIFO would block, a device would leak), and reads at most
   `max_bytes`. Diff viewers show a symlink as `link -> target` from the git tree, never its
@@ -2044,7 +2043,7 @@ Rules:
 
 Host hard-deny paths (01-security) do not apply inside the box, so a `.env` or a private key
 in the project would be readable by the model (security review R-new-6). Masking
-closes the common cases with one decision per project instead of one per call (RESOLUTIONS
+closes the common cases with one decision per project instead of one per call (resolution
 "Masking").
 
 ```python
@@ -2097,7 +2096,7 @@ Per-project choices file (`halsandbox.projects`), 0600, written with
 
 `allow_none` is the one-time consent to backend `none` (REQ-BOX-68); `deps` records the
 lockfile sha256 of the last successful prep (REQ-BOX-74). None of these is an approval grant
-(RESOLUTIONS B3 forbids grant files): `unmask` and `allow_none` are sandbox settings the user
+(resolution B3 forbids grant files): `unmask` and `allow_none` are sandbox settings the user
 typed on a terminal, and `deps` only decides whether to offer a prep again. `hal-sandbox
 forget DIR` deletes a project's entry.
 
@@ -2106,7 +2105,7 @@ forget DIR` deletes a project's entry.
 The box has no network, and existing project venvs point at host interpreters the box cannot
 see, so without help the agent cannot run a project's tests (security review F3). `hal code
 --deps` (flag in 06-core-cli; also `hal-sandbox deps DIR`) prepares dependencies in a separate
-prep box (RESOLUTIONS F3).
+prep box (resolution F3).
 
 ```python
 @dataclass(frozen=True)
@@ -2218,10 +2217,10 @@ hal box image build [NAME] | status
   `[sandbox].image`).
 - `--ask` sets `auto_approve = false` for this run, so the CLI keeps its own prompts.
 - `--model` is a gateway alias; default `[box].model`, else the role alias `hal-code`
-  (05-gateway, RESOLUTIONS D1).
+  (05-gateway, resolution D1).
 - The box env gets `HAL_HARNESS=1`: 01-security's control socket refuses a `decide` from a
   process whose environment has it (REQ-SEC-26), so the CLI cannot approve its own calls.
-- Approvals: a `hal box` CLI never gets MCP elicitation (REQ-BOX-31, RESOLUTIONS B4). Broker
+- Approvals: a `hal box` CLI never gets MCP elicitation (REQ-BOX-31, resolution B4). Broker
   `ask` decisions go to host surfaces only: `hal approve` / `hal approvals watch` in another
   terminal through the control socket, or a desktop notification for `once` requests whose
   tool has no `content` parameter (01-security "Surfaces"). `hal box` prints one line at
@@ -2482,7 +2481,7 @@ raw_terminal = false        # true: box output reaches the terminal unfiltered (
 | `flavor = "full"` | A coding agent compiles and tests; +360 MB on disk is cheap next to model files |
 | `node = false` | +192 MB for every user, and most Python projects never need it; npm projects turn it on once |
 | `mount_uv_cache = false` | The cache may hold packages from private indexes; opt-in only |
-| `mask = "default"` | 01-security's list: its hard-deny file patterns plus common token files (RESOLUTIONS "Masking", Decision D31); a list replaces it, `[]` turns masking off (checkpoints still leave out the hard-deny file patterns, REQ-BOX-45) |
+| `mask = "default"` | 01-security's list: its hard-deny file patterns plus common token files (resolution "Masking", Decision D31); a list replaces it, `[]` turns masking off (checkpoints still leave out the hard-deny file patterns, REQ-BOX-45) |
 | `deps.registries` | The public registries of the three supported managers and their download hosts; a private index is added here by the user |
 | `deps.timeout_s = 900` | Bounds a stalled download while leaving room for a cold install of a large lockfile [unverified: measure a cold `npm ci` and `uv sync` of a large project through the proxy] |
 | `max_message_bytes` | Matches the `mcp` 2.x SDK request cap, so the broker never sees a message its SDK would reject |
@@ -2500,7 +2499,7 @@ raw_terminal = false        # true: box output reaches the terminal unfiltered (
 
 | From | Interface | Used for |
 | --- | --- | --- |
-| 00-overview `halkit` | `paths.runtime_dir` (one rule, RESOLUTIONS F6), `session_dir`, `ensure_private_dir`, `check_socket_path`, `config`, `files.write_atomic`, `files.append_jsonl`, `proc.run`, `timeutil.iso_z`, `fsafe.open_beneath`, `fsafe.is_beneath`, `termsafe.escape` and
+| 00-overview `halkit` | `paths.runtime_dir` (one rule, resolution F6), `session_dir`, `ensure_private_dir`, `check_socket_path`, `config`, `files.write_atomic`, `files.append_jsonl`, `proc.run`, `timeutil.iso_z`, `fsafe.open_beneath`, `fsafe.is_beneath`, `termsafe.escape` and
 `termsafe.strip_terminal_controls` (rules in 01-security), `netguard` (address checks for the egress proxy), `testing.FakeModelServer/FakeBroker/TempHalHome/FakeResolver` | everything |
 | 05-gateway | `SessionForwarder` and its constructor in "Python API" (local socket, or `[gateway].url` with a client token, D6), `GatewayClient.create_session/revoke_session`, `/v1/models` `context_length` (D5), role alias `hal-code` (D1) | model socket |
 | 05-gateway | forwarder must match routes on the path without the query string | Claude Code calls `/v1/messages?beta=true` [unverified for 2.1.295: check with `FakeModelServer` request log in REQ-BOX-61] |
@@ -2596,7 +2595,7 @@ Today's code has no sandbox [verified: `grep -i 'docker\|bwrap\|sandbox'` over `
 | The proxy-to-127.0.0.1:9 "no network" trick (`hal:262-267`) | `--network none`; the trick stays only in `hal claude` and is no longer a security claim |
 | `--permission-mode acceptEdits` injection (`hal:270-275`) | `[box].auto_approve` inside the box; `hal claude` keeps 06's behaviour |
 | `CLAUDE_CODE_MAX_CONTEXT_TOKENS` from preset files (`hal:162-168`) | `BoxContext.context_window` from the gateway's model metadata |
-| `deep_work` running `claude -p` on the host (`halcore/brain.py:203-227`) | `core_long_task`, a hub tool in halcore's built-in module (tier `act`, RESOLUTIONS F2), running a sandboxed `hal -p` in a box of kind `job` |
+| `deep_work` running `claude -p` on the host (`halcore/brain.py:203-227`) | `core_long_task`, a hub tool in halcore's built-in module (tier `act`, resolution F2), running a sandboxed `hal -p` in a box of kind `job` |
 | Project venvs that point at host interpreters (`<project>/.venv`; security review F3) | `hal code --deps` builds `/work/.hal/venv` with the box image's Python; the host `.venv` is left alone |
 | An external batch harness's container labeller and cleanup | Ported idea: `halsandbox.labels` with uid and pidstart; no code is copied, the harness is not a dependency |
 
@@ -2815,11 +2814,11 @@ Steps 35 to 38 change code from steps 15 to 32, so they follow them; each update
 - **D1 `/run/hal` is mounted read-only.** The brief says "(rw)". A read-only bind still
   allows `connect()` on its sockets, and `unlink` of a socket then fails with EROFS
   [verified: box test]. The box never needs to create files there, and read-only stops it
-  from replacing a socket or planting files the host might later read. RESOLUTIONS E10 makes
+  from replacing a socket or planting files the host might later read. resolution E10 makes
   this binding; 00-overview and 01-security (REQ-SEC-62) follow.
 - **D2 Sessions live under `$XDG_RUNTIME_DIR`.** The 107-byte `sun_path` limit rules out
   state or scratch paths [verified]; `$R` is `halkit.paths.runtime_dir()` with 00-overview's
-  one rule (RESOLUTIONS F6) and 12-hex ids.
+  one rule (resolution F6) and 12-hex ids.
 - **D3 Generated `/etc/passwd` and `/etc/group`.** Without them `getpwuid` fails for the
   host uid [verified]; an image-baked user cannot match every host uid.
 - **D4 A lifeline socket in addition to stdio.** A SIGKILLed host leaves boxes running when
@@ -2832,7 +2831,7 @@ Steps 35 to 38 change code from steps 15 to 32, so they follow them; each update
 - **D6 Shadow git repository instead of a tarball for non-git checkpoints.** A shadow repo
   stores each version once (deduplicated objects), reuses the git restore and diff code and
   its flags, and costs one `git add` per turn instead of a full archive per turn. The size cap
-  and the `--isolated` alternative from the brief stay. Settled by RESOLUTIONS E8.
+  and the `--isolated` alternative from the brief stay. Settled by resolution E8.
 - **D7 `hal box` is docker-only.** The CLIs need node and pinned packages from an image;
   binding a host node install into bwrap would expose `~/.npm`, `~/.local` and other user
   paths.
@@ -2855,14 +2854,14 @@ Steps 35 to 38 change code from steps 15 to 32, so they follow them; each update
   the shipped Dockerfile.
 - **D13 Markers `bwrap` and `systemd`.** bwrap tests need unprivileged user namespaces and the
   scope test needs a user manager, which CI runners and some distributions lack. 00-overview
-  registers the full set `gpu docker network slow bwrap systemd live` (RESOLUTIONS E12).
+  registers the full set `gpu docker network slow bwrap systemd live` (resolution E12).
 - **D14 `/tmp` keeps exec.** `/work` is executable anyway; `noexec` on `/tmp` breaks build
   tools without blocking anything.
 - **D15 Pinned CLIs and tools are at least 14 days old.** Gives the registry time to pull a
   compromised release before Hal pins it.
 - **D16 Codex and other CLIs run with their own sandboxes off.** Nested user namespaces fail
   in the box [verified]; the box is the boundary.
-- **D17 Requirement prefix REQ-BOX.** Settled by RESOLUTIONS E11; 00-overview's index uses it.
+- **D17 Requirement prefix REQ-BOX.** Settled by resolution E11; 00-overview's index uses it.
 - **D18 No seccomp filter for bwrap in v1.** Building a BPF program needs libseccomp or a
   hand assembler; the bwrap backend is documented as weaker than docker.
 - **D19 Command names and the Python facade follow 06-core-cli.** `hal box image build|status`,
@@ -2872,11 +2871,11 @@ Steps 35 to 38 change code from steps 15 to 32, so they follow them; each update
 - **D20 `Session.start` prepares, halcore spawns.** halcore owns the ACP pipes and is the only
   package that may import both halsandbox and halgateway, so it starts the forwarder on
   `model_socket` and then runs `agent_argv`; halsandbox stays free of gateway code
-  (RESOLUTIONS A7).
+  (resolution A7).
 - **D21 Dependency prep in a separate box, not network in the agent box.** The agent box
   keeps `--network none` at all times. A prep box runs only the lockfile's install command,
   after an `act` approval bound to the lockfile sha256, with no broker or model socket, so a
-  model cannot steer it beyond choosing to ask for it (RESOLUTIONS F3).
+  model cannot steer it beyond choosing to ask for it (resolution F3).
 - **D22 The prep box reaches registries through a CONNECT proxy on a unix socket.** It keeps
   the argv builder's rule that `--network` is always `none`, reuses `hal-relay`, and puts the
   allowlist and the private-address check on the host, where the box cannot change them. TLS
@@ -2891,15 +2890,15 @@ Steps 35 to 38 change code from steps 15 to 32, so they follow them; each update
   masked, because it wrote them.
 - **D25 Per-project choices are sandbox settings, not grants.** `projects.json` holds unmask,
   the backend-`none` consent and the last prepared lockfile hashes. None of them lets a tool
-  call skip policy, which keeps RESOLUTIONS B3 ("no grant files on disk") intact.
+  call skip policy, which keeps resolution B3 ("no grant files on disk") intact.
 - **D26 A stopped docker daemon refuses instead of degrading.** When the cached probe last saw
   docker, a silent fall to bwrap or `none` would drop isolation without the user noticing
-  (RESOLUTIONS "Fallback").
+  (resolution "Fallback").
 - **D27 Upstreams come from 03-agent's table only.** One config location for user MCP servers
-  (RESOLUTIONS E6); policy, not config, decides an upstream tool's tier, so a config entry can
+  (resolution E6); policy, not config, decides an upstream tool's tier, so a config entry can
   never relax policy for itself.
 - **D28 `result._meta.hal` carries `status`, `untrusted` and `guard` only.** Approvals block
-  in the broker, so there is no pending state to report (RESOLUTIONS E7, B5); `guard` reuses
+  in the broker, so there is no pending state to report (resolution E7, B5); `guard` reuses
   01-security's envelope values so the model-facing text and the metadata agree.
 - **D29 Node is optional in the sandbox image.** +192 MB for every user against npm projects
   only; `[sandbox].node = true` turns it on once.
@@ -2908,8 +2907,8 @@ Steps 35 to 38 change code from steps 15 to 32, so they follow them; each update
   pinned `uv` nor the interpreter a host venv points at, so a bwrap prep would build an
   environment the bwrap agent box cannot reproduce. bwrap users get an error naming docker.
 
-- **D31 `MASK_DEFAULT` is a superset of the RESOLUTIONS list, defined once in 01-security.**
-  RESOLUTIONS "Masking" names six patterns; 01-security's hard-deny file patterns already
+- **D31 `MASK_DEFAULT` is a superset of the resolutions list, defined once in 01-security.**
+  resolution "Masking" names six patterns; 01-security's hard-deny file patterns already
   include `id_ecdsa*`, `credentials*.json` and `*.kdbx`, and `.npmrc`, `.pypirc`, `.netrc`,
   `.git-credentials`, `*.p12`, `*.pfx` and `*.tfstate` are where tokens usually sit. A box that
   could read a file the host tools refuse would make the hard-deny list pointless, so the
