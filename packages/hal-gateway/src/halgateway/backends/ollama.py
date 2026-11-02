@@ -73,6 +73,8 @@ class OllamaBackend(OpenAIBackend):
         native = {"model": body["model"], "messages": body.get("messages") or [], "stream": False}
         if native_options:
             native["options"] = native_options
+        if isinstance(body.get("think"), bool):
+            native["think"] = body["think"]
         if body.get("logprobs"):
             # Ollama 0.12.11 and later take these on /api/chat and answer with `logprobs`
             native["logprobs"] = True

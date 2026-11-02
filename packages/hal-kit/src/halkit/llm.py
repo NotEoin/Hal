@@ -167,6 +167,7 @@ def _chat_data(
     temperature: float | None,
     options: Mapping[str, object] | None,
     top_logprobs: int | None,
+    think: bool | None = None,
 ) -> dict[str, object]:
     body: dict[str, object] = {"model": model, "messages": list(messages)}
     if max_tokens is not None:
@@ -178,6 +179,8 @@ def _chat_data(
     if top_logprobs is not None:
         body["logprobs"] = True
         body["top_logprobs"] = top_logprobs
+    if think is not None:
+        body["think"] = think
     return _json(_post("/v1/chat/completions", body, timeout))
 
 
@@ -224,11 +227,13 @@ def chat_logprobs(
     temperature: float | None = None,
     options: Mapping[str, object] | None = None,
     top_logprobs: int = 5,
+    think: bool | None = None,
 ) -> tuple[str, list[dict[str, object]]]:
     """Like `chat`, also returning the token logprobs: `choices[0].logprobs.content` of the reply.
 
     Each entry has `token`, `logprob` and `top_logprobs` (a list of `{token, logprob}`). The list
-    is empty when the backend sent none, so a caller must cope with that.
+    is empty when the backend sent none, so a caller must cope with that. `think` false asks a
+    model that would reason first to answer at once (Ollama's `think`).
     """
     data = _chat_data(
         messages,
@@ -238,6 +243,7 @@ def chat_logprobs(
         temperature=temperature,
         options=options,
         top_logprobs=top_logprobs,
+        think=think,
     )
     entries: list[dict[str, object]] = []
     try:

@@ -91,6 +91,7 @@ def test_gateway_chat_returns_text_and_logprobs_when_asked(home):
         )
     body = server.requests[0]["body"]
     assert got == ("yes", entries) and body["logprobs"] is True and body["top_logprobs"] == 5
+    assert body["think"] is False  # Guardian must answer at once, not reason through 16 tokens
 
 
 def test_gateway_chat_forces_cpu_options_with_gpu_false_even_when_the_light_is_green(

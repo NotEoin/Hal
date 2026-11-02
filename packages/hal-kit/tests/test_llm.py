@@ -127,6 +127,15 @@ def test_chat_logprobs_asks_for_logprobs_and_returns_the_token_entries(home):
     assert (body["logprobs"], body["top_logprobs"]) == (True, 5)
 
 
+def test_chat_logprobs_sends_think_only_when_asked(home):
+    with FakeModelServer(home.runtime / "gateway.sock") as server:
+        server.script("no", "no")
+        llm.chat_logprobs(MESSAGES, timeout=5, think=False)
+        llm.chat_logprobs(MESSAGES, timeout=5)
+    assert server.requests[0]["body"]["think"] is False
+    assert "think" not in server.requests[1]["body"]
+
+
 def test_chat_logprobs_returns_an_empty_list_when_the_backend_sent_none(home):
     with FakeModelServer(home.runtime / "gateway.sock") as server:
         server.script("no")

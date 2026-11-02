@@ -247,6 +247,14 @@ def test_chat_logprobs_ride_the_native_route_and_come_back_in_openai_shape(gatew
     assert (sent["logprobs"], sent["top_logprobs"]) == (True, 5)
 
 
+def test_think_false_reaches_the_native_chat_route(gateway):
+    # regression: the native route dropped `think`, so Granite Guardian reasoned through its
+    # 16-token budget and the classifier never saw a yes/no score
+    body = {"model": "coder", "messages": [{"role": "user", "content": "x"}], "options": {"num_gpu": 0}}
+    call(gateway, "POST", "/v1/chat/completions", {**body, "think": False})
+    assert FakeOllama.seen[-1][2]["think"] is False
+
+
 @pytest.mark.parametrize(
     "extra",
     [{"options": {"model_path": "/etc"}}, {"options": [1]}, {"options": {"num_gpu": 0}, "tools": [{}]}],

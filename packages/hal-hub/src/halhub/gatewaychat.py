@@ -93,6 +93,7 @@ def gateway_chat(
             temperature=temperature,
             options=options,
             top_logprobs=LOGPROBS_TOP,
+            think=False,  # Granite Guardian reasons first unless told not to, and 16 tokens hold no verdict
         )
     return llm.chat(
         messages,
