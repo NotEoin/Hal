@@ -9,6 +9,8 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `halkit.gguf` reads the metadata of a GGUF file (architecture, layers, KV heads, context, quantisation)
+  from its header without reading the weights.
 - `halkit.hardware` detects GPUs (`nvidia-smi`, `amd-smi`, `rocm-smi`), RAM, CPU threads and WSL2 for
   model tuning; it never raises and every subprocess has a timeout.
 - `hal doctor` warns when a unit renders outside the registered packs or runs a missing program;
