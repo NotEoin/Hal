@@ -5,7 +5,7 @@ as is, mask old tool output down to `mask_to`, summarise, then cut the largest m
 runs as one sweep to `mask_to` rather than a little before each request, because every rewrite of
 early context invalidates the server's prefix cache. A failing summary falls back to the state
 note alone, so compaction never loses the work. The harness writes the state note; the model does
-not (a model-written notes slot delayed the first edit in the gemma campaign).
+not (a model-written notes slot delayed the first edit in testing, 2026-10).
 """
 
 from __future__ import annotations

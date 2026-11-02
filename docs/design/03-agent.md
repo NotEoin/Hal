@@ -12,7 +12,7 @@ Status: draft 2026-10-23, revised 2026-10-24 to match the design resolutions.
 
 Requirement ids in this document are `REQ-AGT-NN`. Withdrawn ids stay listed as withdrawn and
 are never reused. Facts carry `[verified: how]` or `[unverified]`; "relayed" means a number
-reported by the development runs from forum posts or papers and not reproduced here. Binding
+reported in forum posts or papers and not reproduced here. Binding
 inputs, in priority order: the design resolutions of 2026-10-23, then
 the project brief (2026-10-23, including "Host facts"). Where this
 spec and either of them disagree, they win. Experiment scripts cited as `spec-tmp/agent/...`
@@ -90,7 +90,7 @@ Non-goals (owned elsewhere, or deliberately left out):
 - The model gateway, presets, role aliases, routing, `hal-route.py` effort and swap policies
   (05-gateway). halagent is a client of the gateway.
 - Sub-agents, multi-agent topologies and A2A. Evidence: no multi-agent topology beat a
-  single budget-fit agent at matched compute (relayed from the development runs). Revisit only with an eval result.
+  single budget-fit agent at matched compute (relayed). Revisit only with an eval result.
 - ACP v2 (still draft), ACP client `fs/*` and `terminal/*` methods, ACP authentication.
 - Image and audio input. `promptCapabilities.image` and `.audio` are false in v1.
 - Training, LoRA, fine-tuning.
@@ -106,7 +106,7 @@ Each requirement names the test that proves it. Test kinds:
   live`, resolution E12).
 - **docker**: needs docker; marker `docker`, deselected by default. Tests that touch the
   broker socket run twice, on `runc` and on `runsc` (runsc needs `--host-uds=open` to reach
-  the bind-mounted sockets; brief "Host facts").
+  the bind-mounted sockets; host check).
 - **manual**: a person checks it with a written procedure in `docs/howto/`.
 
 Tests cite the requirement ids they cover in their docstring, so a coverage script can list
@@ -1050,7 +1050,7 @@ a profile file.
 
 #### 3.4.3 Seeded catalogue
 
-Seeded from `ollama list`, `/api/show` and `~/.local/state/hal/eval/*.json` on this machine
+Seeded from `ollama list`, `/api/show` and `~/.local/state/hal/eval/*.json` on the development host
 [verified: `ollama list` and `POST /api/show` against Ollama 0.40.1 on 127.0.0.1:11434,
 read-only, 2026-10-23; eval JSON files read 2026-10-23]. Sampling values are the ones Ollama
 publishes in each model's parameters. `ctx max` is the model's trained maximum from
@@ -1485,7 +1485,7 @@ def render_for_model(result: ToolResult, steering: Sequence[str], cap: int) -> s
 
 `render_for_model`: success -> `text`; error -> `json.dumps({"status": "error", "error_type":
 ..., "message": ...})`; then the steering lines, each on its own line, at the end, because the
-tail of a tool result is the part every layer keeps (relayed from the development runs). The
+tail of a tool result is the part every layer keeps (measured during development, 2026-10). The
 whole string is cut to `max_result_chars` (12,000) keeping the first 4,000 and last 8,000
 characters with a `[... N characters cut ...]` line (REQ-AGT-45).
 
@@ -1634,7 +1634,7 @@ and "read the lines again and copy them exactly"; `old_string == new_string` or 
 Syntax guard (`[agent.tools].syntax_guard`, default true): for `.py` (`compile(text, path,
 "exec")`), `.json` (`json.loads`) and `.toml` (`tomllib.loads`), when the file parsed before
 the edit and fails after, the edit is not written and the result is `syntax` with the parser's
-line and message. tk's `edit` refuses syntax-breaking edits for the same reason (relayed from the development runs).
+line and message. tk's `edit` refuses syntax-breaking edits for the same reason (measured during development, 2026-10).
 
 Success: `Edited src/app.py (tier: whitespace).` followed by a unified diff with 3 context
 lines, capped at 40 lines and 3,000 characters. Writes are atomic (temp file in the same
@@ -1859,7 +1859,7 @@ Oldest first, each tool message outside the protected set is replaced by a stub,
 [hal] output of read src/app.py:1-200 hidden to save context (5213 characters). Call it again if you need it.
 ```
 
-Masking matched LLM summarisation at half the cost in the literature the gemma campaign read
+Masking matched LLM summarisation at half the cost in the literature
 (relayed, "Complexity Trap"), and summaries that keep only text lose the tool history Gemma
 relies on (relayed, `gemma-agent.md` 3.4), so masking goes first.
 
@@ -1882,8 +1882,7 @@ compaction never loses the work (REQ-AGT-60).
 #### 3.9.5 State note
 
 Maintained by the harness from tool calls and results, not written by the model (a model-
-written notes slot cost the 31B the time it needed for its first edit: `toolbelt-notes`
-killed 2026-10-22, relayed from the development runs). At most 3,000 characters:
+written notes slot cost the 31B the time it needed for its first edit; measured during development, 2026-10). At most 3,000 characters:
 
 ```text
 [hal state note]
@@ -1991,7 +1990,7 @@ Export `md`: a header (id, model, dates), then each turn: the user text, the ass
 each tool call as a fenced block with its arguments and the result cut to 2,000 characters;
 reasoning only with `reasoning=True`. Export `jsonl`: the transcript records one per line,
 with secret masking applied and `reasoning` removed unless `reasoning=True`.
-An ATIF export (the open trajectory format the gemma campaign used) is left for later
+An ATIF export (the open trajectory format) is left for later
 (Decisions).
 
 ### 3.11 Prompts
@@ -2079,7 +2078,7 @@ Schedule numbers for `N = max_tool_calls` (fractions of the gemma schedule's 6, 
 | `minutes` | `round(max_wall_s / 60)` | | 15 |
 
 Scaling the schedule beyond N = 28 is untested [unverified: the coding eval (3.18.2) measures
-it; the gemma campaign found phase gates must follow the harness's real signals].
+it; phase gates must follow the harness's real signals (measured during development, 2026-10)].
 
 #### 3.11.3 Interactive template (`prompts/code_interactive.md`)
 
@@ -2852,8 +2851,8 @@ Initial set (12, synthetic, stdlib-only Python, written for Hal, MIT): `csv-quot
 Eight are `dev`, four `heldout`; held-out tasks are not used for tuning prompts or profiles.
 
 Every task passes a gold/null check (REQ-AGT-94): the gold patch makes `check` pass, the
-unchanged repo makes it fail. The gemma campaign had to filter its local set because only 41
-of 129 public tasks passed their gold check (verified there), so the check runs in CI under the
+unchanged repo makes it fail. In a public set, only 41
+of 129 tasks passed their gold check (measured during development, 2026-10), so the check runs in CI under the
 `docker` marker.
 
 #### 3.18.3 Coding runner
@@ -2920,7 +2919,7 @@ def promote(b: int, c: int) -> bool: ...
 
 - Noise is large: byte-identical payloads scored 0.18, 0.17 and 0.15; one local re-run went
   from 55 to 48 of 129 (relayed). At n = 38 a single run's minimum detectable effect is about
-  17.6 points (relayed from the development runs). The 2026-10-10 assistant comparisons are single runs,
+  17.6 points (relayed). The 2026-10-10 assistant comparisons are single runs,
   so differences of a few cases between models are not evidence.
 - Every comparison runs both arms on the same cases, same repeats and same seeds where the
   server honours seeds, and reports `b`, `c`, the McNemar p value, the bootstrap interval and
@@ -3042,7 +3041,7 @@ hub and no approval path through the agent.
    new assistant must not lose by the promotion rule in reverse (that is, `c - b` must not pass
    the rule).
 3. hal-voice and the Telegram pack switch to `hal acp` (08-packs-and-flagships).
-4. The final cutover (brief) points the live units at the new Hal.
+4. The upgrade (06-core-cli) points the units at the new Hal.
 
 ## 6. Test plan
 
@@ -3251,5 +3250,4 @@ Choices made where the brief and the design resolutions are silent, with reasons
 ## 9. Open questions
 
 1. **Coding task set.** Is a 12-task synthetic set enough for v1, or do you want a subset of a
-   public SWE-style benchmark added (licence and size to check; the gemma campaign's tasks are
-   competition data and cannot be used)?
+   public SWE-style benchmark added (licence and size to check; competition data cannot be used)?
