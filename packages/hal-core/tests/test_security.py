@@ -73,3 +73,18 @@ def test_paranoia_off_reports_the_classifier_off(home):
 
 def test_unknown_subcommand_is_a_usage_error(home):
     assert security.main(["bogus"]) == 2
+
+
+def test_an_unpinned_ollama_classifier_model_is_a_warning(home):
+    # regression: doctor said "reachable" while the gateway refused the unpinned Guardian model
+    # with 503 model_unverified, so every call asked for approval
+    home.policy.write_text('schema_version = 1\n[policy]\nmodel = "ollama/guard:8b"\n')
+    home.policy.chmod(0o600)
+    with FakeModelServer(home.runtime / "gateway.sock") as server:
+        server.models = ["ollama/guard:8b"]
+        report = security.collect(check_runtime=False)
+        assert any("guard:8b is not pinned in models.toml" in w for w in report.warnings)
+        home.config.with_name("models.toml").write_text(
+            'schema = 1\n\n[[model]]\nname = "guard:8b"\nsource = "ollama:guard:8b@sha256:' + "a" * 64 + '"\n'
+        )
+        assert not any("not pinned" in w for w in security.collect(check_runtime=False).warnings)

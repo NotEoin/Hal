@@ -12,15 +12,23 @@ writes either (RESOLUTIONS I2, I5). Design decisions:
 
 from __future__ import annotations
 
+import logging
 import sys
 from dataclasses import dataclass, field
 
+from halgateway import config as gwconfig
+from halgateway import models as gwmodels
 from halhub import policy
 from halhub.classifier import effective_paranoia
 from halkit import llm
+from halkit.config import ConfigError
 from halsandbox import config as sandbox_config
 from halsandbox.code import docker_runtimes
 from halsandbox.lockdown import Policy
+
+from . import modelplan
+
+log = logging.getLogger(__name__)
 
 PROBE_TIMEOUT_S = 3.0
 
@@ -66,9 +74,35 @@ def collect(*, check_runtime: bool) -> Report:
             report.lines.append(f"classifier: reachable ({pol.classifier.model})")
             if pol.classifier.model not in aliases:
                 report.warnings.append(f"gateway does not list the classifier model {pol.classifier.model}")
+            unpinned = unpinned_ollama_model(pol.classifier.model)
+            if unpinned:
+                report.warnings.append(
+                    f"classifier model {unpinned} is not pinned in models.toml, so the gateway refuses it"
+                    " and every boxed call asks; run `hal models` to pin it"
+                )
     else:
         report.lines.append("classifier: off")
     return report
+
+
+def unpinned_ollama_model(model: str) -> str | None:
+    """The Ollama model a `backend/model` name points at when `models.toml` does not pin it, else None.
+
+    The gateway answers a reachable but unpinned model with 503 `model_unverified`, which a ping
+    cannot see; aliases and other backends are checked by the gateway's own commands instead.
+    """
+    backend, sep, name = model.partition("/")
+    if not sep:
+        return None
+    try:
+        backends = gwconfig.load_config().backends
+        pinned = {e.name for e in gwmodels.list_entries(modelplan.manifest_store())}
+    except (ConfigError, OSError, ValueError) as exc:
+        log.warning("could not check whether %s is pinned: %s", model, exc)
+        return None
+    if str((backends.get(backend) or {}).get("type")) != "ollama":
+        return None
+    return None if name in pinned or f"{name}:latest" in pinned else name
 
 
 def render(report: Report) -> str:

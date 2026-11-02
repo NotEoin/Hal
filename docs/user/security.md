@@ -51,7 +51,9 @@ a low-risk call that the policy would ask about may be approved once by the revi
 
 The effective level is the configured one raised to the lockdown floor (`strict` gives `high`).
 With no classifier model reachable, `balanced` and above treat every call as `high`, so you are
-asked more often; `hal doctor` and `hal status` print `classifier: UNREACHABLE` when that is so.
+asked more often; `hal doctor` and `hal status` print `classifier: UNREACHABLE` when that is so. `hal doctor` also warns
+when a `backend/model` classifier on Ollama is not pinned in `models.toml`: the gateway refuses
+an unpinned model, so every call would ask. Run `hal models` to pin it.
 Every verdict is written to the audit log as a `classification` record.
 
 A call to a read-only tool that no rule flagged is `low` at once, without asking the model (the
