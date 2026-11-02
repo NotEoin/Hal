@@ -9,6 +9,8 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `hal setup` finds the employment helper through `[jobs].jobhunt_root` and creates or narrows
+  the sandbox state folder to 0700, so the doctor no longer fails on a 0775 folder.
 - Units render from the registered packs: `@ROOT@` is the pack's folder and `@PYTHON@` the
   interpreter of its environment. `[hub].module_paths` only adds modules no pack provides.
 - `hal migrate ecosystem` maps every old hal-ecosystem unit to the pack that now provides it.

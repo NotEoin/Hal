@@ -1,7 +1,8 @@
 """`hal setup`: one idempotent command that finishes an install from a checkout.
 
 It syncs the workspace, installs the packs found next to the checkout (hal-tools, hal-memory,
-hal-voice) and the employment helper when it ships a Hal module, installs or detects gpu-light,
+hal-voice) and the employment helper (found through `[jobs].jobhunt_root`, then the siblings) when it ships a
+Hal module, installs or detects gpu-light,
 builds the box image, writes the hal-* systemd user units and runs the doctor.
 
 Design decisions:
@@ -24,14 +25,16 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import shutil
+import stat
 import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from halkit import proc
+from halkit import paths, proc
 
 from . import config, doctor, gpulight, packs, units
 
@@ -43,6 +46,7 @@ IMAGE_TIMEOUT_S = 3600.0  # building the sandbox image pulls a base image and in
 PACK_SIBLINGS = ("hal-tools", "hal-memory", "hal-voice")
 EMPLOYMENT_SIBLINGS = ("employment-helper", "hal-employment")
 GPU_LIGHT_SIBLING = "gpu-light"
+PRIVATE_MODE = 0o700  # what the doctor demands of the sandbox state folder
 MODULE_FILE = "hal-module.toml"
 EXIT_OK, EXIT_FAILED = 0, 1
 
@@ -122,9 +126,35 @@ def plan(dirs: list[Path], *, enable: bool, image: bool, replace: bool = False) 
                 steps.append(Step(f"pack {pack}", f"hal packs add --local {path}", lambda p=path: packs.add_local(p)))
     steps.append(_employment_step(dirs, have))
     steps.append(_gpu_light_step(dirs))
+    steps.append(_sandbox_step())
     steps.append(_image_step() if image else Step("box image", "--no-image", skip="skipped by option"))
     steps.append(_units_step(enable, replace))
     return steps
+
+
+def sandbox_dir() -> Path:
+    """The sandbox state folder; the doctor fails when it is open to group or others."""
+    return paths.state_dir() / "sandbox"
+
+
+def _sandbox_step() -> Step:
+    path = sandbox_dir()
+    if path.is_dir() and not path.is_symlink() and stat.S_IMODE(path.stat().st_mode) == PRIVATE_MODE:
+        return Step("sandbox state", str(path), skip="already private")
+    return Step("sandbox state", f"create or chmod {PRIVATE_MODE:04o} {path}", _tighten_sandbox)
+
+
+def _tighten_sandbox() -> str:
+    """Creates the sandbox state folder or narrows it to 0700; refuses a symlink or another owner."""
+    path = sandbox_dir()
+    if path.is_symlink():
+        raise OSError(f"{path} is a symlink; remove it and rerun")
+    if not path.exists():
+        path.mkdir(mode=PRIVATE_MODE, parents=True)
+    elif path.stat().st_uid != os.getuid():
+        raise OSError(f"{path} belongs to another user; not touching it")
+    path.chmod(PRIVATE_MODE)
+    return f"{path} is {PRIVATE_MODE:04o}"
 
 
 def _sync() -> str:
@@ -132,8 +162,17 @@ def _sync() -> str:
     return "synced"
 
 
+def jobhunt_root() -> Path | None:
+    """`[jobs].jobhunt_root` when it names a checkout with a `pyproject.toml`, else None."""
+    configured = config.load().get("jobs", {}).get("jobhunt_root")
+    if not configured:
+        return None
+    root = Path(str(configured)).expanduser()
+    return root if (root / "pyproject.toml").is_file() else None
+
+
 def _employment_step(dirs: list[Path], have: dict) -> Step:
-    repo = find_sibling(EMPLOYMENT_SIBLINGS, dirs)
+    repo = jobhunt_root() or find_sibling(EMPLOYMENT_SIBLINGS, dirs)
     if repo is None:
         return Step("employment helper", "no checkout found", skip="not found, skipped")
     if not has_module(repo):

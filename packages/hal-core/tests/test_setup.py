@@ -150,3 +150,35 @@ def test_setup_with_replace_names_the_units_it_will_replace(old_install):
 def test_units_this_checkout_wrote_are_not_foreign(old_install, tmp_path):
     units._save({"hal-console.service": str(tmp_path / "next")})
     assert units.foreign_units() == []
+
+
+def test_sandbox_state_folder_is_tightened_to_private(tmp_path, monkeypatch):
+    # Regression: a 0775 sandbox folder made the doctor fail right after `hal setup`.
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "state"))
+    folder = tmp_path / "state" / "sandbox"
+    folder.mkdir(parents=True, mode=0o775)
+    folder.chmod(0o775)
+    step = hsetup._sandbox_step()
+    assert step.run and not step.skip
+    step.run()
+    assert (folder.stat().st_mode & 0o777) == 0o700
+    assert hsetup._sandbox_step().skip
+
+
+def test_sandbox_state_folder_is_created_when_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "state"))
+    hsetup._sandbox_step().run()
+    assert ((tmp_path / "state" / "sandbox").stat().st_mode & 0o777) == 0o700
+
+
+def test_employment_helper_is_found_through_jobhunt_root(tmp_path, monkeypatch):
+    # Regression: setup said "not found" for a helper outside the sibling folders.
+    helper = tmp_path / "elsewhere" / "helper"
+    (helper / "src").mkdir(parents=True)
+    (helper / "pyproject.toml").write_text('[project]\nname = "employment-helper"\n')
+    (helper / "hal-module.toml").write_text('[module]\nname = "jobs"\n')
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(f'[jobs]\njobhunt_root = "{helper}"\n')
+    monkeypatch.setenv("HAL_CONFIG", str(cfg))
+    step = hsetup._employment_step([tmp_path / "empty"], {})
+    assert str(helper) in step.detail and not step.skip
