@@ -14,8 +14,8 @@ Design decisions:
   and the role's `family` setting overrides detection.
 - A model that cannot think gets no fields and a note, never an error: effort is a hint.
 - Fields for `llamacpp` and `ollama` follow those servers' documentation at the time of writing;
-  per-request `reasoning_budget` on llama-server and `think` on Ollama's `/v1` route are
-  [unverified: check against your server version with a live request].
+  per-request `reasoning_budget` on llama-server is [unverified: check against your server
+  version with a live request].
 """
 
 from __future__ import annotations
@@ -137,7 +137,9 @@ def request_fields(level: str, cap: Capability, backend: str) -> Applied:
         return Applied({"reasoning_effort": value}, note, True)
     # kind == "toggle": Qwen3-style switch, with a budget on llama.cpp
     if backend == "ollama":
-        return Applied({"think": on}, applied=True)
+        # Ollama's `/v1` route ignores `think` and needs `reasoning_effort` "none" to stop
+        # thinking; the native route reads `think` (checked on Ollama 0.40.1, 2026-11-02)
+        return Applied({"think": on} if on else {"think": False, "reasoning_effort": "none"}, applied=True)
     if backend == "llamacpp":
         fields: dict[str, object] = {"chat_template_kwargs": {"enable_thinking": on}}
         fields["reasoning_budget"] = LLAMACPP_BUDGETS[level]

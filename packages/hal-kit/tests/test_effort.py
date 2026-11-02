@@ -42,7 +42,14 @@ def test_levels_are_parsed_case_insensitively_and_unknown_ones_are_none():
 def test_qwen3_on_ollama_uses_think_true_and_false():
     q = cap("qwen3:8b")
     assert effort.request_fields("high", q, "ollama").fields == {"think": True}
-    assert effort.request_fields("off", q, "ollama").fields == {"think": False}
+    assert effort.request_fields("off", q, "ollama").fields["think"] is False
+
+
+def test_qwen3_off_on_ollama_also_sets_reasoning_effort_none():
+    """Regression: Ollama's `/v1` route ignores `think`, so `off` kept thinking and a 120-token
+    classifier answer came back empty."""
+    got = effort.request_fields("off", cap("qwen3.5:4b"), "ollama")
+    assert got.fields == {"think": False, "reasoning_effort": "none"}
 
 
 def test_qwen3_on_an_openai_compatible_server_uses_template_kwargs():
