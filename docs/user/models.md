@@ -98,11 +98,12 @@ fast   local/qwen3:8b *          32K  6.1 GB  fits
 code   -                              no model yet
 ...
 What next?
-> 1. Adjust a role
-  2. Model sources (add or remove)
-  3. Review changes
-  4. Save and exit
-  5. Quit without saving
+> 1. Quick setup (presets)
+  2. Adjust a role
+  3. Model sources (add or remove)
+  4. Review changes
+  5. Save and exit
+  6. Quit without saving
 up/down move | enter select | 1-9 jump | esc back | ': commands'
 ```
 
@@ -110,6 +111,13 @@ No typing is needed. Up and Down move the highlight, Enter chooses, the keys 1 t
 row, Esc or `q` go back, and a click on a row chooses it (most terminals; if yours does not send
 mouse events, use the keys). `GB` here means 1024 MiB.
 
+- **Quick setup** tunes every role against a VRAM budget, then shows the result as a diff for
+  review; nothing is written until you choose Save and exit. The presets are *This machine
+  (auto)* (the card's total memory), *12 GB GPU*, *24 GB GPU* and *CPU only* (no GPU layers).
+  A role keeps its model if it fits the preset, otherwise it gets the best model you have that
+  does. If none fits, the screen says so and suggests pulling a smaller model (for example with
+  `ollama pull`) or adding a source. A preset stays in force for the rest of the session; pick
+  *This machine* to go back. The presets are rows of a table in `halcore/tunepresets.py`.
 - **Adjust a role** opens a menu for one role: Model (a list you can filter by typing), Context
   (8K to 128K or Custom, each with its size and `fits`, `tight` or `too big`), KV cache, Effort
   (only for models that can think), Temperature, and Auto-tune this role.

@@ -24,11 +24,12 @@ from halkit import config, discovery, effort, modelconf, tomledit, tuning
 from halkit.hardware import Hardware
 from halkit.modelinfo import ModelInfo
 
-from . import modelplan
+from . import modelplan, tunepresets
 
 CONTEXT_PRESETS = (8192, 16384, 32768, 65536, 131072)
 KV_OPTIONS = modelconf.KV_CHOICES
 OPTIONAL_ROLES = ("writer",)  # empty by design: falls back to chat
+ROLE_KINDS = {"code": "coding model", "vision": "vision model", "embed": "embedding model"}
 
 
 @dataclass
@@ -78,6 +79,8 @@ class TuneSession:
         discover: Callable[[modelconf.Source], discovery.Discovery] = discovery.discover,
     ) -> None:
         self.hw = hw
+        self.real_hw = hw  # `hw` is what plans use; a preset swaps it, this is the machine
+        self.preset: tunepresets.Preset | None = None
         self.sources = dict(sources)
         self.found = dict(found)
         self.limits = limits
@@ -248,6 +251,34 @@ class TuneSession:
             elif d is not None:
                 d.context, d.kv_type, d.manual = 0, "", False
                 notes.append(f"{name}: tuned for this hardware")
+        return notes
+
+    def apply_preset(self, preset: tunepresets.Preset) -> list[str]:
+        """Tunes every role against the preset's VRAM budget; returns one note per role.
+
+        A role keeps its model when it runs fully on the planned hardware (on the CPU for a
+        CPU preset); otherwise it gets the best discovered model that fits. A role with no
+        fitting model is left as it was and its note says how to get one.
+        """
+        self.hw, self.preset = tunepresets.hardware_for(preset, self.real_hw), preset
+        keep = "gpu" if self.hw.gpus else "cpu"
+        notes = []
+        for role in [r for r in modelconf.ROLES if r not in OPTIONAL_ROLES or r in self.drafts]:
+            if self.fit(role).status in (keep, "server"):
+                d = self.drafts[role]
+                d.context, d.kv_type, d.manual = 0, "", False
+                notes.append(f"{role}: {d.model} fits {preset.label}")
+                continue
+            rp = modelplan.choose(role, self.found, self.sources, self.hw, self.limits, {})
+            if rp.model is None:
+                kind = ROLE_KINDS.get(role, "model")
+                notes.append(
+                    f"{role}: no discovered model fits {preset.label}. Pull a smaller {kind} "
+                    "(for example with `ollama pull <model>`) or add a source, then run Quick setup again"
+                )
+                continue
+            self.choose(role, rp.model)
+            notes.append(f"{role}: chose {rp.model.name} for {preset.label}")
         return notes
 
     # --- sources ----------------------------------------------------------------------------

@@ -314,3 +314,20 @@ def test_clicking_a_row_chooses_it_and_other_mouse_events_are_ignored():
     assert handlers[2](mouse(MouseEventType.MOUSE_DOWN)) is NotImplemented and view.result is None
     handlers[2](mouse(MouseEventType.MOUSE_UP))
     assert view.result == "c" and view.finished
+
+
+def test_quick_setup_shows_the_four_presets_and_previews_the_result_without_writing(home, server):
+    screen, out, prompter = open_screen(home, server, picks=["preset", "gpu-12", None, "yes"])
+    before = home.config.read_text()
+    assert screen.run() == 0
+    labels = prompter.seen[1][1]
+    assert [lb.split("  ")[0].strip() for lb in labels] == ["This machine (auto)", "12 GB GPU", "24 GB GPU", "CPU only"]
+    text = out.getvalue()
+    assert "config.toml (new)" in text and "preview" in text and "Planning for: 12 GB GPU" in text
+    assert home.config.read_text() == before
+
+
+def test_the_preset_menu_marks_nothing_as_changed_for_a_cancelled_choice(home, server):
+    screen, _, _ = open_screen(home, server, picks=["preset", None, "quit"])
+    screen.run()
+    assert not screen.state.has_changes() and screen.state.preset is None

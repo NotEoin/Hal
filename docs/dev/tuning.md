@@ -91,6 +91,13 @@ VRAM budget gives `gpu`; otherwise layers move to RAM as in the hybrid case; wit
 `cpu`; and `does-not-fit` when RAM is short too. The screen calls it for every context size it lists, so
 the fit shown is the same arithmetic as the automatic plan.
 
+## Presets
+
+`halcore.tunepresets.PRESETS` lists the Quick setup budgets. `TuneSession.apply_preset` swaps the
+session hardware for `hardware_for(preset, real)` (a card with equal total and free memory, or
+no GPU), keeps each role's model if it still runs fully on that hardware, and otherwise calls
+`modelplan.choose` for the best discovered model. Roles stay unwritten until the user saves.
+
 ## Limits
 
 - The per-layer cost is the average. Embedding and output tensors are larger than a layer, so

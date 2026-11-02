@@ -40,7 +40,7 @@ from prompt_toolkit.styles import Style
 from rich.console import Console, Group
 from rich.text import Text
 
-from . import modelplan, tunestate
+from . import modelplan, tunepresets, tunestate
 from .tui.status import PT_COLORS, context_bar
 from .tui.theme import Look, load_look, make_console
 
@@ -55,6 +55,7 @@ TEMPERATURES = ("default", "0", "0.2", "0.5", "0.7", "1.0", "1.5")  # common val
 CUSTOM = "custom"
 COMMAND_KEY = ":"
 MAIN_ITEMS = (
+    ("Quick setup (presets)", "preset"),
     ("Adjust a role", "role"),
     ("Model sources (add or remove)", "source"),
     ("Review changes", "review"),
@@ -226,6 +227,8 @@ def render_summary(state: tunestate.TuneSession, look: Look) -> Group:
     pal = look.palette
     rows: list[Text] = [Text("Hal tune", style=pal.accent)]
     rows += [Text(line, style=pal.muted if line.startswith("note") else "") for line in hardware_lines(state.hw)]
+    if state.preset is not None and state.preset.vram_mib is not None:
+        rows.append(Text(f"Planning for: {state.preset.label} (a preset, not this machine)", style=pal.muted))
     if not state.sources:
         rows.append(Text("no model source yet: choose Model sources", style=pal.muted))
     rows.append(Text(""))
@@ -440,6 +443,8 @@ class TuneScreen:
                 status = self.run_commands()
                 if status is not None:
                     return status
+            elif choice == "preset":
+                self.menu_presets()
             elif choice == "role":
                 self.menu_roles()
             elif choice == "source":
@@ -466,6 +471,20 @@ class TuneScreen:
         except (ValueError, OSError, *modelplan.plain_errors()) as exc:
             self.say(str(exc), "bad")
             return None
+
+    def menu_presets(self) -> None:
+        """Quick setup: tunes every role for a preset, then shows the result for review."""
+        items = [
+            (f"{p.label:<20} {tunepresets.describe(p, self.state.real_hw)}", p.key) for p in tunepresets.PRESETS
+        ]
+        key = self.prompter.pick("Quick setup", items, self.state.preset.key if self.state.preset else "auto", filterable=False)
+        preset = next((p for p in tunepresets.PRESETS if p.key == key), None)
+        if preset is None:
+            return
+        for note in self.state.apply_preset(preset):
+            self.say(note, "bad" if "no discovered model" in note else "muted")
+        self.cmd_diff("")
+        self.say("This is a preview: choose Save and exit to write it, or adjust a role first.", "muted")
 
     def menu_roles(self) -> None:
         """Picks a role, then shows its menu until the user goes back."""

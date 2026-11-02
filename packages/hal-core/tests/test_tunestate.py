@@ -146,3 +146,58 @@ def test_a_bad_source_is_refused_and_leaves_the_draft_alone(home, server):
     with pytest.raises(ValueError):
         s.add_source("ollama", "http://example.com:11434")  # not loopback
     assert list(s.sources) == ["local"] and not s.has_changes()
+
+
+def preset(key):
+    from halcore import tunepresets
+
+    return next(p for p in tunepresets.PRESETS if p.key == key)
+
+
+def test_a_gpu_preset_plans_every_role_against_a_card_of_that_size(home, server):
+    s = session(home, server, {**CARD_24GB, "gpus": [{**CARD_24GB["gpus"][0], "total_mib": 8192, "free_mib": 8000}]})
+    s.choose("chat", s.find("local", "big:70b"))
+    notes = s.apply_preset(preset("gpu-12"))
+    assert (s.hw.gpus[0].total_mib, s.hw.gpus[0].free_mib) == (12288, 12288)
+    assert s.fit("chat").status == "gpu" and s.model_of("chat").name != "big:70b"
+    assert any(n.startswith("chat: chose") for n in notes)
+    assert all(s.fit(r).status == "gpu" for r, d in s.drafts.items() if d.model)
+
+
+def test_a_model_that_already_fits_the_preset_is_kept_and_retuned(home, server):
+    s = session(home, server)
+    s.choose("chat", s.find("local", "tiny:1b"))
+    s.set_context("chat", 8192)
+    s.apply_preset(preset("gpu-24"))
+    assert s.drafts["chat"].model == "tiny:1b" and not s.drafts["chat"].manual and s.fit("chat").context > 8192
+
+
+def test_the_cpu_preset_uses_zero_gpu_layers(home, server):
+    s = session(home, server)
+    s.apply_preset(preset("cpu"))
+    assert s.hw.gpus == () and s.fit("chat").status == "cpu"
+    assert s.plan("chat").gpu_layers == 0
+
+
+def test_this_machine_plans_on_the_total_memory_of_a_card_another_program_holds(home, server):
+    busy = {**CARD_24GB, "gpus": [{**CARD_24GB["gpus"][0], "free_mib": 1500}]}
+    s = session(home, server, busy)
+    s.apply_preset(preset("gpu-12"))
+    s.apply_preset(preset("auto"))
+    assert s.hw is s.real_hw and s.fit("chat").status == "gpu" and s.plan("chat").gpu_layers == -1
+
+
+def test_a_role_with_no_fitting_model_is_left_alone_and_the_note_says_how_to_get_one(home):
+    with FakeOllama(TAGS[:1], SHOW) as only_big:
+        s = session(home, only_big)
+        notes = s.apply_preset(preset("gpu-12"))
+    assert s.model_of("chat") is None
+    chat = next(n for n in notes if n.startswith("chat:"))
+    assert "no discovered model fits 12 GB GPU" in chat and "ollama pull" in chat
+
+
+def test_presets_are_a_data_table_without_model_names():
+    from halcore import tunepresets
+
+    assert [p.key for p in tunepresets.PRESETS] == ["auto", "gpu-12", "gpu-24", "cpu"]
+    assert tunepresets.describe(preset("cpu"), hardware.from_dict(CARD_24GB)) == "no GPU layers"
