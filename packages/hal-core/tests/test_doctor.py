@@ -76,3 +76,16 @@ def test_only_with_no_match_exits_2(monkeypatch, capsys):
     monkeypatch.setattr(doctor, "collect", lambda: [doctor.Check("docker", "ok", "")])
     assert doctor.main(["--only", "nothing"]) == 2
     assert "no check matches" in capsys.readouterr().err
+
+
+def test_units_rendering_outside_the_packs_warn_with_the_fix(monkeypatch):
+    monkeypatch.setattr(doctor.units, "outside_packs", lambda: ["/old/hal-ecosystem/clock"])
+    monkeypatch.setattr(doctor.units, "missing_exec_paths", lambda: [])
+    check = doctor.units_check()
+    assert check.status == "warn" and "/old/hal-ecosystem/clock" in check.detail and "hal setup" in check.detail
+
+
+def test_units_check_is_ok_when_every_unit_comes_from_a_pack(monkeypatch):
+    monkeypatch.setattr(doctor.units, "outside_packs", lambda: [])
+    monkeypatch.setattr(doctor.units, "missing_exec_paths", lambda: [])
+    assert doctor.units_check().status == "ok"

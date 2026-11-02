@@ -26,7 +26,7 @@ from halkit import llm, paths
 from halsandbox import doctor as sandbox_doctor
 from halsandbox.doctor import FAIL, OK, WARN, Check
 
-from . import security
+from . import security, units
 
 PROBE_TIMEOUT_S = 3.0
 PRIVATE_MODE = 0o700
@@ -66,6 +66,20 @@ def model_check() -> Check:
     return Check("model server", OK, f"{len(aliases)} model(s): {', '.join(aliases[:4])}")
 
 
+def units_check() -> Check:
+    """Warns when a unit would render outside the registered packs or run a program that is missing."""
+    outside = units.outside_packs()
+    missing = units.missing_exec_paths()
+    if not outside and not missing:
+        return Check("units", OK, "every unit renders from core Hal or a registered pack")
+    parts = []
+    if outside:
+        parts.append(f"render from outside the registered packs: {', '.join(outside)}")
+    if missing:
+        parts.append(f"run a missing program: {', '.join(missing)}")
+    return Check("units", WARN, "; ".join(parts) + "; run `hal setup --dry-run` to see them, `hal setup --replace` to fix")
+
+
 def security_checks() -> list[Check]:
     """The lockdown and classifier lines as checks."""
     report = security.collect(check_runtime=False)
@@ -83,6 +97,10 @@ def collect() -> list[Check]:
     except Exception as exc:  # noqa: BLE001 - a broken probe must not hide the other lines
         checks.append(Check("sandbox", FAIL, f"probe failed: {exc}"))
     checks.append(model_check())
+    try:
+        checks.append(units_check())
+    except Exception as exc:  # noqa: BLE001 - a broken probe must not hide the other lines
+        checks.append(Check("units", WARN, f"probe failed: {exc}"))
     try:
         checks += security_checks()
     except Exception as exc:  # noqa: BLE001 - same reason

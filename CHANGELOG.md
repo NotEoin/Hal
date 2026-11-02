@@ -9,6 +9,8 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `hal doctor` warns when a unit renders outside the registered packs or runs a missing program;
+  `docs/howto/move-from-hal-ecosystem.md` documents `hal-hub mcp` for the vault MCP client.
 - `hal setup` applies the config part of `hal migrate ecosystem` and, with `--replace`, drops
   `[hub].module_paths` entries inside hal-ecosystem (journaled); `--dry-run` prints each unit's
   `ExecStart`.
