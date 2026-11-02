@@ -82,7 +82,7 @@ Non-goals:
 
 ### Verified facts this spec relies on
 
-The llama-server, Ollama and Python checks ran on 2026-10-23 on this machine, read-only or in a
+The llama-server, Ollama and Python checks ran on 2026-10-23 on the development host, read-only or in a
 scratch directory with the GPU hidden (`CUDA_VISIBLE_DEVICES=`). That directory was wiped
 since, so the prototypes are not kept; the slow test tier re-runs the llama-server checks.
 The docker rows were re-checked on 2026-10-24.
@@ -1071,8 +1071,7 @@ The preset is rendered with container paths (`@MODELS@=/models`, `@HAL@=/hal`,
 this spec (02-sandbox owns image builds). `router.container_runtime` is `nvidia` by default
 (resolution D12; the NVIDIA Container Toolkit 1.20.1 is installed and `--runtime=nvidia
 --gpus all` sees the RTX 3090), `runc` for CPU-only modes (`--gpus` is then left out), or
-`runsc-gpu`, which fails on this machine today ("cannot read client sync file: EOF", brief
-"Host facts"). Under runsc the host must connect to a socket the container creates in a
+`runsc-gpu`, which fails on the development host ("cannot read client sync file: EOF", host check). Under runsc the host must connect to a socket the container creates in a
 bind mount, which gVisor allows only with a `--host-uds` setting that includes `create`
 [unverified: gVisor flag documentation; the sandbox's `--host-uds=open` covers only sockets
 the host creates]. The model directory is mounted read-only, so a compromised server cannot
@@ -1929,7 +1928,7 @@ the managed router die with the gateway and keeps it in the cgroup gpu-light's
 
 Keeping existing users working:
 
-- Until the cutover, `hal-serve` and the gateway must not run routers on the same port;
+- While a legacy `hal-serve` router lives, it and the gateway must not run routers on the same port;
   REQ-GW-37 makes the gateway refuse while the legacy router lives.
 - Preset names (`hal-gpu`, `hal-hybrid`, `hal-agent`, ...) stay valid model names through
   alias step 3, so a Claude Code config that names them keeps working once its base URL points

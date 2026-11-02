@@ -7,7 +7,7 @@ prefix it uses, are listed once in the "Requirements index" of
 
 | Document | What it is |
 | --- | --- |
-| [00-overview.md](00-overview.md) | The whole system: repos, packages, `halkit`, flows, configuration, ports, release plan |
+| [00-overview.md](00-overview.md) | The whole system: repos, packages, `halkit`, flows, configuration, ports, release rules |
 | [01-security.md](01-security.md) | Threat model, tool tiers, policy, approvals, guard, audit |
 | [02-sandbox.md](02-sandbox.md) | Container and bubblewrap backends, broker, sockets, checkpoints, `hal box` |
 | [03-agent.md](03-agent.md) | The agent library: providers, loop, tool-call repair, sessions, ACP server |

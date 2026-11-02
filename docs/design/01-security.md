@@ -510,7 +510,7 @@ Test paths are under `packages/<p>/tests/` unless they start with `tests/`.
   socket works through a read-only bind mount, and the box then cannot unlink or replace the
   sockets [verified: experiment in Decision SD10]. Under gVisor the runtime MUST be
   registered with `--host-uds=open`, without which runsc refuses the connection to the
-  bind-mounted sockets [verified: brief "Host facts", 2026-10-23]; 02's runsc probe checks
+  bind-mounted sockets [verified: host check, 2026-10-23]; 02's runsc probe checks
   this and falls back to runc when it fails. Test: docker (both runtimes).
 - **REQ-SEC-63** The box environment MUST be built from an allowlist with explicit
   `NAME=value` pairs (`docker run -e NAME` without a value copies the host value and MUST NOT
@@ -836,13 +836,13 @@ Boundaries:
    domain allowlist; the guard, when enabled, reduces this but does not prevent it.
 3. A GPU driver ioctl bug is reachable from any process that uses the GPU, containerised or
    not. GPU containers use the `nvidia` runtime (runc-based) because `runsc-gpu` fails to
-   start a sandbox on this machine [verified: brief "Host facts", 2026-10-23], so gVisor's
+   start a sandbox on the development host [verified: host check, 2026-10-23], so gVisor's
    `nvproxy` narrowing is not in use; even `nvproxy` does not validate DMA (measured during development, 2026-10).
 4. Membership of the `docker` group is equivalent to root on the host. Rootless Docker is
    the documented alternative.
 5. The box shares the host kernel when the runtime is runc. gVisor `runsc` is installed
    (release-20261019.0) and is used when 02's probe succeeds, which needs runsc registered
-   with `--host-uds=open` for the bind-mounted sockets [verified: brief "Host facts",
+   with `--host-uds=open` for the bind-mounted sockets [verified: host check,
    2026-10-23: refused without it]. Until the user registers it, boxes run on runc and the
    status line says so.
 6. Pack code is trusted once installed; its tier labels are claims, not proofs.
@@ -2078,7 +2078,7 @@ approval per lockfile and manifest set (REQ-SEC-97) and is not part of these ses
   mtime_ns and inode). Ollama's `/api/tags` returns a digest per model [verified: `curl
   127.0.0.1:11434/api/tags` lists 64-hex digests]. Agent per-model settings are a separate
   file, `~/.config/hal/model-profiles.toml` (03-agent), with no security role.
-- No pickle on the host (REQ-SEC-80). This machine has locally trained GPT-SoVITS weights in
+- No pickle on the host (REQ-SEC-80). A host may hold locally trained GPT-SoVITS weights in
   pickle formats (`.pth`, `.ckpt`) under a local `hal-models/voice/weights/` directory
   [verified: `find`]. They load in a GPU container by default (Decision SD9, G2).
 - Packs: 06-core-cli owns installs (C8). The catalogue `halcore/data/catalog.toml` pins each
@@ -2567,7 +2567,7 @@ and are never read from call arguments. Verified by `hal-hub/tests/test_classifi
   safetensors only; keeping torch out of every `hal-*` environment honours the dependency
   allowlist, and a parser of attacker text belongs in a box.
 - **SD9 Locally trained pickle weights.** The no-pickle rule applies to every Hal package and
-  to all third-party weights. hal-voice's GPT-SoVITS weights trained on this machine load in
+  to all third-party weights. hal-voice's GPT-SoVITS weights trained locally load in
   a GPU container (`--runtime=nvidia`, no network, weights read-only) by default. Host mode
   is an opt-in with every weight file's sha256 pinned in hal-voice's manifest and
   `TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD` unset, so `torch.load` keeps `weights_only=True` (G2).
@@ -2635,8 +2635,7 @@ and are never read from call arguments. Verified by `hal-hub/tests/test_classifi
    `~/Documents` be a read root at all, given it holds every repo and the vault, or should
    file tools start with `~/Downloads` only and ask for the rest?
 2. `strict` already requires a container backend (REQ-SEC-102). Should it go further and
-   require gVisor (`runsc`), refusing runc? `runsc` is installed on this machine
-   (release-20261019.0), but it reaches the bind-mounted sockets only when registered with
-   `--host-uds=open` in `/etc/docker/daemon.json`, which you are adding. Once it is
+   require gVisor (`runsc`), refusing runc? `runsc` may be installed, but it reaches the bind-mounted sockets only when registered with
+   `--host-uds=open` in `/etc/docker/daemon.json`. Once it is
    registered, requiring it in `strict` costs nothing measurable at start (0.26 s, the same as
-   runc [verified: brief "Host facts"]); before that, `strict` would refuse to start.
+   runc [verified: host check]); before that, `strict` would refuse to start.

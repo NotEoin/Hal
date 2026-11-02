@@ -14,7 +14,7 @@ refer to it), and revised 2026-10-29 for the security gaps review
 (the security gaps review; ids G01 to G21 below refer to
 it).
 
-Evidence labels: `[verified: how]` means checked on this machine on 2026-10-23 (or the date
+Evidence labels: `[verified: how]` means checked on the development host on 2026-10-23 (or the date
 given) with the command or experiment named; `[unverified]` means not checked, with the way to
 check it. Throwaway experiments ran in a scratch directory that has since been removed
 ; their images and containers
@@ -98,7 +98,7 @@ fails. Each requirement names the test that proves it. Test files are under
   `runc`; the session status MUST name the runtime. A failed probe MUST name the fix
   (register runsc with `"runtimeArgs": ["--host-uds=open"]`). Test: unit
   `test_detect.py::test_runsc_used_only_after_probe_passes`; docker
-  `test_docker_live.py::test_runtime_is_reported` (runc on this machine until runsc is
+  `test_docker_live.py::test_runtime_is_reported` (runc on the development host until runsc is
   registered with `--host-uds=open`).
 - **REQ-BOX-04** A backend or runtime set explicitly in config or by flag that is not usable
   MUST be an error that names the cause and the fix; it MUST NOT be replaced by another
@@ -513,7 +513,7 @@ fails. Each requirement names the test that proves it. Test files are under
   mode (rootful, userns-remap, rootless), the docker-group notice, the bwrap probe,
   user-manager availability and socket path length, each failure with its fix. Test: unit
   `test_doctor.py` (fake binaries).
-- **REQ-BOX-64** On this machine class (desktop, runc or runsc, image cached) a box SHOULD
+- **REQ-BOX-64** On this host class (desktop, runc or runsc, image cached) a box SHOULD
   start in at most 600 ms p50, `hal code` SHOULD answer ACP `initialize` within 1.5 s p50 of
   launch, and a bwrap box SHOULD start in at most 50 ms p50. Test: docker+slow
   `scripts/bench-sandbox.py` (manual record in `docs/dev/sandbox.md`).
@@ -761,11 +761,10 @@ def backend_for(probe: Probe, cfg: SandboxConfig) -> Backend: ...
    daemon or a user outside the `docker` group); `docker info --format '{{json .}}'` (5 s)
    gives `Runtimes`, `SecurityOptions` and the cgroup version.
    - Daemon mode: `name=rootless` in `SecurityOptions` means rootless; `name=userns` means
-     userns-remap; otherwise rootful. This machine: rootful, `SecurityOptions`
+     userns-remap; otherwise rootful. Development host: rootful, `SecurityOptions`
      `[name=apparmor name=seccomp,profile=builtin name=cgroupns]`, cgroup v2 with the systemd
      driver [verified: `docker info`]; runtimes `runc`, `nvidia` (NVIDIA Container Toolkit
-     1.20.1), `runsc` and `runsc-gpu` (gVisor release-20261019.0) [verified: brief "Host
-     facts", 2026-10-23]. `/etc/docker/daemon.json` registers `runsc` with no `runtimeArgs`
+     1.20.1), `runsc` and `runsc-gpu` (gVisor release-20261019.0) [verified: host check, 2026-10-23]. `/etc/docker/daemon.json` registers `runsc` with no `runtimeArgs`
      [verified: read on 2026-10-24]; the user is adding `--host-uds=open` (resolution G1).
      halsandbox never uses `nvidia` or `runsc-gpu`: boxes get no GPU (REQ-BOX-08).
    - Runtime: when `runsc` is listed and `[sandbox].runtime` is `auto` or `runsc`, run the
@@ -774,7 +773,7 @@ def backend_for(probe: Probe, cfg: SandboxConfig) -> Backend: ...
      with a listening socket (10 s), and record the `SO_PEERCRED` uid the host side saw. A
      hardened runsc container (read-only, cap-drop ALL, no-new-privileges, `--user 1000:1000`)
      starts in 0.26 s, the same as runc, but cannot connect to a bind-mounted host unix socket
-     unless runsc is registered with `--host-uds=open` [verified: brief "Host facts",
+     unless runsc is registered with `--host-uds=open` [verified: host check,
      2026-10-23], so a failed probe names that fix and the session runs on runc.
    - Fallback guard: every successful detection writes the backend it chose to
      `$STATE/sandbox/last-backend`. When that says `docker` and docker does not answer now,
@@ -984,7 +983,7 @@ bwrap
 - No seccomp filter in v1: bwrap takes a compiled BPF program on an fd (`--seccomp FD`), and
   generating one needs libseccomp or a hand-written BPF assembler; the bwrap box therefore has
   the host's full syscall surface inside its namespaces (documented as weaker than docker).
-- Verified unprivileged on this machine [verified: bwrap 0.11.1 runs]: the socket under the
+- Verified unprivileged on the development host [verified: bwrap 0.11.1 runs]: the socket under the
   read-only `/run/hal` bind answered; uid 1000; `/work/.git`, `/etc` and `/usr` writes failed
   with EROFS; `CapEff` 0, `NoNewPrivs` 1, `Seccomp` 0; outbound connect failed with
   `ENETUNREACH`; `/home/me` did not exist inside; `--disable-userns` needs `--unshare-user`
@@ -1020,7 +1019,7 @@ residual risk (security review R-new-8).
 
 | Daemon mode | `--user` | Extra | Result on host |
 | --- | --- | --- | --- |
-| rootful (this machine) | `<U>:<G>` | none | box processes run as the user; files owned by the user [verified] |
+| rootful (development host) | `<U>:<G>` | none | box processes run as the user; files owned by the user [verified] |
 | userns-remap | `<U>:<G>` | `--userns host` | remap would map uid 1000 to a subordinate uid and break ownership; a non-root, cap-less box gains nothing from remap [unverified: no remap daemon here] |
 | rootless | `0:0` | none | container root is the host user; `--cap-drop ALL` still applies [unverified: no rootless daemon here] |
 | bwrap | n/a | `--unshare-user` maps the user to itself | same uid inside and out [verified] |
@@ -1089,8 +1088,8 @@ visibility in `docker inspect` is harmless.
 
 | Key | Default | Reason |
 | --- | --- | --- |
-| `memory` | `"auto"` = `min(8 GiB, MemTotal/4)` | 8 GiB fits a compile plus a test run; RAM/4 gives 4 GiB on a 16 GiB laptop, the value an earlier batch of SWE-task sandboxes ran with. This machine: 61 GiB, so 8 GiB |
-| `cpus` | `0` = `min(4, nproc/2)` | llama.cpp CPU and hybrid presets need the remaining cores; this machine has 24, so 4 |
+| `memory` | `"auto"` = `min(8 GiB, MemTotal/4)` | 8 GiB fits a compile plus a test run; RAM/4 gives 4 GiB on a 16 GiB laptop, the value an earlier batch of SWE-task sandboxes ran with. Development host: 61 GiB, so 8 GiB |
+| `cpus` | `0` = `min(4, nproc/2)` | llama.cpp CPU and hybrid presets need the remaining cores; the development host has 24, so 4 |
 | `pids` | `1024` | stops fork bombs; parallel builds stay well below [unverified: measure `make -j4` plus pytest-xdist peak] |
 | `nofile` | `8192` | node tooling opens many files |
 | `tmp_size` | `"1g"` | counts against memory |
@@ -2512,7 +2511,7 @@ raw_terminal = false        # true: box output reaches the terminal unfiltered (
 ### Startup latency
 
 Measured with `bench.py` (10 runs after one warm-up, `perf_counter` around
-`subprocess.run`) on this machine: Docker 29.2.1, runc 1.3.4, kernel 7.0.0-38, 24 cores
+`subprocess.run`) on the development host: Docker 29.2.1, runc 1.3.4, kernel 7.0.0-38, 24 cores
 [verified: 2026-10-23]:
 
 | Case | Median | Min | Max |
@@ -2529,8 +2528,7 @@ Importing `mcp.client.stdio` and `mcp.client.session` takes 0.36 s on the host
 [verified: three timed runs]. Budget for `hal code` with runc: about 0.3 s container start
 plus about 0.4 s imports plus agent setup, within the 1.5 s target (REQ-BOX-64). A hardened
 runsc container (`--network none`, read-only, cap-drop ALL, no-new-privileges, `--user
-1000:1000`) running `alpine true` took 0.26 s, the same as runc [verified: brief "Host
-facts", 2026-10-23]; the full argv on runsc is measured by `scripts/bench-sandbox.py` once
+1000:1000`) running `alpine true` took 0.26 s, the same as runc [verified: host check, 2026-10-23]; the full argv on runsc is measured by `scripts/bench-sandbox.py` once
 runsc is registered with `--host-uds=open`. The per-turn cost inside a running box is a
 socket hop, not a container start; REQ-SYS-16 (150 ms TTFT overhead) is measured by the e2e
 benchmark.

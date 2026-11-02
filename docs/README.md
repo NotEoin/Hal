@@ -47,7 +47,7 @@ written.
 | [dev/sandbox.md](dev/sandbox.md) | Sandbox developer notes: modules, adding a backend, tests, what is not built |
 | [dev/threat-model.md](dev/threat-model.md) | Threat model: assets, adversaries, trust boundaries, threats with their mitigations, residual risks |
 | [dev/worker-protocol.md](dev/worker-protocol.md) | The JSON-lines protocol between the tool hub and a tool worker, and the v1 one-shot protocol |
-| [design/00-overview.md](design/00-overview.md) | System overview: repos, packages, `halkit`, flows, configuration, ports, release plan |
+| [design/00-overview.md](design/00-overview.md) | System overview: repos, packages, `halkit`, flows, configuration, ports, release rules |
 | [design/01-security.md](design/01-security.md) | Threat model, tool tiers, policy, approvals, guard, audit |
 | [design/02-sandbox.md](design/02-sandbox.md) | Container and bubblewrap backends, broker, sockets, checkpoints, `hal box` |
 | [design/03-agent.md](design/03-agent.md) | The agent library: providers, loop, tool-call repair, sessions, ACP server |

@@ -1800,7 +1800,7 @@ instead, for packs that must not import Hal (the hal-voice shape).
 | `mode` | str | `"meta"` | v1 behaviour; small context for any client |
 | `approvals` | str | `"auto"` | Elicitation where the client has it, host surfaces otherwise (resolution B4) |
 | `http_host` | str | `"127.0.0.1"` | Loopback only (REQ-SYS-09) |
-| `http_port` | int | `8742` | Next to the console (8740) and gateway (8741); free on this machine [verified: `ss -ltn` showed no listener on 8742 on 2026-10-23] |
+| `http_port` | int | `8742` | Next to the console (8740) and gateway (8741); free on the development host [verified: `ss -ltn` showed no listener on 8742 on 2026-10-23] |
 | `allow_origins` | list of str | `[]` | Harness clients send no Origin; a browser client must be named explicitly |
 
 Approval timeouts, scopes, audit content and retention are not hub keys: they are 01's
@@ -1962,7 +1962,7 @@ How existing users keep working:
   (REQ-HUB-12), and `pinned` keeps its meaning.
 - **v1 manifests** load with warnings at tier `act` (REQ-HUB-02), so under `default` every
   unconverted tool asks. The `hal-ecosystem` v1 manifests are only read while the old runtime
-  is live; the cutover installs the v2 packs (08), and the old hub keeps serving until then.
+  is live; the upgrade installs the v2 packs (08), and the old hub keeps serving until then.
 - **MCP clients** configured with `{"command": "hal-hub", "args": ["mcp"]}` get the same
   three meta tools. A client that used to send `_confirmed: true` now gets an elicitation or a
   host prompt, and the attempt is audited; that is the intended security fix.
@@ -1977,8 +1977,7 @@ How existing users keep working:
   `CORE` tools; the hub's import-time `SSL_CERT_FILE` change in the caller's process;
   `hub-calls.jsonl`; `[hub].v1_default_tier`, `[hub.log]`, `[hub.approvals]` and
   `[hub.mcp].approval_timeout` (they existed only in the 2026-10-23 draft).
-- **Cutover:** `~/.local/bin/hal-hub` points at `core/hal-hub/bin/hal-hub` today
-  (measured during development, 2026-10). The
+- **Upgrade:** in the older layout `~/.local/bin/hal-hub` points at `core/hal-hub/bin/hal-hub`. The
   installer (06-core-cli) replaces it with the console script; until then the old hub keeps
   serving.
 

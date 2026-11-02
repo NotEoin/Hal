@@ -3,8 +3,8 @@
 This spec defines `halcore`, the package behind the `hal` command: the command tree, the
 terminal UI, headless mode, the `hal acp` proxy, the launch of assistant channels, the
 built-in `core` tool module, power and unit management, pack installs, eval, console,
-configure, doctor, the installer, and the cutover of a machine from `hal-ecosystem` to the
-new repos. It replaces the bash launcher `hal`, `setup.sh`, `hal-kill`, `halcore/*.py` and
+configure, doctor, the installer, and the upgrade of a machine from the older `hal-ecosystem`
+layout (Hal before 0.1) to the new repos. It replaces the bash launcher `hal`, `setup.sh`, `hal-kill`, `halcore/*.py` and
 `hal-ecosystem/install.sh`. The agent, sandbox, broker, hub, policy and gateway are specified
 elsewhere; this spec fixes what `halcore` needs from them and how the user reaches them.
 
@@ -33,7 +33,7 @@ In scope (prefix REQ-CLI, per the index in [00-overview.md](00-overview.md)):
 - `hal packs` (replaces `hal ext`), pack environments and `state_dir()/packs.json` (C8);
 - `hal console`, `hal configure`, `hal doctor`, `hal migrate`;
 - `scripts/install.sh` and `scripts/host-setup.sh`;
-- the cutover of this machine, with a checklist and an undo path;
+- the upgrade from the older layout (`hal migrate ecosystem`), with an undo path;
 - the config tables `[ui]`, `[console]`, `[units]`, `[claude]` and `[long_task]`.
 
 Non-goals (owned elsewhere; this spec only states the interface it consumes):
@@ -53,16 +53,16 @@ Non-goals (owned elsewhere; this spec only states the interface it consumes):
 
 ## Facts this spec relies on
 
-Checked on this machine with read-only commands. Experiments marked "scratch dir" ran on
+Checked on a development host with read-only commands. Experiments marked "scratch dir" ran on
 2026-10-23 in a scratch directory that has since been wiped; the commands are listed so they
 can be repeated.
 
 | Fact | How checked |
 | --- | --- |
 | Docker 29.2.1; runtimes `io.containerd.runc.v2`, `runc`, `nvidia`, `runsc`, `runsc-gpu` | [verified 2026-10-24: `docker version`, `docker info --format '{{range $k,$v := .Runtimes}}{{$k}} {{end}}'`] |
-| `/etc/docker/daemon.json` registers `runsc` with no `runtimeArgs`, so `--host-uds=open` is not yet set and a runsc box cannot reach the bind-mounted sockets; the user is registering it (G1) | [verified 2026-10-24: `cat /etc/docker/daemon.json`; refusal without the flag is the brief's host fact] |
-| `--runtime=runsc-gpu --gpus all` fails ("cannot read client sync file: EOF"); GPU containers use `--runtime=nvidia` | brief, "Host facts" |
-| openssh-server is active, key-only (`/etc/ssh/sshd_config.d/10-hal-hardening.conf`) | [verified 2026-10-24: `systemctl is-active ssh`]; brief, "Host facts" |
+| `/etc/docker/daemon.json` registers `runsc` with no `runtimeArgs` by default, so `--host-uds=open` is not set and a runsc box cannot reach the bind-mounted sockets (G1) | [verified 2026-10-24: `cat /etc/docker/daemon.json`; refusal without the flag is the brief's host fact] |
+| `--runtime=runsc-gpu --gpus all` fails ("cannot read client sync file: EOF"); GPU containers use `--runtime=nvidia` | host check, 2026-10-23 |
+| openssh-server is active, key-only (`/etc/ssh/sshd_config.d/10-hal-hardening.conf`) | [verified 2026-10-24: `systemctl is-active ssh`]; host check, 2026-10-23 |
 | The user is in group `docker` (root-equivalent on the host) | [verified: `id -nG`] |
 | A container with `--network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 64 --memory 256m --user 1000:1000` ran as uid 1000, had no network and an EROFS rootfs; first run 5.3 s, warm runs 0.33 s; a runsc container starts in 0.26 s | [verified: `docker run` of `alpine:3.22` (scratch dir); runsc time from the brief's host facts] |
 | bubblewrap 0.11.1 runs `--unshare-all` unprivileged | [verified: `bwrap --unshare-all ... /usr/bin/true`] |
@@ -636,7 +636,7 @@ wraps it.
 - **REQ-CLI-92** (MUST) `scripts/host-setup.sh` MUST support `--dry-run`, MUST restart Docker
   only when no containers run, MUST NOT pipe a download into a shell, and MUST register
   `runsc` with `runtimeArgs ["--host-uds=open"]` when it is missing (G1). Test: unit
-  `test_host_setup_static_rules` (static scan) and manual (run on this machine with
+  `test_host_setup_static_rules` (static scan) and manual (run on a real host with
   `--dry-run`).
 
 ### Built-in `core` module
@@ -1093,7 +1093,7 @@ class AcpClient:
   3.14.2).
 - `prompt` has no request timeout (turns can run for an hour); it ends on the stop reason or
   on cancellation. All other requests use `REQUEST_TIMEOUT_S = 30` (seconds; covers a
-  `session/load` replay of a long transcript on this machine [unverified: measure with a
+  `session/load` replay of a long transcript [unverified: measure with a
   2,000-message transcript]).
 - An agent that writes invalid JSON or exits ends the session with `AgentCrashed`; the TUI
   reports it and offers resume (00-overview: box exit keeps transcript and checkpoints).
@@ -1257,7 +1257,7 @@ because assistant sessions have a forwarder as well.
 
 ```text
 +-- Approval needed: leaves the box -----------------------------------------+
-| tool    mail_send   pack comms       tier  send: sends data off this machine |
+| tool    mail_send   pack comms       tier  send: sends data off the host |
 | reason  profile default: tier send -> ask                                   |
 | key     d3a842d997b0  (sha256 of pack, tool and canonical arguments)        |
 | args    {                                                                   |
@@ -1723,7 +1723,7 @@ commit, and both are shown with the pack's manifest summary (modules, tool names
 network flags, units, install steps) before the typed `y`. Branch names are refused
 (REQ-CLI-62).
 
-`--local PATH` (development and the cutover): `uv pip install --python <env>/bin/python -e
+`--local PATH` (development and the upgrade): `uv pip install --python <env>/bin/python -e
 PATH` for a `shared` or `system` pack; for an `own` pack it records the path and runs
 `uv sync --frozen --project PATH` into its env without cloning. Local packs show as `dev
 checkout, unpinned` in `list` and `doctor`.
@@ -1892,14 +1892,11 @@ Configuration migration (`--migrate`), read-only parse of `KEY="value"` lines:
 | `HAL_UNIVERSITY`, `HAL_ANSWERER` | `[claude.env]` |
 | `HAL_NUM_CTX`, `HAL_BACKEND`, `HAL_OLLAMA_URL` | dropped (gateway modes; `[hal].ollama_url`) |
 | `[brain]` | `[agent]` (mapping owned by 03) |
-| `[hub].module_paths` naming `hal-ecosystem` folders | removed after the cutover registers the packs |
-| no `[jobs]` table | `[jobs].jobhunt_root = "<current effective value>"`, today the old default checkout location (H1) |
+| `[hub].module_paths` naming `hal-ecosystem` folders | removed after the upgrade registers the packs |
 | the path of the migrated `hal.conf` | appended to `[compat].hal_conf` |
 
 The migrator prints a unified diff of `config.toml` and asks y/N, then writes atomically with
-mode 0600, keeping `config.toml.bak.<UTC stamp>`. Writing `[jobs].jobhunt_root` is the only
-pack-table edit halcore makes; it writes the value the jobs pack would use anyway, so the jobs
-pack can drop the old default later without breaking hal-employment.
+mode 0600, keeping `config.toml.bak.<UTC stamp>`. halcore edits no pack table: `[jobs].jobhunt_root` has no default and the user sets it (H1).
 
 The `[compat]` writer (00-overview) never rewrites a file it did not create (header check). For
 the existing `hal-ecosystem/core/hal/hal.conf`, listed in `[compat].hal_conf`, it only verifies
@@ -1926,7 +1923,7 @@ Each check: id, probe, timeout, fix line. `--only` takes ids.
 | `models` | `halgateway.models.verify(full=False)`: manifest entries present with matching size (`hal models verify --full` hashes) | 30 s | warn |
 | `gpu` | `nvidia-smi` present and answering | 10 s | warn |
 | `gpu-light` | coordinator kind from `halgateway.gpu`, its status | 10 s | warn |
-| `units` | every unit in `units.json` exists, its `ExecStart` and `WorkingDirectory` paths exist, rendered hash matches | 30 s | fail (catches a broken cutover), `--fix` re-renders |
+| `units` | every unit in `units.json` exists, its `ExecStart` and `WorkingDirectory` paths exist, rendered hash matches | 30 s | fail (catches a broken upgrade), `--fix` re-renders |
 | `links` | `~/.local/bin/hal`, `hal-hub`, `hal-gateway`, `hal-remote` resolve into the venv | - | warn |
 | `compat` | each `[compat].hal_conf` file exists with the three lines matching config; off flag at the default path when `HAL_STATE_DIR` differs | - | warn |
 | `jobs` | jobs pack installed and `[jobs]` absent (old default in use, H1) | - | warn: `hal configure --migrate` |
@@ -2010,12 +2007,12 @@ scripts/install.sh [--profile auto|max|24gb|12gb|cloud] [--set SET | --packs a,b
 Steps; each checks state first and is skipped when already done:
 
 1. Checks: bash, git, `python3` >= 3.11, `uv` >= 0.5 [unverified: lowest uv with every flag
-   used; this machine has 0.11.19]. Missing uv: print the distro and pipx options and the
+   used; a development host had 0.11.19]. Missing uv: print the distro and pipx options and the
    official documentation link, exit 3. No download is ever piped to a shell.
 2. Venv: `uv venv --python python3 <data>/venv` if missing.
 3. Hal packages from the checkout the script lives in: `uv pip install --python
    <venv>/bin/python ./packages/hal-kit ./packages/hal-hub ...` (with `-e` for `--editable`,
-   used for development and this machine's cutover).
+   used for development).
 4. Links in `~/.local/bin` for `hal`, `hal-hub`, `hal-gateway`, `hal-remote` (07 names the last
    two by absolute path in forced commands); an existing link elsewhere is reported and kept
    unless `--replace-links` (REQ-CLI-90).
@@ -2036,20 +2033,20 @@ probes in step 1 still run. A full log goes to `<state>/logs/install-<UTC>.log`.
 
 - `--dry-run` prints every step.
 - Default: checks that the NVIDIA Container Toolkit and gVisor `runsc`/`runsc-gpu` are
-  installed (they are on this machine) and installs them from their signed apt repositories
+  installed and installs them from their signed apt repositories
   only when missing; ensures `/etc/docker/daemon.json` registers `runsc` with
   `"runtimeArgs": ["--host-uds=open"]` (merging the JSON, keeping a backup), because runsc
   refuses the bind-mounted broker and model sockets without it (G1); restarts Docker only
   when no containers run, else prints the restart command.
-- `--ssh`: content owned by 07-remote "Host setup"; on this machine openssh-server is already
-  active and key-only, so the step verifies and prints 07's recommendations.
+- `--ssh`: content owned by 07-remote "Host setup"; when openssh-server is already
+  active and key-only, the step verifies and prints 07's recommendations.
 - `--ollama-store DIR`: the fstab, store move and service override of `ollama-store.sh`,
   without its `curl https://ollama.com/install.sh | sh` upgrade, which becomes a printed
   instruction.
 
-### Cutover of this machine
+### Upgrade from the older hal-ecosystem layout
 
-Run by the user, after all repos are released and tests are green. Everything is journaled by
+Run by the user. Everything is journaled by
 `hal migrate ecosystem`; `hal-ecosystem/` itself is never modified, so the old runtime can be
 restored by undoing links, units and config.
 
@@ -2061,8 +2058,8 @@ restored by undoing links, units and config.
    `hal.target.wants/` link, the three Desktop launchers, and the old targets of the
    `~/.local/bin` links it will change.
 2. `hal configure --migrate --from <from>/core/hal/hal.conf`: adds that path to
-   `[compat].hal_conf` (the file is only verified, never rewritten, H3) and writes
-   `[jobs].jobhunt_root` with today's effective value (H1).
+   `[compat].hal_conf` (the file is only verified, never rewritten, H3); it never writes
+   `[jobs].jobhunt_root`, which has no default and is set by the user (H1).
 3. Register packs as local checkouts: `hal packs add --local
    ~/src/hal-tools/packs/<pack>` for each pack whose modules the
    old `units.json` or `[hub]` listed, `--local .../hal-memory`, `--local .../hal-voice`.
@@ -2070,14 +2067,14 @@ restored by undoing links, units and config.
    place.
 4. Remove the two `hal-ecosystem` entries from `[hub].module_paths`; set nothing else in
    `[hub]`.
-5. `hal units install` (no start; Hal is off today): re-renders the 20 units with the new
+5. `hal units install` (no start while the off flag exists): re-renders the 20 units with the new
    roots, writes `hal-gateway.service`, removes nothing that Hal did not install. The journal
    holds the old files.
 6. Desktop launchers re-rendered: `hal-console`, `hal-toggle`, `hal-kill`. `hal-employment.desktop`
    comes from the jobs pack and keeps its name.
 7. Links: `~/.local/bin/hal`, `hal-hub`, `hal-gateway`, `hal-remote` -> the venv; `hal-voice` ->
    the voice pack's env launcher; `hal-employment` -> the jobs pack's launcher.
-   Other links in `~/.local/bin` are not touched (some may dangle; see open question 3).
+   Other links in `~/.local/bin` are not touched (some may dangle; the migrator leaves them).
 8. Print the vault step, never performed by the migrator: the vault `.mcp.json` `hal` server
    points at `<old checkout>/hal-mcp.py`, which disappears when that checkout moves to the
    monorepo. The fix is hal-memory's install step (it removes the `hal` entry and keeps
@@ -2085,23 +2082,7 @@ restored by undoing links, units and config.
    needs a typed `y`. **This edit needs the user's explicit approval**; the migrator only
    reports it.
 
-Checklist (in `docs/howto/move-from-hal-ecosystem.md`):
-
-| # | Step | Check |
-| --- | --- | --- |
-| 1 | Confirm the hal-employment session is idle and no `hal` from the old tree is running | `hal-ecosystem/core/hal/hal status`; `pgrep -af halcore` shows nothing |
-| 2 | Install the new Hal into the venv, editable, no units, no links | `scripts/install.sh --editable --no-units --core-only` then `~/.local/share/hal/venv/bin/hal doctor --only python,versions,config` |
-| 3 | Register runsc for sockets (sudo, once) | `scripts/host-setup.sh --dry-run`, then without it; `hal doctor --only sandbox` shows runsc ok |
-| 4 | Dry run | `~/.local/share/hal/venv/bin/hal migrate ecosystem --dry-run` lists every change |
-| 5 | Migrate | `hal migrate ecosystem` (prints the journal path) |
-| 6 | Verify units | `systemctl --user cat hal-voice.service hal-employment.service` show new paths, the off condition, and `X-HalOff=yes` (hal-voice) or `X-HalGPU=yes` (hal-employment) |
-| 7 | Verify the jobs contract | `grep -A2 '^\[jobs\]' ~/.config/hal/config.toml` shows `jobhunt_root`; `hal doctor --only compat,jobs` has no warning |
-| 8 | Doctor | `hal doctor` has no `fail` |
-| 9 | Turn on | `hal on`; `hal status` shows services running |
-| 10 | hal-employment | `curl -fsS http://127.0.0.1:8737/healthz`; `hal-hub call jobs_queue` returns the queue |
-| 11 | Voice and Telegram | say the wake word; send a Telegram message; both answer, and an `ask` tool raises a host-originated approval (spoken summary or buttons) |
-| 12 | Vault MCP (needs approval) | `hal packs setup memory`, type `y`; `.mcp.json.bak` exists |
-| 13 | Undo if anything fails | `hal off`; `hal migrate undo <journal>`; `systemctl --user daemon-reload`; old `hal status` works |
+The step-by-step procedure is `docs/howto/move-from-hal-ecosystem.md`.
 
 Undo restores links, unit files, `units.json`, Desktop launchers and `config.toml` from the
 journal, runs `daemon-reload`, and re-enables the units that were enabled before. It does not
@@ -2189,20 +2170,20 @@ What replaces what (paths in the repo at `6ba8a94` unless noted):
 | `systemd/hal-gpu-light.service` | not shipped; `hal units install` and `hal setup` remove an installed copy |
 | `desktop/*.desktop` | `halcore/data/desktop/` with `@HAL@` |
 | `hal-ecosystem/install.sh` | `scripts/install.sh` (the old file stays in the old repo, unused) |
-| `hal-ecosystem/publish.sh` | not ported; publishing is the reviewed release in 00-overview (it would push a private fork to `NotEoin/Hal`) |
-| `models/build-roles.sh` | not ported; the Ollama models `hal-coder`, `hal-writer`, `hal-fast` it created stay in Ollama and keep serving hal-employment |
+| `hal-ecosystem/publish.sh` | not ported; publishing is the reviewed release (REQ-SYS-24) |
+| `models/build-roles.sh` | not ported; the Ollama models it created stay in Ollama |
 
 How existing users and config keep working:
 
 - `~/.config/hal/config.toml` keeps its path, `[hal]` keys and pack tables; `[brain]` is read
-  with a warning until `--migrate` (03 mapping). halcore edits no pack table except writing
-  `[jobs].jobhunt_root` once during `--migrate` when `[jobs]` is absent (H1).
+  with a warning until `--migrate` (03 mapping). halcore edits no pack table (`[jobs].jobhunt_root`
+  has no default; H1).
 - The off flag, `X-HalGPU`, `X-HalOff`, the off condition in the units that follow `hal off`, unit names and Desktop launcher
   names are unchanged (compatibility contract 2, 4, 5).
 - `hal.conf` lines for hal-employment: the existing file at
   `hal-ecosystem/core/hal/hal.conf` is left in place, listed in `[compat].hal_conf` and only
-  verified (H3), so hal-employment reads the same values before and after the cutover
-  whatever `addon.hal_root` points at today (open question 1).
+  verified (H3), so hal-employment reads the same values before and after the upgrade
+  whatever `addon.hal_root` points at.
 - `hal kill` touches only units Hal recorded, so hal-employment's own units survive (H4).
 - Old command names work until 1.0 (REQ-CLI-03).
 - hal-voice and the Telegram bridge: the released versions use `hal acp --channel voice` and
@@ -2301,7 +2282,7 @@ Marked:
   `test_install_yes_never_answers_pack_steps`.
 - `network`: `test_packs_add_from_github.py` (real tag resolution of the released hal-tools).
 - `live`: `hal eval` smoke on one assistant case with the real chat model.
-- manual: cutover checklist; hal-employment add-on check; voice and Telegram approvals;
+- manual: upgrade check; hal-employment add-on check; voice and Telegram approvals;
   `scripts/host-setup.sh --dry-run`.
 
 Fakes: from `halkit.testing` (`FakeModelServer`, `FakeBroker`, `TempHalHome`, `FakeClock`),
@@ -2387,7 +2368,7 @@ uses the `<Verb> <object>` subject style (60 characters or fewer).
 52. `Add user guide for the hal command` - `docs/user/cli.md` complete, `docs/user/tui.md`,
     `docs/howto/approve-a-request-from-another-terminal.md`; docs index updated.
 
-The cutover (checklist above) is not a commit; the user runs it.
+The upgrade is not a commit; the user runs it.
 
 ## Decisions
 
@@ -2423,7 +2404,7 @@ The cutover (checklist above) is not a commit; the user runs it.
   with the release (REQ-CLI-110).
 - **D9 `hal migrate ecosystem` is a command, not a private script.** It serves any user of the
   old `hal-ecosystem/install.sh` layout, it can be tested with a synthetic tree, and its
-  journal makes the cutover reversible.
+  journal makes the upgrade reversible.
 - **D10 No `Brain` compatibility shim.** hal-voice and the Telegram bridge are ACP clients of
   `hal acp` in the same release (A1, B9), and nothing outside Hal imports `halcore`.
 - **D11 Tables `[claude]`, `[units]` and `[long_task]` added to halcore's ownership.**
@@ -2457,15 +2438,6 @@ The cutover (checklist above) is not a commit; the user runs it.
 
 ## Open questions
 
-1. **hal-employment's `addon.hal_root`.** This spec keeps `hal-ecosystem/core/hal/hal.conf` in
-   place, lists it in `[compat].hal_conf` and only verifies it (H3), so nothing changes
-   whatever the setting is. Do you want the cutover to point `addon.hal_root` at a new
-   location later? That setting is in hal-employment, which this work does not touch.
-2. **Vault `.mcp.json`.** The cutover leaves the stale `hal` server entry until you run
-   `hal packs setup memory` and approve it (it removes the entry and keeps a backup). Approve
-   that edit at cutover time?
-3. **Dangling links.** Old links in `~/.local/bin` may point at folders that no longer
-   exist. Remove them during the cutover, or leave them?
-4. **Plain `hal` default.** Today `hal` opens Claude Code in your vault. The new default opens
+1. **Plain `hal` default.** Today `hal` opens Claude Code in your vault. The new default opens
    Hal's own TUI (code in a project, chat elsewhere). Keep the new default, or set
    `[ui].default_mode` so `hal` behaves as close to the old one as possible?

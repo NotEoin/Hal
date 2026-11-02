@@ -3,7 +3,7 @@
 This spec describes Hal as a whole: what it is for, how its repos and packages fit together,
 how a request travels through it end to end, and where configuration, ports and sockets live.
 It also defines the shared `halkit` library, the cross-cutting requirements every package must
-meet, the release plan for `NotEoin/Hal`, and the index of the component specs `01` to `08`.
+meet, the release rules, and the index of the component specs `01` to `08`.
 
 Status: draft 2026-10-24 (revised to match the binding resolutions of 2026-10-23,
 the design resolutions of 2026-10-23; ids such as A1, B4, F6, R-new-9 below
@@ -30,7 +30,7 @@ This spec owns:
 - the runtime-directory rule (F6) and the ports and sockets table;
 - the fail-open or fail-closed stance of each layer, as a summary (01-security is
   authoritative where they differ);
-- the release plan for branch `next`;
+- the release rules (REQ-SYS-24);
 - the requirements index and the topic ownership of the other specs.
 
 Non-goals for this release (`0.1.0`):
@@ -45,7 +45,7 @@ Non-goals for this release (`0.1.0`):
   These are documented as residual risks (01-security).
 - Changes to hal-employment. Hal keeps the contract in section "Compatibility contract".
 - Publishing any private repo, any vault, voice data or model weights.
-- Changing an existing `hal-ecosystem` install before the final cutover.
+- Changing an existing `hal-ecosystem` install: `hal migrate ecosystem` is a dry run until the user applies it.
 - Publishing to PyPI. Hal, hal-kit, hal-hub and the packs install from git tags in this
   release.
 
@@ -99,7 +99,7 @@ REQ-SYS requirements are cross-cutting: every package must meet them. Each names
   token values).
 - **REQ-SYS-13** Hal MUST keep the compatibility contract items 1 to 9. Test: unit
   (`packages/hal-core/tests/test_compat.py` for the `hal.conf` writer and verifier, the off
-  flag and unit rendering) and manual (hal-employment add-on check at cutover).
+  flag and unit rendering) and manual (hal-employment add-on check after an upgrade).
 - **REQ-SYS-14** Machine-readable timestamps MUST be UTC ISO 8601 with `Z`, produced only by
   `halkit.timeutil`. Test: unit (`test_timeutil.py`) and a lint test that greps `src/` for
   `datetime.now()` without a timezone and `time.strftime` (`tests/test_style.py`).
@@ -135,8 +135,9 @@ REQ-SYS requirements are cross-cutting: every package must meet them. Each names
   hal-tools and remote in 07-remote).
 - **REQ-SYS-23** `hal` MUST accept the old command names `here`, `mode`, `serve`, `stop`, `ext`
   and print one line naming the new command. Test: unit (06 owns `test_cli_aliases.py`).
-- **REQ-SYS-24** `main` on `NotEoin/Hal` MUST only advance by a merged PR, and the release
-  MUST NOT force-push or rewrite a pushed commit. Test: manual (release checklist).
+- **REQ-SYS-24** The default branch MUST only advance by a merged PR, and a release MUST NOT
+  force-push or rewrite a pushed commit. Test: manual (release checklist: tests and lint green,
+  `gitleaks` clean, no `hal.conf`, vault content, audio or weights in any commit).
 - **REQ-SYS-25** `docs/README.md` MUST index every file in `docs/` in a
   `| Document | What it is |` table. Test: unit (`tests/test_docs.py`).
 - **REQ-SYS-26** An assistant channel (`hal chat`, `hal acp --channel <name> --toolset
@@ -162,7 +163,7 @@ other repos with their own prefixes.
 
 | Spec | Prefix | Owns |
 | --- | --- | --- |
-| [00-overview.md](00-overview.md) | REQ-SYS | Product, repo and package maps, layering and pack import rules, `halkit`, flows (including where the assistant runs), config files and precedence, `[hal]` and `[compat]`, runtime-dir rule, ports table, compatibility contract, release plan |
+| [00-overview.md](00-overview.md) | REQ-SYS | Product, repo and package maps, layering and pack import rules, `halkit`, flows (including where the assistant runs), config files and precedence, `[hal]` and `[compat]`, runtime-dir rule, ports table, compatibility contract, release rules |
 | [01-security.md](01-security.md) | REQ-SEC | Threat model and residual risks, tool tiers and per-tool flags, `policy.toml` and profiles (`default`, `strict`, `trusted`, `standalone`, channel profiles), the approvals module `halhub.approvals` (key, ids, scopes, `Approver`, `Decision`, control socket, surfaces and `shows_all_args`, vectors file), routine grants, argument stripping, taint and `Broker.on_human_message`, guard and reviewer (`halhub.guard`, `halhub.reviewer`), the untrusted-content envelope, audit log format and `EventSink`, redaction rules, forwarder route allowlist, model file pinning and the no-pickle rule, behaviour rules of `halkit.canon`, `termsafe`, `fsafe`, `netguard` |
 | [02-sandbox.md](02-sandbox.md) | REQ-BOX | Backends, detection and fallback, flags, images, mounts and `[sandbox].mask`, session runtime directory and socket lifecycle, broker process and MCP transport, broker upstreams, `result._meta.hal`, model forwarder wiring, checkpoints (including the shadow git repo), `--isolated`, dependency prep (`hal code --deps`), `hal box` templates per CLI, `hal-relay`, `hal-mcp-bridge`, no-backend fallback |
 | [03-agent.md](03-agent.md) | REQ-AGT | Providers, loop, tool-call repair, coding and assistant toolsets (`--toolset`, `halagent.acp.serve`), modes `auto` and `review`, context and compaction, budgets and watchdog, session record schema and transcript layout, AGENTS.md and skills, MCP client and `[mcp.servers.<name>]`, ACP agent server, headless output event schema, `model-profiles.toml`, eval library and task formats, `[brain]` to `[agent]` mapping |
@@ -196,11 +197,11 @@ Cross-spec decisions this overview fixes, which the owners must not contradict:
 
 The sections below describe the product, the repo and package maps, the shared `halkit` API,
 the end-to-end flows, configuration, ports and sockets, the hal-employment compatibility
-contract and the release plan.
+contract.
 
 ### Product
 
-Hal is a private, local framework for getting the most out of local language models. It gives
+Hal is a local framework for getting the most out of local language models. It gives
 you the common functions of an AI CLI (chat, a coding agent, tools, sessions, skills) on models
 you run yourself, through open standards (OpenAI and Anthropic model APIs, MCP, ACP, AGENTS.md,
 Agent Skills). Its defining property is the security model: the local model is treated as
@@ -799,10 +800,9 @@ Sequence:
 
 1. `hal code [DIR]` resolves the workspace (default: cwd), loads config and policy (fails
    loudly on errors), and picks a backend (02-sandbox "Backends and detection"): docker with
-   runsc, docker with runc, bubblewrap, or none. runsc and the nvidia runtime are installed on
-   this machine; runsc reaches the bind-mounted session sockets only when registered with
+   runsc, docker with runc, bubblewrap, or none. runsc reaches the bind-mounted session sockets only when registered with
    `--host-uds=open`, so a failed runsc probe falls back to runc with a status note naming
-   that fix [verified: brief "Host facts", 2026-10-23]. When the cached probe last saw docker
+   that fix [verified: host check, 2026-10-23]. When the cached probe last saw docker
    and docker is now down, `hal code` refuses to start rather than drop isolation; backend
    `none` asks once per project on a terminal.
 2. It creates `$R/s/<sid>/` (0700), starts the broker and the model forwarder on the sockets
@@ -973,8 +973,8 @@ hal (host) -- starts box with image hal-box-<cli> --> <cli> (box)
   block is advisory. It keeps the telemetry-off env block from `hal:234-255`, now described as
   privacy, not security.
 
-Installed on this machine: `claude` 2.1.293; `qwen`, `opencode`, `codex`, `crush`, `goose`
-and `cline` are not installed [verified: `command -v` on 2026-10-23].
+The harness CLIs `qwen`, `opencode`, `codex`, `crush`, `goose` and `cline` are supported only when installed
+[verified: `command -v` on 2026-10-23].
 
 #### Flow 6: laptop through `hal remote`
 
@@ -1002,8 +1002,8 @@ harness MCP entry: ssh -T hal-desktop  -- forced command ------> hal-hub mcp --t
   pointing at the tunnel; the box, broker and forwarder run on the laptop, and the forwarder
   targets that URL with the client token (05-gateway). Windows laptops get `hal-remote` only
   (tunnel, `env`, `connect`).
-- The desktop's `openssh-server` is active and key-only
-  (`/etc/ssh/sshd_config.d/10-hal-hardening.conf`) [verified: brief "Host facts",
+- A desktop whose `openssh-server` is active and key-only
+  (`/etc/ssh/sshd_config.d/10-hal-hardening.conf`) [verified: host check,
   2026-10-23], so `hal remote` setup only adds the restricted key.
 
 ### Configuration
@@ -1101,8 +1101,8 @@ deleted; packs read `[hal]` through `halkit.config.hal()`.
 | `fast_model` | str | `""` (means `fast_model`) | `HAL_FAST_MODEL` line, role "quick" |
 
 hal-employment calls Ollama with these names, so they must be Ollama model names. A hal-ecosystem
-`hal.conf` typically has `HAL_MODEL="hal-coder"`, `HAL_WRITER_MODEL="hal-writer"`,
-`HAL_FAST_MODEL="hal-fast"` (measured during development, 2026-10). `hal configure --migrate` copies those three values into `[compat]` so nothing changes
+`hal.conf` typically sets `HAL_MODEL`, `HAL_WRITER_MODEL` and `HAL_FAST_MODEL` to Ollama model
+names. `hal configure --migrate` copies those three values into `[compat]` so nothing changes
 for hal-employment.
 
 ### Ports and sockets
@@ -1111,7 +1111,7 @@ for hal-employment.
 | --- | --- | --- | --- | --- |
 | `127.0.0.1:8740` | `hal console` (halcore) | Token (cookie or header) and Origin/Host check; `/open?t=` one-time link; non-JSON POST gets 415 | Browser on the same machine | Port kept from today; fixes the CSRF exposure in `console.py` `do_POST` |
 | `127.0.0.1:8741` | hal-gateway | Owner token or a named client token; foreign Host or Origin gets 403 | Host harnesses, `hal remote` tunnel | TCP listener off by default; `hal connect`, `hal claude` and `hal remote` turn it on (resolution D4). `GET /health` needs no token (REQ-SYS-10 exception) |
-| `$R/gateway.sock` | hal-gateway | Peer uid (`SO_PEERCRED`); forwarders present session tokens; socket 0600 in a 0700 dir | Host forwarders, host packs through `halkit.llm` | `/run/user/1000/hal/gateway.sock` on this machine |
+| `$R/gateway.sock` | hal-gateway | Peer uid (`SO_PEERCRED`); forwarders present session tokens; socket 0600 in a 0700 dir | Host forwarders, host packs through `halkit.llm` | `/run/user/1000/hal/gateway.sock` for uid 1000 |
 | `127.0.0.1:8742` | `hal-hub mcp --transport http` | Bearer `hub-token`, Origin/Host check | Host harnesses that cannot spawn a stdio server | Runs only when started (resolution D14) |
 | `127.0.0.1:8080` | managed llama-server (halgateway) | `--api-key-file` held by the gateway | Gateway only | Explicit `--host 127.0.0.1 --port 8080`; installed build b11512 defaults to 8080 and accepts a `.sock` path in `--host` [verified: `llama-server --help`] |
 | `127.0.0.1:11434` | Ollama (system service, not Hal) | none (Ollama has no auth) | Gateway, hal-employment | Ollama 0.40.1 listening on 127.0.0.1 [verified: `/api/version` and `ss -ltn` on 2026-10-23] |
@@ -1144,7 +1144,7 @@ Rules:
   a write to `.git/hooks` [verified: experiment with `python:3.13-slim-trixie` on 2026-10-23;
   its scratch directory has since been wiped, and `tests/e2e/test_flow_code.py` re-checks
   both]. runsc refuses the same socket unless registered with `--host-uds=open` [verified:
-  brief "Host facts"].
+  host check, 2026-10-23].
 
 ### Compatibility contract
 
@@ -1166,9 +1166,8 @@ hal-employment must keep working with no change (measured during development, 20
 5. The unit name `hal-employment.service` (rendered from the `jobs` pack in hal-tools),
    port 8737, `GET /healthz`. Unit templates keep the `@ROOT@` placeholder; the jobs launcher
    reads `[jobs].jobhunt_root` at run time, and a golden test covers the rendered unit (H2).
-6. `[jobs].jobhunt_root` semantics: while `[jobs]` is absent the old default
-   (the old default location) applies with a one-time warning, and
-   `hal configure --migrate` writes the explicit value (H1).
+6. `[jobs].jobhunt_root` semantics: it has no default. While it is unset the jobs launcher exits
+   with a message naming `[jobs].jobhunt_root`, and `hal configure --migrate` never writes it (H1).
 7. `hal kill` stops only units recorded in `units.json` plus `hal.target`, never a
    `hal-*` glob that would reach hal-employment's own units (H4).
 8. A speak executable that takes the text as `argv[1]` (`hal-say` from hal-voice), and the
@@ -1178,36 +1177,6 @@ hal-employment must keep working with no change (measured during development, 20
    `ollama`, `GPT-SoVITS`, `api_v2.py`, `hal-voice`, `halvoice` or `faster_whisper`. A managed
    llama-server matches none of these, so hal-employment waits while it holds the GPU, as it
    does with `hal-serve` today. No change is planned.
-
-### Release plan
-
-Facts (measured during development, 2026-10-23):
-
-- `origin` is `https://github.com/NotEoin/Hal.git`; GitHub `main` is `03b8652`.
-- `03b8652` is an ancestor of `next`, and `next` is 27 commits ahead of it. A PR from `next`
-  into `main` merges without a rewrite, so no force push is ever needed.
-- The repo has no tags (measured during development, 2026-10-23).
-
-Steps:
-
-1. Build on `next`, one logical change per commit,
-   tests passing at every commit, commit subjects `<Verb> <object>` (60 characters or fewer, no
-   body, no trailers).
-2. Before the push: CI green locally (`uv run ruff check`, `scripts/check-ascii.sh`,
-   `uv run pytest`), `gitleaks git --log-opts=--all` on the repo (a local install is enough), and a check that no commit adds
-   `hal.conf`, vault content, audio or weights.
-3. Push `next` to `origin` with an explicit refspec (`git push origin next:next`) only after
-   the user says so. `hal-ecosystem/publish.sh` is never used: it would push a private fork's history
-   to `NotEoin/Hal` (measured during development, 2026-10).
-4. Open a PR `next` -> `main` on `NotEoin/Hal` with a Summary and a checklist (tests and lint
-   green, docs updated, no secrets or generated files).
-5. Merge with a merge commit, which keeps the per-commit history (each commit is reviewed and
-   passes tests). Tag `v0.1.0` on the merge commit.
-6. Release the other repos after Hal, because packs depend on `hal-kit` and `hal-hub` by git
-   tag (`>=0.1,<0.2`): hal-tools, then hal-memory, then hal-voice (fast-forward of public
-   `main`), each by PR and tagged `v0.1.0`. The `jobs` pack is published and says that it
-   needs hal-employment. gpu-light releases on its own schedule.
-7. Cutover of the live runtime last, with the user (see "Migration").
 
 ## Failure modes
 
@@ -1245,7 +1214,7 @@ backends.
 
 ## Migration
 
-What replaces what, by path in today's tree (`6ba8a94`, branch `next`):
+What replaces what, by path in the older hal-ecosystem tree:
 
 | Today | Becomes | Spec |
 | --- | --- | --- |
@@ -1284,13 +1253,13 @@ How existing users keep working:
   `HAL_MODE` values (for `[gateway]`, 05-gateway). It never rewrites that file (H3).
 - `deep_work = "claude"` in the live config maps to local sandboxed long jobs.
   `[agent].cloud_jobs` stays `false` until the user sets it (Decision D6).
-- `[jobs].jobhunt_root` keeps its old default while `[jobs]` is absent; `--migrate` writes the
-  explicit value (H1).
+- `[jobs].jobhunt_root` has no default and `--migrate` does not write it; set it to the employment
+  helper checkout (H1).
 - Rendered units under `~/.config/systemd/user` keep their names; `hal units install`
   re-renders them with the new paths. Desktop launchers keep their names.
-- An existing `hal-ecosystem` install keeps running unchanged until the cutover, which the
-  user runs: install from the new repos, `hal configure --migrate`, `hal units install`,
-  repoint `~/.local/bin/hal`, and stop the old units.
+- An existing `hal-ecosystem` install keeps running unchanged until the user upgrades with
+  `hal migrate ecosystem --from PATH`: install from the new repos, `hal configure --migrate`,
+  `hal units install`, repoint `~/.local/bin/hal`, and stop the old units.
 
 What is removed: sourcing `hal.conf` as shell; `HAL_HUB` and `HAL_ROOT` lookups; the proxy env
 trick as a security claim; `_confirmed`, `confirmed` and `confirm` as meaningful arguments (the
@@ -1298,8 +1267,8 @@ broker strips and logs them); "always allow" approvals (durable allows are `poli
 written by the user, B2); `hub-calls.jsonl` (one audit log, B8); `hal-route.py` on :8079;
 `extensions.toml` per-repo URLs; the `.mcp.json` `hal` server pointing at
 `<old checkout>/hal-mcp.py` (the vault config is the user's; `hal doctor` reports the
-stale entry and the user removes it after the cutover, because that clone is load-bearing
-until then (measured during development, 2026-10)).
+stale entry and the user removes it after the upgrade, because the old clone is load-bearing
+until then).
 
 ## Test plan
 
@@ -1329,7 +1298,7 @@ Hermetic unit tests (default run, no markers):
 - `packages/hal-core/tests/test_compat.py`: the `hal.conf` writer refuses a listed file
   without its header and only verifies its model lines (H3), `--migrate` reading of an old
   `hal.conf` fixture (synthetic values), the off flag written at the default path when
-  `HAL_STATE_DIR` differs, the `jobhunt_root` default and warning while `[jobs]` is absent
+  `HAL_STATE_DIR` differs, that `--migrate` never writes `jobhunt_root`
   (H1), the rendered `hal-employment.service` golden (H2).
 - `packages/hal-core/tests/test_assistant_unboxed.py` (REQ-SYS-26, backend forced to `none`).
 
@@ -1495,11 +1464,3 @@ open the PR, merge, tag `v0.1.0`.
   `canon`, `termsafe`, `fsafe`, `netguard`, `paths.confine` and `llm.embed` were needed by more
   than one repo (C6, C10). Reason: one implementation each; GPU claims belong to the gateway
   and hal-voice, not to packs (A6).
-
-## Open questions
-
-1. What is hal-employment's `addon.hal_root` set to on this machine, and should the cutover
-   repoint it at a `hal.conf` that Hal creates (so the old runtime's file can be retired)?
-   Until then Hal only verifies the existing file (H3). This spec cannot read
-   hal-employment's settings (that repo is off limits); 06-core-cli's cutover checklist is
-   where the answer lands.
