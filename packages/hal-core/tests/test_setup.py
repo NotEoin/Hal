@@ -294,3 +294,28 @@ def test_setup_source_contains_no_model_download():
     tree = ast.parse(Path(hsetup.__file__).read_text(encoding="utf-8"))
     strings = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
     assert not [s for s in strings if s.strip() in ("pull", "ollama pull") or s.startswith("ollama pull")]
+
+
+def test_setup_opens_the_tune_screen_on_a_terminal_when_no_chat_model_is_assigned(tmp_path, monkeypatch, capsys):
+    from halcore import tune, tuneui
+
+    monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "config.toml"))
+    opened = []
+    monkeypatch.setattr(tuneui, "run_interactive", lambda **kw: opened.append(1) or 0)
+    monkeypatch.setattr(tune, "is_interactive", lambda: True)
+    assert hsetup.offer_tuning(dry_run=False) is True and opened == [1]
+    assert hsetup.offer_tuning(dry_run=True) is False  # a dry run opens nothing
+    (tmp_path / "config.toml").write_text(
+        '[models.sources.l]\nkind = "gguf"\npath = "/m"\n[models.roles.chat]\nsource = "l"\nmodel = "m"\n'
+    )
+    assert hsetup.offer_tuning(dry_run=False) is False and opened == [1]  # a chat model is set
+
+
+def test_setup_off_a_terminal_only_prints_the_next_step(tmp_path, monkeypatch):
+    from halcore import tune, tuneui
+
+    monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "config.toml"))
+    monkeypatch.setattr(tuneui, "run_interactive", lambda **kw: pytest.fail("the screen must not open"))
+    monkeypatch.setattr(tune, "is_interactive", lambda: False)
+    assert hsetup.offer_tuning(dry_run=False) is False
+    assert "hal tune --auto --write" in hsetup._models_step().skip

@@ -108,7 +108,8 @@ Nothing changes on disk until you answer `y` to `write`. The write is the one `h
 comments in your config stay, the old file is saved as `config.toml.bak.<UTC time>`, and a failure
 writes nothing. A model that does not fit your machine cannot be written.
 
-`hal setup` opens this screen on a terminal when no `chat` model is assigned.
+`hal setup` opens this screen on a terminal when no `chat` model is assigned (type `quit` to skip it).
+Off a terminal it prints the next command instead.
 
 What `hal tune --auto` does:
 

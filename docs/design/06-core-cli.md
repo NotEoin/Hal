@@ -639,6 +639,11 @@ wraps it.
   `test_effort_is_refused_with_a_reason_for_a_model_that_cannot_think`,
   `test_switching_to_a_model_without_support_drops_the_effort_and_says_so`,
   `test_status_line_shows_the_effort_next_to_the_model_and_nothing_when_unset`.
+- **REQ-CLI-120** (MUST) On a terminal, `hal setup` (not a dry run) MUST open the `hal tune` screen when no
+  `[models.roles.chat]` is configured, and MUST NOT open it otherwise; off a terminal it MUST only print the
+  existing next-step text. Test: unit
+  `test_setup_opens_the_tune_screen_on_a_terminal_when_no_chat_model_is_assigned`,
+  `test_setup_off_a_terminal_only_prints_the_next_step`.
 - **REQ-CLI-113** (MUST) `hal configure` MUST NOT name or pull a model; it MUST accept `--profile
   max|24gb|12gb|cloud` as a preset for `[models] context_cap` and `kv_type` with a deprecation
   note, and print the `hal tune` plan. Test: unit

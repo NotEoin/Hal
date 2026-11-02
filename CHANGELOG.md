@@ -9,6 +9,7 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `hal setup` opens the `hal tune` screen on a terminal when no chat model is assigned.
 - `hal code`: `/model` lists the models of your sources by source, switches the session and `/model save`
   keeps the choice as the `code` role; `/effort` sets the thinking effort for models that support it, shows it in
   the status line and sends it with every request.

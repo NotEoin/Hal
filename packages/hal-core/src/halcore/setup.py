@@ -303,6 +303,21 @@ def execute(steps: list[Step], *, dry_run: bool, out: Callable[[str], None] = pr
     return ok
 
 
+def offer_tuning(*, dry_run: bool) -> bool:
+    """Opens the `hal tune` screen when a person is at a terminal and no chat model is assigned.
+
+    Returns True when it opened. Off a terminal, or with a chat model set, it does nothing: the
+    models step has already printed the next command.
+    """
+    from . import tune, tuneui  # noqa: PLC0415 - prompt_toolkit loads only when the screen opens
+
+    if dry_run or not tune.is_interactive() or modelplan.assignment_status()[0]:
+        return False
+    print("No chat model is assigned yet. Opening the tune screen; type quit to skip it.")
+    tuneui.run_interactive()
+    return True
+
+
 def main(argv: list[str]) -> int:
     """Runs `hal setup`; exits 1 when a step or the doctor failed."""
     ap = argparse.ArgumentParser(prog="hal setup", description="finish a Hal install from this checkout (idempotent)")
@@ -319,6 +334,7 @@ def main(argv: list[str]) -> int:
     steps = plan(search_dirs(args.dirs), enable=args.enable, image=not args.no_image, replace=args.replace,
                  migrate_from=args.migrate_from)
     ok = execute(steps, dry_run=args.dry_run)
+    offer_tuning(dry_run=args.dry_run)
     checks = doctor.collect()
     print(doctor.render(checks))
     failed = any(c.status == doctor.FAIL for c in checks)

@@ -55,7 +55,7 @@ and checks the result. Nothing is downloaded.
    hal doctor   # the model server and role checks
    ```
 
-To do all of this in one screen, run `hal tune` on a terminal. It lets you pick models, set the
+To do all of this in one screen, run `hal tune` on a terminal (`hal setup` opens it for you when no chat model is set). It lets you pick models, set the
 context and see the fit before anything is written (see
 [../user/models.md](../user/models.md#the-tune-screen)).
 
