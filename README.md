@@ -1,19 +1,99 @@
 # Hal
 
 ![licence](https://img.shields.io/badge/licence-MIT-blue?style=flat-square)
-![platform](https://img.shields.io/badge/platform-Linux-lightgrey?style=flat-square)
+![platform](https://img.shields.io/badge/platform-Linux%20%7C%20WSL2-lightgrey?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.11+-blue?style=flat-square)
-![runs](https://img.shields.io/badge/runs-100%25%20local-success?style=flat-square)
 
-> *A local AI that runs on your own GPU, talks to you, codes with you, and learns new tricks
-> one extension at a time.*
+> *Make the most of your local models.*
 
-Hal is the core of a desktop assistant. It runs the local models, gives you a conversation with them
-(`hal chat`), and points [Claude Code](https://claude.ai/code) at them when you ask for it (`hal claude`).
-Everything else (a memory in Obsidian, your calendar on your phone, a voice, timers, lights,
-the computer itself) is an extension you add when you want it. Raw Hal works on its own.
+Hal turns the models you already run (Ollama, LM Studio, llama.cpp, GGUF files) into a coding
+agent, a chat and a desktop assistant, all on your own machine. It reads your hardware and sizes
+every model to it, so a laptop and a workstation each get the most context they can hold. And it
+never trusts the model: the agent works on a copy of your project, in a box with no network, and
+asks you before anything that matters.
 
-## What Hal protects you from
+- **Bring your own models.** Point Hal at Ollama, an OpenAI-compatible server or a folder of GGUF
+  files. It downloads nothing.
+- **Tuned to your hardware.** `hal tune` picks the context size, cache type and GPU offload for
+  each model, on one GPU, several, or none.
+- **A coding agent in a sandbox.** `hal code` edits a copy of your project inside a docker box, and
+  you `accept` the changes you want. Switch models and thinking effort mid-session with `/model`
+  and `/effort`.
+- **One policy for every tool.** Each tool call is checked against your lockdown and paranoia
+  levels, and the risky ones wait for your approval.
+- **No telemetry.** Nothing leaves your machine unless you add a cloud model or a tool that goes
+  online.
+
+## Requirements
+
+| | |
+| --- | --- |
+| OS | Linux with systemd, or Windows 11 through WSL2 ([how-to](docs/howto/run-on-windows-with-wsl2.md)) |
+| Python | 3.11 or later, and [uv](https://docs.astral.sh/uv/) |
+| Docker | Needed for `hal code` and `hal chat`, which run the agent in a box. gVisor (`runsc`) is optional |
+| GPU | Any, or none. `hal tune` sizes the models to what it finds |
+| Models | Ones you already have. Hal downloads none |
+
+## Install
+
+```sh
+git clone https://github.com/NotEoin/Hal.git && cd Hal
+scripts/install.sh --dry-run   # print every step, change nothing
+scripts/install.sh             # private venv in ~/.local/share/hal, link in ~/.local/bin
+hal setup --dry-run            # plan the rest: packs, box image, units, doctor
+hal setup                      # run it; add --enable to start the units at login
+```
+
+The full walk-through, with options and checks, is in [SETUP.md](SETUP.md).
+
+## Point Hal at your models
+
+```sh
+hal models add-source ollama http://127.0.0.1:11434   # or: hal models add-source gguf ~/models
+hal tune --auto                                       # show the plan, change nothing
+hal tune --auto --write                               # pin the models and save the settings
+```
+
+See [Point Hal at your models](docs/howto/point-hal-at-your-models.md) and
+[Models](docs/user/models.md).
+
+## Main commands
+
+| Command | What it does |
+| --- | --- |
+| `hal code [DIR]` | Coding session in a box, on a copy of the project. `hal code accept SID` applies its changes |
+| `hal chat [MESSAGE]` | Talk to Hal in a box |
+| `hal tune` | Detect hardware and plan model settings; interactive on a terminal, `--write` saves |
+| `hal models` | List sources and models, add or remove a source, assign a role |
+| `hal setup` | Finish an install: packs, gpu-light, box image, units, doctor |
+| `hal doctor` | Read-only health report; exits 1 on a failed check |
+| `hal on` / `hal off` | Start the services, or stop those using the GPU and free it |
+| `hal lockdown`, `hal paranoia`, `hal policy` | Show the security levels and the approval policy |
+
+`hal --help` lists every command, and `hal help COMMAND` shows one command's options.
+Reference: [docs/user/cli.md](docs/user/cli.md).
+
+## How it fits together
+
+Hal is the core: the gateway that serves your models, the hub that runs every tool under one
+approval policy, and the sandbox the agent works in. The other repos plug into it. Each one also
+works on its own, so you install only what you want. Together they make one modular assistant that
+writes code, keeps your calendar, remembers what you tell it, answers out loud, and shares your GPU
+with everything else you run. Nothing leaves your machine unless you add a cloud model or turn on a
+tool that goes online, and every tool call passes the same policy.
+
+| Repo | What it gives you |
+| --- | --- |
+| [Hal](https://github.com/NotEoin/Hal) | The core: your models, a sandboxed coding agent and chat, the tool hub and the security policy |
+| [hal-tools](https://github.com/NotEoin/hal-tools) | A desktop assistant: calendar, tasks, mail, messages, web, desktop and system control |
+| [hal-memory](https://github.com/NotEoin/hal-memory) | A memory in an Obsidian vault, so small models answer from your notes, with citations |
+| [hal-voice](https://github.com/NotEoin/hal-voice) | Speech in and out, in the voice of HAL 9000 |
+| [gpu-light](https://github.com/NotEoin/gpu-light) | Keeps your assistant ready without taking the GPU from your games, renders and training |
+| [hal-employment](https://github.com/NotEoin/hal-employment) | Finds jobs, writes the CV and cover letter and fills in the form; you press Submit |
+
+`hal setup` installs the ones it finds next to this checkout.
+
+## Security
 
 Hal treats its own model as hostile: a model changed to cause damage is contained by the default
 settings. Every Hal agent turn runs in a box with no network and no access to your files except a
@@ -54,245 +134,26 @@ Two settings are yours alone; no tool call can change either. `hal status` and `
 
 ## No telemetry
 
-No Hal package sends usage data, crash reports, update checks or analytics, and the box has no
-network to send them anyway. The only traffic Hal starts on its own goes to the model server you
-configured and to tools you installed, through the tool broker. Opt-in features that name a host
-(model downloads from Hugging Face, the `ntfy` phone channel) do nothing until you ask for them.
-`tests/test_no_telemetry.py` fails when a module outside a short reviewed list opens a network
-client, imports a telemetry or analytics SDK, or names an unlisted host. Run it with
-`uv run pytest -q tests/test_no_telemetry.py`.
+No Hal package sends usage data, crash reports or update checks. `tests/test_no_telemetry.py`
+fails when a module opens a network client outside a short reviewed list.
 
+## Run the tests
 
-## Highlights
-
-- **One brain for every way in.** Terminal, voice and Telegram all share the same agent loop: a local
-  model that streams its reply and calls the tools of whatever extensions are installed.
-- **Extensions are just repositories.** `hal ext add calendar` fetches the commit pinned in `extensions.toml`, shows what the extension can do, and installs it after you type `y`. It starts
-  its services; `hal ext remove` undoes it. With none installed, Hal says so instead of pretending.
-- **It asks before it destroys.** Deleting, killing and shutting down need a yes from you in an
-  earlier turn; a model cannot confirm on its own behalf.
-- **Measured, not guessed.** `hal eval` asks Hal a set of real requests in a sandbox and checks every
-  answer, so a model or prompt change shows up as a number. `hal console` lets you try the same
-  requests by text or voice and grade them.
-- **The GPU is yours when you want it.** `hal off` (or the desktop launcher) stops everything that uses
-  the GPU and unloads the models; reminders keep running. `hal on` brings it back. Hal holds no GPU
-  claim while it idles: with gpu-light installed, the gateway takes the card only for a request, so
-  background GPU jobs keep it the rest of the time
-  ([SETUP.md](SETUP.md#sharing-the-gpu-with-background-jobs)).
-- **Coding on your own hardware.** Claude Code runs against a local model, chosen for your GPU, from a
-  24GB card down to none at all.
-
-## Hal code
-
-`hal code` is a terminal coding assistant for your local models. It lives in your normal
-scrollback (no alternate screen), and the agent runs in a box on a copy of your project, so a
-wrong or hostile model cannot touch the real repo until you accept its changes.
-
-```
-+------------------------------------------------------------------+
-| Hal 0.1.0                                                        |
-| qwen3-coder-30b | 32k context | lockdown standard | box runsc    |
-+------------------------------------------------------------------+
-
-> fix the failing test in @tests/test_parse.py
-
-* Edit src/parse.py  ok  0.1s  src/parse.py +2 -1
-       41   if not text:
-       42 - return None
-       42 + raise ValueError("empty input")
-* Run pytest -q  ok  3.2s
-
-[end_turn] mode default | 1 file +2 -1 | ~210 tok | 11.8s | 36 tok/s
- qwen3-coder-30b | ####------ 38% | 36 tok/s | mode default | 1 unaccepted
+```sh
+uv sync --all-packages
+uv run pytest -q              # hermetic; gpu, docker, network and live tests are deselected
+uv run ruff check .
+scripts/check-ascii.sh
 ```
 
-Five headline features:
+## Documentation
 
-1. **Isolated by default.** Work happens on a snapshot copy; `/accept` shows a diff report and
-   applies it atomically, `hal code export` writes a patch or git bundle.
-2. **Built for local models.** A live context bar, tokens per second, automatic and manual
-   `/compact`, a compact tool set and constrained tool calls for small models, and per-family
-   profiles (Qwen, Devstral, DeepSeek, Llama, GLM, gpt-oss).
-3. **Modern terminal UI.** Rendered markdown, syntax-coloured diffs, tool cards, a todo panel,
-   thinking summaries, nested subagents, `@file` mentions, `!cmd`, `# note`, slash commands and
-   desktop notifications for long turns.
-4. **Model roles and subagents.** A fast model for titles and summaries, an optional
-   architect/editor split, named subagents from `.hal/agents`, hooks and `@image` prompts.
-5. **IDE integration.** `hal acp` serves Zed, JetBrains, Neovim and Emacs; a VS Code extension
-   shares selections and diffs with the running session (`hal ide setup`).
+[docs/README.md](docs/README.md) indexes every guide, how-to and design spec.
 
-Not yet run against a live model for speed figures; see [docs/user/hal-code.md](docs/user/hal-code.md).
-Editors: [Zed](docs/howto/use-hal-code-in-zed.md), [JetBrains](docs/howto/use-hal-code-in-jetbrains.md),
-[Neovim and Emacs](docs/howto/use-hal-code-in-neovim.md), [VS Code](docs/howto/use-hal-code-in-vscode.md).
+## Contributing
 
-## Overview
-
-| Piece | What it does |
-|---|---|
-| `hal` | The launcher: chat, coding, on/off, extensions, eval and console |
-| `packages/hal-core/` | The brain (agent loop), extension management, services, eval and console |
-| `eval/assistant/scenarios.toml` | The requests Hal is tested against, and how each answer is checked |
-| `setup.sh` | Installs Ollama, the models for your GPU, Claude Code, and writes the config |
-| `hal-serve`, `hal-route.py`, `packages/hal-gateway/.../modes/` | The max profile's llama.cpp server and its five modes |
-| `models/` | The model catalogue and the role models (`hal-coder`, `hal-writer`, `hal-fast`) |
-| `extensions.toml` | The extensions `hal ext add` knows how to fetch, each pinned to a 40-hex commit |
-
-Hal finds extensions through [hal-hub](https://github.com/NotEoin/hal-hub), which sits beside it in
-the ecosystem's `core/` folder. The whole ecosystem, with an installer that sets up both and the
-extensions you choose, is [hal-ecosystem](https://github.com/NotEoin/hal-ecosystem).
-
-### Author
-
-Built by [@NotEoin](https://github.com/NotEoin).
-
-## Usage
-
-```bash
-hal code                 # the coding assistant in a box, on a copy of the project
-hal chat                 # talk to Hal in a box; /reset starts over
-hal chat "what's on tomorrow?"   # one message
-hal acp                  # the boxed agent over ACP for an editor (see docs/howto/use-hal-code-in-zed.md)
-hal ide setup zed        # print an editor configuration (zed, jetbrains, neovim, emacs, vscode)
-hal claude               # Claude Code on the local model, in the current directory (not boxed)
-hal ext list             # installed extensions, and the ones you can add
-hal ext add calendar     # add one (or --pack assistant for the everyday set)
-hal off / hal on         # stop the GPU services and unload models, and start them again
-hal status               # what is running
-hal eval                 # check Hal's answers, in a sandbox
-hal console              # try Hal and grade answers; prints a single-use link, the page needs the console token
-```
-
-With the memory extension installed, `hal ask`, `hal index`, `hal brief`, `hal summarize` and
-`hal import` work on your Obsidian vault; see
-[hal-memory](https://github.com/NotEoin/hal-memory).
-
-## Installation
-
-The easy way is the ecosystem installer, which sets up Hal, hal-hub and the extensions you pick:
-
-```bash
-git clone https://github.com/NotEoin/hal-ecosystem.git ~/hal-ecosystem
-cd ~/hal-ecosystem && ./install.sh
-```
-
-Quickstart from a checkout (five commands; put hal-tools, hal-memory, hal-voice and gpu-light
-next to it if you want them):
-
-```bash
-git clone https://github.com/NotEoin/Hal.git && cd Hal   # get Hal
-uv sync --all-packages                                   # install the workspace
-uv run hal setup --dry-run                               # see every step, change nothing
-uv run hal setup --enable                                # packs, gpu-light, box image, units, doctor
-uv tool install ./packages/hal-core                      # put `hal` on your PATH
-```
-
-`hal setup` is safe to re-run. It writes the hal-* user units and only enables them with `--enable`.
-It never replaces another install's units (such as hal-ecosystem's) unless you pass `--replace`.
-
-Raw Hal on its own:
-
-```bash
-mkdir -p ~/hal-ecosystem/core && cd ~/hal-ecosystem/core
-git clone https://github.com/NotEoin/Hal.git hal
-git clone https://github.com/NotEoin/hal-hub.git    # optional: needed only for extensions
-./hal/setup.sh
-```
-
-`setup.sh` installs Ollama, Node and Claude Code, puts `hal` on your PATH and writes
-`~/.config/hal/config.toml`. It downloads no model. Point Hal at the models you already have and let
-it tune itself to your hardware:
-
-```bash
-hal models add-source ollama http://127.0.0.1:11434   # or: hal models add-source gguf ~/models
-hal tune --auto --write                               # detect hardware, pick models, size the context
-```
-
-See [Models](docs/user/models.md) and [Point Hal at your models](docs/howto/point-hal-at-your-models.md).
-`./setup.sh --pull-suggested` is an optional extra that also downloads the models the old profiles
-suggested; `--profile max|24gb|12gb|cloud` is a deprecated preset for the same tuning limits.
-
-**-> Full setup walkthrough: [SETUP.md](SETUP.md)**
-
-### Requirements
-
-| | |
-|---|---|
-| **OS** | Linux with systemd (for the background services) |
-| **Python** | 3.11 or later; Hal itself needs nothing from PyPI |
-| **GPU** | Whatever you have; `hal tune` sizes the models to it. None is fine |
-| **Disk** | Whatever your own models take; setup downloads none |
-
-#### Setup profiles (deprecated presets)
-
-The profiles below are what `./setup.sh --pull-suggested` pulls. They no longer decide anything else:
-`hal tune` reads your hardware and your models. Each profile has a coding model (what Claude Code talks to in `hal claude`) and a chat brain (what
-answers in `hal chat`, the voice and Telegram). The brain is smaller, so it can sit beside the voice
-engine and answer within about a second.
-
-| Profile | Picked when | Coding model | Chat brain |
-|---|---|---|---|
-| `max` | >=22GB VRAM and >=60GB RAM | three models in five modes, up to a 177B (~160GB) | Gemma 4 12B, QAT (~7GB) |
-| `24gb` | >=22GB VRAM | Qwen3.8-27B (~18GB) | Gemma 4 12B, QAT (~7GB) |
-| `12gb` | >=11GB VRAM | Gemma 4 12B, QAT (~7GB) | Qwen3.5 4B (~3GB) |
-| `cloud` | no usable GPU | none: Claude Code with your own login | Qwen3.5 2B, on the CPU |
-
-The `max` profile serves three models through llama.cpp and lets you pick where they run per launch:
-Qwen3.8-27B on the GPU (`gpu`, 80 tokens/s), the 177B Qwen3.8-Flash-Next-Coder in system RAM (`cpu`),
-the 177B Qwen3.8-Flash-Next split across both (`hybrid`, 25 tokens/s, or `hybrid-256k` for its full
-context), or `combined`, where a small classifier sends each request to the RAM model or the GPU model
-and the RAM model delegates its edits to GPU subagents.
-**-> Modes, measurements and quantisation choices: [Modes](docs/user/modes.md)**
-
-The chat brain was picked with `hal eval`; run it with `--model` a few times to compare your own
-candidates, and set the winner as `chat_model` in `~/.config/hal/config.toml`.
-
-Originally built on an RTX 3090; developed since on an RTX 4070.
-
-## Extensions
-
-`hal ext list` shows what is installed and what else there is. Packs add a set at once:
-
-| Pack | Extensions |
-|---|---|
-| `assistant` | memory, calendar, tasks, notify, clock, web, briefing, voice |
-| `computer` | system, desktop, files, power, packages, devices, network, shell, screen |
-| `life` | habits, ledger, contacts, feeds, mail, phone, telegram |
-
-An extension is a folder with a `hal-module.toml` that declares its tools; hal-hub's README explains
-the format, and the ecosystem's `scaffold.py` creates one. Its services go in `systemd/` and are
-rendered with its own path, so it works wherever it is cloned; a unit marked `X-HalGPU=yes` (it uses the GPU) or
-`X-HalOff=yes` (it follows the off switch only) is one `hal off` stops and one that does not start at
-login while Hal is off.
-
-## Privacy
-
-- **On the `max`, `24gb` and `12gb` profiles nothing leaves the machine**: the models answering you
-  are on your own GPU.
-- **On the `cloud` profile, coding goes to Claude Code with your own login.** The chat brain still runs
-  locally.
-- **Long jobs** (`[agent].deep_work`) are `queue` by default: they wait in `hal jobs` for Hal's own boxed
-  agent. `off` refuses them and `ask` confirms first. Only `claude`, which you must set yourself, hands a
-  job to Claude Code (not private, not sandboxed). The older `[brain].deep_work` still maps onto these.
-  `hal jobs run` starts the oldest queued job in a box on an isolated copy (as gpu-light class `batch`
-  when gpu-light is installed); `hal jobs follow ID` shows it live, a restart requeues a job whose
-  worker is gone, and `hal jobs accept ID` or `hal jobs export ID FILE` is how its changes leave.
-  `hal install` also renders `hal-jobs.timer`, which runs `hal jobs run --wait` every 5 minutes so queued jobs
-  start on their own.
-- Extensions that reach the internet (web search, weather, iCloud sync, ntfy) say so in their READMEs.
-
-## Limitations
-
-- **A local model is not a frontier model.** It is quick and good at everyday requests and tool calls,
-  and it will lose to a cloud model on hard, many-step reasoning; that is what `deep_work` is for.
-- **Small models misread odd phrasing.** `hal eval` keeps a list of what works; add a case when
-  something you say is misunderstood.
-- Linux only.
-
-## Feedback and contributing
-
-Questions, bugs and ideas welcome, open an [issue](https://github.com/NotEoin/Hal/issues) or start
-a [discussion](https://github.com/NotEoin/Hal/discussions). Run `uv sync --all-packages && uv run pytest`
-and `hal eval` before sending a change to the brain.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). Report vulnerabilities as
+described in [SECURITY.md](SECURITY.md).
 
 ## Licence
 
