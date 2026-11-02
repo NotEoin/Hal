@@ -74,7 +74,7 @@ can be repeated.
 | Python 3.13.11, uv 0.11.19, systemd 259 | [verified: `--version`] |
 | `gpu-light` is not on PATH, so no gpu-light unit is installed | [verified 2026-10-24: `which gpu-light`; `~/.config/systemd/user` listing] |
 | `~/.local/state/hal/off` exists; `units.json` lists 20 units, all under `hal-ecosystem/{core,extensions}` | [verified: `cat units.json`] |
-| `~/.local/bin`: `hal`, `hal-hub`, `hal-voice`, `hal-employment` point into `hal-ecosystem`; `hal-private` into `core/hal-private`; `batchjob` into `batch-project`; `hal-old` and `a-bot` dangle | [verified: `ls -la ~/.local/bin`] |
+| `~/.local/bin`: `hal`, `hal-hub`, `hal-voice`, `hal-employment` point into `hal-ecosystem`; `hal-private` into `core/hal-private`; `hal-old` and `a-bot` dangle | [verified: `ls -la ~/.local/bin`] |
 | Desktop: `hal-console.desktop`, `hal-toggle.desktop`, `hal-kill.desktop`, `hal-employment.desktop` | [verified: `ls ~/Desktop`] |
 | Vault `.mcp.json` servers: `obsidian` (env key is a `${OBSIDIAN_API_KEY}` placeholder), `hal` (`uv run --with mcp .../Hal/hal-mcp.py`, file exists today), `hal-hub` (`~/.local/bin/hal-hub mcp`); the vault is not a git repo | [verified: JSON keys read with python, values not printed] |
 | `~/.config/hal/config.toml` is mode 0664; `[hub].module_paths` names the two `hal-ecosystem` folders; it has no `[jobs]` table | [verified: `ls -la`, `sed -n 24,28p`; `[jobs]` absence from review-consistency H1] |
@@ -2077,7 +2077,7 @@ restored by undoing links, units and config.
    comes from the jobs pack and keeps its name.
 7. Links: `~/.local/bin/hal`, `hal-hub`, `hal-gateway`, `hal-remote` -> the venv; `hal-voice` ->
    the voice pack's env launcher; `hal-employment` -> the jobs pack's launcher.
-   `hal-private`, `batchjob`, `hal-old` and `a-bot` are not touched (the last two dangle; see
+   `hal-private`, `hal-old` and `a-bot` are not touched (the last two dangle; see
    open question 3).
 8. Print the vault step, never performed by the migrator: the vault `.mcp.json` `hal` server
    points at `Hal/hal-mcp.py`, which disappears when that checkout moves to the

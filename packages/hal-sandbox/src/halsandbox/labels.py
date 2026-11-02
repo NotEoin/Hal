@@ -27,7 +27,7 @@ log = logging.getLogger("halsandbox.labels")
 
 LABEL_SANDBOX = "hal.sandbox"
 LIST_TIMEOUT_S = 60.0  # REQ-BOX-41
-REMOVE_TIMEOUT_S = 180.0  # the value batchjob's ContainerLabeler uses for `docker rm -f`
+REMOVE_TIMEOUT_S = 180.0  # the timeout a batch eval harness uses for `docker rm -f`
 SWEEP_INTERVAL_S = 3600.0  # REQ-BOX-41: at most hourly at `hal` start
 NO_OWNER_GRACE_S = 3600.0  # a directory without a readable owner.json may belong to a start in progress
 EMPTY_ISOLATED_DAYS = 7

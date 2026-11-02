@@ -721,7 +721,7 @@ Test paths are under `packages/<p>/tests/` unless they start with `tests/`.
 | AS3 | Personal data in Hal stores: memory notes, calendar, contacts, ledger, habits, mail | pack stores under `data_dir()`, the vault, IMAP |
 | AS4 | Host integrity: no persistence, no privilege gain, no planted code that the user later runs | host filesystem, shell rc files, git hooks, units |
 | AS5 | The user's outbound identity: mail, SMS, Telegram, GitHub (`gh` token), push topics | pack secrets |
-| AS6 | Availability: GPU, CPU, RAM, disk; other GPU users (hal-employment, batchjob) | the machine |
+| AS6 | Availability: GPU, CPU, RAM, disk; other GPU users (hal-employment, a batch GPU job) | the machine |
 | AS7 | The user's attention: approvals must stay rare enough to be read | the TUI and channels |
 | AS8 | Integrity of Hal itself: config, policy, approvals, audit log, packs, models | `config_dir()`, `state_dir()`, `data_dir()` |
 
@@ -2539,9 +2539,8 @@ and are never read from call arguments. Verified by `hal-hub/tests/test_classifi
 
 ## Decisions
 
-- **SD1 Approvals are never parsed from text.** The gemma4-agent hooks block approval
-  phrases in tool input and accept typed approvals from genuine prompts
-  (`gemma4-agent/.claude/hooks/approval_guard.py`, `human_input.py`). Hal goes further: no
+- **SD1 Approvals are never parsed from text.** Some coding-agent hook setups block approval
+  phrases in tool input and accept typed approvals from genuine prompts. Hal goes further: no
   approval is ever derived from text a model could produce, and there is no yes-matcher on
   any channel (B5); an approval is a structured answer from a surface to a host-rendered
   request, bound to a key. The model may say it asked; it never carries the approval.

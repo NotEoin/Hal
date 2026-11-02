@@ -1089,7 +1089,7 @@ visibility in `docker inspect` is harmless.
 
 | Key | Default | Reason |
 | --- | --- | --- |
-| `memory` | `"auto"` = `min(8 GiB, MemTotal/4)` | 8 GiB fits a compile plus a test run; RAM/4 gives 4 GiB on a 16 GiB laptop, the value the batchjob SWE sandboxes ran with [source: understand/dev-notes.md]. This machine: 61 GiB, so 8 GiB |
+| `memory` | `"auto"` = `min(8 GiB, MemTotal/4)` | 8 GiB fits a compile plus a test run; RAM/4 gives 4 GiB on a 16 GiB laptop, the value an earlier batch of SWE-task sandboxes ran with. This machine: 61 GiB, so 8 GiB |
 | `cpus` | `0` = `min(4, nproc/2)` | llama.cpp CPU and hybrid presets need the remaining cores; this machine has 24, so 4 |
 | `pids` | `1024` | stops fork bombs; parallel builds stay well below [unverified: measure `make -j4` plus pytest-xdist peak] |
 | `nofile` | `8192` | node tooling opens many files |
@@ -1608,9 +1608,9 @@ use it as a stdio MCP server named `hal`; hal-agent connects to the socket direc
 | `hal.version` | halsandbox version | |
 | `hal.started` | UTC Z | display |
 
-The sweep borrows batchjob's `ContainerLabeler` pattern (label every container with the run and
-the labelling pid, then remove labelled containers whose pid is dead:
-`batch-project/src/batchjob/evalkit/worker.py:205-246`, `doctor.py:460-478`) and adds the uid
+The sweep borrows a batch evaluation harness's container-labeller pattern (label every
+container with the run and the labelling pid, then remove labelled containers whose pid is
+dead) and adds the uid
 filter and `pidstart` against pid reuse.
 
 ```python
@@ -1626,9 +1626,9 @@ def sweep(*, dry_run: bool = False) -> SweepResult: ...
 
 `sweep` lists `docker ps -a --no-trunc --filter label=hal.sandbox=1 --filter
 label=hal.uid=<U> --format ...` (60 s), keeps rows whose pid is alive with the same start
-time, removes the rest with `docker rm -f` (180 s, the batchjob value), then removes dead
-`$R/s/*` dirs. It never removes a container without both labels; batchjob's own
-`batchjob.eval=1` containers and anything else on the daemon are out of its reach. At `hal`
+time, removes the rest with `docker rm -f` (180 s, the value that harness uses), then removes dead
+`$R/s/*` dirs. It never removes a container without both labels; other tools'
+containers and anything else on the daemon are out of its reach. At `hal`
 start it runs at most once per hour (timestamp in `$STATE/sandbox/last-sweep`).
 
 Teardown order for a session (`Session.close`): `Lifeline.request_stop(grace)`; wait for
@@ -2597,8 +2597,8 @@ Today's code has no sandbox [verified: `grep -i 'docker\|bwrap\|sandbox'` over `
 | `--permission-mode acceptEdits` injection (`hal:270-275`) | `[box].auto_approve` inside the box; `hal claude` keeps 06's behaviour |
 | `CLAUDE_CODE_MAX_CONTEXT_TOKENS` from preset files (`hal:162-168`) | `BoxContext.context_window` from the gateway's model metadata |
 | `deep_work` running `claude -p` on the host (`halcore/brain.py:203-227`) | `core_long_task`, a hub tool in halcore's built-in module (tier `act`, RESOLUTIONS F2), running a sandboxed `hal -p` in a box of kind `job` |
-| Project venvs that point at host interpreters (`batch-project/.venv`, `gemma4-agent/.venv`; security review F3) | `hal code --deps` builds `/work/.hal/venv` with the box image's Python; the host `.venv` is left alone |
-| batchjob `ContainerLabeler` and `fix_containers` (`batch-project/.../worker.py:205-246`, `doctor.py:460-478`) | Ported idea: `halsandbox.labels` with uid and pidstart; no code is copied, batchjob is not a dependency |
+| Project venvs that point at host interpreters (`<project>/.venv`; security review F3) | `hal code --deps` builds `/work/.hal/venv` with the box image's Python; the host `.venv` is left alone |
+| An external batch harness's container labeller and cleanup | Ported idea: `halsandbox.labels` with uid and pidstart; no code is copied, the harness is not a dependency |
 
 How existing users keep working: nothing in `~/.config/hal/config.toml` needs to change; all
 new keys have defaults. `hal here` keeps working through the alias table (REQ-SYS-23), which
@@ -2723,7 +2723,7 @@ Marked tests:
 
 Fakes: `HAL_DOCKER` and `HAL_BWRAP` point at `tests/fakes/docker.py` and `bwrap.py`, which log
 argv as JSON lines and answer from `tests/fakes/responses/` (canned `docker info`, `version`,
-`ps`, `image inspect`), following batchjob's `BATCHJOB_DOCKER` seam; `FakeModelServer`,
+`ps`, `image inspect`), following the common environment-variable seam for the `docker` binary; `FakeModelServer`,
 `FakeBroker` and `FakeResolver` from `halkit.testing`; a fake `start_model` callable that
 records start and close order; a fake `Approver` that answers from a script; a
 `FakeGitRepo` fixture helper that builds repos with staged, unstaged, ignored, nested and

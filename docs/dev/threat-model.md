@@ -18,7 +18,7 @@ Ids: assets `AS`, adversaries `ADV`, trust boundaries `TB`, threats `T`. Attack 
 | AS3 | Personal data in Hal stores: memory notes, calendar, contacts, ledger, habits, mail | pack stores under `data_dir()`, the vault, IMAP |
 | AS4 | Host integrity: no persistence, no privilege gain, no planted code that the user later runs | host filesystem, shell rc files, git hooks, units |
 | AS5 | The user's outbound identity: mail, SMS, Telegram, GitHub (`gh` token), push topics | pack secrets |
-| AS6 | Availability: GPU, CPU, RAM, disk; other GPU users (hal-employment, batchjob) | the machine |
+| AS6 | Availability: GPU, CPU, RAM, disk; other GPU users (hal-employment, a batch GPU job) | the machine |
 | AS7 | The user's attention: approvals must stay rare enough to be read | the TUI and channels |
 | AS8 | Integrity of Hal itself: config, policy, approvals, audit log, packs, models | `config_dir()`, `state_dir()`, `data_dir()` |
 

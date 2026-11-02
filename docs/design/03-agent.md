@@ -2010,8 +2010,7 @@ Sections, in order, joined with blank lines:
 5. `## Skills` listing (3.12.2), when any.
 6. `## Tools` block, only for `tool_format = "prompt"` (3.11.6).
 
-The source is the 49-line gemma prompt (`gemma4-agent/gemma-agent/prompts/system.md`, identical
-in substance to `batch-project/agent/prompts/system.md`), which was tuned for "edit early,
+The source is a 49-line Gemma coding prompt from earlier local-agent work, which was tuned for "edit early,
 targeted checks, capped output". Changes: Hal's tool names; no SWE-bench grading talk; schedule
 numbers computed from the budget; `run` keeps the output tail itself, so the "always pipe to
 tail" rule becomes "keep commands focused"; scratch rule kept; protected-path rule is advice
@@ -2933,7 +2932,7 @@ def promote(b: int, c: int) -> bool: ...
 - Default `--repeat 3` for comparisons; the coding set uses `--repeat 5` (12 tasks x 5).
 - Each experiment has a card written before the run, `eval/cards/<YYYY-MM-DD>-<slug>.md` with:
   Parent, Lever, Change (one line), Hypothesis, Mechanism metric, Decision rule; Result and
-  Decision filled in afterwards, kept when the experiment fails (batchjob practice).
+  Decision filled in afterwards, kept when the experiment fails (common eval practice).
 - `hal eval compare A.json B.json` prints the paired table and refuses to name a winner unless
   the promotion rule holds; it says "no detectable difference" otherwise.
 - Held-out tasks are run only to confirm a decision already taken on `dev`.
@@ -3206,7 +3205,7 @@ Choices made where the brief and `RESOLUTIONS.md` are silent, with reasons.
    marking it an error invites retries and trips the error watchdog.
 6. **No-match `grep` is a success.** Same reason.
 7. **The harness writes the state note, the model does not.** A model-written notes slot was
-   killed in batchjob for delaying the first edit.
+   dropped in earlier agent work for delaying the first edit.
 8. **Masking before summarising, one sweep at a time.** Cheaper, keeps code verbatim, and
    limits prefix-cache invalidation.
 9. **`finish` only in task mode.** In an interactive turn the reply itself ends the turn; an
