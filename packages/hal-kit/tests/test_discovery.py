@@ -213,3 +213,10 @@ def test_gemma4_per_layer_kv_heads_and_window_pattern_are_summed_per_layer():
         model = discovery.discover(Source("l", "ollama", server.url)).models[0]
     assert model.kv_full_width == 2 * (512 + 512)
     assert model.kv_window_width == 5 * 8 * (256 + 256)
+
+
+def test_an_ollama_tag_records_the_model_it_was_built_from():
+    tags = [{"name": "hal-fast:latest", "size": 1, "details": {"parent_model": "qwen3.5:4b"}}]
+    with FakeOllama(tags, {}) as server:
+        model = discovery.discover(Source("l", "ollama", server.url)).models[0]
+    assert model.base == "qwen3.5:4b"

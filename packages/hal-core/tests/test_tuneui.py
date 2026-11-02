@@ -331,3 +331,36 @@ def test_the_preset_menu_marks_nothing_as_changed_for_a_cancelled_choice(home, s
     screen, _, _ = open_screen(home, server, picks=["preset", None, "quit"])
     screen.run()
     assert not screen.state.has_changes() and screen.state.preset is None
+
+
+def test_a_role_tag_shows_the_model_it_was_built_from(home):
+    # regression: the summary said only "local/hal-chat:latest", hiding which weights a role runs
+    tag = {"name": "hal-chat:latest", "size": 5 * GIB, "digest": "a" * 64,
+           "details": {"family": "qwen3", "parent_model": "qwen3:8b"}}
+    with FakeOllama([tag, QWEN_TAG], {"hal-chat:latest": arch_doc(36, 32, 8, 128, 40960)}) as server:
+        screen, out, _ = open_screen(home, server)
+        assert tuneui.model_label(screen.state, "local", "hal-chat:latest") == "local/qwen3:8b (hal-chat)"
+        assert tuneui.model_label(screen.state, "local", "qwen3:8b") == "local/qwen3:8b"
+
+
+def test_a_role_set_directly_in_hal_shows_its_model_instead_of_no_model(home, server):
+    # regression: `code_model = "local/hal-gpu"` (a router preset) showed as "no model yet"
+    screen, _, _ = open_screen(home, server)
+    with home.config.open("a") as fh:
+        fh.write('\n[hal]\ncode_model = "local/hal-gpu"\n')
+    assert tuneui.role_line(screen.state, "code", screen.look) == ("local/hal-gpu", "", "set in [hal] (not tuned)")
+
+
+def test_the_summary_names_the_safety_classifier_from_policy_toml(home, server):
+    # the classifier is a model Hal runs too, so the summary shows it although tune does not set it
+    home.config.with_name("policy.toml").write_text(
+        'schema_version = 1\n\n[policy]\nmodel = "ollama/granite4.1-guardian:8b"\nmodel_format = "guardian"\ngpu = false\n'
+    )
+    home.config.with_name("policy.toml").chmod(0o600)
+    assert tuneui.guard_line() == ("ollama/granite4.1-guardian:8b", "safety check, CPU")
+
+
+def test_a_broken_policy_toml_is_a_note_in_the_summary_not_a_crash(home, server):
+    home.config.with_name("policy.toml").write_text("schema_version = 99\n")
+    home.config.with_name("policy.toml").chmod(0o600)
+    assert tuneui.guard_line() == ("?", "policy.toml unreadable (ConfigError)")

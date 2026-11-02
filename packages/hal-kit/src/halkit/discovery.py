@@ -186,6 +186,7 @@ def _ollama(source: Source, fetch: Fetch) -> Discovery:
                 size_bytes=_int(entry.get("size")),
                 params_b=_params_b(details.get("parameter_size") or info.get("general.size_label")),
                 quant=str(details.get("quantization_level") or ""),
+                base=str(details.get("parent_model") or ""),
                 family=arch,
                 layers=_int(info.get(f"{arch}.block_count")),
                 heads=heads,

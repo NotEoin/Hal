@@ -22,6 +22,7 @@ class ModelInfo:
     size_bytes: int | None = None  # weights on disk
     params_b: float | None = None  # parameters in billions
     quant: str = ""
+    base: str = ""  # the model a tag was built from (Ollama `details.parent_model`), when it says
     family: str = ""  # architecture or model family, lowercase: "qwen3", "gemma3", "llama"
     layers: int | None = None
     heads: int | None = None

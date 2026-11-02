@@ -23,6 +23,8 @@ import sys
 from collections.abc import Callable, Sequence
 from typing import Protocol, TextIO
 
+from halhub.policy.load import load_policy
+from halkit import config as halconfig
 from halkit import hardware as hwmod
 from halkit import modelconf, tuning
 from prompt_toolkit import PromptSession
@@ -72,7 +74,7 @@ ROLE_ITEMS = (
     ("Back", "back"),
 )
 YES_NO = (("Yes", "yes"), ("No", "no"))
-SUMMARY_MODEL_WIDTH = 26  # keeps a summary line inside 80 columns
+SUMMARY_MODEL_WIDTH = 40  # role 7 + model 40 + mark 2 + context 6 + longest fit text 24 = 79 columns
 COMMANDS = {
     "role": "choose which role the other commands change",
     "model": "choose a model from your sources",
@@ -182,7 +184,7 @@ def render_screen(state: tunestate.TuneSession, look: Look, current: str) -> Gro
         layers = "all" if fit.gpu_layers < 0 else str(fit.gpu_layers)
         temp = "default" if d.temperature == modelconf.UNSET_TEMPERATURE else f"{d.temperature:g}"
         changed = " *" if role in state.changed_roles() else ""
-        rows.append(Text.assemble((f"{mark} ", pal.accent), (f"{role:<7}", ""), (f"{d.source}/{d.model}{changed}", "")))
+        rows.append(Text.assemble((f"{mark} ", pal.accent), (f"{role:<7}", ""), (f"{model_label(state, d.source, d.model)}{changed}", "")))
         rows.append(Text(f"    context {ctx}  kv {fit.kv_type or 'auto'}  gpu layers {layers}  effort {eff}  temp {temp}", style=pal.muted))
         style, text = fit_line(fit, model.layers if model else None, look)
         rows.append(Text("    " + text, style={"ok": pal.ok, "bad": pal.bad}.get(style, pal.muted)))
@@ -212,14 +214,32 @@ def short(text: str, width: int) -> str:
     return text if len(text) <= width else text[: width - 3] + "..."
 
 
+def model_label(state: tunestate.TuneSession, source: str, name: str) -> str:
+    """`source/name`, or `source/base (tag)` when `name` is a tag built from another model.
+
+    Hal's role tags (`hal-chat:latest` and the like) say nothing about the weights behind them,
+    so the model they were built from leads and the tag follows in brackets.
+    """
+    info = state.find(source, name)
+    base = info.base if info else ""
+    if not base or base == name:
+        return f"{source}/{name}"
+    return f"{source}/{base} ({name.removesuffix(':latest')})"
+
+
 def role_line(state: tunestate.TuneSession, role: str, look: Look) -> tuple[str, str, str]:
     """`(model, context, fit text)` of one role, for the summary and the role menu."""
     d = state.drafts.get(role)
     if d is None or not d.model:
+        direct = str(halconfig.hal().get(f"{role}_model") or "")
+        if direct:
+            # a gateway `backend/model` (such as a llama.cpp router preset) is set in `[hal]`, and
+            # `[models.roles]` cannot describe it, so the screen shows it without tuning it
+            return direct, "", "set in [hal] (not tuned)"
         return "-", "", "falls back to chat" if role == "writer" else "no model yet"
     fit = state.fit(role)
     ctx = f"{fit.context // 1024}K" if fit.context else ""
-    return f"{d.source}/{d.model}", ctx, fit_text(fit, look)
+    return model_label(state, d.source, d.model), ctx, fit_text(fit, look)
 
 
 def render_summary(state: tunestate.TuneSession, look: Look) -> Group:
@@ -246,10 +266,34 @@ def render_summary(state: tunestate.TuneSession, look: Look) -> Group:
                 (fit, style),
             )
         )
+    guard, note = guard_line()
+    rows.append(
+        Text.assemble(
+            (f"{'guard':<7}", ""),
+            (f"{short(guard, SUMMARY_MODEL_WIDTH):<{SUMMARY_MODEL_WIDTH}}   ", ""),
+            (f"{'':>4}  ", ""),
+            (note, pal.muted),
+        )
+    )
     if changed:
         rows.append(Text("* changed, not saved yet", style=pal.muted))
     rows.append(Text(""))
     return Group(*rows)
+
+
+def guard_line() -> tuple[str, str]:
+    """`(model, note)` of the tool-call risk classifier, which `policy.toml` sets, not this screen.
+
+    Shown so the summary names every model Hal runs; `hal tune` does not change it.
+    """
+    try:
+        settings = load_policy().classifier
+    except (halconfig.ConfigError, ValueError, OSError) as exc:
+        return "?", f"policy.toml unreadable ({type(exc).__name__})"
+    if settings.paranoia == "off":
+        return "-", "safety check off (paranoia off)"
+    where = "CPU" if not settings.gpu else "GPU when free"
+    return settings.model, f"safety check, {where}"
 
 
 # --- input -----------------------------------------------------------------------------------
@@ -565,7 +609,7 @@ class TuneScreen:
             if not modelplan._usable(m, role):  # noqa: SLF001 - same package
                 continue
             size = f"{m.size_bytes / 1024**3:.1f} GiB" if m.size_bytes else "size ?"
-            items.append((f"{m.source}/{m.name}  {size}  {m.quant}  {self._fit_of(role, m)}".rstrip(), f"{m.source}\n{m.name}"))
+            items.append((f"{model_label(self.state, m.source, m.name)}  {size}  {m.quant}  {self._fit_of(role, m)}".rstrip(), f"{m.source}\n{m.name}"))
         if not items:
             raise ValueError("no models found: add a source with s, or check that your server runs")
         d = self.state.drafts.get(role)

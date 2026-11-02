@@ -93,10 +93,11 @@ Hal tune
 GPU 0  RTX 4090  24000 / 24564 MiB free
 RAM  24576 / 32768 MiB free   CPU  16 threads
 
-chat   local/gemma3:12b          32K  9.4 GB  fits
-fast   local/qwen3:8b *          32K  6.1 GB  fits
-code   -                              no model yet
+chat   local/gemma3:12b (hal-chat)                 32K  9.4 GB  fits
+fast   local/qwen3:8b *                            32K  6.1 GB  fits
+code   local/hal-gpu                                    set in [hal] (not tuned)
 ...
+guard  ollama/granite4.1-guardian:8b                    safety check, CPU
 What next?
 > 1. Quick setup (presets)
   2. Adjust a role
@@ -106,6 +107,12 @@ What next?
   6. Quit without saving
 up/down move | enter select | 1-9 jump | esc back | ': commands'
 ```
+
+A tag built from another model shows that model first and the tag in brackets, so
+`hal-chat:latest` reads `gemma3:12b (hal-chat)`. A role set straight in `[hal]` to a gateway
+`backend/model`, such as a llama.cpp router preset, is shown but not tuned here. The `guard` line
+is the tool-call safety classifier from `policy.toml` (see [security](security.md)); tune shows it
+and leaves it alone.
 
 No typing is needed. Up and Down move the highlight, Enter chooses, the keys 1 to 9 jump to a
 row, Esc or `q` go back, and a click on a row chooses it (most terminals; if yours does not send
