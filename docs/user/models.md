@@ -74,10 +74,41 @@ hal tune --auto --json                                # the same plan for script
 
 `hal tune` flags: `--role ROLE` (repeatable) plans only that role; `--reassign` chooses again for
 roles that already have a model; `--hardware FILE` plans for the machine described in a JSON
-file (the `hardware` object of `hal tune --json`). A bare `hal tune` shows the `--auto` plan; the
-interactive version is not built yet.
+file (the `hardware` object of `hal tune --json`). On a terminal, a bare `hal tune` (or `hal tune -i`) opens
+the interactive screen below; off a terminal, or with any other flag, it shows the `--auto` plan.
 
 Exit status of `hal tune`: 0 done, 1 error, 2 usage, 3 nothing to tune (no source, or no model).
+
+## The tune screen
+
+`hal tune` on a terminal opens a screen in the style of `hal code`. It shows your hardware (every
+GPU with free and total memory, RAM, CPU threads, WSL2 notes), your sources, and each role with its
+model, context, KV type, GPU layers, effort and temperature. Under each role a fit line says how much of
+the VRAM the model and its cache use and whether it runs on the GPU, on the GPU and RAM, or on the CPU.
+It works with no GPU and in an 80 column terminal.
+
+Type a command, or its first letter (Tab completes). A command may start with a role: `model code`.
+
+| Command | What it does |
+| --- | --- |
+| `role` | Choose the role the other commands change (default `chat`) |
+| `model` | Pick a model from your sources with the arrow keys; type to filter |
+| `context` | Pick a preset (each shows its fit) or type a number: `48000`, `48k` |
+| `kv` | Pick `auto`, `f16`, `q8_0` or `q4_0`, with the fit of each |
+| `effort` | Pick a default effort; shown only for models that can think |
+| `temp` | Type a temperature from 0 to 2, or `default` |
+| `auto` | Tune the role for this hardware; `auto all` tunes every role |
+| `source` | Add or remove a source |
+| `diff` | Show what a write would change in the config |
+| `write` | Show the diff, ask, then pin the models and write the config |
+| `quit` | Leave without writing |
+
+A role you set by hand is written with `auto = false`, so a later `hal tune --write` keeps your numbers.
+Nothing changes on disk until you answer `y` to `write`. The write is the one `hal tune --write` uses:
+comments in your config stay, the old file is saved as `config.toml.bak.<UTC time>`, and a failure
+writes nothing. A model that does not fit your machine cannot be written.
+
+`hal setup` opens this screen on a terminal when no `chat` model is assigned.
 
 What `hal tune --auto` does:
 

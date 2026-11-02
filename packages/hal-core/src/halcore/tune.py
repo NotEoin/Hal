@@ -6,8 +6,8 @@ Without `--write` nothing is changed; the plan shows, per role, the model, the c
 the KV cache type and how many layers go on the GPU, with the numbers behind each choice.
 `--write` pins the chosen models, writes `[models.roles.*]` and the gateway wiring to the config
 (with a backup), and generates the llama.cpp mode `tuned` for GGUF roles. Nothing is downloaded.
-The interactive version of this command is not built yet, so a bare `hal tune` shows the same
-plan as `--auto`.
+On a terminal, a bare `hal tune` (or `-i`) opens the interactive screen (`halcore.tuneui`)
+instead; off a terminal, or with any flag, it shows the `--auto` plan.
 
 Exit status: 0 done, 1 error, 2 usage, 3 nothing to tune (no source, or no usable model).
 """
@@ -71,16 +71,31 @@ def next_step(sources: dict, plans: list[modelplan.RolePlan]) -> str:
     return ""
 
 
+def is_interactive() -> bool:
+    """True when stdin and stdout are both a terminal."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
 def main(argv: list[str]) -> int:
     """Entry point of `hal tune`."""
     ap = argparse.ArgumentParser(prog="hal tune", description="Detect hardware and tune the model settings.")
-    ap.add_argument("--auto", action="store_true", help="choose and plan without questions (the only mode for now)")
+    ap.add_argument("--auto", action="store_true", help="choose and plan without questions")
     ap.add_argument("--write", action="store_true", help="pin the models and write the config")
     ap.add_argument("--json", action="store_true", help="print the plan as JSON")
     ap.add_argument("--role", action="append", choices=modelconf.ROLES, default=[], help="only this role (repeatable)")
     ap.add_argument("--reassign", action="store_true", help="choose again for roles that already have a model")
     ap.add_argument("--hardware", metavar="FILE", help="plan for the machine described in this JSON file")
+    ap.add_argument("-i", "--interactive", action="store_true", help="open the interactive screen (the default on a terminal with no flags)")
     args = ap.parse_args(argv)
+    if args.interactive or (not argv and is_interactive()):
+        from . import tuneui  # noqa: PLC0415 - prompt_toolkit loads only for the screen
+
+        try:
+            hw = hardware.from_dict(json.loads(Path(args.hardware).read_text(encoding="utf-8"))) if args.hardware else None
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(f"hal tune: {exc}", file=sys.stderr)
+            return EXIT_ERROR
+        return tuneui.run_interactive(hw=hw)
     try:
         sources = modelconf.load_sources()
         roles = modelconf.load_roles()

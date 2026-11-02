@@ -9,6 +9,9 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `hal tune` on a terminal opens an interactive screen in the style of `hal code`: it shows the hardware,
+  sources and roles with a live fit line, lets you pick a model, context, KV type, effort and temperature,
+  add or remove a source, tune one role or all, then shows the diff before it writes.
 - `hal tune --write` and `hal models assign` write all or nothing: a failed pin rolls back the pins of that run.
 - `hal tune` detects the hardware, reads the models of your sources and plans context, KV cache type and
   GPU layers per role; `--write` pins the models, saves the roles and the gateway wiring and generates the

@@ -55,6 +55,10 @@ and checks the result. Nothing is downloaded.
    hal doctor   # the model server and role checks
    ```
 
+To do all of this in one screen, run `hal tune` on a terminal. It lets you pick models, set the
+context and see the fit before anything is written (see
+[../user/models.md](../user/models.md#the-tune-screen)).
+
 To stop `hal tune` changing the numbers of a role, set `auto = false` in its
 `[models.roles.NAME]` table. Settings are described in [../user/models.md](../user/models.md).
 
@@ -62,6 +66,9 @@ To stop `hal tune` changing the numbers of a role, set `auto = false` in its
 
 | Symptom | Fix |
 | --- | --- |
+| `hal tune` shows no models in the picker | Add a source with `source` (or step 2) and check that its server runs. |
+| `context` refuses a number | It must be at least 2048 and at most the model's own limit or `[models] context_cap`. |
+| `effort` says the model has no thinking control | Only models in the effort table can think; pick another model. |
 | `hal tune` says "Nothing to tune yet" | Add a source (step 2). |
 | A source shows `unreachable` | Start the server, or check the URL with `hal models list --source NAME`. |
 | `no key` or `chmod 600` error | The key file must be yours with mode 0600: `chmod 600 FILE`. |

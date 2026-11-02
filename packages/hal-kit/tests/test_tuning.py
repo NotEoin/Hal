@@ -130,3 +130,27 @@ def test_unknown_architecture_uses_a_flagged_pessimistic_estimate():
 def test_unknown_weight_size_is_an_error():
     with pytest.raises(ValueError, match="size of the weights"):
         tuning.plan_model(model12b(size_bytes=None), hw(gpu(24564, 24000)))
+
+
+def test_fit_context_matches_the_automatic_plan_at_its_own_context():
+    card = hw(gpu(24564, 24000))
+    auto = tuning.plan_model(model12b(), card, kv_type="f16")
+    fit = tuning.fit_context(model12b(), card, kv_type="f16", context=auto.context)
+    assert (fit.status, fit.kv_mib, fit.gpu_layers) == ("gpu", auto.kv_mib, auto.gpu_layers)
+
+
+def test_fit_context_moves_layers_to_ram_when_the_cache_is_too_big_for_vram():
+    fit = tuning.fit_context(model12b(), hw(gpu(12288)), kv_type="f16", context=131072)
+    assert fit.status == "hybrid" and 0 < fit.gpu_layers < 48
+
+
+def test_fit_context_without_a_gpu_is_cpu_or_does_not_fit():
+    ok = tuning.fit_context(model12b(), hw(), kv_type="q8_0", context=8192)
+    assert ok.status == "cpu"
+    small_ram = hw(ram_total=8192, ram_free=6000)
+    assert tuning.fit_context(model12b(), small_ram, kv_type="f16", context=65536).status == "does-not-fit"
+
+
+def test_fit_context_refuses_a_context_below_the_floor():
+    with pytest.raises(ValueError, match="useful chat"):
+        tuning.fit_context(model12b(), hw(gpu(24564)), kv_type="f16", context=512)

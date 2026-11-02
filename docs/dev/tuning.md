@@ -57,6 +57,14 @@ plan is `does-not-fit`. Zero GPU layers, or no GPU, gives `cpu`.
 The budget is the sum of the usable memory of every device. llama.cpp is given a tensor
 split proportional to each device's usable memory. A device with no usable memory is left out.
 
+## A chosen context
+
+The tune screen (`halcore.tuneui`, state in `halcore.tunestate`) lets the user fix the context.
+`tuning.fit_context` then checks that exact number: weights plus `context x kv/token` against the
+VRAM budget gives `gpu`; otherwise layers move to RAM as in the hybrid case; with no GPU it is
+`cpu`; and `does-not-fit` when RAM is short too. The screen calls it for every preset it lists, so
+the fit shown is the same arithmetic as the automatic plan.
+
 ## Limits
 
 - The per-layer cost is the average. Embedding and output tensors are larger than a layer, so

@@ -609,6 +609,21 @@ wraps it.
   and validate everything first (the new config must load, every model must be pinnable). If a pin,
   the mode file or the config write then fails, it MUST restore the manifest and the mode file and
   report that nothing was written. Test: unit `test_a_failed_pin_rolls_back_earlier_pins_and_writes_no_config`.
+- **REQ-CLI-116** (MUST) On a terminal, `hal tune` with no flags MUST open an interactive screen built
+  on the `hal code` look (`halcore.tui.theme`): the hardware (every GPU, RAM, CPU, WSL2), the
+  sources, and per role the model, context, KV type, GPU layers, effort and a fit line. It MUST work
+  with no GPU, at 80 columns and with ASCII glyphs. Off a terminal, or with any flag, the plan output
+  MUST NOT change. Test: unit `test_the_main_screen_shows_hardware_sources_and_roles_within_80_columns`,
+  `test_a_machine_without_a_gpu_says_so_and_plans_on_the_cpu`, `test_the_ascii_look_draws_only_ascii`,
+  `test_a_bare_tune_on_a_terminal_opens_the_screen_and_otherwise_prints_the_plan`.
+- **REQ-CLI-117** (MUST) The screen MUST recompute the fit from the tuning maths when the model,
+  context or KV type changes, MUST offer effort only when the capability table says the model
+  supports it, MUST show the config diff before writing, and MUST write only through
+  `modelplan.apply` after an explicit yes. Leaving MUST write nothing. Test: unit
+  `test_a_chosen_context_is_checked_against_the_vram_and_marks_the_role_manual`,
+  `test_effort_is_not_offered_for_a_model_without_the_capability`,
+  `test_choosing_a_model_context_and_writing_goes_through_the_apply_path`,
+  `test_quitting_without_writing_leaves_the_config_alone`.
 - **REQ-CLI-113** (MUST) `hal configure` MUST NOT name or pull a model; it MUST accept `--profile
   max|24gb|12gb|cloud` as a preset for `[models] context_cap` and `kv_type` with a deprecation
   note, and print the `hal tune` plan. Test: unit

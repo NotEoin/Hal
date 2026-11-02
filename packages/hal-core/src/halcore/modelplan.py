@@ -65,6 +65,8 @@ class RolePlan:
     plan: tuning.Plan | None = None
     assigned: bool = False  # True when the config already named this model
     locked: bool = False  # `auto = false`: the user's context, kv_type and gpu_layers stay
+    manual: bool = False  # the plan holds numbers the user chose: write them and set `auto = false`
+    settings: dict[str, object] = field(default_factory=dict)  # `effort` and `temperature` to write
     notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
@@ -311,14 +313,19 @@ def role_table(rp: RolePlan, current: Mapping[str, object]) -> dict[str, object]
             values[key] = current[key]
     if rp.model.family and "family" not in values and rp.assigned is False:
         values["family"] = rp.model.family
-    locked = rp.locked or rp.plan is None
+    for key, value in rp.settings.items():
+        if value in (None, "", modelconf.UNSET_TEMPERATURE):
+            values.pop(key, None)
+        else:
+            values[key] = value
+    locked = (rp.locked and not rp.manual) or rp.plan is None
     if rp.plan is not None and not locked:
         values.update(context=rp.plan.context, kv_type=rp.plan.kv_type, gpu_layers=rp.plan.gpu_layers)
     else:
         for key in ("context", "kv_type", "gpu_layers"):
             if key in current:
                 values[key] = current[key]
-    if locked:
+    if locked or rp.manual:
         values["auto"] = False
     return values
 
@@ -412,7 +419,18 @@ def _put_back(path: Path, data: bytes | None) -> None:
         files.write_atomic(path, data)
 
 
-def apply(plans: list[RolePlan], found: Mapping[str, discovery.Discovery]) -> list[str]:
+def preview(plans: list[RolePlan], pre: Callable[[str], str] | None = None) -> tuple[str, str, Wiring]:
+    """`(old config text, new config text, wiring)` for `plans`; `pre` edits the old text first (source changes)."""
+    target = paths.config_file()
+    old = target.read_text(encoding="utf-8") if target.exists() else ""
+    base = pre(old) if pre else old
+    wiring = wire(plans, tomllib.loads(base) if base.strip() else {})
+    return old, edit_config(base, plans, wiring), wiring  # validates the TOML before anything is written
+
+
+def apply(
+    plans: list[RolePlan], found: Mapping[str, discovery.Discovery], pre: Callable[[str], str] | None = None
+) -> list[str]:
     """Pins the models, writes the tuned mode and the config; returns what it did, line by line.
 
     Everything is planned and validated first (the new TOML must load, every model must be
@@ -421,9 +439,7 @@ def apply(plans: list[RolePlan], found: Mapping[str, discovery.Discovery]) -> li
     last, so a failure never leaves roles that point at models that are not pinned.
     """
     target = paths.config_file()
-    old = target.read_text(encoding="utf-8") if target.exists() else ""
-    wiring = wire(plans, tomllib.loads(old) if old.strip() else {})
-    new = edit_config(old, plans, wiring)  # validates the TOML before anything is written
+    old, new, wiring = preview(plans, pre)
     with tempfile.TemporaryDirectory(prefix="hal-apply-") as scratch:
         probe = Path(scratch) / "config.toml"
         probe.write_text(new, encoding="utf-8")

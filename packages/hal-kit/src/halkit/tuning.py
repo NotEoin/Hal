@@ -247,3 +247,45 @@ def plan_model(
             best = plan
     assert best is not None  # KV_TYPES is not empty
     return best
+
+
+def fit_context(
+    model: ModelInfo, hw: Hardware, *, kv_type: str, context: int, headroom_override_mib: int = 0
+) -> Plan:
+    """Where `model` runs with exactly `context` tokens of `kv_type` cache: the check behind a chosen context.
+
+    The status is `gpu` when weights and cache fit the VRAM budget, `hybrid` when layers move to
+    RAM, `cpu` when no layer fits on a GPU or there is no GPU, and `does-not-fit` when RAM is short
+    too. Raises `ValueError` for an unknown cache type, an unknown weight size or a context below
+    `MIN_CONTEXT`.
+    """
+    if context < MIN_CONTEXT:
+        raise ValueError(f"a context below {MIN_CONTEXT} tokens cannot hold a useful chat")
+    weights = _weights_mib(model)
+    per_tok, layers, estimated = _kv_per_token(model, kv_type, weights)
+    kv = math.ceil(context * per_tok / MIB)
+    gpus = [g for g in hw.gpus if usable_mib(g, headroom_override_mib) > 0]
+    budget = sum(usable_mib(g, headroom_override_mib) for g in gpus)
+    ram_keep = max(RAM_HEADROOM_MIN_MIB, math.ceil(hw.ram_total_mib * RAM_HEADROOM_FRACTION))
+    ram = max(hw.ram_free_mib - ram_keep, 0)
+    why = [f"weights {weights} MiB + KV {kv} MiB for {context} tokens = {weights + kv} MiB"]
+    status, n_gpu, in_ram = "cpu", NO_GPU_LAYERS, weights + kv
+    if gpus and weights + kv <= budget:
+        status, n_gpu, in_ram = "gpu", ALL_LAYERS, 0
+        why.append(f"fits the {budget} MiB VRAM budget")
+    elif gpus:
+        per_layer = (weights + kv) / layers
+        n_gpu = min(int(budget // per_layer), layers - 1)
+        in_ram = math.ceil((layers - n_gpu) * per_layer)
+        why.append(f"{n_gpu} of {layers} layers fit the {budget} MiB VRAM budget; the rest go to RAM")
+        status = "hybrid" if n_gpu >= 1 else "cpu"
+        n_gpu = max(n_gpu, NO_GPU_LAYERS)
+    else:
+        why.append("no usable GPU: CPU only")
+    if status != "gpu" and in_ram > ram:
+        status = "does-not-fit"
+        why.append(f"RAM is {in_ram - ram} MiB short ({ram} MiB usable): use a smaller context or model")
+    split = _split(gpus, headroom_override_mib) if status in ("gpu", "hybrid") else ()
+    return Plan(
+        model.name, status, context, kv_type, n_gpu, split, weights, kv, budget, estimated, tuple(why)
+    )
