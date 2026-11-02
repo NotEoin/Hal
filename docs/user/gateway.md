@@ -66,6 +66,19 @@ logs a warning at start, `status` lists it, `/v1/models` marks its models `owned
 reach it unless granted. Your prompts leave the machine on that path: it is not private. See
 [add a cloud backend](../howto/add-a-cloud-backend.md).
 
+## Effort hint
+
+A client asks for thinking effort on a Chat Completions request with the `X-Hal-Effort` header or
+the `hal_effort` body field. The value is `off`, `low`, `medium`, `high` or `max`; the header wins.
+The gateway turns it into what the model's server understands (Ollama `think`, `reasoning_effort`,
+`chat_template_kwargs`, llama.cpp `reasoning_budget`) and removes `hal_effort` before forwarding.
+Without a hint, a role alias such as `hal-chat` uses the `effort` and `temperature` of its
+`[models.roles.chat]` entry. A field the client already set is never overwritten.
+
+A model that cannot think, an unknown level, or a route other than chat completions is ignored:
+the request still runs, a line is logged and the `policy.effort` field of the request log says
+why. The table of model families and the token budgets are in [models.md](models.md#effort).
+
 ## Related
 
 - [Connect a harness to the gateway](../howto/connect-a-harness-to-the-gateway.md)

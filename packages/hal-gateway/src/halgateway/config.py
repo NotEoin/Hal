@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from halkit import config, paths
+from halkit import config, modelconf, paths
 
 from .gpu.peers import PeerConfigError, parse_peers
 
@@ -274,6 +274,7 @@ class GatewayConfig:
     aliases: Mapping[str, Mapping[str, object]]
     ollama_url: str = ""  # `[hal].ollama_url`, the default of an Ollama backend
     hal: Mapping[str, object] = field(default_factory=dict)  # the `[hal]` table: role alias sources
+    roles: Mapping[str, modelconf.Role] = field(default_factory=dict)  # `[models.roles]`: per-role settings
 
 
 def _entry(
@@ -376,4 +377,5 @@ def load_config(path: Path | None = None) -> GatewayConfig:
         aliases=aliases,
         ollama_url=str(hal["ollama_url"]),
         hal=hal,
+        roles=modelconf.load_roles(path),
     )

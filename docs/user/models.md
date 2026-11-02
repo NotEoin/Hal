@@ -58,3 +58,22 @@ auto = true            # true: `hal tune --write` may replace context, kv_type a
 `[models]` itself takes `context_cap` (largest context tuning plans, default 131072),
 `headroom_mib` (VRAM kept free per GPU, 0 = the larger of 1 GiB and 8 percent) and
 `kv_type` (default `auto`).
+
+## Effort
+
+Hal has one dial for how much a model thinks: `off`, `low`, `medium`, `high`, `max`. Models
+disagree on how to turn it, so Hal keeps a table by model family and maps the level for you.
+Set a default per role with `effort`, or ask per request (see
+[gateway.md](gateway.md#effort-hint)).
+
+| Family (detected from the model's architecture or name) | How it thinks | What the levels do |
+| --- | --- | --- |
+| Qwen3 and later Qwen (not Qwen3-Coder) | Template switch | `off` turns thinking off; any other level turns it on. On llama.cpp the level also sets `reasoning_budget`: low 1024, medium 4096, high 16384, max unlimited tokens |
+| gpt-oss, OpenAI o-series and gpt-5 | `reasoning_effort` | low, medium, high; `max` is high; `off` cannot be honoured and uses low |
+| Claude (Anthropic) | `thinking.budget_tokens` | low 1024, medium 4096, high 12288, max 31999; `off` disables thinking. `max_tokens` must be larger than the budget |
+| DeepSeek-R1, QwQ | Always thinks | Ignored; `off` is reported as not honoured |
+| Anything else | Does not think | Ignored with a logged note |
+
+Name patterns are heuristics. If Hal misreads a fine-tune, set `family` in the role
+(`family = "qwen3"`). The exact request fields for llama.cpp and for Ollama's `/v1` route follow
+those servers' documentation and are not yet checked against a live server of every version.

@@ -9,6 +9,8 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- The gateway reads an effort hint (`X-Hal-Effort` header or `hal_effort` field) on chat completions and
+  maps it to the model's thinking controls; role aliases apply the role's `effort` and `temperature`.
 - `halkit.discovery` lists the models of a source with size, parameters, quantisation, layers, heads,
   context and capabilities (tools, vision, thinking): Ollama `/api/show`, GGUF headers, OpenAI-compatible
   `/v1/models`.

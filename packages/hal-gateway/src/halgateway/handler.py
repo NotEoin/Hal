@@ -18,7 +18,7 @@ import json
 import logging
 import time
 
-from . import auth, policies, relay, reqlog, routes
+from . import auth, hints, policies, relay, reqlog, routes
 from .backends import LlamaRouter
 from .errors import (
     BadRequest,
@@ -250,6 +250,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """Applies policies, waits for the swap scheduler, then relays; the GPU gate is held."""
         backend = target.backend
         model = self._apply_policies(gateway, route, target, body) or target.model
+        decided = hints.apply_hints(
+            body,
+            header=self.headers.get(hints.HEADER),
+            alias=target.alias,
+            upstream_model=model,
+            backend_type=backend.type,
+            is_chat=route.api is Api.CHAT,
+            roles=gateway.cfg.roles,
+        )
+        if decided:
+            self.rec["policy"] = {**(self.rec.get("policy") or {}), **decided}
         scheduler = self._scheduler(backend, route)
         ticket = self._admit(scheduler, backend, model, body) if scheduler else None
         body["model"] = ticket.model if ticket else model
