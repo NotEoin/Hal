@@ -36,7 +36,7 @@ from pathlib import Path
 
 from halkit import paths, proc
 
-from . import config, doctor, gpulight, packs, units
+from . import config, doctor, gpulight, migrate, packs, units
 
 log = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ PRIVATE_MODE = 0o700  # what the doctor demands of the sandbox state folder
 MODULE_FILE = "hal-module.toml"
 EXIT_OK, EXIT_FAILED = 0, 1
 
-STEP_ERRORS = (packs.PackError, subprocess.CalledProcessError, proc.ProcTimeout, OSError)
+STEP_ERRORS = (packs.PackError, migrate.MigrateError, subprocess.CalledProcessError, proc.ProcTimeout, OSError)
 
 
 @dataclass
@@ -126,10 +126,27 @@ def plan(dirs: list[Path], *, enable: bool, image: bool, replace: bool = False) 
                 steps.append(Step(f"pack {pack}", f"hal packs add --local {path}", lambda p=path: packs.add_local(p)))
     steps.append(_employment_step(dirs, have))
     steps.append(_gpu_light_step(dirs))
+    steps.append(_config_step(replace))
     steps.append(_sandbox_step())
     steps.append(_image_step() if image else Step("box image", "--no-image", skip="skipped by option"))
     steps.append(_units_step(enable, replace))
     return steps
+
+
+def _config_step(replace: bool) -> Step:
+    """The config part of `hal migrate ecosystem`; entries that point into the old tree need `--replace`."""
+    source = migrate.DEFAULT_SOURCE
+    cfg = paths.config_file()
+    try:
+        plan = migrate.config_plan(source, cfg)
+    except migrate.MigrateError as exc:
+        return Step("config migrate", str(exc), blocked=str(exc))
+    if not plan.steps:
+        return Step("config migrate", str(cfg), skip="nothing to add or rewrite")
+    detail = "; ".join(s.detail for s in plan.steps)
+    if any(s.replace for s in plan.steps) and not replace:
+        return Step("config migrate", detail, skip="module_paths still point into hal-ecosystem; rerun with --replace to rewrite (journaled)")
+    return Step("config migrate", detail, lambda: f"journal {migrate.apply(plan)}")
 
 
 def sandbox_dir() -> Path:
@@ -213,6 +230,9 @@ def _units_step(enable: bool, replace: bool) -> Step:
         return Step("units", "systemctl not found", skip="systemd is not available; skipped")
     verb = "write and enable" if enable else "write (enable with --enable)"
     detail = f"{verb} the hal-* user units"
+    shown = units.exec_starts()
+    if shown:
+        detail += ", running from:\n" + "\n".join(f"         {line}" for line in shown)
     foreign = units.foreign_units(gateway_bin_dir())
     if foreign and not replace:
         return Step("units", detail, blocked=(

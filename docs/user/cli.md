@@ -18,8 +18,14 @@ kept), builds the box image when docker exists, writes the hal-* user units, the
 doctor. Units are only enabled with `--enable`. Unit files that belong to another install (one
 recorded for a folder this checkout does not load, or an unrecorded file with a name it writes,
 such as the old hal-ecosystem units) are never replaced, stopped or deleted unless you pass
-`--replace`; without it the units step fails and names them, in a dry run too. A missing piece is skipped and Hal works without
-it. `--dry-run` prints each step as `[plan]` and changes nothing. A failed step is shown and the
+`--replace`; without it the units step fails and names them, in a dry run too. Units render from
+the registered packs (folder and Python environment of each pack); `[hub].module_paths` adds only
+modules no pack provides. Setup also applies the config part of `hal migrate ecosystem` (journaled,
+so `hal migrate undo` works), with `--replace` it drops `module_paths` entries inside
+hal-ecosystem, and it creates or narrows the sandbox state folder to 0700. The employment helper
+is found through `[jobs].jobhunt_root`, then the siblings. A missing piece is skipped and Hal works
+without it. `--dry-run` prints each step as `[plan]`, including each unit's `ExecStart` so you can
+see where it runs from, and changes nothing. A failed step is shown and the
 rest still run; the exit status is 1 if a step or the doctor failed. Verified by
 `packages/hal-core/tests/test_setup.py`.
 

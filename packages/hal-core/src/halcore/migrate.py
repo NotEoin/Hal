@@ -8,6 +8,8 @@ Design decisions:
 - Nothing is ever written inside the `--from` folder or any hal-employment folder
   (REQ-CLI-88); `guard_target` checks every path before the plan accepts it.
 - The old `hal.conf` is only listed in `[compat].hal_conf`, never rewritten.
+- `hal setup` applies only the config part (`config_plan`): the added tables and the dropped
+  hal-ecosystem entries of `[hub].module_paths`, journaled like the rest.
 - Pack registration, unit rendering and the vault `.mcp.json` edit are not done here: they are
   printed as commands for the person to run (the vault edit needs their explicit approval).
 - A config table that already exists is not edited by text append (that would write a second
@@ -19,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 from dataclasses import dataclass, field
@@ -28,7 +31,10 @@ from halkit import config as kitconfig
 from halkit import files, paths, timeutil
 
 LINK_NAMES = ("hal", "hal-hub", "hal-gateway", "hal-remote")  # the console scripts the old install linked
+DEFAULT_SOURCE = Path.home() / "src/hal-ecosystem"  # where the old install lives, read-only
 DEFAULT_JOBHUNT_ROOT = "~/src/employment-helper"  # the old jobs default, written explicitly (H1)
+ECOSYSTEM_NAME = "hal-ecosystem"  # the old install's folder; its modules are replaced by packs
+MODULE_PATHS_RE = re.compile(r"^module_paths\s*=\s*\[[^\]]*\]", re.M)
 PROTECTED_PREFIXES = ("employment-helper", "wt", "hal-employment")  # never written (REQ-CLI-88)
 EXIT_OK, EXIT_FAILED, EXIT_USAGE = 0, 1, 2
 
@@ -71,6 +77,7 @@ class Step:
     detail: str
     new: str = ""  # config: text to append; link: the new link target
     old: str | None = None  # link: the previous target, None when the link did not exist
+    replace: bool = False  # config: `new` is the whole file, not text to append
 
 
 @dataclass
@@ -111,6 +118,48 @@ def _config_step(source: Path, cfg_path: Path) -> Step | None:
     return Step("config", cfg_path, detail, new="\n" + "\n".join(chunks))
 
 
+def config_plan(source: Path, cfg_path: Path) -> Plan:
+    """The config-only part of the migration: what `hal setup` applies without the links and notes."""
+    added, rewritten = _config_step(source, cfg_path), module_paths_step(source, cfg_path)
+    steps = [s for s in (added, rewritten) if s is not None]
+    if added and rewritten and added.kind == rewritten.kind == "config":
+        # One step, because two whole-file writes from the same original text would undo each other
+        merged = rewritten.new.rstrip("\n") + "\n" + added.new
+        steps = [Step("config", cfg_path, f"{added.detail}; {rewritten.detail}", new=merged, replace=True)]
+    for step in steps:
+        if step.target is not None:
+            guard_target(step.target, source)
+    return Plan(steps)
+
+
+def _under(path: Path, source: Path) -> bool:
+    expanded = path.expanduser()
+    return source in (expanded, *expanded.parents) or ECOSYSTEM_NAME in expanded.parts
+
+
+def module_paths_step(source: Path, cfg_path: Path) -> Step | None:
+    """A step that drops `[hub].module_paths` entries inside the old ecosystem, or None.
+
+    The registered packs provide those modules now, and a left-over entry makes units render
+    from the old tree. Entries elsewhere are kept; only the `module_paths` line is rewritten.
+    """
+    if not cfg_path.exists():
+        return None
+    text = cfg_path.read_text(encoding="utf-8")
+    listed = kitconfig.read_toml(cfg_path).get("hub", {}).get("module_paths")
+    if not isinstance(listed, list):
+        return None
+    keep = [p for p in listed if not _under(Path(str(p)), source)]
+    if len(keep) == len(listed):
+        return None
+    line = "module_paths = [" + ", ".join('"' + str(p).replace("\\", "\\\\").replace('"', '\\"') + '"' for p in keep) + "]"
+    new, count = MODULE_PATHS_RE.subn(lambda _m: line, text, count=1)
+    if count != 1:
+        return Step("manual", None, f"remove the hal-ecosystem entries from [hub].module_paths in {cfg_path}")
+    dropped = ", ".join(str(p) for p in listed if p not in keep)
+    return Step("config", cfg_path, f"drop from [hub].module_paths: {dropped}", new=new, replace=True)
+
+
 def unit_steps() -> list[Step]:
     """One manual step per old unit: stop it, then let `hal units install` render the new form."""
     steps = [Step("manual", None, f"unit {n}: stop and disable it, then it comes back from {src} via `hal units install`")
@@ -124,9 +173,7 @@ def build_plan(source: Path, *, home: Path) -> Plan:
     if not source.is_dir():
         raise MigrateError(f"--from {source} is not a folder")
     plan = Plan()
-    config_step = _config_step(source, paths.config_file())
-    if config_step:
-        plan.steps.append(config_step)
+    plan.steps += config_plan(source, paths.config_file()).steps
     venv_bin = paths.data_dir() / "venv" / "bin"
     bin_dir = home / ".local" / "bin"
     for name in LINK_NAMES:
@@ -182,7 +229,7 @@ def apply(plan: Plan, *, stamp: str | None = None) -> Path:
             entries.append({"kind": "config", "target": str(step.target), "backup": str(saved) if existed else None})
             save()
             before = step.target.read_text() if existed else ""
-            files.write_atomic(step.target, before.rstrip("\n") + "\n" + step.new)
+            files.write_atomic(step.target, step.new if step.replace else before.rstrip("\n") + "\n" + step.new)
         elif step.kind == "link" and step.target is not None:
             entries.append({"kind": "link", "target": str(step.target), "old": step.old})
             save()
@@ -222,7 +269,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="hal migrate", description="move from the old hal-ecosystem layout")
     sub = parser.add_subparsers(dest="cmd", required=True)
     eco = sub.add_parser("ecosystem", help="plan or apply the move; dry run unless --yes")
-    eco.add_argument("--from", dest="source", type=Path, default=Path.home() / "src/hal-ecosystem")
+    eco.add_argument("--from", dest="source", type=Path, default=DEFAULT_SOURCE)
     eco.add_argument("--dry-run", action="store_true", help="print the plan only (the default)")
     eco.add_argument("--yes", action="store_true", help="apply the plan and write a journal")
     und = sub.add_parser("undo", help="restore the state recorded in a journal")

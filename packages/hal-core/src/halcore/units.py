@@ -122,6 +122,18 @@ def render(text: str, root: Path, python: str | None = None) -> str:
             .replace("@ECOSYSTEM@", str(config.ECOSYSTEM)).replace("@HOME@", str(Path.home())))
 
 
+def exec_starts() -> list[str]:
+    """One `unit: ExecStart` line per unit `install` would write, rendered, so a person sees where it runs from."""
+    lines = []
+    for root in module_roots():
+        python = python_for(root)
+        for src in sorted((root / "systemd").glob("*.service")):
+            for line in render(src.read_text(), root, python).splitlines():
+                if line.startswith("ExecStart="):
+                    lines.append(f"{src.name}: {line.removeprefix('ExecStart=')}")
+    return lines
+
+
 def is_gpu(unit_file: Path) -> bool:
     try:
         return bool(re.search(r"^X-HalGPU\s*=\s*(yes|true|1)\s*$", unit_file.read_text(), re.M | re.I))

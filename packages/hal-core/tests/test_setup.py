@@ -182,3 +182,52 @@ def test_employment_helper_is_found_through_jobhunt_root(tmp_path, monkeypatch):
     monkeypatch.setenv("HAL_CONFIG", str(cfg))
     step = hsetup._employment_step([tmp_path / "empty"], {})
     assert str(helper) in step.detail and not step.skip
+
+
+def _cfg(tmp_path, monkeypatch, body):
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(body)
+    monkeypatch.setenv("HAL_CONFIG", str(cfg))
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(hsetup.migrate, "DEFAULT_SOURCE", tmp_path / "hal-ecosystem")
+    return cfg
+
+
+def test_module_paths_into_the_old_ecosystem_are_dropped_only_with_replace(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path, monkeypatch, '[jobs]\njobhunt_root = "/h"\n\n[hub]\nmodule_paths = ["/x/hal-ecosystem/core", "/mine"]\n')
+    step = hsetup._config_step(replace=False)
+    assert step.skip and "--replace" in step.skip and "hal-ecosystem" in cfg.read_text()
+    step = hsetup._config_step(replace=True)
+    step.run()
+    assert 'module_paths = ["/mine"]' in cfg.read_text()
+    assert list((tmp_path / "state" / "migrate").glob("*/journal.json"))
+
+
+def test_config_migrate_keeps_rewrite_and_added_tables_together(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path, monkeypatch, '[hub]\nmodule_paths = ["/x/hal-ecosystem/core"]\n')
+    hsetup._config_step(replace=True).run()
+    text = cfg.read_text()
+    assert "module_paths = []" in text and "[jobs]" in text
+
+
+def test_config_migrate_rewrite_can_be_undone(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path, monkeypatch, '[hub]\nmodule_paths = ["/x/hal-ecosystem/core"]\n')
+    before = cfg.read_text()
+    hsetup._config_step(replace=True).run()
+    journal = next((tmp_path / "state" / "migrate").glob("*/journal.json"))
+    hsetup.migrate.undo(journal)
+    assert cfg.read_text() == before
+
+
+def test_dry_run_units_step_shows_each_exec_start(tmp_path, monkeypatch):
+    root = tmp_path / "pack" / "clock"
+    (root / "systemd").mkdir(parents=True)
+    (root / "systemd" / "hal-clock.service").write_text("[Service]\nExecStart=@PYTHON@ -m halclock\n")
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(units, "module_roots", lambda: [root])
+    monkeypatch.setattr(units, "python_for", lambda r: "/envs/clock/bin/python")
+    monkeypatch.setattr(hsetup.shutil, "which", lambda name: "/usr/bin/" + name if name == "systemctl" else None)
+    monkeypatch.setattr(units, "foreign_units", lambda *a: [])
+    lines: list[str] = []
+    hsetup.execute([hsetup._units_step(False, False)], dry_run=True, out=lines.append)
+    assert "hal-clock.service: /envs/clock/bin/python -m halclock" in lines[0]
