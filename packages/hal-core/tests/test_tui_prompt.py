@@ -167,3 +167,14 @@ def test_branch_is_read_from_head_without_running_the_copys_git_config(tmp_path,
     (tmp_path / ".git" / "HEAD").symlink_to(tmp_path / ".git" / "config")
     assert status.git_branch(tmp_path) == "" and status.git_branch(None) == ""
     assert not (tmp_path / "pwned").exists()
+
+
+def test_effort_and_model_arguments_complete_after_the_command():
+    assert [c.text for c in complete("/effort m")] == ["medium", "max"]
+    assert [c.text for c in complete("/model s")] == ["save"]
+
+
+def test_status_line_shows_the_effort_next_to_the_model_and_nothing_when_unset():
+    shown = status.to_rich(status.segments(info(effort="high"), LOOK), LOOK).plain
+    assert shown.index("qwen3-coder-30b") < shown.index("effort high") < shown.index("25%")
+    assert "effort" not in status.to_rich(status.segments(info(), LOOK), LOOK).plain

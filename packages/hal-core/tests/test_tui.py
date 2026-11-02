@@ -97,6 +97,10 @@ class NullClient:
     def __init__(self):
         self.modes = []
         self.models = []
+        self.efforts = []
+
+    async def set_effort(self, sid, level):
+        self.efforts.append(level)
 
     async def set_mode(self, sid, mode):
         self.modes.append(mode)

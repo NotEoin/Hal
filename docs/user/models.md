@@ -155,8 +155,8 @@ The formula, a full worked example and the limits are in [../dev/tuning.md](../d
 
 Hal has one dial for how much a model thinks: `off`, `low`, `medium`, `high`, `max`. Models
 disagree on how to turn it, so Hal keeps a table by model family and maps the level for you.
-Set a default per role with `effort`, or ask per request (see
-[gateway.md](gateway.md#effort-hint)).
+Set a default per role with `effort`, in the tune screen, or in `hal code` with `/effort` (see
+[hal-code.md](hal-code.md#model-and-effort)); a request can also ask (see [gateway.md](gateway.md#effort-hint)).
 
 | Family (detected from the model's architecture or name) | How it thinks | What the levels do |
 | --- | --- | --- |

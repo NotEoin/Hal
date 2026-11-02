@@ -28,8 +28,6 @@ from . import modelplan
 
 CONTEXT_PRESETS = (8192, 16384, 32768, 65536, 131072)
 KV_OPTIONS = modelconf.KV_CHOICES
-NO_EFFORT_REASON = "this model has no thinking control"
-ALWAYS_REASON = "this model always thinks and cannot be switched"
 OPTIONAL_ROLES = ("writer",)  # empty by design: falls back to chat
 
 
@@ -227,12 +225,7 @@ class TuneSession:
         d, model = self.drafts.get(role), self.model_of(role)
         if d is None or model is None:
             return (), "no model chosen"
-        cap = effort.capability(d.family or model.family, model.name)
-        if cap.kind == "none":
-            return (), NO_EFFORT_REASON
-        if cap.kind == "always":
-            return (), ALWAYS_REASON
-        return effort.LEVELS, ""
+        return effort.levels_for(effort.capability(d.family or model.family, model.name))
 
     def _fix_effort(self, role: str) -> None:
         d = self.drafts[role]

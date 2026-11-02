@@ -624,6 +624,21 @@ wraps it.
   `test_effort_is_not_offered_for_a_model_without_the_capability`,
   `test_choosing_a_model_context_and_writing_goes_through_the_apply_path`,
   `test_quitting_without_writing_leaves_the_config_alone`.
+- **REQ-CLI-118** (MUST) In `hal code`, `/model` MUST list the models of the configured sources grouped
+  by source with the current one marked, switch the session to the one chosen, refuse a model the
+  gateway cannot serve with the reason, and `/model save` MUST write the current model as the `code`
+  role through `modelscmd.assign_role` (the path of `hal models assign`). Test: unit
+  `test_model_lists_discovered_models_grouped_by_source_with_the_current_one_marked`,
+  `test_selecting_a_model_switches_the_session_to_its_gateway_name`,
+  `test_model_save_writes_the_current_model_as_the_code_role_with_the_effort`.
+- **REQ-CLI-119** (MUST) `/effort [off|low|medium|high|max|default]` MUST show the current level and the
+  supported levels without an argument, MUST refuse with a one-line reason when the capability table
+  says the model cannot use it, MUST send accepted levels to the agent (`session/set_effort`, REQ-AGT-103),
+  and the status line MUST show the level next to the model. Switching to a model without support MUST
+  drop the level. Test: unit `test_effort_without_an_argument_names_the_level_and_the_supported_levels`,
+  `test_effort_is_refused_with_a_reason_for_a_model_that_cannot_think`,
+  `test_switching_to_a_model_without_support_drops_the_effort_and_says_so`,
+  `test_status_line_shows_the_effort_next_to_the_model_and_nothing_when_unset`.
 - **REQ-CLI-113** (MUST) `hal configure` MUST NOT name or pull a model; it MUST accept `--profile
   max|24gb|12gb|cloud` as a preset for `[models] context_cap` and `kv_type` with a deprecation
   note, and print the `hal tune` plan. Test: unit

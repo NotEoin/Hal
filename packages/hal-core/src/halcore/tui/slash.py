@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from halkit import timeutil
+from halkit import effort, timeutil
 from halsandbox import isolated
 from halsandbox.errors import SandboxError
 
@@ -27,6 +27,7 @@ from rich.console import RenderableType
 from rich.table import Table
 
 from .. import deepwork
+from . import choices
 from .render import Renderer, TurnStats, clip, safe
 from .status import StatusInfo, context_bar, percent
 from .theme import THEMES, load_look
@@ -45,6 +46,7 @@ MAX_IMAGE_BYTES = 5 * 2**20  # the ACP line cap is 8 MiB and base64 adds a third
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
 MAX_DIFF_CHARS = 20_000
 ALLOW_FLAGS = "--allow-flags"
+CATALOG_TIMEOUT_S = 20.0  # discovery asks each source in turn, each with its own short timeout
 MODEL_LIST_TIMEOUT_S = 3.0  # a picker must not hang on a stopped gateway
 CONTEXT_KEYS = ("context_length", "context_window", "n_ctx", "max_model_len")
 INIT_PROMPT = (
@@ -88,6 +90,10 @@ class TuiState:
     list_models: Callable[[], list[dict[str, object]]] | None = None
     model_choices: list[str] = field(default_factory=list)
     resume_choices: list[str] = field(default_factory=list)
+    effort: str = ""  # the level `/effort` set for this session; "" = the model's default
+    load_choices: Callable[[], list[choices.Choice]] | None = None  # the models of the configured sources
+    choices: list[choices.Choice] | None = None  # filled by the first `/model` or `/effort`
+    save_model: Callable[[choices.Choice, str], list[str]] | None = None  # writes the `code` role: choice, effort
     ide: object | None = None  # an `IdeBridge` when the IDE channel is open
     confirm: Callable[[str], Awaitable[bool]] | None = None  # a yes/no typed on the terminal; None refuses
 
@@ -149,6 +155,8 @@ async def _clear(state: TuiState, args: str) -> Result:
         return Result(message="/clear is not available here")
     state.sid = await state.new_conversation()
     state.renderer.todo = []
+    if state.effort:  # effort belongs to the agent session, which is new
+        await state.client.set_effort(state.sid, state.effort)
     return Result(message="(new conversation in the same box)")
 
 
@@ -211,17 +219,61 @@ def context_size_of(row: dict[str, object]) -> int:
     return 0
 
 
+async def _catalog(state: TuiState) -> list[choices.Choice] | None:
+    """The models of the configured sources (cached for the session); None when no loader is set or it fails."""
+    if state.choices is None and state.load_choices is not None:
+        try:
+            state.choices = await asyncio.wait_for(asyncio.to_thread(state.load_choices), CATALOG_TIMEOUT_S)
+        except Exception as exc:  # noqa: BLE001 - a listing failure falls back to the gateway list, never crashes the loop
+            log.warning("model sources could not be listed: %s", exc)
+    return state.choices
+
+
+def _current(state: TuiState) -> choices.Choice | None:
+    return choices.find(state.choices or [], state.model) if state.model else None
+
+
+def effort_support(state: TuiState) -> tuple[tuple[str, ...], str]:
+    """`(levels, reason)` for the session's model, from the capability table."""
+    here = _current(state)
+    return effort.levels_for(effort.capability(here.family if here else "", here.name if here else state.model))
+
+
+async def _switch(state: TuiState, name: str) -> str:
+    """Switches the session to the gateway model `name`; returns a note about effort, or "". Raises `AcpError`."""
+    await state.client.set_model(state.sid, name)
+    state.model = state.status.model = name
+    if not state.effort:
+        return ""
+    levels, reason = effort_support(state)
+    if state.effort in levels:
+        return ""
+    await state.client.set_effort(state.sid, "")
+    old, state.effort, state.status.effort = state.effort, "", ""
+    return f"effort {old} dropped: {reason}"
+
+
 async def _model(state: TuiState, args: str) -> Result:
-    if args.isdigit() and 1 <= int(args) <= len(state.model_choices):
+    await _catalog(state)
+    if args == "save":
+        return await _model_save(state)
+    if state.choices and args:
+        picked = state.choices[int(args) - 1] if args.isdigit() and 1 <= int(args) <= len(state.choices) else choices.find(state.choices, args)
+        if picked is not None:
+            if not picked.gateway:
+                return Result(message=f"/model: {safe(picked.source)}/{safe(picked.name)} cannot be used yet: {picked.note}")
+            args = picked.gateway
+    elif not state.choices and args.isdigit() and 1 <= int(args) <= len(state.model_choices):
         args = state.model_choices[int(args) - 1]
     if args:
         try:
-            await state.client.set_model(state.sid, args)
+            note = await _switch(state, args)
         except AcpError as exc:
             return Result(message=f"/model: {safe(str(exc))}")
-        state.model = state.status.model = args
-        return Result(message=f"model: {safe(args)} from the next turn")
+        return Result(message=f"model: {safe(args)} from the next turn" + (f"\n{note}" if note else ""))
     current = f"model: {safe(state.model) or '(default)'}"
+    if state.choices:
+        return Result(message=_choice_list(state, current))
     if state.list_models is None:
         return Result(message=current)
     try:
@@ -236,6 +288,72 @@ async def _model(state: TuiState, args: str) -> Result:
         mark = "*" if str(row["id"]) == state.model else " "
         lines.append(f"{mark}{i}  {safe(row['id'])}" + (f"  {size // 1024}k context" if size else ""))
     return Result(message="\n".join(lines))
+
+
+def _choice_list(state: TuiState, current: str) -> str:
+    """The numbered list of discovered models, grouped by source, with the current one marked."""
+    here = _current(state)
+    lines = [current + (f"  (effort {state.effort})" if state.effort else ""), "models (use /model N or /model NAME; /model save keeps it as the code role):"]
+    last = ""
+    for i, c in enumerate(state.choices or [], 1):
+        if c.source != last:
+            lines.append(f"{safe(c.source)} ({c.kind})")
+            last = c.source
+        size = f"  {c.size_bytes / 1024**3:.1f} GiB" if c.size_bytes else ""
+        extra = "  thinks" if c.thinks else ""
+        why = f"  [{c.note}]" if c.note and not c.gateway else ""
+        lines.append(f"{'*' if c is here else ' '}{i}  {safe(c.name)}{size}{extra}{why}")
+    return "\n".join(lines)
+
+
+async def _model_save(state: TuiState) -> Result:
+    here = _current(state)
+    if here is None:
+        return Result(message="/model save: the current model is not one of your sources; pick one with /model first")
+    if state.save_model is None:
+        return Result(message="/model save is not available here")
+    try:
+        lines = await asyncio.to_thread(state.save_model, here, state.effort)
+    except Exception as exc:  # noqa: BLE001 - a failed write is shown, the session goes on; nothing was written
+        return Result(message=f"/model save: {safe(str(exc))}")
+    return Result(message="\n".join([f"saved {safe(here.source)}/{safe(here.name)} as the code role", *map(safe, lines)]))
+
+
+async def _effort(state: TuiState, args: str) -> Result:
+    await _catalog(state)
+    levels, reason = effort_support(state)
+    if not args:
+        if not levels:
+            return Result(message=f"effort: not available for {safe(state.model) or 'this model'}, {reason}")
+        return Result(message=f"effort: {state.effort or 'default'}; this model supports {', '.join(levels)} (or default)")
+    if args not in (*effort.LEVELS, "default"):
+        return Result(message=f"/effort: use one of {', '.join(effort.LEVELS)}, or default")
+    if not levels:
+        return Result(message=f"/effort: not available, {reason}")
+    level = "" if args == "default" else args
+    try:
+        await state.client.set_effort(state.sid, level)
+    except AcpError as exc:
+        return Result(message=f"/effort: {safe(str(exc))}")
+    state.effort = state.status.effort = level
+    return Result(message=f"effort: {level or 'default'} from the next turn")
+
+
+async def apply_code_defaults(state: TuiState, roles: dict[str, object]) -> None:
+    """Sends the `code` role's `effort` when its model supports it; a failure only logs."""
+    role = roles.get("code")
+    level = getattr(role, "effort", "")
+    if not level:
+        return
+    await _catalog(state)
+    if level not in effort_support(state)[0]:
+        return
+    try:
+        await state.client.set_effort(state.sid, level)
+    except AcpError as exc:
+        log.warning("effort %s was not applied: %s", level, exc)
+        return
+    state.effort = state.status.effort = level
 
 
 async def _compact(state: TuiState, args: str) -> Result:
@@ -423,7 +541,8 @@ async def _quit(state: TuiState, args: str) -> Result:
 
 COMMAND_HELP = {
     "help": ("/help", "this table"),
-    "model": ("/model [N|NAME]", "pick a model from the gateway, with context sizes"),
+    "model": ("/model [N|NAME|save]", "models of your sources by source; switch, or save as the code role"),
+    "effort": ("/effort [off|low|medium|high|max]", "thinking effort for models that support it"),
     "mode": ("/mode [default|auto-edit|plan]", "permission mode (Shift-Tab cycles)"),
     "compact": ("/compact", "summarise history to free context"),
     "clear": ("/clear", "start a fresh conversation in the same box"),
@@ -446,7 +565,7 @@ COMMAND_HELP = {
     "quit": ("/quit", "leave (Ctrl-D too)"),
 }
 BUILTINS = {
-    "help": _help, "clear": _clear, "mode": _mode, "todo": _todo, "model": _model, "compact": _compact, "resume": _resume, "fork": _fork,
+    "help": _help, "clear": _clear, "mode": _mode, "todo": _todo, "model": _model, "effort": _effort, "compact": _compact, "resume": _resume, "fork": _fork,
     "image": _image, "diff": _diff, "rewind": _rewind, "apply": _apply, "accept": _accept, "ide": _ide, "export": _export, "cost": _cost,
     "context": _context, "jobs": _jobs, "init": _init, "theme": _theme, "lockdown": _lockdown, "paranoia": _paranoia, "quit": _quit,
 }  # fmt: skip

@@ -28,6 +28,8 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.output import ColorDepth, Output
 from prompt_toolkit.styles import Style
 
+from halkit import effort
+
 from . import mentions
 from .status import PT_COLORS
 from .theme import Look
@@ -48,6 +50,14 @@ class Hooks:
     toggle_todo: Callable[[], None] | None = None
 
 
+COMMAND_ARGUMENTS = {  # fixed words Tab completes after a command name
+    "effort": (*effort.LEVELS, "default"),
+    "model": ("save",),
+    "mode": ("default", "auto-edit", "plan"),
+    "theme": ("dark", "light", "mono"),
+}
+
+
 class HalCompleter(Completer):
     """Completes `/command` names (with their descriptions) and `@path` files of the workspace."""
 
@@ -62,6 +72,12 @@ class HalCompleter(Completer):
             for name in sorted(self.commands):
                 if name.startswith(text[1:]):
                     yield Completion("/" + name, start_position=-len(text), display_meta=self.commands[name])
+            return
+        if text.startswith("/") and text.count(" ") == 1:
+            name, _, partial = text[1:].partition(" ")
+            for word in COMMAND_ARGUMENTS.get(name, ()):
+                if word.startswith(partial):
+                    yield Completion(word, start_position=-len(partial))
             return
         match = TOKEN_RE.search(text)
         root = self.root()

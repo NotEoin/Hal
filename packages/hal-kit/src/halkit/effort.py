@@ -69,6 +69,19 @@ def capability(family_hint: str = "", name: str = "") -> Capability:
     return NO_THINKING
 
 
+NO_EFFORT_REASON = "this model has no thinking control"
+ALWAYS_THINKS_REASON = "this model always thinks and cannot be switched"
+
+
+def levels_for(cap: Capability) -> tuple[tuple[str, ...], str]:
+    """`(levels, reason)`: the levels a user may set for `cap`, or none and a one-line reason."""
+    if cap.kind == "none":
+        return (), NO_EFFORT_REASON
+    if cap.kind == "always":
+        return (), ALWAYS_THINKS_REASON
+    return LEVELS, ""
+
+
 def parse_level(value: object) -> str | None:
     """A level from a header or body value, or None when it is not one of `LEVELS`."""
     text = str(value).strip().lower()

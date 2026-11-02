@@ -136,21 +136,33 @@ def list_models(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def assign_role(role: str, source: str, model: str, effort: str = "") -> list[str]:
+    """Gives `role` the model, then pins and wires it (what `hal models assign` does); returns what was done.
+
+    Raises `ValueError` or a `modelplan.plain_errors()` error, with nothing written, when the source
+    or model is unknown or a pin fails.
+    """
+    text = _read()
+    sources = modelconf.load_sources()
+    if source not in sources:
+        raise ValueError(f"no source named {source!r}; hal models add-source ...")
+    found = modelplan.survey({source: sources[source]})
+    if modelplan._find(found, source, model) is None:  # noqa: SLF001 - same package
+        reason = found[source].error or "it is not in the source's model list"
+        raise ValueError(f"{model!r} not available from {source!r}: {reason}")
+    values: dict[str, object] = {"source": source, "model": model}
+    if effort:
+        values["effort"] = effort
+    _validated_write(tomledit.set_table(text, f"models.roles.{role}", values))
+    roles = modelconf.load_roles()
+    plans = modelplan.build(roles, sources, found, hardware.detect(), modelconf.limits(), only=(role,))
+    return modelplan.apply(plans, found)
+
+
 def assign(args: argparse.Namespace) -> int:
     """`hal models assign ROLE SOURCE MODEL`: set the role, then pin and wire it."""
-    text = _read()
     try:
-        sources = modelconf.load_sources()
-        if args.source not in sources:
-            raise ValueError(f"no source named {args.source!r}; hal models add-source ...")
-        found = modelplan.survey({args.source: sources[args.source]})
-        if modelplan._find(found, args.source, args.model) is None:  # noqa: SLF001 - same package
-            reason = found[args.source].error or "it is not in the source's model list"
-            raise ValueError(f"{args.model!r} not available from {args.source!r}: {reason}")
-        _validated_write(tomledit.set_table(text, f"models.roles.{args.role}", {"source": args.source, "model": args.model}))
-        roles = modelconf.load_roles()
-        plans = modelplan.build(roles, sources, found, hardware.detect(), modelconf.limits(), only=(args.role,))
-        for line in modelplan.apply(plans, found):
+        for line in assign_role(args.role, args.source, args.model):
             print(line)
     except (ValueError, OSError, *modelplan.plain_errors()) as exc:
         print(f"hal models: {exc}", file=sys.stderr)

@@ -42,6 +42,7 @@ class StatusInfo:
     """What the status line shows; every field has a safe empty value."""
 
     model: str = ""
+    effort: str = ""  # the level `/effort` set; shown next to the model
     used: int = 0
     size: int = 0
     tok_s: float = 0.0
@@ -71,6 +72,8 @@ def segments(info: StatusInfo, look: Look) -> list[tuple[str, str]]:
     g = look.glyphs
     sep = (("muted", f" {g.sep} "),)
     out: list[tuple[str, str]] = [("accent", f" {clip(clean(info.model) or 'no model', MAX_FIELD_CHARS)}")]
+    if info.effort:
+        out += [*sep, ("muted", f"effort {clip(clean(info.effort), MAX_FIELD_CHARS)}")]
     if info.size:
         pct = percent(info.used, info.size)
         out += [*sep, ("bad" if pct >= WARN_PERCENT else "muted", f"{context_bar(info.used, info.size, g)} {pct}%")]

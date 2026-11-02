@@ -9,6 +9,9 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `hal code`: `/model` lists the models of your sources by source, switches the session and `/model save`
+  keeps the choice as the `code` role; `/effort` sets the thinking effort for models that support it, shows it in
+  the status line and sends it with every request.
 - `hal-agent` can send an effort level with each request: the ACP method `session/set_effort` sets it and the
   agent adds it to the Chat Completions body as `hal_effort`, which the gateway maps to the model's thinking controls.
 - `hal tune` on a terminal opens an interactive screen in the style of `hal code`: it shows the hardware,

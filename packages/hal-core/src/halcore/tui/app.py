@@ -25,13 +25,13 @@ from typing import TextIO
 
 from halkit import config as kitconfig
 from halkit import paths
-from halkit import fsafe, llm, proc
+from halkit import fsafe, llm, modelconf, proc
 from halsandbox import isolated
 from halsandbox.errors import SandboxError
 from rich.panel import Panel
 from rich.text import Text
 
-from .. import __version__, deepwork, pids, sessions, sessionscmd, unboxed
+from .. import __version__, config, deepwork, modelscmd, pids, sessions, sessionscmd, unboxed
 from ..acp.client import AcpClient, AcpError
 from ..acp.permissions import PermissionBridge, socket_owned_by_us
 from ..acp.records import RecordRefused, RecordStore
@@ -43,7 +43,8 @@ from .keys import KeyWatcher
 from .mentions import attach_mentions
 from .prompt import Hooks, PromptInput, private_history
 from .render import Renderer, TurnStats, clean
-from .slash import MODES, TuiState, command_descriptions, dispatch, load_commands
+from . import choices
+from .slash import MODES, TuiState, apply_code_defaults, command_descriptions, dispatch, load_commands
 from .status import StatusInfo, git_branch, segments, to_prompt_toolkit, to_rich
 from .theme import UI_TABLE, Look, load_look
 
@@ -249,6 +250,20 @@ async def run_tui(box: sessions.BoxedAgent, **kwargs) -> int:  # noqa: ANN003 - 
         return await _run_tui(box, **kwargs)
 
 
+def attach_model_sources(state: TuiState) -> dict[str, modelconf.Role]:
+    """Lets `/model` and `/effort` use the configured model sources; returns the configured roles."""
+    try:
+        sources, roles = modelconf.load_sources(), modelconf.load_roles()
+    except kitconfig.ConfigError as exc:
+        log.warning("model config not read: %s", exc)
+        return {}
+    if sources:
+        ollama_url = config.shared()["ollama_url"]
+        state.load_choices = lambda: choices.load(sources, roles, ollama_url)
+        state.save_model = lambda c, level: modelscmd.assign_role("code", c.source, c.name, level)
+    return roles
+
+
 async def _run_tui(
     box: sessions.BoxedAgent,
     *,
@@ -302,6 +317,8 @@ async def _run_tui(
         model=model, lockdown=lockdown, paranoia=paranoia, unsandboxed=session.backend == "none"
     )  # fmt: skip
     state.user_commands = load_commands(project)
+    if stdin_line is None:
+        await apply_code_defaults(state, attach_model_sources(state))
     def live_status() -> Text:
         """The status line with this turn's context use and speed, so the bar moves while the model works."""
         live = renderer.stats

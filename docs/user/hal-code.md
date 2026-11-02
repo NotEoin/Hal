@@ -89,13 +89,38 @@ the model cannot draw a fake panel. `hal approve ID` in another terminal also wo
 
 ## Slash commands
 
-`/help` shows the table. Built in: `/model` (numbered picker with context sizes), `/mode`,
+`/help` shows the table. Built in: `/model` (models of your sources, by source), `/effort`, `/mode`,
 `/compact`, `/clear`, `/resume` (numbered picker), `/fork`, `/rewind`, `/diff`,
 `/accept` (alias `/apply`: shows the diff report, asks `[y/N]`, then applies exactly what you
 reviewed), `/ide`, `/export [FILE]`, `/cost`, `/context`, `/todo`, `/jobs`, `/init`, `/image FILE` (the workspace only; `--outside` allows another path and prints a warning),
 `/theme dark|light|mono`, `/lockdown` and `/paranoia` (read only: change them on the host with
 `hal config set`), `/quit`. Your own commands are files `.hal/commands/NAME.md` in the project;
 `$ARGUMENTS` is replaced by what you type after the name.
+
+### Model and effort
+
+`/model` lists the models Hal finds in your sources (see [models.md](models.md)), grouped by source,
+with the current one marked and a `thinks` tag on models that support an effort level.
+
+```text
+/model                 # the list
+/model 2               # switch to the second model for this session, from the next turn
+/model qwen3:8b        # or by name, or SOURCE/NAME, or a part of the name
+/model save            # write the current model as the code role in your config
+```
+
+Switching changes only this session. `/model save` uses the same pin-and-wire path as
+`hal models assign code SOURCE MODEL`, and also saves the effort you set. The gateway reads its config
+at start, so restart it before a saved model from a new source can be served. A model the gateway
+cannot serve yet (a GGUF file no role holds, an Anthropic model) is listed with the reason and is not
+selectable.
+
+`/effort` sets how much the model thinks: `off`, `low`, `medium`, `high` or `max` (`default` clears it).
+Without an argument it shows the current level and the levels the model supports. For a model with
+no thinking control, or one that always thinks, it says why and changes nothing. The level appears in the
+status line next to the model, is sent with every request, and is dropped when you switch to a model
+that cannot use it. When the `code` role has an `effort`, `hal code` starts with it. Tab completes the
+levels. How a level maps to a model is in [models.md](models.md#effort).
 
 In `plan` mode, when a turn ends with a todo list, the UI shows the plan and asks
 `Run this plan?`. `d` or `a` leaves plan mode for `default` or `auto-edit`; anything else keeps it.
@@ -123,4 +148,6 @@ In `plan` mode, when a turn ends with a todo list, the UI shows the plan and ask
 | `@file` is not attached | It is over `[ui].mention_max_bytes`, not UTF-8, a symlink, or outside the workspace |
 | Esc does nothing during a turn | stdin is not a terminal; use Ctrl-C |
 | `/rewind` says no checkpoints | `hal chat` boxes have no work tree; use `hal code` |
-| `/model` shows no list | The gateway did not answer within 3 s; `/model NAME` still works |
+| `/model` shows no list | No source is configured or none answered (`hal models list`); `/model NAME` still works |
+| `/effort` says not available | The model has no thinking control; pick one marked `thinks` in `/model` |
+| `/model` says a model cannot be used yet | Run `/model save` (after choosing a served model), or `hal models assign code SOURCE MODEL` |
