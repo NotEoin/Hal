@@ -9,6 +9,8 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `halkit.effort` maps Hal's effort levels (`off|low|medium|high|max`) to the request fields of Ollama,
+  OpenAI-compatible servers, llama.cpp and Anthropic, per model family.
 - `halkit.tuning` computes context length, KV cache type, GPU layers and tensor split from the
   hardware and a model's architecture; the formula is in `docs/dev/tuning.md`.
 - `halkit.gguf` reads the metadata of a GGUF file (architecture, layers, KV heads, context, quantisation)
