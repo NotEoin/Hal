@@ -166,11 +166,13 @@ def _parse_env(text: str, expected: type | tuple[type, ...]) -> object:
             try:
                 return float(lowered)
             except ValueError:
+                # not a float; try the next reading
                 continue
         if kind in (list, dict):
             try:
                 return json.loads(text)
             except ValueError:
+                # not JSON; keep the text
                 continue
         if kind is str:
             return text
@@ -272,6 +274,7 @@ def _loopback_url(value: object) -> str | None:
         if ipaddress.ip_address(host).is_loopback:
             return None
     except ValueError:
+        # not an IP literal; a host name is checked by the caller
         pass
     return f"host {host!r} is not loopback; Hal binds and talks to loopback only (REQ-SYS-09)"
 

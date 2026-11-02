@@ -171,6 +171,7 @@ class Resolver:
             try:
                 target = self._by_name(role)
             except Conflict:
+                # an ambiguous role has no alias to list
                 continue
             if target is not None:
                 add(role, target.backend, target.context_length, target.model)

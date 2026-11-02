@@ -118,6 +118,7 @@ def parse_args(raw: object) -> dict | None:
         try:
             value = json.loads(attempt)
         except ValueError:
+            # this candidate text is not JSON; try the next repair
             continue
         if isinstance(value, str):
             return parse_args(value)

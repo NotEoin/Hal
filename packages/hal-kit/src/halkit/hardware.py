@@ -212,6 +212,7 @@ def _amd(run: Runner, notes: list[str]) -> list[Gpu]:
             metric = None
         return parse_amd_smi(static, metric)
     except FileNotFoundError:
+        # amd-smi is not installed; try the next tool
         pass
     except (*errors, KeyError, TypeError, AttributeError) as exc:
         notes.append(f"amd-smi unreadable: {exc!r}")
@@ -219,6 +220,7 @@ def _amd(run: Runner, notes: list[str]) -> list[Gpu]:
         out = run(["rocm-smi", "--showproductname", "--showmeminfo", "vram", "--json"], SMI_TIMEOUT_S)
         return parse_rocm_smi(out)
     except FileNotFoundError:
+        # rocm-smi is not installed; no AMD GPU found
         pass
     except (*errors, KeyError, TypeError, AttributeError) as exc:
         notes.append(f"rocm-smi unreadable: {exc!r}")

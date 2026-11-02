@@ -136,6 +136,7 @@ def append_jsonl(
             if path.stat().st_size >= max_bytes:
                 _rotate(path, keep)
         except FileNotFoundError:
+            # no file yet, so nothing to rotate
             pass
         fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
         try:

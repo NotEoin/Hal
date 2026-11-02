@@ -222,26 +222,26 @@ class PtPrompter:
             state["index"] -= 1
 
         @keys.add("down")
-        def _down(event) -> None:  # noqa: ANN001
+        def _down(event) -> None:
             state["index"] += 1
 
         @keys.add("enter")
-        def _enter(event) -> None:  # noqa: ANN001
+        def _enter(event) -> None:
             shown = visible()
             event.app.exit(result=shown[state["index"]][1] if shown else None)
 
         @keys.add("escape", eager=True)
         @keys.add("c-c")
         @keys.add("c-d")
-        def _cancel(event) -> None:  # noqa: ANN001
+        def _cancel(event) -> None:
             event.app.exit(result=None)
 
         @keys.add("backspace")
-        def _back(event) -> None:  # noqa: ANN001
+        def _back(event) -> None:
             state["query"], state["index"] = state["query"][:-1], 0
 
         @keys.add("<any>")
-        def _type(event) -> None:  # noqa: ANN001
+        def _type(event) -> None:
             if event.data.isprintable():
                 state["query"] += event.data
                 state["index"] = 0
@@ -387,7 +387,7 @@ class TuneScreen:
     def cmd_kv(self, arg: str) -> None:
         """Sets the KV cache type."""
         role, rest = self._target(arg)
-        self.state._need(role)  # noqa: SLF001
+        self.state._need(role)
         value = rest or self.prompter.pick(
             f"{role} KV type", [(f"{k:<5} {self._fit_text(self.state.try_kv(role, k))}", k) for k in tunestate.KV_OPTIONS]) or ""
         if value:
@@ -397,7 +397,7 @@ class TuneScreen:
     def cmd_effort(self, arg: str) -> None:
         """Sets the default effort, only for models that support it."""
         role, rest = self._target(arg)
-        self.state._need(role)  # noqa: SLF001
+        self.state._need(role)
         levels, reason = self.state.effort_options(role)
         if not levels:
             self.say(f"{role}: no effort setting, {reason}", "muted")
@@ -410,7 +410,7 @@ class TuneScreen:
     def cmd_temp(self, arg: str) -> None:
         """Sets the temperature."""
         role, rest = self._target(arg)
-        self.state._need(role)  # noqa: SLF001
+        self.state._need(role)
         value = rest or self.prompter.ask("temperature 0 to 2, or default: ") or ""
         if not value:
             return

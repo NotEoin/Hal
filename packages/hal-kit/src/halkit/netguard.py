@@ -84,6 +84,7 @@ def _host(raw: str) -> _Host | None:
     try:
         return _Host(str(ipaddress.ip_address(text)), ipaddress.ip_address(text))
     except ValueError:
+        # not an IP literal; handled as a name below
         pass
     if _NUMERIC_HOST_RE.match(text):
         try:

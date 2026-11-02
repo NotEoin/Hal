@@ -207,6 +207,7 @@ def remove_legacy_light(units: dict[str, str]) -> bool:
 
 
 def systemctl(*args: str, check: bool = False, timeout: float = SYSTEMCTL_TIMEOUT_S) -> subprocess.CompletedProcess:
+    """Runs `systemctl --user` with `args`, bounded by `timeout`."""
     return subprocess.run(
         ["systemctl", "--user", *args], capture_output=True, text=True, check=check, timeout=timeout
     )
@@ -347,6 +348,7 @@ def install(start: bool = False, desktop: bool = True, enable: bool = True, bin_
 
 
 def remove(module_root: Path) -> list[str]:
+    """Disables and deletes the units installed from `module_root`; returns their names."""
     units = installed()
     gone = [n for n, r in units.items() if Path(r) == module_root]
     for name in gone:
@@ -359,6 +361,7 @@ def remove(module_root: Path) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
+    """Runs `hal units`; returns the exit status."""
     ap = argparse.ArgumentParser(prog="hal units")
     sub = ap.add_subparsers(dest="cmd", required=True)
     i = sub.add_parser("install")

@@ -142,6 +142,7 @@ class Brain:
         return bool(self.hub and self.hub.get(name))
 
     def system_prompt(self) -> str:
+        """The system prompt for this turn: persona, tool rules and any profile facts."""
         user = self.user or "the user"
         rules = TOOL_RULES if self.hub else NO_TOOLS
         persona = self.persona.replace("{user_ref}", self.user or "your owner").replace("{user}", user)
@@ -154,6 +155,7 @@ class Brain:
         return f"{rules.replace('{user}', user)}\n{persona}\n{STYLE.get(self.channel, STYLE['chat'])}\nIt is {now}.{facts}"
 
     def tools_for(self, text: str) -> list[dict]:
+        """The tool specs offered for `text`, plus the deep-work tool when it is enabled."""
         deep = [DEEP_WORK] if self.deep_mode != "off" else []
         if not self.hub:
             return deep
@@ -161,6 +163,7 @@ class Brain:
         return self.hub.function_specs(text, self.tool_limit) + deep
 
     def reset(self) -> None:
+        """Forgets the conversation history."""
         self.history = []
 
     def warm(self) -> None:
@@ -169,6 +172,7 @@ class Brain:
             self._post({"model": self.model, "messages": [], "keep_alive": self.keep_alive,
                         "options": {"num_ctx": self.num_ctx}}, stream=False).read()
         except OSError:
+            # the warm-up call is best effort; the first real request loads the model
             pass
 
     # -- model and tools -----------------------------------------------------------
@@ -346,6 +350,7 @@ class Brain:
                 with (config.state_dir() / "turns.jsonl").open("a") as f:
                     f.write(json.dumps(turn, default=str) + "\n")
             except OSError:
+                # a turn log that cannot be written must not fail the user turn
                 pass
         if self._has("memory_log_conversation") and turn["reply"] and self.log_turns:
             threading.Thread(target=self.hub.call, daemon=True, args=(

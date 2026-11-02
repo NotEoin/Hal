@@ -46,6 +46,7 @@ SEED_NOTES = {
 
 
 def load_cases() -> list[dict]:
+    """Reads the eval cases from the scenarios file."""
     return tomllib.loads(SCENARIOS.read_text())["case"]
 
 
@@ -169,6 +170,7 @@ def check(case: dict, turns: list[dict], hub, reply: str) -> list[str]:
 
 
 def missing_needs(case: dict, hub) -> list[str]:
+    """The modules a case needs that are not installed."""
     if case.get("no_extensions"):
         return []
     have = {t.module for t in hub.all_tools().values()} if hub else set()
@@ -176,6 +178,7 @@ def missing_needs(case: dict, hub) -> list[str]:
 
 
 def run_case(case: dict, model: str | None, hub) -> dict:
+    """Runs one case against the brain and returns its checked result."""
     from .brain import Brain
     if not case.get("no_extensions"):
         for step in case.get("setup", []):
@@ -197,6 +200,7 @@ def run_case(case: dict, model: str | None, hub) -> dict:
 
 
 def run(model: str | None, cases: list[dict], repeat: int = 1, verbose: bool = True) -> dict:
+    """Runs `cases` in a sandbox, `repeat` times each, and returns the tally."""
     real_state = config.state_dir()
     box = make_sandbox(model)
     hub = _fresh_hub()
@@ -254,6 +258,7 @@ def batch_argv(argv: list[str], env: dict[str, str] | None = None) -> list[str] 
 
 
 def main(argv: list[str]) -> int:
+    """Runs `hal eval`; returns the exit status."""
     wrapped = batch_argv(argv)
     if wrapped is not None:
         done = proc.run(wrapped, timeout=EVAL_TIMEOUT_S, env={**os.environ, UNDER_GPU_LIGHT: "1"}, check=False)

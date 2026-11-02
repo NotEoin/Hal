@@ -189,6 +189,7 @@ def find_modules(python: Path, distribution: str) -> dict[str, dict[str, Any]]:
         try:
             lines = (info / "RECORD").read_text(encoding="utf-8").splitlines()
         except OSError:
+            # an install record without a RECORD file lists no module
             continue
         for line in lines:
             rel = line.split(",")[0]
@@ -197,6 +198,7 @@ def find_modules(python: Path, distribution: str) -> dict[str, dict[str, Any]]:
                 try:
                     name = tomllib.loads(manifest.read_text(encoding="utf-8"))["module"]["name"]
                 except (OSError, KeyError, tomllib.TOMLDecodeError):
+                    # a manifest without a module name is not a Hal module
                     continue
                 out[name] = {"manifest": str(manifest), "interpreter": [str(python)]}
     return out
@@ -243,6 +245,7 @@ def scan_modules(root: Path, python: Path) -> dict[str, dict[str, Any]]:
         try:
             name = tomllib.loads(manifest.read_text(encoding="utf-8"))["module"]["name"]
         except (OSError, KeyError, tomllib.TOMLDecodeError):
+            # a manifest without a module name is not a Hal module
             continue
         out[name] = {"manifest": str(manifest), "interpreter": [str(python)]}
     return out

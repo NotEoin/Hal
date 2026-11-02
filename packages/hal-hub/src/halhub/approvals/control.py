@@ -232,6 +232,7 @@ class ControlServer:
             try:
                 conn, _ = listener.accept()
             except TimeoutError:
+                # accept timed out; the loop re-checks the stop flag
                 continue
             except OSError:
                 return  # closed under us
@@ -271,6 +272,7 @@ class ControlServer:
                 try:
                     event = events.get(timeout=ACCEPT_POLL_S)
                 except queue.Empty:
+                    # no event in this poll; the loop re-checks the stop flag
                     continue
                 if event is None:
                     return

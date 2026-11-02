@@ -53,6 +53,7 @@ def find_session(workspace: Path, directory: Path | None = None) -> dict[str, ob
         try:
             info = json.loads(lock.read_text(encoding="ascii"))
         except (OSError, ValueError):
+            # a lock file that is unreadable or not JSON belongs to no live editor
             continue
         if isinstance(info, dict) and info.get("workspace") == want and Path(str(info.get("socket"))).exists():
             return info

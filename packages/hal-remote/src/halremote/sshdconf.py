@@ -60,6 +60,7 @@ def _resolve(pattern: str, root: Path) -> list[Path]:
         try:
             path = root / path.relative_to(DEFAULT_ROOT)
         except ValueError:
+            # the path is not under the default root and is used as given
             pass
     else:
         path = root / path

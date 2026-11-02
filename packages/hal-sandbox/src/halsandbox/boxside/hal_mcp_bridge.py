@@ -25,10 +25,12 @@ def _stdin_to_socket(sock: socket.socket) -> None:
         while chunk := os.read(0, CHUNK):
             sock.sendall(chunk)
     except OSError:
+        # stdin closed or the socket broke; stop copying
         pass
     try:
         sock.shutdown(socket.SHUT_WR)
     except OSError:
+        # the peer already closed
         pass
 
 
@@ -50,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         while chunk := sock.recv(CHUNK):
             os.write(1, chunk)
     except OSError:
+        # the socket or stdout closed; stop copying
         pass
     return 0
 

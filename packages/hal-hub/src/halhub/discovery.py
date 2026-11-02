@@ -285,5 +285,6 @@ def _walk(
             if not entry.is_dir(follow_symlinks=False):
                 continue
         except OSError:
+            # an unreadable entry is not a module folder
             continue
         _walk(Path(entry.path), level + 1, depth, ignore, problems, out)

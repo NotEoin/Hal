@@ -434,6 +434,7 @@ class Renderer:
             self.print_output("\n".join(texts))
 
     def print_output(self, text: str, *, force_full: bool = False) -> None:
+        """Prints tool output cleaned of control characters, cut to the line limit unless `force_full`."""
         lines = clean(text).rstrip("\n").splitlines()
         full = force_full or self.verbose
         limit = MAX_VERBOSE_LINES if full else self.look.tool_output_lines

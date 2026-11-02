@@ -26,6 +26,7 @@ FLAG = "off"
 
 
 def is_off() -> bool:
+    """True when the off flag is set."""
     return (config.state_dir() / FLAG).exists()
 
 
@@ -39,6 +40,7 @@ def _ollama(path: str, payload: dict | None = None, timeout: float = 10) -> dict
 
 
 def loaded_models() -> list[dict]:
+    """The models Ollama holds in memory, or an empty list when it does not answer."""
     try:
         return _ollama("/api/ps").get("models", [])
     except OSError:
@@ -46,12 +48,14 @@ def loaded_models() -> list[dict]:
 
 
 def unload_models() -> list[str]:
+    """Unloads every loaded model and returns the names it unloaded."""
     gone = []
     for m in loaded_models():
         try:
             _ollama("/api/generate", {"model": m["name"], "keep_alive": 0}, timeout=30)
             gone.append(m["name"])
         except OSError:
+            # a model that cannot be unloaded stays out of the count of unloaded ones
             pass
     return gone
 
@@ -70,6 +74,7 @@ def unload_offloaded() -> list[str]:
                 _ollama("/api/generate", {"model": m["name"], "keep_alive": 0}, timeout=30)
                 gone.append(m["name"])
             except OSError:
+                # a model that cannot be unloaded stays out of the count of unloaded ones
                 pass
     return gone
 
@@ -81,6 +86,7 @@ def _notify(title: str, body: str, quiet: bool) -> None:
 
 
 def off(quiet: bool = False) -> str:
+    """Sets the off flag, stops the GPU units, unloads models and returns the message."""
     (config.state_dir() / FLAG).touch()
     stopped = units.off_units()
     if stopped:
@@ -98,6 +104,7 @@ def off(quiet: bool = False) -> str:
 
 
 def on(quiet: bool = False) -> str:
+    """Clears the off flag, starts the Hal target and returns the message."""
     (config.state_dir() / FLAG).unlink(missing_ok=True)
     # Models Ollama loaded partly into RAM while a background job held the card stay slow
     unload_offloaded()
@@ -108,6 +115,7 @@ def on(quiet: bool = False) -> str:
 
 
 def status() -> str:
+    """A one-paragraph report of the power state, services and VRAM in use."""
     followed = units.off_units()
     active = [n for n in followed if units.systemctl("is-active", n).stdout.strip() == "active"]
     vram = sum(m.get("size_vram", 0) for m in loaded_models()) / 2**30
@@ -122,6 +130,7 @@ def status() -> str:
 
 
 def main(argv: list[str]) -> int:
+    """Runs `hal on`, `hal off`, `hal toggle` or `hal power`; returns the exit status."""
     quiet = "--quiet" in argv
     cmd = next((a for a in argv if not a.startswith("-")), "status")
     if cmd == "toggle":

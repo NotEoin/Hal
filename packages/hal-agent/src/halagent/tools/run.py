@@ -52,6 +52,7 @@ def _kill(proc: subprocess.Popen[bytes]) -> None:
             proc.wait(timeout=wait)
             return
         except subprocess.TimeoutExpired:
+            # still running after this slice of the wait; the loop checks the deadline
             continue
 
 

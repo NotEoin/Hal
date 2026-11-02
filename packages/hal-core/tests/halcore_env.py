@@ -24,7 +24,7 @@ sys.path.insert(0, str(HUB_SRC))
 TMP = tempfile.mkdtemp(prefix="halcore-test-")
 os.environ.update(HAL_CONFIG=f"{TMP}/config.toml", HAL_STATE=f"{TMP}/state", HAL_DATA=f"{TMP}/data")
 
-from halcore import power, units  # noqa: E402
+from halcore import power, units  # noqa: E402 - the import must follow the path and environment setup above
 
 FAKE_GPU_LIGHT = """#!/usr/bin/env python3
 import os, sys, time

@@ -170,6 +170,7 @@ def walk(root: Path, *, policy: WalkPolicy) -> Iterator[Path]:
             with os.scandir(current) as entries:
                 children = sorted(entries, key=lambda e: e.name)
         except OSError:
+            # an unreadable directory is skipped
             continue
         subdirs = []
         for entry in children:

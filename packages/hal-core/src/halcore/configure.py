@@ -53,6 +53,7 @@ quiet_until = 8
 
 
 def paths() -> list[str]:
+    """The folders searched for modules."""
     return [str(config.ECOSYSTEM / "core"), str(config.extensions_dir())]
 
 

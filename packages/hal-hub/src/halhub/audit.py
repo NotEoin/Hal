@@ -188,6 +188,7 @@ class AuditLog:
                     path.unlink()
                     removed += 1
                 except FileNotFoundError:
+                    # another process removed it first
                     pass
                 # append_jsonl's lock file for that day; nothing writes an old day again
                 (self.directory / f"{day.isoformat()}.jsonl.lock").unlink(missing_ok=True)
@@ -209,6 +210,7 @@ def _day_files(directory: Path) -> list[tuple[Path, date, int]]:
             try:
                 day = date.fromisoformat(match.group(1))
             except ValueError:
+                # a file whose name has no date is not an audit log
                 continue
             found.append((path, day, int(match.group(2) or 0)))
     return sorted(found, key=lambda f: (f[1], -f[2]))

@@ -37,6 +37,7 @@ def _walk(base: Path):
                 if p.stat().st_size <= MAX_FILE_BYTES:
                     yield p
             except OSError:
+                # a file that vanished while walking is skipped
                 continue
 
 
@@ -75,6 +76,7 @@ def _py_grep(ws: Workspace, pattern: str, base: Path, glob: str) -> list[str]:
         try:
             lines = p.read_text(encoding="utf-8").splitlines()
         except (UnicodeDecodeError, OSError):
+            # binary or unreadable files cannot match a text search
             continue
         for n, line in enumerate(lines, 1):
             if rx.search(line):

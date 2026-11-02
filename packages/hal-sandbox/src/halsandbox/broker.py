@@ -155,6 +155,7 @@ class Broker:
             try:
                 proc.stdin.close()
             except OSError:
+                # the child already closed its stdin
                 pass
             try:
                 proc.wait(timeout=EXIT_WAIT_S)

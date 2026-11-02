@@ -415,6 +415,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 target = gateway.resolver.resolve(entry.id)
             except GatewayError:
+                # a model entry that does not resolve is left out of the listing
                 continue
             rows.append(
                 {

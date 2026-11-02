@@ -110,6 +110,7 @@ def _signal(rec: PidRecord, sig: signal.Signals) -> None:
     try:
         os.kill(rec.pid, sig)
     except ProcessLookupError:
+        # the process already exited
         pass
     except PermissionError:
         log.warning("not allowed to signal %s (pid %d)", rec.name, rec.pid)

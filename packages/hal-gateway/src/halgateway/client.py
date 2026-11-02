@@ -42,13 +42,6 @@ class SessionGrant:
     expires: str  # UTC Z
 
 
-def _answer_error(status: int, err: dict) -> ClientError:  # type: ignore[type-arg]
-    """The `ClientError` for an error answer with the server's `error` object."""
-    return ClientError(
-        f"gateway answered {status}: {err.get('message', '')}", status, str(err.get("type", ""))
-    )
-
-
 class _UnixConnection(http.client.HTTPConnection):
     def __init__(self, path: Path, timeout: float) -> None:
         super().__init__("localhost", timeout=timeout)

@@ -156,6 +156,7 @@ def choose(
             try:
                 plan = _plan(model, hw, None, limits)
             except ValueError:
+                # a model that cannot be planned for this hardware is not a candidate
                 continue
             rank = _rank(model, plan)
             if role in ("fast", "embed"):  # the smallest that works

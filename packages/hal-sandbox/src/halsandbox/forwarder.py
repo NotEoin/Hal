@@ -209,6 +209,7 @@ class _Handler(BaseHTTPRequestHandler):
                 try:
                     self._refuse(502, "upstream unavailable")
                 except OSError:
+                    # the client left before the refusal was sent
                     pass
         finally:
             conn.close()

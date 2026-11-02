@@ -169,6 +169,7 @@ def sweep_if_due(*, docker: str | None = "docker", now: float | None = None) -> 
         if now - float(stamp.read_text()) < SWEEP_INTERVAL_S:
             return None
     except (OSError, ValueError):
+        # no usable stamp means the sweep is due
         pass
     stamp.write_text(str(now))
     return sweep(docker=docker)

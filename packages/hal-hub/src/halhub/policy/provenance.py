@@ -41,6 +41,7 @@ def extract_urls(text: str, *, limit: int = MAX_URLS_PER_RESULT) -> list[str]:
         try:
             url = netguard.canonical_url(raw)
         except ValueError:
+            # a value that is not a valid URL carries no host to record
             continue
         if url not in seen:
             seen.add(url)

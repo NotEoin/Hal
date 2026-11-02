@@ -94,6 +94,7 @@ def build_map(root: Path, query: str = "", max_tokens: int = DEFAULT_MAP_TOKENS)
                 if p.stat().st_size > MAX_FILE_BYTES:
                     continue
             except OSError:
+                # a file that vanished or is unreadable is left out of the map
                 continue
             rel = p.relative_to(root).as_posix()
             symbols = file_symbols(p)

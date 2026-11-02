@@ -72,6 +72,7 @@ def _mask_message(msg: dict) -> dict:
         try:
             args = json.loads(fn.get("arguments") or "{}")
         except ValueError:
+            # a stored call with unparsable arguments is left as it was written
             continue
         fn["arguments"] = json.dumps(mask_secrets(args))
     if isinstance(out.get("reasoning"), str):

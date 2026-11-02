@@ -177,6 +177,7 @@ class LineConnection:
             try:
                 step()
             except OSError:
+                # each step is a best-effort close; the next step still runs
                 pass
 
 
@@ -286,6 +287,7 @@ class LineServer:
         try:
             conn.write_raw(error_frame(code, message))
         except OSError:
+            # the peer left before the error frame was sent
             pass
         conn.close()
 

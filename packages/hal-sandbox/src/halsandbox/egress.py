@@ -127,6 +127,7 @@ class ConnectProxy:
             client.settimeout(self._send_timeout)
             client.sendall(f"HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".encode())
         except OSError:
+            # the client left before the refusal was sent
             pass
 
     def _accept_loop(self) -> None:
@@ -135,6 +136,7 @@ class ConnectProxy:
             try:
                 client, _ = self._server.accept()
             except TimeoutError:
+                # accept timed out; the loop re-checks the stop flag
                 continue
             except OSError:
                 return

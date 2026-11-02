@@ -76,6 +76,7 @@ def _tree_bytes(ckpt: Checkpoints) -> int:
         try:
             st = os.lstat(ckpt.work / rel)
         except OSError:
+            # a path that vanished since the checkpoint has no state to compare
             continue
         total += st.st_size
     return total

@@ -43,6 +43,7 @@ BRAIN = {
 
 
 def config_path() -> Path:
+    """The config file path: `HAL_CONFIG`, else `~/.config/hal/config.toml`."""
     return Path(os.environ.get("HAL_CONFIG", "~/.config/hal/config.toml")).expanduser()
 
 
@@ -55,10 +56,12 @@ def load() -> dict:
 
 
 def shared() -> dict:
+    """The `[hal]` table over its defaults."""
     return {**SHARED, **load().get("hal", {})}
 
 
 def brain() -> dict:
+    """The `[brain]` table over its defaults."""
     return {**BRAIN, **load().get("brain", {})}
 
 

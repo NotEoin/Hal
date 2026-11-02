@@ -285,7 +285,7 @@ class TuneSession:
 
     def _validated_source(self, name: str) -> modelconf.Source:
         import tempfile  # noqa: PLC0415 - only this check needs it
-        from pathlib import Path  # noqa: PLC0415
+        from pathlib import Path
 
         text = ""
         for edit in self._source_edits:

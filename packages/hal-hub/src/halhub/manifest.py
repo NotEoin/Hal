@@ -703,6 +703,7 @@ class _Parser:
             try:
                 return importlib.metadata.version(self.distribution)
             except importlib.metadata.PackageNotFoundError:
+                # not installed as a distribution; the caller falls back to the manifest version
                 pass
         return "0"
 

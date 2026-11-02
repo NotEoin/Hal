@@ -58,6 +58,7 @@ def prompt_extras(
 def open_writer(
     store: SessionStore, resumed: str, root: Path, settings: AgentSettings, sid: str = ""
 ) -> SessionWriter:
+    """Opens the session writer for a new or resumed headless session and writes its header."""
     sid = resumed or sid or new_session_id()
     header = {"id": sid, "agent": f"halagent {__version__}", "mode": "headless", "toolset": "coding",
               "cwd": str(root), "model": settings.model, "api": "openai"}  # fmt: skip

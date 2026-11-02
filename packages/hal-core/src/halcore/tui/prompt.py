@@ -151,34 +151,34 @@ class PromptInput:
 
         @kb.add("escape", "enter")
         @kb.add("c-j")
-        def _newline(event) -> None:  # noqa: ANN001
+        def _newline(event) -> None:
             event.current_buffer.insert_text("\n")
 
         @kb.add("s-tab")
-        def _mode(event) -> None:  # noqa: ANN001
+        def _mode(event) -> None:
             self._call(self.hooks.cycle_mode)
 
         @kb.add("escape", "escape")
-        def _rewind(event) -> None:  # noqa: ANN001
+        def _rewind(event) -> None:
             event.app.exit(result="/rewind")
 
         @kb.add("c-o")
-        def _verbose(event) -> None:  # noqa: ANN001
+        def _verbose(event) -> None:
             self._call(self.hooks.toggle_verbose)
 
         @kb.add("c-t")
-        def _todo(event) -> None:  # noqa: ANN001
+        def _todo(event) -> None:
             self._call(self.hooks.toggle_todo)
 
         @kb.add("c-c")
-        def _interrupt(event) -> None:  # noqa: ANN001
+        def _interrupt(event) -> None:
             if event.current_buffer.text:
                 event.current_buffer.reset()
             else:
                 event.app.exit(exception=KeyboardInterrupt)
 
         @kb.add(Keys.BracketedPaste)
-        def _paste(event) -> None:  # noqa: ANN001
+        def _paste(event) -> None:
             data = event.data.replace("\r\n", "\n").replace("\r", "\n")
             lines = data.count("\n") + 1
             if lines < PASTE_COLLAPSE_LINES:

@@ -141,6 +141,7 @@ class Relay:
             try:
                 conn, _ = listener.accept()
             except TimeoutError:
+                # accept timed out; the loop re-checks the stop flag
                 continue
             except OSError:
                 return  # closed under us

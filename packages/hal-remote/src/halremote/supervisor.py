@@ -92,31 +92,47 @@ class Child(Protocol):
 
     pid: int
 
-    def poll(self) -> int | None: ...
-    def stderr_tail(self) -> str: ...
-    def terminate(self) -> None: ...
-    def kill(self) -> None: ...
-    def wait(self, timeout_s: float) -> int | None: ...
+    def poll(self) -> int | None:
+        """The exit status, or `None` while the child runs."""
+
+    def stderr_tail(self) -> str:
+        """The last lines the child wrote to stderr."""
+
+    def terminate(self) -> None:
+        """Asks the child to stop."""
+
+    def kill(self) -> None:
+        """Stops the child at once."""
+
+    def wait(self, timeout_s: float) -> int | None:
+        """Waits up to `timeout_s` for the child and returns its status or `None`."""
 
 
 class Spawner(Protocol):
     """Starts `ssh`."""
 
-    def spawn(self, argv: Sequence[str], env: Mapping[str, str]) -> Child: ...
+    def spawn(self, argv: Sequence[str], env: Mapping[str, str]) -> Child:
+        """Starts the process with `argv` and `env`."""
 
 
 class Prober(Protocol):
     """Looks at the tunnel from the outside."""
 
-    def models(self, port: int, token: str, timeout_s: float) -> ProbeResult: ...
-    def listening(self, port: int) -> bool: ...
+    def models(self, port: int, token: str, timeout_s: float) -> ProbeResult:
+        """Asks the gateway for its models through the tunnel."""
+
+    def listening(self, port: int) -> bool:
+        """True when something listens on `port`."""
 
 
 class Clock(Protocol):
     """Time, injectable so tests do not sleep."""
 
-    def monotonic(self) -> float: ...
-    def wait(self, stop: threading.Event, seconds: float) -> bool: ...  # True when stop was set
+    def monotonic(self) -> float:
+        """The current monotonic time in seconds."""
+
+    def wait(self, stop: threading.Event, seconds: float) -> bool:
+        """Sleeps up to `seconds` and returns True when `stop` was set first."""
 
 
 def next_delay(attempt: int, *, initial: float, maximum: float, rng: random.Random) -> float:

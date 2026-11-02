@@ -97,6 +97,7 @@ _created: dict[str, list[tuple[str, dict]]] = {}     # case id -> undo calls
 
 
 def results_file() -> Path:
+    """The JSON-lines file that holds the grades."""
     return config.state_dir() / "console-results.jsonl"
 
 
@@ -108,11 +109,13 @@ def grades() -> dict[str, dict]:
             g = json.loads(line)
             out[g["id"]] = g
     except (OSError, json.JSONDecodeError):
+        # a missing or damaged grades file starts empty
         pass
     return out
 
 
 def brain() -> Brain:
+    """The console's shared `Brain`, created on first use."""
     global _brain
     if _brain is None:
         _brain = Brain(channel="voice")
@@ -139,6 +142,7 @@ def _remember_undo(case_id: str, turn: dict) -> None:
         try:
             result = json.loads(t["result"]).get("result")
         except (json.JSONDecodeError, AttributeError):
+            # a turn without a JSON result has nothing to grade
             continue
         text = json.dumps(result)
         if t["name"] == "calendar_add":
@@ -162,6 +166,7 @@ def _sync_calendar(turn: dict) -> str:
 
 
 def ask(case_id: str, text: str) -> dict:
+    """Sends `text` to the brain for case `case_id` and returns the finished turn."""
     with _lock:
         b = brain()
         b.reply(text)
@@ -170,6 +175,7 @@ def ask(case_id: str, text: str) -> dict:
 
 
 def last_voice_turn(case_id: str) -> dict:
+    """The last logged voice turn for `case_id`, or an empty turn when there is none."""
     path = config.state_dir() / "turns.jsonl"
     try:
         lines = path.read_text().splitlines()
@@ -191,6 +197,7 @@ def _finish(case_id: str, turn: dict) -> dict:
 
 
 def undo(case_id: str) -> dict:
+    """Undoes the tool calls recorded for `case_id` and reports each result."""
     hub = config.hub()
     done = [f"{name}: {'ok' if 'error' not in hub.call(name, args) else 'failed'}"
             for name, args in _created.pop(case_id, [])]
@@ -198,6 +205,7 @@ def undo(case_id: str) -> dict:
 
 
 def grade(body: dict) -> dict:
+    """Appends a grade (`id`, `verdict`, `note`) to the results file and returns the entry."""
     entry = {"id": body["id"], "verdict": body["verdict"], "note": body.get("note", ""),
              "at": datetime.now().isoformat(timespec="seconds"), "turn": body.get("turn"),
              "check": body.get("check")}
@@ -207,6 +215,7 @@ def grade(body: dict) -> dict:
 
 
 def info() -> dict:
+    """What the console page shows: model, tool count, modules and calendar state."""
     hub = config.hub()
     b = brain()
     return {"model": b.model, "tools": len(hub.all_tools()) if hub else 0,
@@ -216,6 +225,7 @@ def info() -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
+    """The HTTP handler of the local console; every POST needs the console token."""
     def _send(self, code: int, body, kind: str = "application/json", headers: dict[str, str] | None = None) -> None:
         data = body if isinstance(body, bytes) else json.dumps(body, default=str).encode()
         self.send_response(code)
@@ -263,9 +273,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"answered": True})
 
     def log_message(self, *args) -> None:  # quiet
+        """Silences the per-request access log."""
         pass
 
     def do_GET(self) -> None:
+        """Serves the page and the single-use `/open` link."""
         auth: Auth = self.server.auth  # type: ignore[attr-defined]
         if self.path.startswith("/open?t="):
             if auth.host_ok(self.headers.get("Host")) and auth.origin_ok(self.headers.get("Origin")):
@@ -287,6 +299,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def do_POST(self) -> None:
+        """Runs a console action after the Host, Origin, token and content-type checks."""
         if not self._guard():
             return
         if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
@@ -339,5 +352,6 @@ def main(argv: list[str]) -> int:
     try:
         server.serve_forever()
     except KeyboardInterrupt:
+        # Ctrl-C is the normal way to stop the console
         pass
     return 0

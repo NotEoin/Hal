@@ -28,6 +28,7 @@ def _pump(src: socket.socket, dst: socket.socket) -> None:
         while chunk := src.recv(CHUNK):
             dst.sendall(chunk)
     except OSError:
+        # the peer closed; stop copying
         pass
     with contextlib.suppress(OSError):
         dst.shutdown(socket.SHUT_WR)
@@ -87,6 +88,7 @@ class Relay:
             _pump(conn, upstream)
             back.join()
         except OSError:
+            # the connection broke; the relay for it ends
             pass
         finally:
             upstream.close()

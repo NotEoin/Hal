@@ -121,6 +121,7 @@ class Connection:
                     break
                 self._route(msg)
         except OSError:
+            # the socket closed; the reader stops
             pass
         finally:
             self.alive = False
@@ -190,6 +191,7 @@ class Connection:
             try:
                 self._sock.shutdown(socket.SHUT_RDWR)
             except OSError:
+                # the peer already closed the socket
                 pass
             self._sock.close()
 

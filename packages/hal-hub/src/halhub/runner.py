@@ -374,6 +374,7 @@ class _Worker:
             try:
                 self.proc.wait(timeout=self.kill_grace)
             except subprocess.TimeoutExpired:
+                # the kill that follows ends the wait
                 pass
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(self.proc.pid, signal.SIGKILL)  # children may outlive a leader that obeyed SIGTERM
@@ -391,6 +392,7 @@ class _Worker:
         try:
             self.proc.wait(timeout=self.kill_grace)
         except subprocess.TimeoutExpired:
+            # the kill that follows ends the wait
             pass
         self.kill()
 
@@ -886,6 +888,7 @@ def _kill_group(child: subprocess.Popen[bytes], grace: float) -> None:
     try:
         child.wait(timeout=grace)
     except subprocess.TimeoutExpired:
+        # the caller kills the child after the grace period
         pass
     with contextlib.suppress(ProcessLookupError, PermissionError):
         os.killpg(child.pid, signal.SIGKILL)

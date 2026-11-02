@@ -128,9 +128,11 @@ class Undo:
     steps: list[Any] = field(default_factory=list)
 
     def add(self, step: Any) -> None:
+        """Registers a rollback step."""
         self.steps.append(step)
 
     def run(self) -> list[str]:
+        """Runs the steps in reverse order and returns the problems they raised."""
         problems: list[str] = []
         for step in reversed(self.steps):
             try:
