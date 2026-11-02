@@ -582,3 +582,13 @@ def test_a_bad_guardian_setting_in_policy_toml_is_refused(hal_home, body):
 
     with pytest.raises(policy.ConfigError):
         load_policy_text(hal_home, body + "\n")
+
+
+def test_a_rule_that_outranks_the_model_leads_the_reason():
+    # regression: a rule raised the risk to high but the reason showed only "guardian p(yes)=0.01"
+    write = ToolMeta(name="notes_write", pack="t", pack_version="0", tier=Tier.WRITE, params=())
+    req = ClassifyRequest(tool=write, args={"path": "/etc/passwd"}, taint=Taint.CLEAN, roots=("/home/u",))
+    c = Classifier(
+        ClassifierSettings(model_format="json"), lambda *a, **k: '{"risk": "low", "reason": "fine"}'
+    ).classify(req)
+    assert c.risk == "high" and c.reason.startswith(c.rules[0]) and c.reason.endswith("(fine)")

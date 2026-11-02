@@ -435,7 +435,10 @@ class Classifier:
             risk, why = worse(floor, "high"), error or ""
         else:
             risk, why = worse(floor, answer[0]), answer[1]
-        reason = (why or "; ".join(labels))[:REASON_CHARS]
+        rule_text = "; ".join(labels)
+        if labels and answer is not None and risk != answer[0]:
+            why = f"{rule_text} ({why})"  # the rules set the risk, so they lead the reason a person reads
+        reason = (why or rule_text)[:REASON_CHARS]
         return Classification(risk, reason, labels, model, ms, error)
 
     def _ask(self, model: str, req: ClassifyRequest, guardian: bool) -> object:
