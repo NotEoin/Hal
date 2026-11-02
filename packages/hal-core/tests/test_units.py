@@ -198,3 +198,16 @@ def test_every_sibling_pack_unit_runs_a_program_that_exists(tmp_path, monkeypatc
     monkeypatch.setenv("HAL_STATE", str(tmp_path / "state"))
     assert units.exec_starts()
     assert units.missing_exec_paths() == []
+
+
+def test_empty_module_paths_render_no_units_from_the_old_ecosystem_folders(tmp_path, monkeypatch):
+    # Regression: an empty `[hub].module_paths` fell back to ecosystem/core and the extensions folder.
+    legacy = tmp_path / "extensions" / "clock"
+    (legacy / "systemd").mkdir(parents=True)
+    (legacy / "hal-module.toml").write_text('[module]\nname = "clock"\n')
+    monkeypatch.setattr(units.config, "ECOSYSTEM", tmp_path)
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(f'[hal]\nextensions_dir = "{legacy.parent}"\n\n[hub]\nmodule_paths = []\n')
+    monkeypatch.setenv("HAL_CONFIG", str(cfg))
+    monkeypatch.setenv("HAL_STATE", str(tmp_path / "state"))
+    assert units.module_roots() == [units.config.ROOT]

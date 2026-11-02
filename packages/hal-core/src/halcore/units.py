@@ -1,7 +1,7 @@
 """Installs the systemd user units and desktop launchers of core hal and every installed extension.
 
 Module folders come from the pack registry (`packs.json`); `[hub].module_paths` adds only modules
-no pack provides. Units live in each module's `systemd/` folder and launchers in its `desktop/` folder. They are
+no pack provides, and nothing else is scanned (an empty list adds nothing). Units live in each module's `systemd/` folder and launchers in its `desktop/` folder. They are
 rendered, not linked: `@ROOT@` becomes the module's folder, `@CORE@` core hal's and
 `@ECOSYSTEM@` the ecosystem folder and `@PYTHON@` the interpreter of the environment the module's
 pack was installed into, so a checkout works wherever it was cloned. Every
@@ -94,9 +94,9 @@ def module_roots() -> list[Path]:
     roots += [d for d in pack_roots if d.is_dir() and d not in roots]
     hub = config.load().get("hub", {})
     disabled = set(hub.get("disabled", []))
-    paths = [Path(p).expanduser() for p in hub.get("module_paths", [])] or [config.ECOSYSTEM / "core",
-                                                                            config.extensions_dir()]
-    for base in paths:
+    # No fallback to the old ecosystem folders: hal-hub loads nothing else, so a unit from them
+    # would run a module the hub never registered (and `hal setup` can leave the list empty)
+    for base in (Path(p).expanduser() for p in hub.get("module_paths", [])):
         if not base.is_dir():
             continue
         for d in sorted([base] if (base / "hal-module.toml").exists() else base.iterdir()):

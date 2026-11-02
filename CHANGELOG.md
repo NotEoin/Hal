@@ -70,6 +70,8 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Security
 
+- Units render only from core Hal, the registered packs and `[hub].module_paths`; an empty
+  `module_paths` no longer falls back to the old ecosystem and extensions folders.
 - The model is treated as hostile: every agent turn runs in a box with no network, a copy of
   the project and a scratchpad. Lockdown and paranoia can be changed only on the host.
 - Security hardening: nested tool arguments are scanned without a depth limit, the broker, egress
