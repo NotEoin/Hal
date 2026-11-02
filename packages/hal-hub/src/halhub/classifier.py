@@ -14,6 +14,10 @@ Design decisions:
   the session's taint, and the arguments (untrusted: escaped, cut and enveloped as in the
   reviewer). It reaches the model through a `chat` callable the caller supplies, so the gateway
   client can be plugged in later; with none, the model counts as unreachable.
+- A call to a `read`-tier tool that no rule flagged skips the model (`[policy].classify_reads`
+  false, the default) and is `low`. Safe because a read tool cannot change or send anything, and
+  the risky reads (sensitive paths, paths outside the roots, secrets, mass actions) are exactly
+  what the rules catch. This keeps the common call instant instead of waiting on the model.
 - Fail closed: an answer that is not exactly `{"risk": ..., "reason": str}`, a timeout, an
   error or no model at all counts as `high`. At paranoia `off` nothing runs and the policy
   decides alone.
@@ -52,6 +56,7 @@ MASS_ITEMS = 20  # a list argument longer than this is a mass action
 ANSWER_KEYS = frozenset({"risk", "reason"})
 MAX_SCAN_CHARS = 1_000_000  # total argument text the deterministic rules will scan
 MAX_SCAN_NODES = 100_000  # total values walked; bounds a wide or deeply nested payload
+READ_SKIP_REASON = "read tool, no rule matched; model skipped"
 REASON_CHARS = 300  # same cut as the reviewer's audited reason
 
 # paranoia -> risk -> (effect, reviewer may auto-approve a reviewable ask); RESOLUTIONS I5 table
@@ -327,6 +332,8 @@ class Classifier:
         floor, labels = rules(req)
         if floor == "critical":
             return Classification("critical", "; ".join(labels), labels)
+        if req.tool.tier is Tier.READ and not labels and not self.settings.classify_reads:
+            return Classification("low", READ_SKIP_REASON)
         model = self.settings.model
         started = time.monotonic()
         error: str | None = None

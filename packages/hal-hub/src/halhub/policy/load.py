@@ -121,6 +121,7 @@ _SECTIONS: Mapping[str, _Spec] = {
         "paranoia": (str, _choice("off", "low", "balanced", "high", "max")),
         "model": (str, None),
         "timeout_s": (int, _positive),
+        "classify_reads": (bool, None),
     },
     "paths": {"read_roots": (list, None), "write_roots": (list, None), "deny": (list, None)},
     "egress": {

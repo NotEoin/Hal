@@ -57,7 +57,8 @@ class Chat:
 
 
 def classifier(paranoia: str = "balanced", chat=None, floor: str | None = None) -> Classifier:
-    return Classifier(ClassifierSettings(paranoia=paranoia, model="hal-fast", timeout_s=9), chat, floor=floor)
+    settings = ClassifierSettings(paranoia=paranoia, model="hal-fast", timeout_s=9, classify_reads=True)
+    return Classifier(settings, chat, floor=floor)
 
 
 # -- the table --
@@ -90,6 +91,43 @@ def test_table_row_gives_the_documented_effect_and_never_loosens(paranoia, risk,
 def test_a_forced_ask_names_the_risk_and_paranoia_in_its_reason():
     out = classifier("balanced").apply(Verdict.ALLOW, Classification("medium", "wide delete"))
     assert (out.rule, out.reason) == ("classifier:medium", "medium risk at paranoia balanced: wide delete")
+
+
+# -- the read fast path --
+
+
+def fast_classifier(chat=None) -> Classifier:
+    return Classifier(ClassifierSettings(model="hal-fast", timeout_s=9), chat)
+
+
+def test_an_unflagged_read_is_low_without_calling_the_model():
+    chat = Chat(reply("critical"))
+    c = fast_classifier(chat).classify(req())
+    assert (c.risk, c.ms, c.model, c.error, c.rules) == ("low", 0, None, None, ())
+    assert c.reason == "read tool, no rule matched; model skipped" and chat.calls == []
+
+
+def test_an_unflagged_read_is_low_even_with_no_model_reachable():
+    assert fast_classifier().classify(req()).risk == "low"
+
+
+@pytest.mark.parametrize("path", ["/home/u/.ssh/id_rsa", "/etc/hosts"])
+def test_a_read_that_a_rule_flags_still_goes_to_the_model(path):
+    chat = Chat(reply("medium"))
+    c = fast_classifier(chat).classify(req({"text": path}))
+    assert c.risk == "high" and len(chat.calls) == 1 and c.model == "hal-fast"
+
+
+def test_a_send_tool_always_goes_to_the_model_on_the_fast_path():
+    chat = Chat(reply("low"))
+    c = fast_classifier(chat).classify(req(tool=SEND))
+    assert len(chat.calls) == 1 and c.risk == "medium"
+
+
+def test_classify_reads_true_sends_an_unflagged_read_to_the_model():
+    chat = Chat(reply("medium"))
+    c = classifier(chat=chat).classify(req())
+    assert c.risk == "medium" and len(chat.calls) == 1
 
 
 # -- the model --
@@ -318,11 +356,14 @@ def test_reviewer_is_used_only_in_the_cells_that_allow_it(make_hub, reviewable_l
 
 
 def test_policy_toml_paranoia_is_read_and_the_strict_floor_overrides_it(make_hub, hal_home):
-    hal_home.policy.write_text('schema_version = 1\n[policy]\nparanoia = "off"\nmodel = "m"\n')
+    hal_home.policy.write_text(
+        'schema_version = 1\n[policy]\nparanoia = "off"\nmodel = "m"\nclassify_reads = true\n'
+    )
     from halhub import policy
 
     loaded = policy.load_policy(hal_home.policy)
     assert (loaded.classifier.paranoia, loaded.classifier.model) == ("off", "m")
+    assert loaded.classifier.classify_reads is True
     hub = make_hub(classifier=Classifier(loaded.classifier, Chat(reply("high")), floor="high"))
     r = hub.call("demo_echo", {"text": "hi"}, hub_session(hub), front_end="python")
     assert r.rule == "classifier:high"  # the file says off, lockdown strict says high
@@ -346,7 +387,8 @@ def test_a_call_cannot_carry_paranoia_or_lockdown_settings(make_hub):
     assert events("classification")[0]["paranoia"] == "balanced"
 
 
-def test_a_hub_with_a_floor_classifies_with_no_model_and_asks_at_balanced(make_hub):
+def test_a_hub_with_a_floor_classifies_with_no_model_and_asks_at_balanced(make_hub, hal_home):
+    hal_home.policy.write_text("schema_version = 1\n[policy]\nclassify_reads = true\n")
     approver = ScriptedApprover()
     hub = make_hub(paranoia_floor="off")
     assert (

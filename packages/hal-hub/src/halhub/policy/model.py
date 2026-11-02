@@ -278,6 +278,9 @@ class ClassifierSettings:
     paranoia: Paranoia = "balanced"
     model: str = "hal-fast"
     timeout_s: int = 20
+    # False skips the model for a read-tier call that no deterministic rule flagged (the name says
+    # "classify reads with the model": the default is the fast path)
+    classify_reads: bool = False
 
 
 DEFAULT_READ_ROOTS = ("~/Documents", "~/Downloads", "~/Desktop", "~/Pictures", "~/Music", "~/Videos")

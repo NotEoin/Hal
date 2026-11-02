@@ -54,6 +54,13 @@ With no classifier model reachable, `balanced` and above treat every call as `hi
 asked more often; `hal doctor` and `hal status` print `classifier: UNREACHABLE` when that is so.
 Every verdict is written to the audit log as a `classification` record.
 
+A call to a read-only tool that no rule flagged is `low` at once, without asking the model (the
+audit reason is `read tool, no rule matched; model skipped`). This is safe because a read tool
+cannot change or send anything, and the risky reads (sensitive paths, paths outside the allowed
+roots, secrets, mass actions) are caught by the rules, which still send those to the model. Every
+other kind of tool always goes to the model. Set `[policy].classify_reads = true` to have the
+model rate every read as well; the default is `false`.
+
 ## Changing a level
 
 Run `hal lockdown` or `hal paranoia` to see the current level and what each level means. Add a
