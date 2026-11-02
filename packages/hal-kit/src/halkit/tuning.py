@@ -174,6 +174,10 @@ def _kv_per_token(model: ModelInfo, kv_type: str, weights_mib: int) -> tuple[flo
     window, and a slight over-estimate below it. The estimate for an unknown model is pessimistic
     and flagged.
     """
+    if model.kv_full_width is not None and model.layers:
+        size = KV_BYTES[kv_type]
+        window = model.sliding_window or 0
+        return model.kv_full_width * size, (model.kv_window_width or 0) * size * window, model.layers, False
     if model.has_architecture:
         layers, heads, dim = int(model.layers or 0), int(model.kv_heads or 0), int(model.head_dim or 0)
         full, other = attention_layers(layers, model.attention_interval)

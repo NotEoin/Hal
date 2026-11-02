@@ -118,6 +118,36 @@ def _attention_shape(arch: str, get: Callable[[str], int | None]) -> tuple[int |
     return window, interval
 
 
+def _layer_widths(layers: int | None, get: Callable[[str], object]) -> tuple[int | None, int | None]:
+    """`(full, window)`: K+V elements per token over full-attention and sliding-window layers.
+
+    Only for per-layer metadata (a list `attention.sliding_window_pattern` or
+    `attention.head_count_kv`, as Gemma 4 has), where one head count and head size would be wrong;
+    window layers use `key_length_swa` and `value_length_swa` when present. `(None, None)` otherwise.
+    """
+    pattern, kv = get("attention.sliding_window_pattern"), get("attention.head_count_kv")
+    if not layers or not isinstance(pattern, list) or len(pattern) != layers:
+        return None, None
+    if isinstance(kv, list) and len(kv) != layers:
+        return None, None
+    key = _int(get("attention.key_length"))
+    if not key:
+        return None, None
+    value = _int(get("attention.value_length")) or key
+    key_swa = _int(get("attention.key_length_swa")) or key
+    value_swa = _int(get("attention.value_length_swa")) or key_swa
+    full = window = 0
+    for i, sliding in enumerate(pattern):
+        heads = _int(kv[i]) if isinstance(kv, list) else _int(kv)
+        if not heads:
+            return None, None
+        if sliding:
+            window += heads * (key_swa + value_swa)
+        else:
+            full += heads * (key + value)
+    return full, window
+
+
 def _ollama(source: Source, fetch: Fetch) -> Discovery:
     base = source.url.rstrip("/")
     tags = fetch("GET", f"{base}/api/tags", {}, None, HTTP_TIMEOUT_S)
@@ -141,6 +171,9 @@ def _ollama(source: Source, fetch: Fetch) -> Discovery:
         kv_heads = _int(info.get(f"{arch}.attention.head_count_kv")) or heads
         head_dim = _int(info.get(f"{arch}.attention.key_length")) or (emb // heads if emb and heads else None)
         window, interval = _attention_shape(arch, lambda suffix, i=info, a=arch: _int(i.get(f"{a}.{suffix}")))
+        widths = _layer_widths(
+            _int(info.get(f"{arch}.block_count")), lambda suffix, i=info, a=arch: i.get(f"{a}.{suffix}")
+        )
         wanted = {"tools", "vision", "thinking", "embedding"}
         found = caps & wanted
         if not caps and effort.capability(arch, name).kind != "none":
@@ -162,6 +195,8 @@ def _ollama(source: Source, fetch: Fetch) -> Discovery:
                 context_native=_int(info.get(f"{arch}.context_length")),
                 sliding_window=window,
                 attention_interval=interval,
+                kv_full_width=widths[0],
+                kv_window_width=widths[1],
                 capabilities=frozenset(found),
                 digest=str(entry.get("digest") or ""),
             )
@@ -221,6 +256,7 @@ def _gguf_info(source: Source, path: Path, size: int, vision: bool) -> ModelInfo
     emb = head.arch_int("embedding_length")
     head_dim = head.arch_int("attention.key_length") or (emb // heads if emb and heads else None)
     window, interval = _attention_shape(arch, head.arch_int)
+    widths = _layer_widths(head.arch_int("block_count"), lambda suffix: head.metadata.get(f"{arch}.{suffix}"))
     template = str(head.metadata.get("tokenizer.chat_template", ""))
     caps = set()
     if "tools" in template:
@@ -247,6 +283,8 @@ def _gguf_info(source: Source, path: Path, size: int, vision: bool) -> ModelInfo
         context_native=head.arch_int("context_length"),
         sliding_window=window,
         attention_interval=interval,
+        kv_full_width=widths[0],
+        kv_window_width=widths[1],
         capabilities=frozenset(caps),
         path=str(path),
     )

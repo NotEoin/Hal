@@ -198,3 +198,10 @@ def test_a_busy_card_gets_a_one_line_warning_naming_the_held_gigabytes():
     assert "another program is using 12.0 GB of the GPU" in warning and "\n" not in warning
     assert tuning.busy_warning(hw(gpu(24576, 24000))) == ""
     assert tuning.busy_warning(hw()) == ""
+
+
+def test_per_layer_widths_set_the_kv_size_of_a_gemma4_style_model():
+    # regression: one head count for every layer overstated Gemma 4's KV about 4x to 8x
+    model = model12b(layers=30, sliding_window=1024, kv_full_width=10240, kv_window_width=102400)
+    per_tok, fixed, _, estimated = tuning._kv_per_token(model, "f16", 1)  # noqa: SLF001 - the formula under test
+    assert (per_tok, fixed, estimated) == (10240 * 2.0, 102400 * 2.0 * 1024, False)

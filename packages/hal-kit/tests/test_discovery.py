@@ -193,3 +193,23 @@ def test_an_ollama_tag_list_with_a_repeated_name_gives_one_model():
     with FakeOllama(tags, {"qwen3:8b": QWEN_SHOW}) as server:
         found = discovery.discover(Source("l", "ollama", server.url))
     assert [m.name for m in found.models] == ["qwen3:8b"]
+
+
+def test_gemma4_per_layer_kv_heads_and_window_pattern_are_summed_per_layer():
+    # regression: Gemma 4 lists `head_count_kv` and `sliding_window_pattern` per layer, so the
+    # single-value fields fell back to all query heads and a guessed pattern (4x to 8x too much KV)
+    pattern = [True] * 5 + [False]
+    info = {
+        "general.architecture": "gemma4",
+        "gemma4.block_count": 6,
+        "gemma4.attention.head_count": 16,
+        "gemma4.attention.head_count_kv": [8] * 5 + [2],
+        "gemma4.attention.key_length": 512,
+        "gemma4.attention.key_length_swa": 256,
+        "gemma4.attention.sliding_window": 1024,
+        "gemma4.attention.sliding_window_pattern": pattern,
+    }
+    with FakeOllama([{"name": "g4:1", "size": 1}], {"g4:1": {"model_info": info}}) as server:
+        model = discovery.discover(Source("l", "ollama", server.url)).models[0]
+    assert model.kv_full_width == 2 * (512 + 512)
+    assert model.kv_window_width == 5 * 8 * (256 + 256)

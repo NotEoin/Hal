@@ -32,6 +32,10 @@ class ModelInfo:
     sliding_window: int | None = None  # tokens a sliding-window layer attends to (Gemma 3 and 4)
     # every Nth layer is full (or global) attention: Gemma's pattern, Qwen3.5's `full_attention_interval`
     attention_interval: int | None = None
+    # K+V elements per token summed over full and over sliding-window layers, when the metadata is
+    # per-layer (Gemma 4 lists KV heads and the window pattern per layer, with smaller window heads)
+    kv_full_width: int | None = None
+    kv_window_width: int | None = None
     capabilities: frozenset[str] = field(default_factory=frozenset)
     path: str = ""  # GGUF file path; empty for other kinds
     digest: str = ""  # Ollama digest, when known
