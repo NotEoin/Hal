@@ -9,6 +9,8 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `halkit.tuning` computes context length, KV cache type, GPU layers and tensor split from the
+  hardware and a model's architecture; the formula is in `docs/dev/tuning.md`.
 - `halkit.gguf` reads the metadata of a GGUF file (architecture, layers, KV heads, context, quantisation)
   from its header without reading the weights.
 - `halkit.hardware` detects GPUs (`nvidia-smi`, `amd-smi`, `rocm-smi`), RAM, CPU threads and WSL2 for
