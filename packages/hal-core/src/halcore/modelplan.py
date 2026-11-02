@@ -401,3 +401,24 @@ def apply(plans: list[RolePlan], found: Mapping[str, discovery.Discovery]) -> li
 def plain_errors() -> tuple[type[Exception], ...]:
     """Exceptions a command reports as a one-line failure."""
     return (kitconfig.ConfigError, ManifestError, ValueError, OSError)
+
+
+def assignment_status() -> tuple[bool, str]:
+    """Whether a chat model is assigned, and one line saying so or naming the next step.
+
+    Never raises: an unreadable config gives `(False, reason)`.
+    """
+    try:
+        sources = modelconf.load_sources()
+        roles = modelconf.load_roles()
+    except kitconfig.ConfigError as exc:
+        return False, f"the models config is invalid: {exc}"
+    chat = roles.get("chat")
+    if chat is not None:
+        return True, f"chat model: {chat.source}/{chat.model}"
+    if not sources:
+        return False, (
+            "no model assigned; point Hal at yours: hal models add-source ollama http://127.0.0.1:11434"
+            " (or gguf DIR), then hal tune --auto --write"
+        )
+    return False, "no model assigned; run: hal tune --auto --write"

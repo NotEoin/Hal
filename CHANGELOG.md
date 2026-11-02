@@ -90,6 +90,8 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Changed
 
+- `setup.sh` and `hal setup` download no model. `setup.sh --pull-suggested` is the optional old behaviour.
+  `hal setup` and `hal doctor` say when no chat model is assigned and print the command that assigns one.
 - `hal configure` no longer writes model names. It records the profile, writes `[models]` limits and prints
   the `hal tune --auto` plan. `--profile max|24gb|12gb|cloud` still works as a preset for `context_cap` and
   `kv_type`, with a deprecation note.

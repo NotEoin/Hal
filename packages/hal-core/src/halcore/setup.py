@@ -19,6 +19,8 @@ Design decisions:
 - A missing sibling or a missing gpu-light skips its step. Hal works without both.
 - A failed step is reported and the rest still run, then the exit status is 1, so one broken
   step does not hide the others.
+- No model is downloaded. The `models` step only reports whether a chat model is assigned and, if
+  not, the command that assigns one (`hal tune`).
 - Existing pieces are reused: `packs.add_local`, `units.install`, the box image build and
   `doctor`. Nothing here duplicates them.
 """
@@ -38,7 +40,7 @@ from pathlib import Path
 
 from halkit import paths, proc
 
-from . import config, doctor, gpulight, migrate, packs, units
+from . import config, doctor, gpulight, migrate, modelplan, packs, units
 
 log = logging.getLogger(__name__)
 
@@ -130,10 +132,17 @@ def plan(dirs: list[Path], *, enable: bool, image: bool, replace: bool = False,
     steps.append(_employment_step(dirs, have))
     steps.append(_gpu_light_step(dirs))
     steps.append(_config_step(replace, migrate_from))
+    steps.append(_models_step())
     steps.append(_sandbox_step())
     steps.append(_image_step() if image else Step("box image", "--no-image", skip="skipped by option"))
     steps.append(_units_step(enable, replace))
     return steps
+
+
+def _models_step() -> Step:
+    """Says whether a model is assigned; `hal setup` never downloads one."""
+    assigned, line = modelplan.assignment_status()
+    return Step("models", "none are downloaded", skip=line if assigned else f"{line}")
 
 
 def migrate_source(given: Path | None) -> Path | None:

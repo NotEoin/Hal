@@ -26,7 +26,7 @@ from halkit import llm, paths
 from halsandbox import doctor as sandbox_doctor
 from halsandbox.doctor import FAIL, OK, WARN, Check
 
-from . import security, units
+from . import modelplan, security, units
 
 PROBE_TIMEOUT_S = 3.0
 PRIVATE_MODE = 0o700
@@ -66,6 +66,12 @@ def model_check() -> Check:
     return Check("model server", OK, f"{len(aliases)} model(s): {', '.join(aliases[:4])}")
 
 
+def models_check() -> Check:
+    """Warns when no chat model is assigned and names the command that fixes it."""
+    assigned, line = modelplan.assignment_status()
+    return Check("models", OK if assigned else WARN, line)
+
+
 def units_check() -> Check:
     """Warns when a unit would render outside the registered packs or run a program that is missing."""
     outside = units.outside_packs()
@@ -97,6 +103,10 @@ def collect() -> list[Check]:
     except Exception as exc:  # noqa: BLE001 - a broken probe must not hide the other lines
         checks.append(Check("sandbox", FAIL, f"probe failed: {exc}"))
     checks.append(model_check())
+    try:
+        checks.append(models_check())
+    except Exception as exc:  # noqa: BLE001 - a broken probe must not hide the other lines
+        checks.append(Check("models", WARN, f"probe failed: {exc}"))
     try:
         checks.append(units_check())
     except Exception as exc:  # noqa: BLE001 - a broken probe must not hide the other lines

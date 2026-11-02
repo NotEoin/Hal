@@ -2,7 +2,8 @@
 
 Hal runs local models on your GPU and gives you two ways to use them: a conversation (`hal chat`,
 and through extensions a voice and Telegram) and Claude Code for coding (`hal claude`). `setup.sh`
-picks one of four profiles from your hardware and installs what that profile needs.
+installs the software; it downloads no model. You point Hal at the models you already have, and
+`hal tune` works out the settings for your hardware.
 
 ```
 hal-ecosystem/
@@ -33,9 +34,18 @@ and starts Hal. To set up the core alone, open a terminal in this folder and run
 ./setup.sh
 ```
 
-It reads your GPU, proposes a profile and asks, `--profile max|24gb|12gb|cloud` forces one, `-y`
-accepts the proposal. It installs Ollama and pulls the models, builds the 32K-context coding model,
-installs Node.js and Claude Code, writes the config and adds `hal` to your PATH. Safe to re-run.
+It installs Ollama, Node.js and Claude Code, writes the config and adds `hal` to your PATH. Safe to
+re-run. It pulls no model. Afterwards, point Hal at yours and tune it
+([the how-to](docs/howto/point-hal-at-your-models.md)):
+
+```bash
+hal models add-source ollama http://127.0.0.1:11434   # or: hal models add-source gguf ~/models
+hal tune --auto --write
+```
+
+`./setup.sh --pull-suggested` is an optional extra that also pulls the models of the old profile and
+builds the 32K-context coding model. `--profile max|24gb|12gb|cloud` is a deprecated preset: it only
+picks which models `--pull-suggested` would pull and sets the tuning limits.
 
 Some steps (installing Ollama or Node, tuning the GPU service) use `sudo` and may prompt for your
 password. The GPU-tuning step is optional, if it's skipped, everything still works.

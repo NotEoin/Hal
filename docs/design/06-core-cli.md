@@ -610,6 +610,12 @@ wraps it.
   note, and print the `hal tune` plan. Test: unit
   `test_configure_records_the_detected_profile_and_names_no_model`,
   `test_an_old_profile_name_is_a_preset_with_a_deprecation_note`.
+- **REQ-CLI-114** (MUST) `setup.sh`, `hal setup` and `hal configure` MUST NOT download a model;
+  `setup.sh --pull-suggested` is the only opt-in. With no chat model assigned, `hal setup` and
+  `hal doctor` MUST say so and print the command to run. Test: unit
+  `test_ollama_pull_appears_only_inside_the_opt_in_function`,
+  `test_setup_has_a_models_step_that_names_the_next_command_and_never_pulls`,
+  `test_doctor_warns_when_no_model_is_assigned_and_names_hal_tune`.
 - **REQ-CLI-84** (MUST) `hal configure --migrate` MUST read `hal.conf` as `KEY="value"` lines
   only, map them as in "Configuration migration", write `[jobs].jobhunt_root` with the current
   effective value when `[jobs]` is absent (H1), and print every change before writing. Test:
@@ -2023,7 +2029,8 @@ Steps; each checks state first and is skipped when already done:
    unless `--replace-links` (REQ-CLI-90).
 5. `hal configure --profile P` (writes only a missing file; `--yes` forwarded only if given).
 6. `hal box image build` when docker or bwrap is usable (asks unless `--yes`).
-7. Models: `hal models pull --profile P` when `--models`, asked when neither flag is given.
+7. Models: none are pulled. When no `[models.roles.chat]` is set the step prints
+   `hal models add-source ...` or `hal tune --auto` as the next step (REQ-CLI-114).
 8. Packs: `hal packs add --set assistant` by default (`--packs`, `--all`, `--core-only`).
    Install steps always ask for a typed `y`; `--yes` never answers them, and without a
    terminal they stay pending and are listed at the end (REQ-CLI-91).

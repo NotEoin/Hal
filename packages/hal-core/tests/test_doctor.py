@@ -89,3 +89,17 @@ def test_units_check_is_ok_when_every_unit_comes_from_a_pack(monkeypatch):
     monkeypatch.setattr(doctor.units, "outside_packs", lambda: [])
     monkeypatch.setattr(doctor.units, "missing_exec_paths", lambda: [])
     assert doctor.units_check().status == "ok"
+
+
+def test_doctor_warns_when_no_model_is_assigned_and_names_hal_tune(monkeypatch, tmp_path):
+    monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "config.toml"))
+    check = doctor.models_check()
+    assert check.status == doctor.WARN and "hal tune --auto --write" in check.detail
+
+
+def test_doctor_reports_the_assigned_chat_model(monkeypatch, tmp_path):
+    cfg = tmp_path / "config.toml"
+    cfg.write_text('[models.sources.l]\nkind = "gguf"\npath = "/m"\n[models.roles.chat]\nsource = "l"\nmodel = "m"\n')
+    monkeypatch.setenv("HAL_CONFIG", str(cfg))
+    check = doctor.models_check()
+    assert check.status == doctor.OK and "l/m" in check.detail

@@ -275,3 +275,22 @@ def test_config_migrate_names_a_rewrite_it_cannot_do_safely(tmp_path, monkeypatc
     step = hsetup._config_step(replace=True, source=tmp_path / "hal-ecosystem")
     assert step.run is None and "edit by hand" in step.skip and "module_paths" in step.skip
     assert cfg.read_text() == body
+
+
+def test_setup_has_a_models_step_that_names_the_next_command_and_never_pulls(tmp_path, monkeypatch):
+    # REQ-CLI-114: `hal setup` downloads no model; with none assigned it says how to assign one.
+    monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "config.toml"))
+    step = hsetup._models_step()
+    assert step.run is None and "hal models add-source" in step.skip and "hal tune --auto --write" in step.skip
+    (tmp_path / "config.toml").write_text(
+        '[models.sources.l]\nkind = "gguf"\npath = "/m"\n[models.roles.chat]\nsource = "l"\nmodel = "m"\n'
+    )
+    assert "chat model: l/m" in hsetup._models_step().skip
+
+
+def test_setup_source_contains_no_model_download():
+    import ast
+
+    tree = ast.parse(Path(hsetup.__file__).read_text(encoding="utf-8"))
+    strings = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+    assert not [s for s in strings if s.strip() in ("pull", "ollama pull") or s.startswith("ollama pull")]

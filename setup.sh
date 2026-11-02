@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
 #
 # Hal, local AI setup (Ubuntu / Linux)
-# Installs Ollama and the local models for your GPU, Claude Code, and the `hal` launcher,
-# and writes ~/.config/hal/config.toml. Safe to re-run (idempotent). Extensions (memory,
-# calendar, voice, ...) are added afterwards with `hal ext add` or ../../install.sh.
+# Installs Ollama, Claude Code and the `hal` launcher, and writes ~/.config/hal/config.toml.
+# It downloads NO model: point Hal at the models you already have with `hal models add-source`
+# and `hal tune --auto --write` (docs/howto/point-hal-at-your-models.md). Safe to re-run.
+# Extensions (memory, calendar, voice, ...) are added afterwards with `hal ext add`.
 #
-# Hal runs in one of three profiles. By default this script reads your GPU and proposes
-# the one that fits; you confirm, or override:
+# The profile below is a deprecated preset; `hal tune` reads your hardware instead. By default
+# this script reads your GPU and proposes the preset that fits; you confirm, or override:
 #
 #   ./setup.sh                    detect VRAM, propose a profile, ask
 #   ./setup.sh --profile 24gb     force a profile: max | 24gb | 12gb | cloud
 #   ./setup.sh --yes              accept the detected profile without prompting
 #   ./setup.sh --profile cloud -y  fully non-interactive
 #   ./setup.sh --models-dir /mnt/big/hal-models   where the max profile keeps its GGUFs
+#   ./setup.sh --pull-suggested   OPT IN: also download the models the old profile suggested
 #
 #   max    Three models through llama.cpp, five modes (see docs/user/modes.md). 24GB VRAM + 64GB RAM.
 #   24gb   Qwen3.8-27B locally. Best local quality; needs ~20GB of VRAM.
@@ -30,6 +32,7 @@ CONF_FILE="$HAL_ROOT/hal.conf"   # git-ignored; written here, sourced by ./hal
 PROFILE=""
 ASSUME_YES=0
 MODELS_DIR=""
+PULL_SUGGESTED=0                 # off: setup.sh downloads no model unless asked
 while [ $# -gt 0 ]; do
   case "$1" in
     --profile) PROFILE="${2:-}"; shift 2 || true ;;
@@ -37,7 +40,8 @@ while [ $# -gt 0 ]; do
     --models-dir) MODELS_DIR="${2:-}"; shift 2 || true ;;
     --models-dir=*) MODELS_DIR="${1#*=}"; shift ;;
     -y|--yes) ASSUME_YES=1; shift ;;
-    -h|--help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --pull-suggested) PULL_SUGGESTED=1; shift ;;
+    -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown option: $1 (try --help)"; exit 1 ;;
   esac
 done
@@ -207,21 +211,26 @@ elif [ "$NEEDS_LOCAL_LLM" -eq 1 ]; then
   warn "Ollama not running under systemd, skipping service tuning (not required)"
 fi
 
-# --- 3. Pull models ----------------------------------------------------------
-if [ "$NEEDS_LOCAL_LLM" -eq 1 ]; then
-  log "Pulling main model: $MAIN_BASE  (this is the long part)"
-  ollama pull "$MAIN_BASE" && ok "Pulled $MAIN_BASE" || { err "Failed to pull $MAIN_BASE"; exit 1; }
+# --- 3. Models: none are downloaded unless you ask ----------------------------
+# Hal works with the models you already have. `--pull-suggested` is the old behaviour, kept as
+# an explicit opt-in: it pulls what the chosen profile used to install.
+pull_suggested_models() {
+  if [ "$NEEDS_LOCAL_LLM" -eq 1 ]; then
+    log "Pulling main model: $MAIN_BASE  (this is the long part)"
+    ollama pull "$MAIN_BASE" && ok "Pulled $MAIN_BASE" || { err "Failed to pull $MAIN_BASE"; exit 1; }
 
-  log "Pulling small/fast model: $FAST_MODEL"
-  ollama pull "$FAST_MODEL" && ok "Pulled $FAST_MODEL" || warn "Failed to pull $FAST_MODEL (background tasks will be slower)"
-elif [ "$PROFILE" = "max" ]; then
-  ok "Profile max: the models come from Hugging Face in the next step, not from Ollama"
+    log "Pulling small/fast model: $FAST_MODEL"
+    ollama pull "$FAST_MODEL" && ok "Pulled $FAST_MODEL" || warn "Failed to pull $FAST_MODEL (background tasks will be slower)"
+  fi
+  log "Pulling Hal's chat brain: $BRAIN_MODEL  (answers, and calls the extensions' tools)"
+  ollama pull "$BRAIN_MODEL" && ok "Pulled $BRAIN_MODEL" || warn "Failed to pull $BRAIN_MODEL, 'hal chat' won't work until you run: ollama pull $BRAIN_MODEL"
+}
+
+if [ "$PULL_SUGGESTED" -eq 1 ]; then
+  pull_suggested_models
 else
-  ok "Cloud profile, skipping the local LLM (Claude Code will use your own login)"
+  ok "No models are downloaded. Point Hal at yours after setup: hal models add-source ollama http://127.0.0.1:11434, then hal tune --auto --write"
 fi
-
-log "Pulling Hal's chat brain: $BRAIN_MODEL  (answers, and calls the extensions' tools)"
-ollama pull "$BRAIN_MODEL" && ok "Pulled $BRAIN_MODEL" || warn "Failed to pull $BRAIN_MODEL, 'hal chat' won't work until you run: ollama pull $BRAIN_MODEL"
 
 # --- 3b. llama.cpp and the max profile's models -----------------------------
 # One release build of llama-server (CUDA 12.8, which any 12.8+ driver runs) plus the
@@ -288,11 +297,15 @@ download_max_models() {
 
 if [ "$PROFILE" = "max" ]; then
   install_llama_cpp || exit 1
-  download_max_models || exit 1
+  if [ "$PULL_SUGGESTED" -eq 1 ]; then
+    download_max_models || exit 1
+  else
+    ok "Not downloading the max profile's models; add a GGUF folder with: hal models add-source gguf DIR"
+  fi
 fi
 
-# --- 4. Build the 32K-context model -----------------------------------------
-if [ "$NEEDS_LOCAL_LLM" -eq 1 ]; then
+# --- 4. Build the 32K-context model (only for a model --pull-suggested pulled) ----
+if [ "$NEEDS_LOCAL_LLM" -eq 1 ] && [ "$PULL_SUGGESTED" -eq 1 ]; then
 log "Building custom model '$MAIN_MODEL' with ${NUM_CTX}-token context"
 MODELFILE="$(mktemp)"
 cat > "$MODELFILE" <<EOF
@@ -367,7 +380,9 @@ EOF
 ok "Profile '$PROFILE' saved to hal.conf"
 
 log "Writing Hal's shared settings"
-"$HAL_ROOT/hal" configure --chat-model "$BRAIN_MODEL" && ok "~/.config/hal/config.toml ready"
+CHAT_ARGS=()
+[ "$PULL_SUGGESTED" -eq 1 ] && CHAT_ARGS=(--chat-model "$BRAIN_MODEL")
+"$HAL_ROOT/hal" configure ${CHAT_ARGS[@]+"${CHAT_ARGS[@]}"} && ok "~/.config/hal/config.toml ready"
 
 # --- 10. Make 'hal' available on PATH + set shell env ------------------------
 log "Linking the 'hal' launcher and updating your shell profile"
@@ -402,7 +417,9 @@ Next steps:
   1) Open a NEW terminal (so the PATH changes take effect), or run:
        source ~/.bashrc
 
-  2) Talk to Hal:
+  2) Point Hal at your models (nothing was downloaded), then talk to Hal:
+       hal models add-source ollama http://127.0.0.1:11434    # or: gguf ~/models
+       hal tune --auto --write
        hal chat
 
   3) Add what you want Hal to do (or run ../../install.sh for the usual set):

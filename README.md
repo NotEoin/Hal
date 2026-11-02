@@ -198,14 +198,18 @@ git clone https://github.com/NotEoin/hal-hub.git    # optional: needed only for 
 ./hal/setup.sh
 ```
 
-`setup.sh` reads your GPU, proposes a profile and asks. It installs Ollama and the models that profile
-needs, Node and Claude Code, puts `hal` on your PATH and writes `~/.config/hal/config.toml`. It's safe
-to re-run.
+`setup.sh` installs Ollama, Node and Claude Code, puts `hal` on your PATH and writes
+`~/.config/hal/config.toml`. It downloads no model. Point Hal at the models you already have and let
+it tune itself to your hardware:
 
 ```bash
-./setup.sh --profile cloud    # force a profile: max | 24gb | 12gb | cloud
-./setup.sh --profile 12gb -y  # ...and skip the prompt
+hal models add-source ollama http://127.0.0.1:11434   # or: hal models add-source gguf ~/models
+hal tune --auto --write                               # detect hardware, pick models, size the context
 ```
+
+See [Models](docs/user/models.md) and [Point Hal at your models](docs/howto/point-hal-at-your-models.md).
+`./setup.sh --pull-suggested` is an optional extra that also downloads the models the old profiles
+suggested; `--profile max|24gb|12gb|cloud` is a deprecated preset for the same tuning limits.
 
 **-> Full setup walkthrough: [SETUP.md](SETUP.md)**
 
@@ -215,12 +219,13 @@ to re-run.
 |---|---|
 | **OS** | Linux with systemd (for the background services) |
 | **Python** | 3.11 or later; Hal itself needs nothing from PyPI |
-| **GPU** | Whatever you have, see the profiles below. None is fine |
-| **Disk** | ~160GB for the models on `max`, ~25GB on `24gb`, ~12GB on `12gb`, ~3GB on `cloud` |
+| **GPU** | Whatever you have; `hal tune` sizes the models to it. None is fine |
+| **Disk** | Whatever your own models take; setup downloads none |
 
-#### Setup profiles
+#### Setup profiles (deprecated presets)
 
-Each profile has a coding model (what Claude Code talks to in `hal claude`) and a chat brain (what
+The profiles below are what `./setup.sh --pull-suggested` pulls. They no longer decide anything else:
+`hal tune` reads your hardware and your models. Each profile has a coding model (what Claude Code talks to in `hal claude`) and a chat brain (what
 answers in `hal chat`, the voice and Telegram). The brain is smaller, so it can sit beside the voice
 engine and answer within about a second.
 
