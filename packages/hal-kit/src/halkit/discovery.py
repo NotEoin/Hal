@@ -12,6 +12,9 @@ down, a bad key file or an unreadable GGUF becomes an `error` string on the resu
 - OpenAI-compatible: `GET {url}/models`. Metadata is unknown unless the server adds it: llama.cpp
   server reports `meta.n_ctx_train`, `meta.n_params` and `meta.size`, vLLM reports `max_model_len`.
 - Anthropic and OpenAI cloud: model ids only; the cloud hosts are fixed constants.
+- A list is cleaned once, in `discover`: a name a source repeats is one entry (Ollama's
+  `/api/tags` and `/v1/models` can list a model twice), and `llamacpp:<sha>` ids are dropped (Ollama
+  lists the blob of a model it runs through llama.cpp under a hash, with no name to show).
 - Every HTTP call has a timeout and a response size cap.
 """
 
@@ -22,7 +25,7 @@ import json
 import logging
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -37,6 +40,7 @@ SHOW_TIMEOUT_S = 15.0  # `/api/show` reads the model's metadata from disk
 MAX_BODY_BYTES = 16 * 1024 * 1024
 MAX_GGUF_FILES = 2000  # a models folder with more is a mistake in `path`
 CLOUD_URLS = {"anthropic": "https://api.anthropic.com/v1", "openai-cloud": "https://api.openai.com/v1"}
+BLOB_PREFIX = "llamacpp:"  # Ollama's `/v1/models` ids for blobs run by its llama.cpp runner
 ANTHROPIC_VERSION = "2023-06-01"
 SHARD = re.compile(r"-(\d{5})-of-(\d{5})$")
 SIZE_LABEL = re.compile(r"(\d+(?:\.\d+)?)\s*([MBT])", re.IGNORECASE)
@@ -273,6 +277,18 @@ def _gguf(source: Source) -> Discovery:
     return Discovery(source.name, tuple(models), notes=tuple(notes))
 
 
+def _tidy(found: Discovery) -> Discovery:
+    """`found` without repeated names and without `llamacpp:<sha>` blob ids, in source order."""
+    seen: set[str] = set()
+    kept = []
+    for model in found.models:
+        if model.name.startswith(BLOB_PREFIX) or model.name in seen:
+            continue
+        seen.add(model.name)
+        kept.append(model)
+    return replace(found, models=tuple(kept))
+
+
 def discover(
     source: Source, *, fetch: Fetch = http_json, endpoints: Mapping[str, str] | None = None
 ) -> Discovery:
@@ -282,10 +298,10 @@ def discover(
     """
     try:
         if source.kind == "ollama":
-            return _ollama(source, fetch)
+            return _tidy(_ollama(source, fetch))
         if source.kind == "gguf":
-            return _gguf(source)
-        return _openai(source, fetch, endpoints or {})
+            return _tidy(_gguf(source))
+        return _tidy(_openai(source, fetch, endpoints or {}))
     except (DiscoveryError, secrets.UnsafeSecretError, OSError, ValueError) as exc:
         log.info("source %s: %s", source.name, exc)
         return Discovery(source.name, error=str(exc))

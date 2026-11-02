@@ -178,3 +178,18 @@ def test_gguf_reads_the_sliding_window_pattern(tmp_path):
     write_gguf(tmp_path / "g.gguf", meta, pad_to=100_000)
     model = discovery.discover(Source("w", "gguf", path=str(tmp_path))).models[0]
     assert (model.sliding_window, model.attention_interval) == (512, 5)
+
+
+def test_a_model_listed_twice_is_one_entry_and_llamacpp_blobs_are_hidden():
+    # regression: Ollama listed a model twice and `llamacpp:<sha>` blob ids, so pickers showed duplicates
+    rows = [{"id": "gemma:12b"}, {"id": "llamacpp:" + "a" * 64}, {"id": "gemma:12b"}, {"id": "qwen:8b"}]
+    with FakeOllama(openai_models=rows) as server:
+        found = discovery.discover(Source("o", "openai", server.url))
+    assert [m.name for m in found.models] == ["gemma:12b", "qwen:8b"]
+
+
+def test_an_ollama_tag_list_with_a_repeated_name_gives_one_model():
+    tags = [{"name": "qwen3:8b", "size": 1}, {"name": "qwen3:8b", "size": 1}]
+    with FakeOllama(tags, {"qwen3:8b": QWEN_SHOW}) as server:
+        found = discovery.discover(Source("l", "ollama", server.url))
+    assert [m.name for m in found.models] == ["qwen3:8b"]

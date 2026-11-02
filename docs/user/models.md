@@ -72,6 +72,9 @@ hal tune --auto --write                               # also pin, save the roles
 hal tune --auto --json                                # the same plan for scripts
 ```
 
+A name a source lists twice shows once, and the `llamacpp:<hash>` blob ids that Ollama adds to
+its OpenAI-style list are hidden: they have no model name to show.
+
 `hal tune` flags: `--role ROLE` (repeatable) plans only that role; `--reassign` chooses again for
 roles that already have a model; `--hardware FILE` plans for the machine described in a JSON
 file (the `hardware` object of `hal tune --json`). On a terminal, a bare `hal tune` (or `hal tune -i`) opens
