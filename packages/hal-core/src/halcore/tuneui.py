@@ -1,12 +1,17 @@
-"""The screen of the interactive `hal tune`: rich output, prompt_toolkit input, the `hal code` look.
+"""The screen of the interactive `hal tune`: menus, rich output, prompt_toolkit input, the `hal code` look.
 
 `halcore.tunestate.TuneSession` holds every decision; this module only draws it and reads the
 user's keys. The look comes from `halcore.tui.theme` (glyphs, palette, `NO_COLOR`), so the screen
 matches `hal code`: ASCII glyphs when the look says so, no colour on `mono`. The layout stacks
 three lines per role instead of using a wide table, so it reads the same at 80 columns.
 
+The screen is a set of menus: a live summary of every role, then a highlighted list. Up and Down
+move, Enter chooses, 1 to 9 jump to a row, Esc or `q` go back, and a click on a row chooses it.
+Pressing `:` on the main menu opens the old typed command line (`model code`, `context chat 48k`)
+for power users.
+
 Input goes through a `Prompter`. `PtPrompter` is the real one (a command line with completion and
-an arrow-key picker with fuzzy filtering); tests pass a scripted prompter or feed `PtPrompter`
+a list that filters when it is long); tests pass a scripted prompter or feed `PtPrompter`
 a prompt_toolkit pipe input, so nothing here needs a real terminal.
 """
 
@@ -29,6 +34,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
 from prompt_toolkit.output import Output
 from prompt_toolkit.styles import Style
 from rich.console import Console, Group
@@ -42,6 +48,30 @@ log = logging.getLogger(__name__)
 
 PICK_ROWS = 9  # list rows shown at once; the picker scrolls so a 24-line terminal still fits
 MIB_PER_GIB = 1024
+# a cache that takes more than this share of the VRAM budget leaves little slack for long prompts;
+# a judgement, not a measured limit
+TIGHT_FRACTION = 0.85
+TEMPERATURES = ("default", "0", "0.2", "0.5", "0.7", "1.0", "1.5")  # common values; Custom takes 0 to 2
+CUSTOM = "custom"
+COMMAND_KEY = ":"
+MAIN_ITEMS = (
+    ("Adjust a role", "role"),
+    ("Model sources (add or remove)", "source"),
+    ("Review changes", "review"),
+    ("Save and exit", "save"),
+    ("Quit without saving", "quit"),
+)
+ROLE_ITEMS = (
+    ("Model", "model"),
+    ("Context", "context"),
+    ("KV cache", "kv"),
+    ("Effort", "effort"),
+    ("Temperature", "temp"),
+    ("Auto-tune this role", "auto"),
+    ("Back", "back"),
+)
+YES_NO = (("Yes", "yes"), ("No", "no"))
+SUMMARY_MODEL_WIDTH = 26  # keeps a summary line inside 80 columns
 COMMANDS = {
     "role": "choose which role the other commands change",
     "model": "choose a model from your sources",
@@ -54,10 +84,11 @@ COMMANDS = {
     "diff": "show the config changes",
     "write": "show the changes, then write them",
     "quit": "leave without writing",
+    "menu": "go back to the menus",
     "help": "show this list",
 }
 ALIASES = {"m": "model", "c": "context", "k": "kv", "e": "effort", "t": "temp", "a": "auto", "s": "source",
-           "d": "diff", "w": "write", "q": "quit", "r": "role", "?": "help", "exit": "quit"}
+           "d": "diff", "w": "write", "q": "quit", "r": "role", "?": "help", "exit": "quit", "b": "menu"}
 DEFAULT_ROLE = "chat"
 TOKENS = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kKmM]?)\s*$")
 
@@ -161,6 +192,63 @@ def render_screen(state: tunestate.TuneSession, look: Look, current: str) -> Gro
     return Group(*rows)
 
 
+def fit_word(fit: tunestate.Fit) -> str:
+    """`fits`, `tight`, `too big` and the like: one word for how well a draft fits."""
+    if fit.status == "gpu":
+        return "tight" if fit.budget_mib and fit.used_mib > TIGHT_FRACTION * fit.budget_mib else "fits"
+    return {"hybrid": "tight, uses RAM", "cpu": "CPU only", "does-not-fit": "too big"}.get(fit.status, "")
+
+
+def fit_text(fit: tunestate.Fit, look: Look) -> str:
+    """`9.4 GB  fits` for a sized fit; the fit line text otherwise."""
+    if fit.status in ("gpu", "hybrid", "cpu", "does-not-fit") and fit.used_mib:
+        return f"{gib(fit.used_mib)} GB  {fit_word(fit)}"
+    return fit_line(fit, None, look)[1]
+
+
+def short(text: str, width: int) -> str:
+    """`text` cut to `width` characters, ending in `...` when it was cut."""
+    return text if len(text) <= width else text[: width - 3] + "..."
+
+
+def role_line(state: tunestate.TuneSession, role: str, look: Look) -> tuple[str, str, str]:
+    """`(model, context, fit text)` of one role, for the summary and the role menu."""
+    d = state.drafts.get(role)
+    if d is None or not d.model:
+        return "-", "", "falls back to chat" if role == "writer" else "no model yet"
+    fit = state.fit(role)
+    ctx = f"{fit.context // 1024}K" if fit.context else ""
+    return f"{d.source}/{d.model}", ctx, fit_text(fit, look)
+
+
+def render_summary(state: tunestate.TuneSession, look: Look) -> Group:
+    """The live summary above the menus: hardware, then one line per role."""
+    pal = look.palette
+    rows: list[Text] = [Text("Hal tune", style=pal.accent)]
+    rows += [Text(line, style=pal.muted if line.startswith("note") else "") for line in hardware_lines(state.hw)]
+    if not state.sources:
+        rows.append(Text("no model source yet: choose Model sources", style=pal.muted))
+    rows.append(Text(""))
+    changed = state.changed_roles()
+    for role in modelconf.ROLES:
+        model, ctx, fit = role_line(state, role, look)
+        word = fit.rsplit(" ", 1)[-1]
+        style = pal.ok if word == "fits" else (pal.bad if word == "big" else pal.muted)
+        star = " *" if role in changed else "  "
+        rows.append(
+            Text.assemble(
+                (f"{role:<7}", ""),
+                (f"{short(model, SUMMARY_MODEL_WIDTH):<{SUMMARY_MODEL_WIDTH}}{star} ", ""),
+                (f"{ctx:>4}  ", ""),
+                (fit, style),
+            )
+        )
+    if changed:
+        rows.append(Text("* changed, not saved yet", style=pal.muted))
+    rows.append(Text(""))
+    return Group(*rows)
+
+
 # --- input -----------------------------------------------------------------------------------
 
 
@@ -170,12 +258,98 @@ class Prompter(Protocol):
     def ask(self, text: str, choices: Sequence[str] = ()) -> str | None:
         """One line of input, or None at end of input or on Ctrl-C."""
 
-    def pick(self, title: str, items: Sequence[tuple[str, str]], current: str = "") -> str | None:
-        """The value of the chosen `(label, value)` item, or None when cancelled."""
+    def pick(
+        self, title: str, items: Sequence[tuple[str, str]], current: str = "", *, filterable: bool = True, keys: str = ""
+    ) -> str | None:
+        """The value of the chosen `(label, value)` item, or None when cancelled.
+
+        A short list (`filterable` false) takes 1 to 9 as shortcuts and `q` as back; a long one
+        filters as you type. A key in `keys` is returned as itself.
+        """
+
+
+class ListView:
+    """State, keys and drawing of one selectable list; `PtPrompter.pick` runs it, tests poke it directly."""
+
+    def __init__(
+        self, title: str, items: Sequence[tuple[str, str]], current: str, look: Look, colors: dict[str, str],
+        *, filterable: bool, keys: str = "",
+    ) -> None:
+        self.title, self.items, self.current, self.look, self.colors = title, list(items), current, look, colors
+        self.filterable, self.keys = filterable, keys
+        self.query, self.finished, self.result = "", False, None
+        self.app: Application[str | None] | None = None
+        self.index = next((i for i, (_, v) in enumerate(self.items) if v == current), 0)
+
+    def visible(self) -> list[tuple[str, str]]:
+        """The items that match the typed filter."""
+        return [it for it in self.items if fuzzy(self.query, it[0])]
+
+    def finish(self, value: str | None) -> None:
+        """Ends the list with `value`; a second call is ignored."""
+        if self.finished:
+            return
+        self.finished, self.result = True, value
+        if self.app is not None:
+            self.app.exit(result=value)
+
+    def move(self, step: int) -> None:
+        """Moves the highlight, staying inside the list."""
+        self.index = max(0, min(self.index + step, len(self.visible()) - 1))
+
+    def press(self, char: str) -> None:
+        """A printable key: filter text, a row shortcut, back or an extra key, by the kind of list."""
+        shown = self.visible()
+        if self.filterable:
+            self.query, self.index = self.query + char, 0
+        elif char.isdigit() and 1 <= int(char) <= min(len(shown), 9):
+            self.finish(shown[int(char) - 1][1])
+        elif char in "qQ":
+            self.finish(None)
+        elif char in self.keys:
+            self.finish(char)
+
+    def hint(self) -> str:
+        """The one-line key help under the list."""
+        sep = f" {self.look.glyphs.sep} "
+        if self.filterable:
+            return sep.join(("up/down move", "type to filter", "enter select", "esc back"))
+        parts = ["up/down move", "enter select", "1-9 jump", "esc back"]
+        return sep.join(parts + (["': commands'"] if COMMAND_KEY in self.keys else []))
+
+    def click(self, event: MouseEvent, row: int) -> object:
+        """Chooses `row` when the mouse button is released on it."""
+        shown = self.visible()
+        if event.event_type != MouseEventType.MOUSE_UP or row >= len(shown):
+            return NotImplemented
+        self.index = row
+        self.finish(shown[row][1])
+        return None
+
+    def fragments(self) -> list[tuple]:  # type: ignore[type-arg]  # prompt_toolkit's fragments have 2 or 3 parts
+        """The list as styled fragments; each row carries a mouse handler."""
+        shown = self.visible()
+        self.index = max(0, min(self.index, len(shown) - 1))
+        first = 0
+        if len(shown) > PICK_ROWS:
+            first = max(0, min(self.index - PICK_ROWS // 2, len(shown) - PICK_ROWS))
+        out: list[tuple] = [(self.colors["accent"], f"{self.title}  "), ("", f"{self.query}\n")]  # type: ignore[type-arg]
+        for i in range(first, min(first + PICK_ROWS, len(shown))):
+            label, value = shown[i]
+            on = i == self.index
+            number = f"{i + 1}. " if not self.filterable and i < 9 else ""
+            tag = "*" if value == self.current else " "
+            style = self.colors["accent"] if on else ""
+            marker = self.look.glyphs.prompt if on else " "
+            out.append((style, f"{marker} {tag} {number}{label}\n", lambda ev, row=i: self.click(ev, row)))
+        if not shown:
+            out.append((self.colors["muted"], "  no match\n"))
+        out.append((self.colors["muted"], self.hint()))
+        return out
 
 
 class PtPrompter:
-    """A `Prompter` on prompt_toolkit: a completing command line and an arrow-key picker."""
+    """A `Prompter` on prompt_toolkit: a completing command line and a keyboard-and-mouse list."""
 
     def __init__(self, look: Look, *, input: Input | None = None, output: Output | None = None) -> None:  # noqa: A002 - prompt_toolkit's own names
         self.look = look
@@ -194,74 +368,58 @@ class PtPrompter:
         except (EOFError, KeyboardInterrupt):
             return None
 
-    def pick(self, title: str, items: Sequence[tuple[str, str]], current: str = "") -> str | None:
-        """Up and Down move, typing filters (fuzzy), Enter chooses, Esc or Ctrl-C cancels."""
+    def pick(
+        self, title: str, items: Sequence[tuple[str, str]], current: str = "", *, filterable: bool = True, keys: str = ""
+    ) -> str | None:
+        """Up and Down move, Enter or a click chooses, Esc or Ctrl-C cancels; see `ListView` for the rest."""
         if not items:
             return None
-        state = {"query": "", "index": 0}
-        marker = self.look.glyphs.prompt
+        view = ListView(title, items, current, self.look, self._colors, filterable=filterable, keys=keys)
+        bindings = KeyBindings()
 
-        def visible() -> list[tuple[str, str]]:
-            return [it for it in items if fuzzy(state["query"], it[0])]
-
-        def draw() -> FormattedText:
-            shown = visible()
-            state["index"] = max(0, min(state["index"], len(shown) - 1))
-            first = max(0, min(state["index"] - PICK_ROWS // 2, len(shown) - PICK_ROWS))
-            out: list[tuple[str, str]] = [(self._colors["accent"], f"{title}  "), ("", f"{state['query']}\n")]
-            for i, (label, value) in enumerate(shown[first : first + PICK_ROWS], first):
-                on = i == state["index"]
-                tag = "*" if value == current else " "
-                out.append((self._colors["accent"] if on else "", f"{marker if on else ' '} {tag} {label}\n"))
-            if not shown:
-                out.append((self._colors["muted"], "  no match\n"))
-            out.append((self._colors["muted"], "Up/Down move, type to filter, Enter choose, Esc cancel"))
-            return FormattedText(out)
-
-        keys = KeyBindings()
-
-        @keys.add("up")
+        @bindings.add("up")
         def _up(event) -> None:  # noqa: ANN001 - prompt_toolkit's KeyPressEvent
-            state["index"] -= 1
+            view.move(-1)
 
-        @keys.add("down")
+        @bindings.add("down")
         def _down(event) -> None:
-            state["index"] += 1
+            view.move(1)
 
-        @keys.add("enter")
+        @bindings.add("enter")
         def _enter(event) -> None:
-            shown = visible()
-            event.app.exit(result=shown[state["index"]][1] if shown else None)
+            shown = view.visible()
+            view.finish(shown[view.index][1] if shown else None)
 
-        @keys.add("escape", eager=True)
-        @keys.add("c-c")
-        @keys.add("c-d")
+        @bindings.add("escape", eager=True)
+        @bindings.add("c-c")
+        @bindings.add("c-d")
         def _cancel(event) -> None:
-            event.app.exit(result=None)
+            view.finish(None)
 
-        @keys.add("backspace")
+        @bindings.add("backspace")
         def _back(event) -> None:
-            state["query"], state["index"] = state["query"][:-1], 0
+            if view.filterable:
+                view.query, view.index = view.query[:-1], 0
 
-        @keys.add("<any>")
+        @bindings.add("<any>")
         def _type(event) -> None:
             if event.data.isprintable():
-                state["query"] += event.data
-                state["index"] = 0
+                view.press(event.data)
 
-        app: Application[str | None] = Application(
-            layout=Layout(Window(FormattedTextControl(draw), height=PICK_ROWS + 2, wrap_lines=False)),
-            key_bindings=keys, full_screen=False, input=self._input, output=self._output,
-            style=Style.from_dict({}),
+        rows = min(len(items), PICK_ROWS) + 2  # title, rows, hint
+        view.app = Application(
+            layout=Layout(Window(FormattedTextControl(view.fragments), height=rows, wrap_lines=False)),
+            key_bindings=bindings, full_screen=False, input=self._input, output=self._output,
+            mouse_support=True, style=Style.from_dict({}),
         )
-        return app.run()
+        return view.app.run()
 
 
 # --- the loop --------------------------------------------------------------------------------
 
 
 class TuneScreen:
-    """Runs the commands of the screen against a `TuneSession`."""
+    """Runs the menus (and, on `:`, the typed commands) of the screen against a `TuneSession`."""
 
     def __init__(self, state: tunestate.TuneSession, look: Look, prompter: Prompter, console: Console) -> None:
         self.state, self.look, self.prompter, self.console = state, look, prompter, console
@@ -274,11 +432,68 @@ class TuneScreen:
         self.console.print(Text(text, style={"bad": pal.bad, "ok": pal.ok, "muted": pal.muted}.get(style, style)))
 
     def run(self) -> int:
-        """The command loop; returns 0 on a normal exit."""
+        """The menu loop; returns 0 on a normal exit."""
         while True:
-            if self.dirty:
-                self.console.print(render_screen(self.state, self.look, self.role))
-                self.dirty = False
+            self.console.print(render_summary(self.state, self.look))
+            choice = self.prompter.pick("What next?", MAIN_ITEMS, filterable=False, keys=COMMAND_KEY)
+            if choice == COMMAND_KEY:
+                status = self.run_commands()
+                if status is not None:
+                    return status
+            elif choice == "role":
+                self.menu_roles()
+            elif choice == "source":
+                self._guarded(self.cmd_source, "")
+            elif choice == "review":
+                self.cmd_diff("")
+            elif choice == "save":
+                if self._guarded(self.cmd_write, ""):
+                    return 0
+            elif choice == "quit":
+                return self._leave()
+            elif choice is None and (not self.state.has_changes() or self._confirm("Leave without saving?", "no")):
+                return self._leave()
+
+    def _confirm(self, question: str, otherwise: str = "yes") -> bool:
+        """A Yes / No menu; Esc and Ctrl-C answer `otherwise`."""
+        answer = self.prompter.pick(question, YES_NO, filterable=False) or otherwise
+        return answer == "yes"
+
+    def _guarded(self, handler: Callable[[str], object], arg: str) -> object:
+        """Runs a command handler and reports its errors in red instead of raising."""
+        try:
+            return handler(arg)
+        except (ValueError, OSError, *modelplan.plain_errors()) as exc:
+            self.say(str(exc), "bad")
+            return None
+
+    def menu_roles(self) -> None:
+        """Picks a role, then shows its menu until the user goes back."""
+        while True:
+            items = []
+            for role in modelconf.ROLES:
+                model, ctx, fit = role_line(self.state, role, self.look)
+                items.append((f"{role:<7} {short(model, SUMMARY_MODEL_WIDTH)}  {ctx}", role))
+            role = self.prompter.pick("Adjust which role?", items, self.role, filterable=False)
+            if role is None:
+                return
+            self.role = role
+            self.menu_role(role)
+
+    def menu_role(self, role: str) -> None:
+        """The settings of one role: model, context, KV cache, effort, temperature, auto-tune."""
+        while True:
+            model, ctx, fit = role_line(self.state, role, self.look)
+            title = f"{role}: {short(model, SUMMARY_MODEL_WIDTH)} {ctx} {fit}".rstrip()
+            choice = self.prompter.pick(title, ROLE_ITEMS, filterable=False)
+            if choice in (None, "back"):
+                return
+            self._guarded(getattr(self, f"cmd_{choice}"), role)
+
+    def run_commands(self) -> int | None:
+        """The typed command loop (`:`); returns an exit status, or None for `menu` (back to the menus)."""
+        self.console.print(Text("Typed commands: ? lists them, menu goes back to the menus.", style=self.look.palette.muted))
+        while True:
             line = self.prompter.ask(f"tune ({self.role}) {self.look.glyphs.prompt} ", [*COMMANDS, *ALIASES])
             if line is None:
                 return self._leave()
@@ -288,14 +503,13 @@ class TuneScreen:
             name = ALIASES.get(name.lower(), name.lower())
             if name == "quit":
                 return self._leave()
+            if name == "menu":
+                return None
             handler = getattr(self, f"cmd_{name}", None)
             if handler is None:
                 self.say(f"unknown command {name!r}; type ? for the list", "bad")
                 continue
-            try:
-                handler(arg.strip())
-            except (ValueError, OSError, *modelplan.plain_errors()) as exc:
-                self.say(str(exc), "bad")
+            self._guarded(handler, arg.strip())
 
     def _leave(self) -> int:
         if self.state.has_changes():
@@ -363,13 +577,13 @@ class TuneScreen:
         self.state._need(role)  # noqa: SLF001 - same package; raises the "choose a model" error
         value = rest
         if not value:
-            items = [("auto: let tuning decide", "auto")]
+            items = [("Auto: let tuning decide", "auto")]
             for tokens in tunestate.CONTEXT_PRESETS:
                 fit = self.state.try_context(role, tokens)
-                items.append((f"{tokens:>7}  {self._fit_text(fit)}", str(tokens)))
-            items.append(("type a number...", "custom"))
-            value = self.prompter.pick(f"{role} context", items) or ""
-            if value == "custom":
+                items.append((f"{tokens // 1024:>3}K  {self._fit_text(fit)}", str(tokens)))
+            items.append(("Custom...", CUSTOM))
+            value = self.prompter.pick(f"{role} context", items, filterable=False) or ""
+            if value == CUSTOM:
                 value = self.prompter.ask("tokens (for example 48000 or 48k): ") or ""
         if not value:
             return
@@ -382,17 +596,15 @@ class TuneScreen:
         self.say(f"{role}: " + self._fit_text(fit), "ok" if fit.ok else "bad")
 
     def _fit_text(self, fit: tunestate.Fit) -> str:
-        if fit.status in ("gpu", "hybrid", "cpu"):
-            where = {"gpu": "GPU", "hybrid": "GPU + RAM", "cpu": "CPU"}[fit.status]
-            return f"{gib(fit.used_mib)} GiB, {where}"
-        return fit_line(fit, None, self.look)[1]
+        return fit_text(fit, self.look)
 
     def cmd_kv(self, arg: str) -> None:
         """Sets the KV cache type."""
         role, rest = self._target(arg)
         self.state._need(role)
         value = rest or self.prompter.pick(
-            f"{role} KV type", [(f"{k:<5} {self._fit_text(self.state.try_kv(role, k))}", k) for k in tunestate.KV_OPTIONS]) or ""
+            f"{role} KV type", [(f"{k:<5} {self._fit_text(self.state.try_kv(role, k))}", k) for k in tunestate.KV_OPTIONS],
+            self.state.drafts[role].kv_type or "auto", filterable=False) or ""
         if value:
             self.state.set_kv(role, value)
             self.dirty = True
@@ -405,7 +617,8 @@ class TuneScreen:
         if not levels:
             self.say(f"{role}: no effort setting, {reason}", "muted")
             return
-        value = rest or self.prompter.pick(f"{role} effort", [(lv, lv) for lv in levels], self.state.drafts[role].effort) or ""
+        value = rest or self.prompter.pick(
+            f"{role} effort", [(lv, lv) for lv in levels], self.state.drafts[role].effort, filterable=False) or ""
         if value:
             self.state.set_effort(role, value)
             self.dirty = True
@@ -414,10 +627,17 @@ class TuneScreen:
         """Sets the temperature."""
         role, rest = self._target(arg)
         self.state._need(role)
-        value = rest or self.prompter.ask("temperature 0 to 2, or default: ") or ""
+        value = rest or self.prompter.pick(
+            f"{role} temperature", [*((t.capitalize(), t) for t in TEMPERATURES), ("Custom...", CUSTOM)], filterable=False) or ""
+        if value == CUSTOM:
+            value = self.prompter.ask("temperature 0 to 2, or default: ") or ""
         if not value:
             return
-        self.state.set_temperature(role, modelconf.UNSET_TEMPERATURE if value == "default" else float(value))
+        try:
+            number = modelconf.UNSET_TEMPERATURE if value == "default" else float(value)
+        except ValueError:
+            raise ValueError(f"not a temperature: {value!r} (0 to 2, or default)") from None
+        self.state.set_temperature(role, number)
         self.dirty = True
 
     def cmd_auto(self, arg: str) -> None:
@@ -429,9 +649,9 @@ class TuneScreen:
 
     def cmd_source(self, arg: str) -> None:
         """Adds or removes a model source."""
-        action = arg.split(" ")[0] or self.prompter.pick("sources", [("add a source", "add"), ("remove a source", "remove")]) or ""
+        action = arg.split(" ")[0] or self.prompter.pick("sources", [("Add a source", "add"), ("Remove a source", "remove")], filterable=False) or ""
         if action == "add":
-            kind = self.prompter.pick("source kind", [(k, k) for k in modelconf.SOURCE_KINDS]) or ""
+            kind = self.prompter.pick("source kind", [(k, k) for k in modelconf.SOURCE_KINDS], filterable=False) or ""
             if not kind:
                 return
             hints = {"ollama": "URL (blank for the default): ", "openai": "URL (blank for the default): ",
@@ -441,7 +661,7 @@ class TuneScreen:
             found = self.state.found[name]
             self.say(f"added {name}: " + (found.error or f"{len(found.models)} models"), "bad" if found.error else "ok")
         elif action == "remove":
-            name = self.prompter.pick("remove source", [(n, n) for n in self.state.sources]) or ""
+            name = self.prompter.pick("remove source", [(n, n) for n in self.state.sources], filterable=False) or ""
             if name:
                 self.state.remove_source(name)
                 self.say(f"removed {name} (not written yet)", "muted")
@@ -461,24 +681,24 @@ class TuneScreen:
                 pal.bad if line.startswith("-") and not line.startswith("---") else pal.muted)
             self.console.print(Text(line, style=style))
 
-    def cmd_write(self, arg: str) -> None:
-        """Shows the diff, asks, then writes through the apply path."""
+    def cmd_write(self, arg: str) -> bool:
+        """Shows the diff, asks Yes / No, then writes through the apply path; True when written."""
         if not self.state.has_changes():
             self.say("no changes to write", "muted")
-            return
+            return False
         self.cmd_diff("")
-        answer = self.prompter.ask("Write these changes? [y/N] ")
-        if (answer or "").strip().lower() not in ("y", "yes"):
+        if not self._confirm("Write these changes?", "no"):
             self.say("Not written.", "muted")
-            return
+            return False
         try:
             lines = self.state.write()
         except (ValueError, OSError, *modelplan.plain_errors()) as exc:
             self.say(f"{exc}", "bad")
-            return
+            return False
         for line in lines:
             self.say(line, "ok" if line.startswith(("wrote", "pinned")) else "muted")
         self.dirty = True
+        return True
 
 
 def open_state(

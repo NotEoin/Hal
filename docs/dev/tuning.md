@@ -88,7 +88,7 @@ split proportional to each device's usable memory. A device with no usable memor
 The tune screen (`halcore.tuneui`, state in `halcore.tunestate`) lets the user fix the context.
 `tuning.fit_context` then checks that exact number: weights plus `context x kv/token` against the
 VRAM budget gives `gpu`; otherwise layers move to RAM as in the hybrid case; with no GPU it is
-`cpu`; and `does-not-fit` when RAM is short too. The screen calls it for every preset it lists, so
+`cpu`; and `does-not-fit` when RAM is short too. The screen calls it for every context size it lists, so
 the fit shown is the same arithmetic as the automatic plan.
 
 ## Limits

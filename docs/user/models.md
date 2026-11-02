@@ -84,62 +84,56 @@ Exit status of `hal tune`: 0 done, 1 error, 2 usage, 3 nothing to tune (no sourc
 
 ## The tune screen
 
-`hal tune` on a terminal opens a screen in the style of `hal code`. It shows your hardware (every
-GPU with free and total memory, RAM, CPU threads, WSL2 notes), your sources, and each role with its
-model, context, KV type, GPU layers, effort and temperature. Under each role a fit line says how much of
-the VRAM the model and its cache use and whether it runs on the GPU, on the GPU and RAM, or on the CPU.
-It works with no GPU and in an 80 column terminal.
+`hal tune` on a terminal opens a menu screen in the style of `hal code`. Above the menu it
+shows your hardware (each GPU with free and total memory, RAM, CPU threads, WSL2 notes) and one
+line per role: model, context and how it fits.
 
-Type a command, or its first letter (Tab completes). A command may start with a role: `model code`.
+```text
+Hal tune
+GPU 0  RTX 4090  24000 / 24564 MiB free
+RAM  24576 / 32768 MiB free   CPU  16 threads
+
+chat   local/gemma3:12b          32K  9.4 GB  fits
+fast   local/qwen3:8b *          32K  6.1 GB  fits
+code   -                              no model yet
+...
+What next?
+> 1. Adjust a role
+  2. Model sources (add or remove)
+  3. Review changes
+  4. Save and exit
+  5. Quit without saving
+up/down move | enter select | 1-9 jump | esc back | ': commands'
+```
+
+No typing is needed. Up and Down move the highlight, Enter chooses, the keys 1 to 9 jump to a
+row, Esc or `q` go back, and a click on a row chooses it (most terminals; if yours does not send
+mouse events, use the keys). `GB` here means 1024 MiB.
+
+- **Adjust a role** opens a menu for one role: Model (a list you can filter by typing), Context
+  (8K to 128K or Custom, each with its size and `fits`, `tight` or `too big`), KV cache, Effort
+  (only for models that can think), Temperature, and Auto-tune this role.
+- **Model sources** adds or removes a source.
+- **Review changes** shows the diff of `config.toml`; nothing is written yet.
+- **Save and exit** shows the diff and asks Yes or No before it writes.
+- A `*` marks a role changed and not saved. Esc on the main menu asks before it drops changes.
+
+Press `:` on the main menu for the typed command line (Tab completes; `menu` goes back). A
+command may start with a role: `model code`.
 
 | Command | What it does |
 | --- | --- |
 | `role` | Choose the role the other commands change (default `chat`) |
 | `model` | Pick a model from your sources with the arrow keys; type to filter |
-| `context` | Pick a preset (each shows its fit) or type a number: `48000`, `48k` |
+| `context` | Pick a size (each shows its fit) or type a number: `48000`, `48k` |
 | `kv` | Pick `auto`, `f16`, `q8_0` or `q4_0`, with the fit of each |
 | `effort` | Pick a default effort; shown only for models that can think |
-| `temp` | Type a temperature from 0 to 2, or `default` |
+| `temp` | Pick a temperature, or `default` |
 | `auto` | Tune the role for this hardware; `auto all` tunes every role |
-| `source` | Add or remove a source |
-| `diff` | Show what a write would change in the config |
-| `write` | Show the diff, ask, then pin the models and write the config |
-| `quit` | Leave without writing |
+| `source` | Add or remove a model source |
+| `diff`, `write`, `quit`, `menu` | Show the changes, write them, leave, or go back to the menus |
 
-A role you set by hand is written with `auto = false`, so a later `hal tune --write` keeps your numbers.
-Nothing changes on disk until you answer `y` to `write`. The write is the one `hal tune --write` uses:
-comments in your config stay, the old file is saved as `config.toml.bak.<UTC time>`, and a failure
-writes nothing. A model that does not fit your machine cannot be written.
-
-`hal setup` opens this screen on a terminal when no `chat` model is assigned (type `quit` to skip it).
-Off a terminal it prints the next command instead.
-
-What `hal tune --auto` does:
-
-1. Reads the hardware: every GPU from `nvidia-smi` (or `amd-smi` and `rocm-smi`), RAM, CPU threads,
-   WSL2. A tool that is missing or slow is reported as a note; detection never fails the command.
-2. Lists the models of every source, with size, parameters, quantisation, layers, heads and
-   native context where the source says.
-3. Keeps the model of every role that has one. For an empty role it picks among local models
-   (never a cloud source or a remote server): `chat` the largest that fits in VRAM with at least
-   16384 tokens of context, preferring models that take tools; `fast` and `embed` the smallest
-   that works; `code` a model whose name says coder or code; `vision` a model with vision.
-   `writer` stays empty and falls back to `chat`.
-4. Works out context, KV cache type and GPU layers for each (below).
-
-With `--write` it then pins each chosen model (an Ollama digest, or the sha256 of a GGUF file,
-which takes a while for a large file), saves `[models.roles.*]` and the `[hal]` model names the
-gateway reads, adds the gateway backends a source needs, and writes the llama.cpp mode `tuned`
-for GGUF roles to `~/.config/hal/modes/tuned.ini`. The bundled modes keep working. Your old
-config is saved as `config.toml.bak.<UTC time>`. An Anthropic source can be listed and assigned
-but the gateway has no Anthropic backend, so that role is left out of the gateway with a note.
-
-A write is all or nothing. Hal checks the new config and every model before it writes. If a pin
-fails part way (a file that cannot be read, a full disk), it puts the pin list and the mode file back
-and tells you that nothing was written; your config is not touched.
-
-Nothing downloads a model. `hal setup` and `setup.sh` never pull one either; see
-[../howto/point-hal-at-your-models.md](../howto/point-hal-at-your-models.md).
+It works with no GPU, in an 80 by 24 terminal, with `NO_COLOR`, and in ASCII mode.
 
 ## Tuning
 

@@ -1,6 +1,6 @@
-"""Tests for the screen of the interactive `hal tune`: layout, commands and key handling, with no terminal.
+"""Tests for the screen of the interactive `hal tune`: layout, menus, commands and keys, with no terminal.
 
-The commands run through a scripted prompter; the real `PtPrompter` is driven by prompt_toolkit's
+The menus and commands run through a scripted prompter; the real `PtPrompter` is driven by prompt_toolkit's
 pipe input and a dummy output. Hardware and models are fakes.
 """
 
@@ -12,7 +12,9 @@ import tomllib
 
 import pytest
 from prompt_toolkit.application import create_app_session
+from prompt_toolkit.data_structures import Point
 from prompt_toolkit.input import create_pipe_input
+from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
 from prompt_toolkit.output import DummyOutput
 from test_tune import CARD_24GB, CPU_ONLY, GIB, SHOW, TAGS, arch_doc
 
@@ -46,11 +48,13 @@ class Script:
     def ask(self, text, choices=()):
         return self.asks.pop(0) if self.asks else None
 
-    def pick(self, title, items, current=""):
+    def pick(self, title, items, current="", **kwargs):
         self.seen.append((title, [label for label, _ in items]))
         want = self.picks.pop(0) if self.picks else None
         if want is None:
             return None
+        if want in kwargs.get("keys", ""):
+            return want
         return next(value for label, value in items if want == value or want in label)
 
 
@@ -98,31 +102,31 @@ def test_wsl2_and_detection_notes_are_shown(home, server):
 def test_choosing_a_model_context_and_writing_goes_through_the_apply_path(home, server):
     screen, out, prompter = open_screen(
         home, server,
-        asks=["model", "context", "effort", "write", "y", "quit"],
-        picks=["local\nqwen3:8b", "32768", "medium"],
+        asks=["model", "context", "effort", "write", "quit"],
+        picks=["local\nqwen3:8b", "32768", "medium", "yes"],
     )
-    assert screen.run() == 0
+    assert screen.run_commands() == 0
     chat = tomllib.loads(home.config.read_text())["models"]["roles"]["chat"]
     assert (chat["model"], chat["context"], chat["effort"], chat["auto"]) == ("qwen3:8b", 32768, "medium", False)
     assert home.config.read_text().startswith("# my notes")
     titles = [t for t, _ in prompter.seen]
-    assert titles == ["chat model", "chat context", "chat effort"]
+    assert titles == ["chat model", "chat context", "chat effort", "Write these changes?"]
     context_items = prompter.seen[1][1]
-    assert any("GiB" in label for label in context_items)  # every preset shows its fit
+    assert any("GB" in label and "fits" in label for label in context_items)  # every preset shows its fit
     assert "wrote" in out.getvalue()
 
 
 def test_effort_is_not_offered_for_a_model_without_the_capability(home, server):
     screen, out, prompter = open_screen(home, server, asks=["model", "effort", "quit"], picks=["gemma:12b"])
-    screen.run()
+    screen.run_commands()
     assert [t for t, _ in prompter.seen] == ["chat model"]  # no effort picker opened
     assert "no thinking control" in out.getvalue()
 
 
 def test_quitting_without_writing_leaves_the_config_alone(home, server):
-    screen, out, _ = open_screen(home, server, asks=["auto all", "write", "n", "q"])
+    screen, out, _ = open_screen(home, server, asks=["auto all", "write", "q"], picks=["no"])
     before = home.config.read_text()
-    assert screen.run() == 0
+    assert screen.run_commands() == 0
     assert home.config.read_text() == before and "Not written." in out.getvalue()
     assert "unchanged" in out.getvalue()
 
@@ -130,22 +134,22 @@ def test_quitting_without_writing_leaves_the_config_alone(home, server):
 def test_end_of_input_quits_without_writing(home, server):
     screen, _, _ = open_screen(home, server, asks=["auto"])
     before = home.config.read_text()
-    assert screen.run() == 0 and home.config.read_text() == before
+    assert screen.run_commands() == 0 and home.config.read_text() == before
 
 
 def test_a_context_typed_in_k_is_parsed_and_a_bad_one_is_reported_not_raised(home, server):
     screen, out, _ = open_screen(home, server, asks=["auto chat", "context chat 48k", "context chat banana", "quit"])
-    screen.run()
+    screen.run_commands()
     assert screen.state.drafts["chat"].context == 48 * 1024
     assert "not a number of tokens" in out.getvalue()
 
 
 def test_a_failed_write_is_reported_and_leaves_the_config(home, server, monkeypatch):
-    screen, out, _ = open_screen(home, server, asks=["auto chat", "write", "y", "quit"])
+    screen, out, _ = open_screen(home, server, asks=["auto chat", "write", "quit"], picks=["yes"])
     before = home.config.read_text()
     monkeypatch.setattr(tuneui.tunestate.modelplan.gwmodels, "record_ollama", lambda *a, **k: (_ for _ in ()).throw(
         tuneui.tunestate.modelplan.ManifestError("disk full")))
-    screen.run()
+    screen.run_commands()
     assert "nothing was written" in out.getvalue() and home.config.read_text() == before
 
 
@@ -153,7 +157,7 @@ def test_sources_can_be_added_and_removed_from_the_screen(home, server, tmp_path
     folder = tmp_path / "weights"
     folder.mkdir()
     screen, out, _ = open_screen(home, server, asks=["source add", str(folder), "source remove", "quit"], picks=["gguf", "gguf"])
-    screen.run()
+    screen.run_commands()
     assert "added gguf: 0 models" in out.getvalue() and "removed gguf" in out.getvalue()
     assert list(screen.state.sources) == ["local"]
 
@@ -213,3 +217,100 @@ def test_a_gpu_held_by_another_program_shows_a_warning_line():
     lines = tuneui.hardware_lines(busy)
     assert sum("another program is using" in line for line in lines) == 1
     assert not any("another program" in line for line in tuneui.hardware_lines(hardware.from_dict(CARD_24GB)))
+
+
+def test_the_menus_choose_a_model_and_context_and_save_without_typing(home, server):
+    screen, out, prompter = open_screen(
+        home, server,
+        picks=["role", "chat", "model", "local\nqwen3:8b", "context", "32768", "back", None, "save", "yes"],
+    )
+    assert screen.run() == 0
+    chat = tomllib.loads(home.config.read_text())["models"]["roles"]["chat"]
+    assert (chat["model"], chat["context"], chat["auto"]) == ("qwen3:8b", 32768, False)
+    titles = [t for t, _ in prompter.seen]
+    assert titles[:2] == ["What next?", "Adjust which role?"] and "Write these changes?" in titles
+    assert "wrote" in out.getvalue()
+
+
+def test_the_role_menu_offers_every_setting_and_the_context_menu_shows_each_fit(home, server):
+    screen, _, prompter = open_screen(home, server, picks=["role", "chat", "context", None, "back", None, "quit"])
+    screen.state.auto_tune("chat")
+    screen.run()
+    role_items = prompter.seen[2][1]
+    assert role_items == ["Model", "Context", "KV cache", "Effort", "Temperature", "Auto-tune this role", "Back"]
+    context_items = prompter.seen[3][1]
+    assert [i.split()[0] for i in context_items[1:6]] == ["8K", "16K", "32K", "64K", "128K"]
+    assert context_items[-1] == "Custom..." and all("GB" in i for i in context_items[1:6])
+
+
+def test_esc_on_the_main_menu_asks_before_dropping_changes(home, server):
+    screen, out, _ = open_screen(home, server, picks=[None, "no", None, "yes"])
+    screen.state.auto_tune("chat")
+    assert screen.run() == 0 and "unchanged" in out.getvalue()
+
+
+def test_esc_on_the_main_menu_quits_at_once_when_nothing_changed(home, server):
+    screen, _, prompter = open_screen(home, server, picks=[None])
+    assert screen.run() == 0 and len(prompter.seen) == 1
+
+
+def test_a_colon_opens_the_typed_commands_and_menu_returns_to_the_menus(home, server):
+    screen, _, prompter = open_screen(home, server, asks=["menu"], picks=[":", "quit"])
+    assert screen.run() == 0 and [t for t, _ in prompter.seen] == ["What next?", "What next?"]
+    screen, _, _ = open_screen(home, server, asks=["quit"], picks=[":"])
+    assert screen.run() == 0
+
+
+def test_a_menu_error_is_shown_not_raised(home, server):
+    screen, out, _ = open_screen(home, server, picks=["role", "writer", "context", "back", None, "quit"])
+    screen.state.drafts.pop("writer", None)
+    screen.run()
+    assert "has no model yet" in out.getvalue()
+
+
+def test_the_summary_fits_80_columns_in_ascii_and_lists_every_role(home, server):
+    screen, out, _ = open_screen(home, server, unicode=False, width=80)
+    screen.state.auto_tune()
+    screen.console.print(tuneui.render_summary(screen.state, screen.look))
+    text = out.getvalue()
+    assert text.isascii() and max(len(line) for line in text.splitlines()) <= 80
+    assert all(role in text for role in ("chat", "fast", "code", "writer", "vision", "embed"))
+    assert len(text.splitlines()) + len(tuneui.MAIN_ITEMS) + 2 <= 24
+
+
+def test_fit_words_say_fits_tight_or_too_big():
+    fit = tuneui.tunestate.Fit
+    assert tuneui.fit_word(fit("gpu", used_mib=5000, budget_mib=20000)) == "fits"
+    assert tuneui.fit_word(fit("gpu", used_mib=19000, budget_mib=20000)) == "tight"
+    assert tuneui.fit_word(fit("hybrid")) == "tight, uses RAM"
+    assert tuneui.fit_word(fit("does-not-fit")) == "too big"
+
+
+def test_number_keys_choose_a_row_and_q_or_esc_go_back():
+    assert run_pt("2", lambda p: p.pick("menu", ITEMS, filterable=False)) == "b"
+    assert run_pt("q", lambda p: p.pick("menu", ITEMS, filterable=False)) is None
+    assert run_pt("\x1b", lambda p: p.pick("menu", ITEMS, filterable=False)) is None
+    assert run_pt("\x1b[B\r", lambda p: p.pick("menu", ITEMS, "a", filterable=False)) == "b"
+
+
+def test_a_menu_returns_an_extra_key_only_when_it_is_asked_for():
+    assert run_pt(":", lambda p: p.pick("menu", ITEMS, filterable=False, keys=":")) == ":"
+    assert run_pt(":\x1b", lambda p: p.pick("menu", ITEMS, filterable=False)) is None
+
+
+def test_the_hint_footer_names_the_keys_in_ascii_mode():
+    view = tuneui.ListView("t", ITEMS, "", load_look({"unicode": False}), {"accent": "", "muted": ""}, filterable=False, keys=":")
+    assert view.hint().startswith("up/down move | enter select | 1-9 jump | esc back") and view.hint().isascii()
+
+
+def test_clicking_a_row_chooses_it_and_other_mouse_events_are_ignored():
+    view = tuneui.ListView("t", ITEMS, "", load_look({}), {"accent": "", "muted": ""}, filterable=False)
+    handlers = [frag[2] for frag in view.fragments() if len(frag) == 3]
+    assert len(handlers) == 3
+
+    def mouse(kind):
+        return MouseEvent(Point(0, 0), kind, MouseButton.LEFT, frozenset())
+
+    assert handlers[2](mouse(MouseEventType.MOUSE_DOWN)) is NotImplemented and view.result is None
+    handlers[2](mouse(MouseEventType.MOUSE_UP))
+    assert view.result == "c" and view.finished
