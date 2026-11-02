@@ -28,6 +28,7 @@ NETWORK_MODULES: dict[str, str] = {
     "halgateway/client.py": "client of the user's own gateway",
     "halgateway/gpu/peers.py": "probe of gpu-light peers the user configured",
     "halgateway/models/download.py": "model download the user asked for, from the pinned model host",
+    "halkit/discovery.py": "lists the models of the sources the user configured",
     "halgateway/relay.py": "gateway relay to the model server the user configured",
     "halhub/_worker/hal_worker.py": "pack worker; reaches the network only through halkit.netguard",
     "halkit/llm.py": "client of the configured model server",
@@ -40,6 +41,8 @@ NETWORK_MODULES: dict[str, str] = {
 # host -> why Hal may name it. Local addresses are always fine.
 ALLOWED_HOSTS: dict[str, str] = {
     "huggingface.co": "model download the user asked for (halgateway.models)",
+    "api.anthropic.com": "model list of an `anthropic` source the user added (halkit.discovery)",
+    "api.openai.com": "model list of an `openai-cloud` source the user added (halkit.discovery)",
     "ntfy.sh": "default of the optional, off-by-default [notify].ntfy_server key",
 }
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "0.0.0.0", "[::1]", "host", "...", "example.org", "example.com")  # noqa: S104 - names, not binds

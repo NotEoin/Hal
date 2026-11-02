@@ -9,6 +9,9 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `halkit.discovery` lists the models of a source with size, parameters, quantisation, layers, heads,
+  context and capabilities (tools, vision, thinking): Ollama `/api/show`, GGUF headers, OpenAI-compatible
+  `/v1/models`.
 - `[models.sources.NAME]` and `[models.roles.ROLE]` config tables name where models come from (Ollama,
   OpenAI-compatible servers, GGUF folders, Anthropic, OpenAI) and which model plays each role. API keys
   are read from a key file, never from the config.
