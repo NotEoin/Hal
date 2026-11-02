@@ -5,6 +5,8 @@ Run with: uv run pytest packages/hal-core
 """
 import os
 import unittest
+
+import pytest
 from pathlib import Path
 from unittest import mock
 
@@ -139,3 +141,60 @@ def test_disabled_pack_modules_get_no_units(tmp_path, monkeypatch):
     monkeypatch.setenv("HAL_CONFIG", str(cfg))
     monkeypatch.setenv("HAL_STATE", str(state))
     assert new / "habits" not in units.module_roots()
+
+
+SIBLING_REPOS = ("hal-tools", "hal-memory", "hal-voice")
+SIBLING_PARENT = ROOT.parent  # the checkout's sibling repos sit next to it, as `hal setup` expects
+
+
+def _register_checkout(state, repo, python):
+    """Registers each pack folder of a sibling the way `hal packs add --local` records it."""
+    import json
+
+    from halcore import packs, setup
+
+    record = {"version": 2, "packs": {}}
+    for path in setup.pack_dirs(repo):
+        record["packs"][path.name] = {"python": python, "path": str(path), "modules": packs.scan_modules(path, Path(python))}
+    state.mkdir(parents=True, exist_ok=True)
+    existing = json.loads((state / "packs.json").read_text()) if (state / "packs.json").exists() else {"version": 2, "packs": {}}
+    existing["packs"].update(record["packs"])
+    (state / "packs.json").write_text(json.dumps(existing))
+
+
+def test_missing_exec_start_programs_are_reported(tmp_path, monkeypatch):
+    state, new = tmp_path / "state", tmp_path / "new"
+    _register_pack(state, "life", new, "/p/python", ["habits"])
+    (new / "habits" / "systemd").mkdir()
+    (new / "habits" / "systemd" / "a.service").write_text("[Service]\nExecStart=@ROOT@/bin/serve\n")
+    monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "none.toml"))
+    monkeypatch.setenv("HAL_STATE", str(state))
+    assert units.missing_exec_paths() == [f"a.service: {new}/habits/bin/serve"]
+    (new / "habits" / "bin").mkdir()
+    (new / "habits" / "bin" / "serve").write_text("#!/bin/sh\n")
+    assert units.missing_exec_paths() == []
+
+
+def test_units_outside_the_registered_packs_are_listed(tmp_path, monkeypatch):
+    old = tmp_path / "old" / "clock"
+    (old / "systemd").mkdir(parents=True)
+    (old / "hal-module.toml").write_text('[module]\nname = "clock"\n')
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(f'[hub]\nmodule_paths = ["{old.parent}"]\n')
+    monkeypatch.setenv("HAL_CONFIG", str(cfg))
+    monkeypatch.setenv("HAL_STATE", str(tmp_path / "state"))
+    assert units.outside_packs() == [str(old)]
+
+
+def test_every_sibling_pack_unit_runs_a_program_that_exists(tmp_path, monkeypatch):
+    repos = [SIBLING_PARENT / name for name in SIBLING_REPOS if (SIBLING_PARENT / name).is_dir()]
+    if not repos:
+        pytest.skip("no sibling pack checkouts next to this one")
+    import sys
+
+    for repo in repos:
+        _register_checkout(tmp_path / "state", repo, sys.executable)
+    monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "none.toml"))
+    monkeypatch.setenv("HAL_STATE", str(tmp_path / "state"))
+    assert units.exec_starts()
+    assert units.missing_exec_paths() == []

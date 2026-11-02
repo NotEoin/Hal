@@ -134,6 +134,28 @@ def exec_starts() -> list[str]:
     return lines
 
 
+def missing_exec_paths() -> list[str]:
+    """Rendered `ExecStart` programs that do not exist, as `unit: path` lines (absolute paths only)."""
+    found = []
+    for root in module_roots():
+        python = python_for(root)
+        for src in sorted((root / "systemd").glob("*.service")):
+            for line in render(src.read_text(), root, python).splitlines():
+                if not line.startswith("ExecStart="):
+                    continue
+                words = line.removeprefix("ExecStart=").lstrip("-@:+!").split()
+                if words and words[0].startswith("/") and not Path(words[0]).exists():
+                    found.append(f"{src.name}: {words[0]}")
+    return found
+
+
+def outside_packs() -> list[str]:
+    """Units that would render from a folder no registered pack provides (other than core Hal)."""
+    pack_roots, _ = _pack_roots()
+    return [f"{root}" for root in module_roots() if root != config.ROOT and root not in pack_roots
+            and (root / "systemd").is_dir()]  # fmt: skip
+
+
 def is_gpu(unit_file: Path) -> bool:
     try:
         return bool(re.search(r"^X-HalGPU\s*=\s*(yes|true|1)\s*$", unit_file.read_text(), re.M | re.I))
