@@ -37,7 +37,8 @@ or the doctor failed. Verified by `packages/hal-core/tests/test_setup.py`.
 `hal doctor` (also `hal status`) prints one read-only report and starts nothing. It checks the
 runtime directory, docker, runsc, the box images, the model server and the lockdown and
 paranoia lines, and warns (`units`) when a unit would render outside the registered packs or run a
-missing program. Add `--json` for machine output. It exits 1 when a line says FAIL.
+missing program. On WSL2 it adds `platform`, `wsl systemd` and `wsl gpu` lines with the fix for each
+(see [run-on-windows-with-wsl2](../howto/run-on-windows-with-wsl2.md)). Add `--json` for machine output. It exits 1 when a line says FAIL.
 
 ```
 [FAIL] runtime dir  /run/user/1000/hal has mode 0755, it must be 0700: run `chmod 700 /run/user/1000/hal`

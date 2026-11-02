@@ -21,8 +21,9 @@ import shutil
 import stat
 import sys
 from dataclasses import asdict
+from pathlib import Path
 
-from halkit import llm, paths
+from halkit import hardware, llm, paths
 from halsandbox import doctor as sandbox_doctor
 from halsandbox.doctor import FAIL, OK, WARN, Check
 
@@ -30,6 +31,9 @@ from . import modelplan, security, units
 
 PROBE_TIMEOUT_S = 3.0
 PRIVATE_MODE = 0o700
+SYSTEMD_RUN_DIR = Path("/run/systemd/system")  # exists only when systemd is PID 1 (sd_booted(3))
+WSL_CUDA_LIB = Path("/usr/lib/wsl/lib/libcuda.so.1")  # the Windows driver's CUDA library, mounted into WSL2
+WSL_HOWTO = "docs/howto/run-on-windows-with-wsl2.md"
 
 
 def runtime_dir_check() -> Check:
@@ -86,6 +90,29 @@ def units_check() -> Check:
     return Check("units", WARN, "; ".join(parts) + "; run `hal setup --dry-run` to see them, `hal setup --replace` to fix")
 
 
+def wsl_checks(
+    *, wsl2: bool | None = None, systemd_dir: Path = SYSTEMD_RUN_DIR, cuda_lib: Path = WSL_CUDA_LIB
+) -> list[Check]:
+    """Platform lines for WSL2 with the fix for each gap; an empty list on any other host."""
+    if wsl2 is None:
+        wsl2 = hardware.is_wsl2()
+    if not wsl2:
+        return []
+    out = [Check("platform", OK, f"WSL2 (see {WSL_HOWTO})")]
+    if systemd_dir.is_dir():
+        out.append(Check("wsl systemd", OK, "systemd is running"))
+    else:
+        out.append(Check(
+            "wsl systemd", WARN,
+            "systemd is off, so the Hal units cannot start; add `[boot]` `systemd=true` to /etc/wsl.conf, then run `wsl --shutdown` in PowerShell",
+        ))
+    if cuda_lib.exists():
+        out.append(Check("wsl gpu", OK, f"{cuda_lib} found"))
+    else:
+        out.append(Check("wsl gpu", WARN, "no CUDA library from the Windows driver; with no GPU Hal runs on the CPU, otherwise update the NVIDIA driver on Windows"))
+    return out
+
+
 def security_checks() -> list[Check]:
     """The lockdown and classifier lines as checks."""
     report = security.collect(check_runtime=False)
@@ -97,7 +124,7 @@ def security_checks() -> list[Check]:
 
 def collect() -> list[Check]:
     """Every check, in the order they are shown; the runtime directory comes first."""
-    checks = [runtime_dir_check(), docker_check()]
+    checks = [runtime_dir_check(), *wsl_checks(), docker_check()]
     try:
         checks += sandbox_doctor.run_checks()
     except Exception as exc:  # noqa: BLE001 - a broken probe must not hide the other lines

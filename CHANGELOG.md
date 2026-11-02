@@ -9,6 +9,7 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `hal doctor` adds `platform`, `wsl systemd` and `wsl gpu` lines on WSL2, and `docs/howto/run-on-windows-with-wsl2.md` explains the setup.
 - `hal setup` opens the `hal tune` screen on a terminal when no chat model is assigned.
 - `hal code`: `/model` lists the models of your sources by source, switches the session and `/model save`
   keeps the choice as the `code` role; `/effort` sets the thinking effort for models that support it, shows it in

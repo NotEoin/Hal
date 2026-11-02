@@ -103,3 +103,21 @@ def test_doctor_reports_the_assigned_chat_model(monkeypatch, tmp_path):
     monkeypatch.setenv("HAL_CONFIG", str(cfg))
     check = doctor.models_check()
     assert check.status == doctor.OK and "l/m" in check.detail
+
+
+def test_wsl2_without_systemd_warns_with_the_wsl_conf_fix(tmp_path):
+    checks = {c.name: c for c in doctor.wsl_checks(wsl2=True, systemd_dir=tmp_path / "none", cuda_lib=tmp_path / "none")}
+    assert checks["platform"].status == "ok"
+    assert checks["wsl systemd"].status == "warn" and "systemd=true" in checks["wsl systemd"].detail
+    assert checks["wsl gpu"].status == "warn" and "NVIDIA driver" in checks["wsl gpu"].detail
+
+
+def test_wsl2_with_systemd_and_cuda_passes(tmp_path):
+    lib = tmp_path / "libcuda.so.1"
+    lib.write_text("")
+    checks = doctor.wsl_checks(wsl2=True, systemd_dir=tmp_path, cuda_lib=lib)
+    assert [c.status for c in checks] == ["ok", "ok", "ok"]
+
+
+def test_other_hosts_get_no_wsl_lines(tmp_path):
+    assert doctor.wsl_checks(wsl2=False) == []
