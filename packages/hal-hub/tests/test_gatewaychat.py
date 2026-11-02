@@ -91,3 +91,24 @@ def test_gateway_chat_returns_text_and_logprobs_when_asked(home):
         )
     body = server.requests[0]["body"]
     assert got == ("yes", entries) and body["logprobs"] is True and body["top_logprobs"] == 5
+
+
+def test_gateway_chat_forces_cpu_options_with_gpu_false_even_when_the_light_is_green(
+    home, monkeypatch, tmp_path
+):
+    _fake_gpu_light(monkeypatch, tmp_path, "green")
+    with FakeModelServer(home.runtime / "gateway.sock") as server:
+        server.script("ok")
+        gatewaychat.gateway_chat("m", [], temperature=0, max_tokens=5, timeout_s=5, gpu=False)
+    assert server.requests[0]["body"]["options"] == {"num_gpu": 0}
+
+
+def test_hub_kwargs_classifier_chat_runs_on_the_cpu_when_policy_gpu_is_false(home, monkeypatch, tmp_path):
+    _fake_gpu_light(monkeypatch, tmp_path, "green")
+    home.policy.write_text("schema_version = 1\n[policy]\ngpu = false\n")
+    home.policy.chmod(0o600)
+    chat = gatewaychat.hub_kwargs()["classify_chat"]
+    with FakeModelServer(home.runtime / "gateway.sock") as server:
+        server.script("ok")
+        chat("m", [], temperature=0, max_tokens=5, timeout_s=5)
+    assert server.requests[0]["body"]["options"] == {"num_gpu": 0}

@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import time
 from collections.abc import Mapping, Sequence
+from functools import partial
 
 from halkit import llm
 
@@ -74,12 +75,15 @@ def gateway_chat(
     max_tokens: int,
     timeout_s: float,
     logprobs: bool = False,
+    gpu: bool = True,
 ) -> str | tuple[str, list[dict[str, object]]]:
     """Sends one chat request to the gateway alias `model` (GPU or CPU per `gpu_options`).
 
     Returns the text, or `(text, token logprobs)` when `logprobs` is true (the Guardian classifier
-    reads P(yes) from them). Raises `halkit.llm.GatewayError`.
+    reads P(yes) from them). With `gpu` false the CPU options are always sent. Raises
+    `halkit.llm.GatewayError`.
     """
+    options = gpu_options() if gpu else dict(CPU_OPTIONS)
     if logprobs:
         return llm.chat_logprobs(
             messages,
@@ -87,7 +91,7 @@ def gateway_chat(
             timeout=timeout_s,
             max_tokens=max_tokens,
             temperature=temperature,
-            options=gpu_options(),
+            options=options,
             top_logprobs=LOGPROBS_TOP,
         )
     return llm.chat(
@@ -96,15 +100,18 @@ def gateway_chat(
         timeout=timeout_s,
         max_tokens=max_tokens,
         temperature=temperature,
-        options=gpu_options(),
+        options=options,
     )
 
 
 def hub_kwargs() -> dict[str, object]:
     """`Hub(**hub_kwargs())` arguments for production: the classifier chat and, if enabled, the reviewer."""
+    loaded = policy.load_policy()
+    settings = loaded.reviewer
     chat: ChatFn = gateway_chat
-    settings = policy.load_policy().reviewer
-    kwargs: dict[str, object] = {"classify_chat": chat}
+    # `[policy].gpu = false` pins the classifier to the CPU; the reviewer keeps the gpu-light choice
+    classify_chat: ChatFn = chat if loaded.classifier.gpu else partial(gateway_chat, gpu=False)
+    kwargs: dict[str, object] = {"classify_chat": classify_chat}
     if settings.enabled:
         kwargs["reviewer"] = Reviewer(settings, chat)
     return kwargs

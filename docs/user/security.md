@@ -95,7 +95,8 @@ gpu = false                              # always run on the CPU, so it never ta
   `granite4.1-guardian:8b` also works when exactly one backend serves it. Pull the model into
   Ollama yourself; Hal does not.
 - `gpu = false` sends `num_gpu` 0 on every classifier call, whatever `gpu-light` says. The default
-  is `true`: use the GPU while the light is green.
+  is `true`: use the GPU while the light is green. It applies to the classifier only; the
+  reviewer keeps following `gpu-light`.
 - On the CPU it takes about 5 to 6 s per call (measured on 2026-11-02 for a 230-token prompt), so
   the read fast path above matters: most calls skip the model.
 - It is English only. Arguments and messages in other languages are rated less reliably.
