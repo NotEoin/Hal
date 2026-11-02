@@ -67,6 +67,8 @@ COMMANDS: dict[str, Command] = {
     "setup": Command("setup", "finish an install: packs, gpu-light, box image, units, doctor (--dry-run)"),
     "units": Command("units", "render and install systemd units"),
     "configure": Command("configure", "write the configuration"),
+    "tune": Command("tune", "detect hardware and work out model settings (--write saves them)"),
+    "models": Command("modelscmd", "list model sources and models, add or remove a source, assign a role"),
     "console": Command("console", "local web console (UNBOXED: runs on the host, real data)"),
     "eval": Command("evaluate", "run the evaluation suites"),
     "migrate": Command("migrate", "move from the old hal-ecosystem layout (dry run by default)"),
@@ -121,7 +123,7 @@ def resolve(argv: list[str]) -> tuple[Command, list[str]] | None:
 GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("work", ("code", "chat", "acp", "jobs", "sessions", "box", "connect", "ide")),
     ("safety", ("lockdown", "paranoia", "policy", "audit", "guard", "approvals", "approve", "deny", "scratch", "security")),
-    ("system", ("doctor", "status", "kill", "power", "gpulight", "setup", "units", "gateway", "migrate", "configure", "console", "eval", "packs")),
+    ("system", ("doctor", "status", "kill", "power", "gpulight", "setup", "units", "gateway", "migrate", "configure", "tune", "models", "console", "eval", "packs")),
 )
 
 

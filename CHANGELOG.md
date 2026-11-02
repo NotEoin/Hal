@@ -9,6 +9,10 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `hal tune` detects the hardware, reads the models of your sources and plans context, KV cache type and
+  GPU layers per role; `--write` pins the models, saves the roles and the gateway wiring and generates the
+  llama.cpp mode `tuned`. `hal models` lists sources and models, adds or removes a source, and assigns a role.
+  `docs/user/models.md` and `docs/howto/point-hal-at-your-models.md` describe them.
 - The gateway reads an effort hint (`X-Hal-Effort` header or `hal_effort` field) on chat completions and
   maps it to the model's thinking controls; role aliases apply the role's `effort` and `temperature`.
 - `halkit.discovery` lists the models of a source with size, parameters, quantisation, layers, heads,
@@ -86,6 +90,9 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Changed
 
+- `hal configure` no longer writes model names. It records the profile, writes `[models]` limits and prints
+  the `hal tune --auto` plan. `--profile max|24gb|12gb|cloud` still works as a preset for `context_cap` and
+  `kv_type`, with a deprecation note.
 - Hal holds no GPU claim while idle, so a gpu-light batch job is not parked for as long as Hal
   is on. `hal on` no longer claims the GPU light or waits for the card, and core Hal no longer
   ships `hal-gpu-light.service`; `hal setup` and `hal units install` remove an installed copy,

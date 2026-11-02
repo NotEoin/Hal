@@ -132,3 +132,13 @@ def test_a_fake_nvidia_smi_on_disk_runs_through_the_default_runner(tmp_path):
     script.chmod(script.stat().st_mode | stat.S_IXUSR)
     out = hardware.default_runner([str(script)], 5.0)
     assert hardware.parse_nvidia(out)[0].total_mib == 24564
+
+
+def test_hardware_round_trips_through_its_dict_form(host):
+    hw = hardware.detect(fake_runner({"nvidia-smi": TWO_CARDS}), **host)
+    assert hardware.from_dict(json.loads(json.dumps(hw.to_dict()))) == hw
+
+
+def test_a_malformed_hardware_document_is_refused():
+    with pytest.raises(ValueError, match="not a hardware description"):
+        hardware.from_dict({"gpus": [{"nope": 1}]})

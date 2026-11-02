@@ -600,6 +600,16 @@ wraps it.
 - **REQ-CLI-83** (MUST) The profile detector MUST map VRAM and RAM to `max`, `24gb`, `12gb` or
   `cloud` with the thresholds of `setup.sh` (`profile_for_hardware`). Test: unit
   `test_profile_thresholds_match_setup_sh`.
+- **REQ-CLI-112** (MUST) `hal tune` MUST detect the hardware (GPUs, RAM, CPU threads, WSL2) without
+  raising, list the models of every `[models.sources]` entry, plan context, KV cache type and GPU
+  layers per role, and change nothing without `--write`; `--write` MUST pin each chosen model and
+  back up the config. Test: unit `test_without_write_nothing_is_changed`,
+  `test_write_saves_roles_pins_digests_and_names_the_models_for_the_gateway`.
+- **REQ-CLI-113** (MUST) `hal configure` MUST NOT name or pull a model; it MUST accept `--profile
+  max|24gb|12gb|cloud` as a preset for `[models] context_cap` and `kv_type` with a deprecation
+  note, and print the `hal tune` plan. Test: unit
+  `test_configure_records_the_detected_profile_and_names_no_model`,
+  `test_an_old_profile_name_is_a_preset_with_a_deprecation_note`.
 - **REQ-CLI-84** (MUST) `hal configure --migrate` MUST read `hal.conf` as `KEY="value"` lines
   only, map them as in "Configuration migration", write `[jobs].jobhunt_root` with the current
   effective value when `[jobs]` is absent (H1), and print every change before writing. Test:
@@ -771,8 +781,11 @@ hal connect HARNESS [--write] [--shell bash|zsh|fish] [--json]
 hal connect --list
 hal claude [--preset NAME] [--model NAME] [--vault | --dir DIR] [--cloud] [CLAUDE_ARGS...]
 hal gateway ARGS...                  delegates to hal-gateway (05-gateway "CLI")
-hal models list [--json]
-hal models pull NAME... | --profile P | --preset P [--yes] [--dry-run]
+hal models [list|sources] [--source S] [--json]
+hal models add-source KIND [LOCATION] [--name N] [--key-file F] [--allow-remote] | remove-source NAME
+hal models assign ROLE SOURCE MODEL
+hal tune [--auto] [--write] [--json] [--role R]... [--reassign] [--hardware FILE]
+hal models pull NAME... | --profile P | --preset P [--yes] [--dry-run]   (planned, explicit opt-in)
 hal models verify [NAME...] [--full] [--json]
 hal serve [PRESET] [--no-wait] | --list
 hal stop [--all]
@@ -1860,26 +1873,18 @@ coding runner, statistics and report contents are 03's. halcore adds:
 
 ### Configure, profiles and migration
 
-`hal configure` on a missing file: detect the profile (`nvidia-smi --query-gpu=memory.total
---format=csv,noheader,nounits`, timeout 10 s; `/proc/meminfo`), propose it, ask (unless
-`--yes`), and write the template with `[hal]` keys from 00-overview, the profile's role models,
-`[hub]`, `[notify]` with a new private ntfy topic, and `[gateway]` defaults for the profile
-(05). Thresholds from `setup.sh` `profile_for_hardware`: VRAM >= 22000 MiB and RAM >= 60 GiB
--> `max`; VRAM >= 22000 -> `24gb`; VRAM >= 11000 -> `12gb`; else `cloud` (the margins exist
-because a nominal 24 GB card reports 24564 MiB and the desktop holds about 1 GB).
+`hal configure` on a missing file: detect the profile for the record (`[hal].profile`,
+informational), write the template with `[hal]`, `[models]` (the profile as a preset of
+`context_cap` and `kv_type`), `[hub]` and `[notify]` with a new private ntfy topic, then run the
+`hal tune --auto` plan without writing. The template names no model. Thresholds from `setup.sh`
+`profile_for_hardware`: VRAM >= 22000 MiB and RAM >= 60 GiB -> `max`; VRAM >= 22000 -> `24gb`;
+VRAM >= 11000 -> `12gb`; else `cloud` (a nominal 24 GB card reports 24564 MiB and the desktop
+holds about 1 GB).
 
-Profile to settings:
-
-| Profile | `[hal].chat_model` | Code role | Gateway default (05) |
-| --- | --- | --- | --- |
-| `max` | `gemma4:12b-it-qat` | mode `gpu` on the managed llama-server | llama-server modes, Ollama for chat and embeddings |
-| `24gb` | `gemma4:12b-it-qat` | `qwen3.8:27b` through Ollama | Ollama |
-| `12gb` | `qwen3.5:4b` | `gemma4:12b-it-qat` through Ollama | Ollama |
-| `cloud` | `qwen3.5:2b` | none local; `hal claude --cloud` or a cloud upstream opt-in | Ollama for chat only |
-
-These are today's `pick_profile` values (`setup.sh`). The default coding model is chosen by
-the coding eval; until then it is the user's `hal-code` alias (the resolutions, settled
-questions).
+The profile names are deprecated presets: `max` is `context_cap` 131072 with `kv_type` auto,
+`24gb` 65536 with q8_0, `12gb` 32768 with q8_0, `cloud` 8192 with q8_0. Models come from the
+user's own sources (`hal models`, `hal tune`, the user page `docs/user/models.md`); the sizing
+formula is in `docs/dev/tuning.md`. Nothing in `hal configure` or `hal setup` downloads a model.
 
 Configuration migration (`--migrate`), read-only parse of `KEY="value"` lines:
 

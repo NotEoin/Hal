@@ -9,7 +9,7 @@ description = "The hal command: agent loop host, extensions, services, eval and 
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-dependencies = ["hal-kit", "hal-hub", "hal-sandbox", "rich>=15,<16", "prompt-toolkit>=3.0.53,<4"]
+dependencies = ["hal-kit", "hal-hub", "hal-sandbox", "hal-gateway", "rich>=15,<16", "prompt-toolkit>=3.0.53,<4"]
 
 [project.scripts]
 hal = "halcore.cli:main"
@@ -18,6 +18,7 @@ hal = "halcore.cli:main"
 hal-kit = { workspace = true }
 hal-hub = { workspace = true }
 hal-sandbox = { workspace = true }
+hal-gateway = { workspace = true }
 
 [tool.hatch.version]
 path = "src/halcore/__init__.py"

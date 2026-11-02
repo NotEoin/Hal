@@ -1,4 +1,8 @@
-"""Hardware profiles for `hal configure`: maps VRAM and RAM to `max`, `24gb`, `12gb` or `cloud`.
+"""Deprecated hardware profiles: maps VRAM and RAM to `max`, `24gb`, `12gb` or `cloud` presets.
+
+`hal tune` (halkit.tuning) now sizes models from the real hardware; these names stay as presets
+for the tuning limits so old commands and scripts keep working. The suggestion below is
+informational only.
 
 The thresholds keep a margin: a nominal 24 GB card reports 24564 MiB and the desktop holds
 about 1 GB of it, so the cut-offs sit below the nominal sizes (06-core-cli, "Configure,
@@ -25,19 +29,23 @@ KIB_PER_GIB = 1024 * 1024
 
 @dataclass(frozen=True)
 class Profile:
-    """The settings a profile writes."""
+    """A deprecated profile kept as a preset for the tuning limits (`[models]` in the config)."""
 
     name: str
-    chat_model: str
-    code_model: str  # informational: the coding role the gateway default uses
+    context_cap: int  # `[models] context_cap`
+    kv_type: str  # `[models] kv_type`
+    note: str
 
 
+# The old profiles named fixed models; those are gone (`hal tune` picks from the models you have).
+# Each name now maps to limits that suit its hardware class, so old scripts keep a sensible result.
 PROFILES: dict[str, Profile] = {
-    "max": Profile("max", "gemma4:12b-it-qat", "hal-code (llama-server, mode gpu)"),
-    "24gb": Profile("24gb", "gemma4:12b-it-qat", "qwen3.8:27b"),
-    "12gb": Profile("12gb", "qwen3.5:4b", "gemma4:12b-it-qat"),
-    "cloud": Profile("cloud", "qwen3.5:2b", "none local"),
+    "max": Profile("max", 131072, "auto", "a 24 GB card and 64 GB of RAM: the model's full context"),
+    "24gb": Profile("24gb", 65536, "q8_0", "a 24 GB card"),
+    "12gb": Profile("12gb", 32768, "q8_0", "a 12 GB card"),
+    "cloud": Profile("cloud", 8192, "q8_0", "no useful GPU: a small local context"),
 }
+DEFAULT_PRESET = Profile("auto", 131072, "auto", "the tuning default")
 
 
 def profile_for_hardware(vram_mib: int, ram_gib: float) -> str:

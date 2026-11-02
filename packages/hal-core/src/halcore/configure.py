@@ -5,6 +5,11 @@
 A new file gets Hal's defaults and a private ntfy topic for phone notifications. An
 existing file is only changed where it must be: [hub].module_paths gains this
 checkout's core and extensions folders if they are missing.
+
+Models are not chosen here any more. After the file is written, `hal configure` runs the same
+engine as `hal tune --auto` and prints the plan; `hal tune --auto --write` saves it. The
+profile names `max`, `24gb`, `12gb` and `cloud` still work as presets for the tuning limits
+(`halcore.profiles`) and print a deprecation note. Nothing is downloaded.
 """
 from __future__ import annotations
 
@@ -23,11 +28,12 @@ TEMPLATE = """# Hal's settings, shared by core hal and every extension. Each ext
 profile = "{profile}"                  # hardware profile chosen by hal configure (informational)
 vault = "{vault}"                      # the Obsidian vault Hal's memory lives in
 ollama_url = "http://localhost:11434"
-chat_model = "{chat_model}"            # the brain: answers and calls tools (hal eval compares models)
-fast_model = "qwen3.5:4b"              # quick jobs: classifying, titling
-embed_model = "embeddinggemma"         # vault search
-embed_on_cpu = true                    # keeps the vault index off the GPU
-vision_model = "qwen3-vl:8b"           # hal-screen
+{chat_line}embed_on_cpu = true                    # keeps the vault index off the GPU
+# Models: point Hal at the ones you have with `hal models add-source ...`, then `hal tune --auto --write`.
+
+[models]
+context_cap = {context_cap}                  # largest context `hal tune` plans
+kv_type = "{kv_type}"                     # default KV cache type: auto, f16, q8_0 or q4_0
 
 [brain]
 # user_name = "Sam"                    # how Hal addresses you
@@ -50,11 +56,15 @@ def paths() -> list[str]:
     return [str(config.ECOSYSTEM / "core"), str(config.extensions_dir())]
 
 
-def init(chat_model: str, vault: str, profile: str = "cloud") -> str:
+def init(chat_model: str, vault: str, profile: str = "auto") -> str:
+    """Creates or updates the config file; `chat_model` is written only when not empty."""
     path = config.config_path()
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(TEMPLATE.format(profile=profile, vault=vault, chat_model=chat_model, topic=f"hal-{secrets.token_hex(12)}",
+        preset = profiles.PROFILES.get(profile, profiles.DEFAULT_PRESET)
+        chat_line = f'chat_model = "{chat_model}"\n' if chat_model else ""
+        path.write_text(TEMPLATE.format(profile=profile, vault=vault, chat_line=chat_line, topic=f"hal-{secrets.token_hex(12)}",
+                                        context_cap=preset.context_cap, kv_type=preset.kv_type,
                                         paths=", ".join(f'"{p}"' for p in paths())))
         path.chmod(0o600)
         return f"wrote {path}"
@@ -78,17 +88,19 @@ def init(chat_model: str, vault: str, profile: str = "cloud") -> str:
     return f"updated [hub].module_paths in {path}"
 
 
-def choose_profile(requested: str, yes: bool) -> str:
-    """The profile to write: `requested`, or the detected one, confirmed on a terminal unless `yes`."""
-    if requested != "auto":
-        return requested
-    found = profiles.detect_profile()
-    if yes or not sys.stdin.isatty():
-        return found
-    answer = input(f"Detected profile {found}. Use it? [Y/n/max/24gb/12gb/cloud] ").strip().lower()
-    if answer in profiles.PROFILES:
-        return answer
-    return found if answer in ("", "y", "yes") else "cloud"
+def choose_profile(requested: str) -> str:
+    """The profile to record: `requested`, or the one the hardware suggests (informational)."""
+    return requested if requested != "auto" else profiles.detect_profile()
+
+
+def show_plan() -> None:
+    """Runs the `hal tune --auto` engine without writing and prints the plan and the next step."""
+    from . import tune  # lazy: it pulls in the gateway package
+
+    print()
+    status = tune.main([])
+    if status not in (tune.EXIT_OK, tune.EXIT_NOTHING):
+        print("hal configure: the model plan could not be made; run `hal tune --auto` to see why", file=sys.stderr)
 
 
 def migrate(conf_arg: str, yes: bool) -> int:
@@ -128,12 +140,17 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--chat-model", default=None)
     ap.add_argument("--vault", default=config.SHARED["vault"])
     ap.add_argument("--migrate", nargs="?", const="", metavar="HAL_CONF", help="add keys from an old hal.conf")
-    ap.add_argument("--yes", action="store_true", help="accept the detected profile without asking")
+    ap.add_argument("--yes", action="store_true", help="kept for scripts; configure never asks any more")
     args = ap.parse_args(argv)
     if args.migrate is not None:
         return migrate(args.migrate, args.yes)
-    # a profile only matters when the file is about to be created, so an existing file never prompts
-    name = choose_profile(args.profile, args.yes) if not config.config_path().exists() else "cloud"
-    chat_model = args.chat_model or profiles.PROFILES[name].chat_model
-    print(init(chat_model, args.vault, name))
+    if args.profile != "auto":
+        preset = profiles.PROFILES[args.profile]
+        print(f"hal configure: --profile {args.profile} is deprecated; Hal now detects your hardware and "
+              f"sizes models with `hal tune`. Using it as a preset: context_cap={preset.context_cap}, "
+              f"kv_type={preset.kv_type}.", file=sys.stderr)
+    created = not config.config_path().exists()
+    name = choose_profile(args.profile) if created else "auto"
+    print(init(args.chat_model or "", args.vault, name))
+    show_plan()
     return 0

@@ -59,6 +59,63 @@ auto = true            # true: `hal tune --write` may replace context, kv_type a
 `headroom_mib` (VRAM kept free per GPU, 0 = the larger of 1 GiB and 8 percent) and
 `kv_type` (default `auto`).
 
+## Commands
+
+```sh
+hal models add-source ollama http://127.0.0.1:11434   # add a source
+hal models list                                       # every source and its models
+hal models list --source local --json                 # one source, for scripts
+hal models assign chat local gemma3:12b               # give a role a model, pin it, wire the gateway
+hal models remove-source local                        # refused while a role uses it
+hal tune --auto                                       # detect, discover, plan; changes nothing
+hal tune --auto --write                               # also pin, save the roles, generate the mode
+hal tune --auto --json                                # the same plan for scripts
+```
+
+`hal tune` flags: `--role ROLE` (repeatable) plans only that role; `--reassign` chooses again for
+roles that already have a model; `--hardware FILE` plans for the machine described in a JSON
+file (the `hardware` object of `hal tune --json`). A bare `hal tune` shows the `--auto` plan; the
+interactive version is not built yet.
+
+Exit status of `hal tune`: 0 done, 1 error, 2 usage, 3 nothing to tune (no source, or no model).
+
+What `hal tune --auto` does:
+
+1. Reads the hardware: every GPU from `nvidia-smi` (or `amd-smi` and `rocm-smi`), RAM, CPU threads,
+   WSL2. A tool that is missing or slow is reported as a note; detection never fails the command.
+2. Lists the models of every source, with size, parameters, quantisation, layers, heads and
+   native context where the source says.
+3. Keeps the model of every role that has one. For an empty role it picks among local models
+   (never a cloud source or a remote server): `chat` the largest that fits in VRAM with at least
+   16384 tokens of context, preferring models that take tools; `fast` and `embed` the smallest
+   that works; `code` a model whose name says coder or code; `vision` a model with vision.
+   `writer` stays empty and falls back to `chat`.
+4. Works out context, KV cache type and GPU layers for each (below).
+
+With `--write` it then pins each chosen model (an Ollama digest, or the sha256 of a GGUF file,
+which takes a while for a large file), saves `[models.roles.*]` and the `[hal]` model names the
+gateway reads, adds the gateway backends a source needs, and writes the llama.cpp mode `tuned`
+for GGUF roles to `~/.config/hal/modes/tuned.ini`. The bundled modes keep working. Your old
+config is saved as `config.toml.bak.<UTC time>`. An Anthropic source can be listed and assigned
+but the gateway has no Anthropic backend, so that role is left out of the gateway with a note.
+
+Nothing downloads a model. `hal setup` and `setup.sh` never pull one either; see
+[../howto/point-hal-at-your-models.md](../howto/point-hal-at-your-models.md).
+
+## Tuning
+
+For each GPU Hal keeps the larger of 1 GiB and 8 percent free, and 600 MiB for the runtime.
+What is left, over all GPUs, is the budget. The weights come out of the budget; the rest holds
+the KV cache, which costs `2 x layers x kv_heads x head_dim x bytes` per token (f16 2 bytes,
+q8_0 about 1.06, q4_0 about 0.56). The context is what fits, rounded down to a multiple of 1024
+and capped at the model's native maximum and at `[models] context_cap`. Example: a 24 GB card
+and a 12B Q4 model give 76800 tokens at f16. If the weights do not fit, layers move to system
+RAM (hybrid); with no GPU the model runs on the CPU. With `kv_type = auto` Hal keeps the most
+precise cache that still gives 32768 tokens. If a model's architecture is not known (a server
+that does not say), Hal assumes a pessimistic KV size and the plan says so.
+
+The formula, a full worked example and the limits are in [../dev/tuning.md](../dev/tuning.md).
+
 ## Effort
 
 Hal has one dial for how much a model thinks: `off`, `low`, `medium`, `high`, `max`. Models

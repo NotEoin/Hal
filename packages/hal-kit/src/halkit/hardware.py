@@ -19,7 +19,7 @@ import os
 import re
 import shutil
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -72,6 +72,25 @@ class Hardware:
             "wsl2": self.wsl2,
             "notes": list(self.notes),
         }
+
+
+def from_dict(doc: Mapping[str, object]) -> Hardware:
+    """Rebuilds a `Hardware` from `Hardware.to_dict` output (for `hal tune --hardware FILE`).
+
+    Raises `ValueError` for a document that is not shaped like one.
+    """
+    try:
+        gpus = tuple(Gpu(**g) for g in doc.get("gpus", []))  # type: ignore[attr-defined,union-attr]
+        return Hardware(
+            gpus,
+            int(doc.get("ram_total_mib", 0)),  # type: ignore[call-overload]
+            int(doc.get("ram_free_mib", 0)),  # type: ignore[call-overload]
+            int(doc.get("cpu_threads", 0)),  # type: ignore[call-overload]
+            bool(doc.get("wsl2", False)),
+            tuple(str(n) for n in doc.get("notes", [])),  # type: ignore[attr-defined,union-attr]
+        )
+    except (TypeError, AttributeError) as exc:
+        raise ValueError(f"not a hardware description: {exc}") from exc
 
 
 def default_runner(argv: list[str], timeout: float) -> str:
@@ -227,13 +246,17 @@ def is_wsl2(osrelease: Path = OSRELEASE) -> bool:
 
 
 def detect(
-    run: Runner = default_runner,
+    run: Runner | None = None,
     *,
     meminfo: Path = MEMINFO,
     osrelease: Path = OSRELEASE,
     which: Callable[[str], str | None] = shutil.which,
 ) -> Hardware:
-    """Detects GPUs, memory, CPU threads and WSL2. Never raises; see `Hardware.notes`."""
+    """Detects GPUs, memory, CPU threads and WSL2. Never raises; see `Hardware.notes`.
+
+    `run` defaults to `default_runner`, looked up at call time so a test can replace it.
+    """
+    run = run or default_runner
     notes: list[str] = []
     gpus: list[Gpu] = []
     try:

@@ -30,6 +30,7 @@ written.
 | [howto/connect-a-harness-to-the-gateway.md](howto/connect-a-harness-to-the-gateway.md) | How to point a harness at the local gateway with a client token |
 | [howto/run-a-second-hal-install.md](howto/run-a-second-hal-install.md) | How to run two gateways side by side with separate state, ports and claim names |
 | [howto/add-a-cloud-backend.md](howto/add-a-cloud-backend.md) | How to opt in to an https cloud backend and who may reach it |
+| [howto/point-hal-at-your-models.md](howto/point-hal-at-your-models.md) | How to add a model source, tune Hal to your hardware and save the result, without downloading anything |
 | [howto/pin-a-model.md](howto/pin-a-model.md) | How to pin an Ollama model or a weight file in `models.toml` |
 | [howto/install-gvisor.md](howto/install-gvisor.md) | How to register runsc with `--host-uds=open` so the box can use gVisor |
 | [howto/prepare-project-dependencies.md](howto/prepare-project-dependencies.md) | How to install project dependencies with `hal-sandbox deps` |
