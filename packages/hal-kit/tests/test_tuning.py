@@ -51,11 +51,11 @@ def test_headroom_is_the_larger_of_1gib_and_8_percent():
 
 
 def test_worked_example_24gb_card_with_a_12b_q4_model():
-    # usable = 24000 - 1966 - 600 = 21434; spare = 21434 - 7000 = 14434 MiB
-    # f16: 14434 MiB / 192 KiB per token = 76 981 tokens, floored to 76 800 (under the 131 072 cap)
-    plan = tuning.plan_model(model12b(), hw(gpu(24564, 24000)), kv_type="f16")
-    assert (plan.status, plan.budget_mib, plan.kv_type) == ("gpu", 21434, "f16")
-    assert plan.context == 76800
+    # usable = 24564 - 1966 - 600 = 21998; spare = 21998 - 7000 = 14998 MiB
+    # f16: 14998 MiB / 192 KiB per token = 79 989 tokens, floored to 79 872 (under the 131 072 cap)
+    plan = tuning.plan_model(model12b(), hw(gpu(24564)), kv_type="f16")
+    assert (plan.status, plan.budget_mib, plan.kv_type) == ("gpu", 21998, "f16")
+    assert plan.context == 79872
     assert plan.gpu_layers == tuning.ALL_LAYERS
 
 
@@ -74,8 +74,8 @@ def test_auto_keeps_f16_when_it_reaches_the_goal():
 
 
 def test_auto_drops_to_a_smaller_cache_type_on_a_tight_card():
-    # 12 GB card: usable 11500 - 1024... = budget 9916; spare 2916 MiB: f16 15 872, q8_0 29 952, q4_0 54 272
-    plan = tuning.plan_model(model12b(), hw(gpu(12288, 11500)))
+    # 12 GB card, 8000 MiB of weights: budget 10664; spare 2664 MiB: f16 14 208, q8_0 26 7xx, q4_0 49 xxx
+    plan = tuning.plan_model(model12b(size_bytes=8000 * MIB), hw(gpu(12288)))
     assert plan.kv_type == "q4_0" and plan.status == "gpu" and plan.context >= 32768
 
 
@@ -93,11 +93,11 @@ def test_a_single_gpu_has_no_tensor_split():
 
 
 def test_weights_larger_than_vram_offload_layers_to_ram():
-    # 6 GB laptop: usable 5500 - 1024 - 600 = 3876; weights 7000; ctx 16384 -> KV f16 3072 MiB
-    plan = tuning.plan_model(model12b(), hw(gpu(6144, 5500)), kv_type="f16")
+    # 6 GB laptop: usable 6144 - 1024 - 600 = 4520; weights 7000; ctx 16384 -> KV f16 3072 MiB
+    plan = tuning.plan_model(model12b(), hw(gpu(6144)), kv_type="f16")
     assert plan.status == "hybrid" and plan.context == 16384
     per_layer = (7000 + 3072) / 48
-    assert plan.gpu_layers == int(3876 // per_layer) == 18
+    assert plan.gpu_layers == int(4520 // per_layer) == 21
     assert any("system RAM" in line for line in plan.reasoning)
 
 
@@ -184,3 +184,17 @@ def test_a_gemma_style_model_gets_a_much_larger_context_than_plain_attention():
     assert sliding.context > 4 * plain.context or sliding.context == 131072
     exact = tuning.fit_context(gemma_like(), card, kv_type="f16", context=sliding.context)
     assert exact.status == "gpu" and exact.kv_mib == sliding.kv_mib
+
+
+def test_a_card_held_by_another_program_is_planned_as_if_it_were_free():
+    # regression: sizing used free memory, so a card held by a big model gave 0 GPU layers
+    busy = tuning.plan_model(model12b(), hw(gpu(24564, 2000)), kv_type="f16")
+    idle = tuning.plan_model(model12b(), hw(gpu(24564)), kv_type="f16")
+    assert busy == idle and busy.status == "gpu"
+
+
+def test_a_busy_card_gets_a_one_line_warning_naming_the_held_gigabytes():
+    warning = tuning.busy_warning(hw(gpu(24576, 12288)))
+    assert "another program is using 12.0 GB of the GPU" in warning and "\n" not in warning
+    assert tuning.busy_warning(hw(gpu(24576, 24000))) == ""
+    assert tuning.busy_warning(hw()) == ""

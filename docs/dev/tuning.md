@@ -9,7 +9,7 @@ All sizes are MiB unless stated. For each GPU:
 
 ```text
 headroom = max(1024, ceil(0.08 x total))        # [models] headroom_mib overrides it
-usable   = max(free - headroom - 600, 0)        # 600 = RUNTIME_OVERHEAD_MIB
+usable   = max(total - headroom - 600, 0)       # 600 = RUNTIME_OVERHEAD_MIB
 budget   = sum of usable over all GPUs
 kv/token = 2 x layers x kv_heads x head_dim x bytes(kv type)     # bytes
 context  = floor((budget - weights) x 1048576 / kv/token), rounded down to 1024,
@@ -41,20 +41,29 @@ at the full context, as before.
 
 ### Worked example: 24 GB card, 12B Q4 model
 
-Card: 24564 MiB total, 24000 MiB free. Model: 7000 MiB of weights, 48 layers, 8 KV heads,
+Card: 24564 MiB total. Model: 7000 MiB of weights, 48 layers, 8 KV heads,
 head size 128, native context 131072.
 
 ```text
 headroom = max(1024, ceil(0.08 x 24564) = 1966) = 1966
-usable   = 24000 - 1966 - 600 = 21434          # the budget, one card
-spare    = 21434 - 7000 = 14434
+usable   = 24564 - 1966 - 600 = 21998          # the budget, one card
+spare    = 21998 - 7000 = 14998
 f16      : kv/token = 2 x 48 x 8 x 128 x 2 = 196608 B (192 KiB)
-           14434 x 1048576 / 196608 = 76981 tokens -> 76800
+           14998 x 1048576 / 196608 = 79989 tokens -> 79872
 q8_0     : 104448 B per token -> 144899 -> clamped to 131072
 q4_0     : 55296 B per token  -> clamped to 131072
 ```
 
-With `kv_type = auto` the plan is f16 with 76800 tokens (14400 MiB of KV).
+With `kv_type = auto` the plan is f16 with 79872 tokens (14976 MiB of KV).
+
+### Total memory, not free memory
+
+The budget starts from the card's total memory. Free memory is a momentary reading: while
+another program holds the card (a big model in another server, a game), planning on it would
+give every role zero GPU layers and a tiny context. When more than 2 GiB and 10 % of a card is
+held by something else, `hal tune` shows one warning line (`tuning.busy_warning`) saying how much
+is held and that the plan assumes it is free. Stop that program before loading the model, or the
+load can fail for lack of memory.
 
 ### Weights that do not fit
 

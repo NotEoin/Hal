@@ -3,13 +3,17 @@
 Pure functions over `Hardware` and `ModelInfo`; no I/O. The formulas and their limits are in
 docs/dev/tuning.md. In short, per GPU:
 
-    usable   = free_mib - max(1024, 8 % of total_mib) - RUNTIME_OVERHEAD_MIB
+    usable   = total_mib - max(1024, 8 % of total_mib) - RUNTIME_OVERHEAD_MIB
     budget   = sum of usable over all GPUs
     kv/token = 2 x layers x kv_heads x head_dim x bytes(kv type)
                (only for the full-attention layers; sliding-window layers stop at the window,
                linear-attention layers of hybrid models cost nothing here)
     context  = floor((budget - weights) / kv/token), rounded down to 1024, clamped to the
                model's native maximum and to the configured cap
+
+The plan uses the card's total memory, not its momentary free memory: another program that
+holds the card today (a big model, a game) would otherwise shrink every role to nothing.
+`gpu_busy_mib` and `busy_warning` tell the user when the card is not free.
 
 When the weights alone do not fit, layers are offloaded one at a time (hybrid) and the rest of
 the model lives in system RAM. Without a GPU the plan is CPU-only. An unknown architecture
@@ -42,6 +46,10 @@ AUTO_CONTEXT_GOAL = 32768  # `kv_type = auto` keeps the most precise cache that 
 SPILL_CONTEXT = (
     16384  # context aimed at when weights spill to RAM or run on CPU: prompt processing there is slow
 )
+# memory held by other programs counts as "busy" above 2 GiB and 10 percent of the card; below that
+# it is the desktop compositor and the like, which the headroom already covers
+BUSY_MIN_MIB = 2048
+BUSY_FRACTION = 0.10
 HEADROOM_MIN_MIB = 1024
 HEADROOM_FRACTION = 0.08
 # CUDA/ROCm context (about 300 MiB) plus llama.cpp compute buffers at the default batch sizes
@@ -88,8 +96,29 @@ def headroom_mib(total_mib: int, override_mib: int = 0) -> int:
 
 
 def usable_mib(gpu: Gpu, override_mib: int = 0) -> int:
-    """Memory of one GPU a model may use: free memory minus headroom and runtime overhead."""
-    return max(gpu.free_mib - headroom_mib(gpu.total_mib, override_mib) - RUNTIME_OVERHEAD_MIB, 0)
+    """Memory of one GPU a model may use: total memory minus headroom and runtime overhead.
+
+    Total, not free: free memory is a momentary reading and the plan must not change with
+    whatever else runs on the card (see `busy_warning`).
+    """
+    return max(gpu.total_mib - headroom_mib(gpu.total_mib, override_mib) - RUNTIME_OVERHEAD_MIB, 0)
+
+
+def gpu_busy_mib(gpu: Gpu) -> int:
+    """Memory of `gpu` that something else holds, when that is more than `BUSY_MIN_MIB`; else 0."""
+    held = gpu.total_mib - gpu.free_mib
+    return held if held > max(BUSY_MIN_MIB, gpu.total_mib * BUSY_FRACTION) else 0
+
+
+def busy_warning(hw: Hardware) -> str:
+    """One line saying other programs hold GPU memory and the plan assumes it is free; "" if none."""
+    held = sum(gpu_busy_mib(g) for g in hw.gpus)
+    if not held:
+        return ""
+    return (
+        f"another program is using {held / 1024:.1f} GB of the GPU; "
+        "the plan assumes it is free, so stop it before loading a model"
+    )
 
 
 def kv_bytes_per_token(layers: int, kv_heads: int, head_dim: int, kv_type: str) -> float:

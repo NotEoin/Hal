@@ -141,11 +141,14 @@ Nothing downloads a model. `hal setup` and `setup.sh` never pull one either; see
 ## Tuning
 
 For each GPU Hal keeps the larger of 1 GiB and 8 percent free, and 600 MiB for the runtime.
-What is left, over all GPUs, is the budget. The weights come out of the budget; the rest holds
+What is left, over all GPUs, is the budget. It starts from the card's total memory, not what is
+free at that moment, so a program that holds the card today does not shrink the plan; if one does,
+`hal tune` warns that another program is using N GB and that the plan assumes it is free.
+The weights come out of the budget; the rest holds
 the KV cache, which costs `2 x layers x kv_heads x head_dim x bytes` per token (f16 2 bytes,
 q8_0 about 1.06, q4_0 about 0.56). The context is what fits, rounded down to a multiple of 1024
 and capped at the model's native maximum and at `[models] context_cap`. Example: a 24 GB card
-and a 12B Q4 model give 76800 tokens at f16. If the weights do not fit, layers move to system
+and a 12B Q4 model give 79872 tokens at f16. If the weights do not fit, layers move to system
 RAM (hybrid); with no GPU the model runs on the CPU. With `kv_type = auto` Hal keeps the most
 precise cache that still gives 32768 tokens. If a model's architecture is not known (a server
 that does not say), Hal assumes a pessimistic KV size and the plan says so.

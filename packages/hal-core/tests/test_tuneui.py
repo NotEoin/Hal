@@ -205,3 +205,11 @@ def test_json_output_is_unchanged_by_the_screen(home, server, tmp_path, capsys):
     hw.write_text(json.dumps(CARD_24GB))
     assert tune.main(["--auto", "--json", "--hardware", str(hw)]) == 0
     assert json.loads(capsys.readouterr().out)["hardware"]["gpus"][0]["name"] == "RTX 4090"
+
+
+def test_a_gpu_held_by_another_program_shows_a_warning_line():
+    # regression: sizing used free VRAM, so a busy card silently gave tiny contexts
+    busy = hardware.from_dict({**CARD_24GB, "gpus": [{**CARD_24GB["gpus"][0], "free_mib": 2000}]})
+    lines = tuneui.hardware_lines(busy)
+    assert sum("another program is using" in line for line in lines) == 1
+    assert not any("another program" in line for line in tuneui.hardware_lines(hardware.from_dict(CARD_24GB)))

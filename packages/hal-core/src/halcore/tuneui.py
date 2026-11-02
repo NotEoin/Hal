@@ -19,7 +19,7 @@ from collections.abc import Callable, Sequence
 from typing import Protocol, TextIO
 
 from halkit import hardware as hwmod
-from halkit import modelconf
+from halkit import modelconf, tuning
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application import Application
 from prompt_toolkit.completion import WordCompleter
@@ -96,6 +96,9 @@ def hardware_lines(hw: hwmod.Hardware) -> list[str]:
     lines = [f"GPU {g.index}  {g.name}  {g.free_mib} / {g.total_mib} MiB free" for g in hw.gpus]
     lines = lines or ["GPU  none: models run on the CPU"]
     lines.append(f"RAM  {hw.ram_free_mib} / {hw.ram_total_mib} MiB free   CPU  {hw.cpu_threads} threads")
+    warning = tuning.busy_warning(hw)
+    if warning:
+        lines.append(f"note: {warning}")
     if hw.wsl2:
         lines.append("WSL2: VRAM and RAM are what Windows lends this distro")
     return lines + [f"note: {n}" for n in hw.notes]
