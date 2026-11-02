@@ -511,6 +511,21 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
   report each mismatch; `full=False` MUST re-hash only files whose size, mtime or inode
   changed. Test: unit `test_verify_reports_mismatch`, `test_quick_verify_uses_cache`.
 
+- **REQ-GW-81** On Chat Completions requests the gateway MUST read the effort hint (`X-Hal-Effort`
+  header, else the `hal_effort` body field; `off|low|medium|high|max`), merge the matching request
+  fields for the model family and backend without overwriting a field the client set, remove
+  `hal_effort` before forwarding, and ignore the hint with a log line for a model that cannot think
+  or an unknown level. A role alias without a hint MUST use the role's `effort` and `temperature`.
+  Test: unit `test_header_beats_the_body_field_and_the_field_never_goes_upstream`,
+  `test_a_model_that_cannot_think_is_left_alone_with_a_note`,
+  `test_role_default_effort_and_temperature_apply_to_a_role_alias_only`; integration
+  `test_gateway_header_overrides_the_role_default_and_is_not_forwarded`.
+- **REQ-GW-82** The generated mode `tuned` MUST pass the same checks as any mode (pinned weight
+  files, no forbidden key) and MUST take context, KV cache type, GPU layers and tensor split from
+  `halkit.tuning`, never from constants. Test: unit
+  `test_the_generated_mode_renders_through_the_normal_mode_checks`,
+  `test_an_unpinned_weight_file_is_refused_by_the_mode_checks`.
+
 ## Design
 
 ### Components and data flow
