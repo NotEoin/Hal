@@ -144,7 +144,8 @@ Nesting depth is one. Definitions come from `halagent.subagents.discover_agents`
 `AgentSettings.models` holds the roles of `[agent.models]` (`main`, `fast`, `architect`, `editor`).
 `Agent.resolve_model` maps a role to a model id, `switch_model` accepts either, and `_fast_provider`
 serves compaction summaries and `_retitle`. `Agent.split` turns on `halagent.architect.run_split`.
-ACP: `session/set_model` takes a role name, and `session/set_split {sessionId, enabled}` toggles the
+ACP: `session/set_effort {sessionId, level}` sets the effort sent as `hal_effort` in each Chat Completions body
+(the gateway reads it; the header form never crosses the model socket). `session/set_model` takes a role name, and `session/set_split {sessionId, enabled}` toggles the
 split (an error when `architect` or `editor` is missing). While the architect plans, a `subagent`
 update with `agent = "architect"` and id 0 is sent.
 

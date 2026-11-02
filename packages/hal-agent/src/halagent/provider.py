@@ -78,6 +78,9 @@ class _UnixConnection(http.client.HTTPConnection):
         self.sock.connect(self._path)
 
 
+EFFORT_FIELD = "hal_effort"  # the body form of the gateway effort hint, docs/user/gateway.md
+
+
 class ChatProvider:
     """Calls `POST {base}/v1/chat/completions` on an endpoint."""
 
@@ -98,6 +101,7 @@ class ChatProvider:
         self.max_retries = max_retries
         self._sleep = sleep or time.sleep
         self.extra = dict(extra or {})  # sampling and other body keys from the model profile
+        self.effort = ""  # a Hal effort level sent on every request; "" sends none (see `_body`)
         self.stream = stream
         self._api_key = api_key
         self._prefix = ""
@@ -211,6 +215,10 @@ class ChatProvider:
             body["stream_options"] = {"include_usage": True}
         if tools:
             body["tools"] = tools
+        if self.effort:
+            # The gateway's effort hint, as a body field: the box's model socket strips `X-Hal-*`
+            # headers (halgateway.forwarder), so the header would never arrive.
+            body[EFFORT_FIELD] = self.effort
         return body
 
     def _headers(self) -> dict[str, str]:

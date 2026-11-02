@@ -140,6 +140,12 @@ class AcpClient:
             "session/set_model", {"sessionId": session_id, "modelId": model_id}, timeout=self._timeout
         )
 
+    async def set_effort(self, session_id: str, level: str) -> None:
+        """Sets the effort level sent with each request from the next turn on; "" sends none."""
+        await self._call(
+            "session/set_effort", {"sessionId": session_id, "level": level}, timeout=self._timeout
+        )
+
     async def compact(self, session_id: str) -> tuple[int, int]:
         """Summarises the session history; returns the estimated tokens before and after."""
         result = await self._call("session/compact", {"sessionId": session_id}, timeout=COMPACT_TIMEOUT_S)

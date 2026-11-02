@@ -70,7 +70,8 @@ reach it unless granted. Your prompts leave the machine on that path: it is not 
 
 A client asks for thinking effort on a Chat Completions request with the `X-Hal-Effort` header or
 the `hal_effort` body field. The value is `off`, `low`, `medium`, `high` or `max`; the header wins.
-The gateway turns it into what the model's server understands (Ollama `think`, `reasoning_effort`,
+`hal code` sends the level of `/effort` in the `hal_effort` field, because the box's model socket drops
+`X-Hal-*` headers. The gateway turns it into what the model's server understands (Ollama `think`, `reasoning_effort`,
 `chat_template_kwargs`, llama.cpp `reasoning_budget`) and removes `hal_effort` before forwarding.
 Without a hint, a role alias such as `hal-chat` uses the `effort` and `temperature` of its
 `[models.roles.chat]` entry. A field the client already set is never overwritten.

@@ -509,6 +509,12 @@ MUST ids without a test.
   user MCP server in the box; its only tools are broker tools (including `host = true` MCP
   servers, which the broker serves) and `hal_find_tools`. Test: unit
   (`test_assistant_toolset_has_only_broker_tools`).
+- **REQ-AGT-103** After `session/set_effort` with a level (`off|low|medium|high|max`) the agent MUST
+  send it with every main-model Chat Completions request as the gateway's `hal_effort` body field
+  (the header form is stripped by the model socket), MUST send nothing when the level is empty, and
+  MUST answer -32602 for any other level. Test: unit
+  `test_set_effort_is_sent_with_the_next_model_request_and_a_bad_level_is_rejected`,
+  `test_effort_is_sent_as_the_gateway_hint_field_on_every_request_and_not_before`.
 
 ## 3. Design
 
@@ -2379,6 +2385,7 @@ JSON schema. Reasons:
 | `session/prompt` | client -> agent | Runs one turn; streams `session/update`; replies `{stopReason}` when the turn ends. A second prompt while one runs: error -32002 "a prompt is already running". A prompt whose whole text is `/compact` runs summary compaction (3.9.4) instead of a model turn and ends with `end_turn` (06-core-cli forwards `/compact` as prompt text). |
 | `session/cancel` | client -> agent (notification) | Sets the turn's cancel event (REQ-AGT-82). |
 | `session/set_mode` | client -> agent | `auto` or `review` (coding toolset; the assistant toolset offers only `auto`, since it has no in-box tools to review); replies `{}`; sends `current_mode_update`. Any other id, including `plan`, is error -32602 (resolution F3). |
+| `session/set_effort` | client -> agent | Params `sessionId`, `level` (`off`, `low`, `medium`, `high`, `max`, or `""` to send none); replies `{}` (REQ-AGT-103). |
 | `session/update` | agent -> client (notification) | 3.14.3. |
 | `session/request_permission` | agent -> client | Review mode (3.5.10). No answer within 3,600 s counts as `reject_once`. |
 | `_hal/record` | agent -> client (notification) | Transcript record (3.10.2); sent only when the client advertised `clientCapabilities._meta.hal.records = true`. |

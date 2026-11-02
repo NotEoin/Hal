@@ -9,6 +9,8 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `hal-agent` can send an effort level with each request: the ACP method `session/set_effort` sets it and the
+  agent adds it to the Chat Completions body as `hal_effort`, which the gateway maps to the model's thinking controls.
 - `hal tune` on a terminal opens an interactive screen in the style of `hal code`: it shows the hardware,
   sources and roles with a live fit line, lets you pick a model, context, KV type, effort and temperature,
   add or remove a source, tune one role or all, then shows the diff before it writes.

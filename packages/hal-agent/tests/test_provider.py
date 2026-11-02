@@ -98,3 +98,18 @@ def test_profile_extra_keys_reach_the_request(server):
     server.script("ok")
     ChatProvider(server.url, "m", extra={"temperature": 0.3}).complete([{"role": "user", "content": "x"}])
     assert server.requests[-1]["body"]["temperature"] == 0.3
+
+
+def chat_requests(server):
+    return [r for r in server.requests if r["path"].endswith("/chat/completions")]
+
+
+def test_effort_is_sent_as_the_gateway_hint_field_on_every_request_and_not_before(server):
+    server.script("one", "two", "three")
+    provider = ChatProvider(server.url, "m")
+    provider.complete([{"role": "user", "content": "a"}])
+    provider.effort = "high"
+    provider.complete([{"role": "user", "content": "b"}])
+    provider.complete([{"role": "user", "content": "c"}])
+    bodies = [r["body"] for r in chat_requests(server)]
+    assert ["hal_effort" in b for b in bodies] == [False, True, True] and bodies[1]["hal_effort"] == "high"

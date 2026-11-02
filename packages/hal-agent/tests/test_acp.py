@@ -294,6 +294,22 @@ def test_set_model_switches_the_provider_between_turns_and_rejects_a_bad_name(se
     assert reply_to(msgs, bad)["error"]["code"] == -32602
 
 
+def test_set_effort_is_sent_with_the_next_model_request_and_a_bad_level_is_rejected(server, tmp_path):
+    server.script("ok")
+    c = Client(server.url, tmp_path)
+    c.call("session/new", {"cwd": str(tmp_path)})
+    sid = c.sid()
+    ok = c.call("session/set_effort", {"sessionId": sid, "level": "medium"})
+    bad = c.call("session/set_effort", {"sessionId": sid, "level": "ludicrous"})
+    unknown = c.call("session/set_effort", {"sessionId": "nope", "level": "low"})
+    c.call("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": "hi"}]})
+    msgs = c.finish()
+    assert reply_to(msgs, ok)["result"] == {}
+    assert [reply_to(msgs, r)["error"]["code"] for r in (bad, unknown)] == [-32602, -32602]
+    chats = [r for r in server.requests if r["path"].endswith("/chat/completions")]
+    assert chats and chats[-1]["body"]["hal_effort"] == "medium"
+
+
 def test_prompt_with_an_image_sends_it_to_the_model_as_a_data_url(server, tmp_path):
     server.script("a red square")
     c = Client(server.url, tmp_path)

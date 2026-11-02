@@ -55,7 +55,7 @@ from halagent.subagents import DEFAULT_SLOTS, describe_agents, discover_agents, 
 from halagent.tokens import ESTIMATE_FACTOR, TokenCounter
 from halagent.tools import COMPACT_TOOLS, ToolError, Toolset, render_error
 from halagent.tools.repomap import DEFAULT_MAP_TOKENS, build_map
-from halkit import paths
+from halkit import effort, paths
 
 log = logging.getLogger("halagent.loop")
 
@@ -161,6 +161,7 @@ class Agent:
         self._constraint = "none"
         self._fast: ChatProvider | None = None
         self._main_model = settings.models.get("main") or settings.model
+        self.effort = ""  # a Hal effort level for the main provider; "" sends none
         self.split = False  # True: each turn runs architect then editor (see `halagent.architect`)
         if self.hooks:
             self.hooks.lifecycle("session_start")
@@ -726,6 +727,18 @@ class Agent:
             self.counters["loop_refusals"] += 1
             return loop_message(name, parse_args(raw) or raw, dog.repeats)
         return None
+
+    def set_effort(self, level: str) -> None:
+        """Sends effort `level` (`off|low|medium|high|max`) with every main-model request; "" stops.
+
+        Raises `ValueError` for any other value. The gateway ignores the hint, with a log line, for a
+        model that cannot think, so the setting survives `switch_model`.
+        """
+        if level and effort.parse_level(level) is None:
+            raise ValueError(f"unknown effort {level[:20]!r}; use one of {', '.join(effort.LEVELS)}")
+        self.effort = level
+        if hasattr(self.provider, "effort"):
+            self.provider.effort = level
 
     def switch_model(self, name: str) -> None:
         """Uses `name` from the next model call on: provider, profile and limits are re-resolved.

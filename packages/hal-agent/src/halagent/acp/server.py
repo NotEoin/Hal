@@ -220,6 +220,15 @@ class AcpServer:
             except ValueError as exc:
                 raise RpcError(ERR_PARAMS, str(exc)) from exc
             return {}
+        if method == "session/set_effort":
+            agent = self.sessions.get(str(params.get("sessionId")))
+            if agent is None:
+                raise RpcError(ERR_PARAMS, "unknown session")
+            try:
+                agent.set_effort(str(params.get("level", "")))
+            except ValueError as exc:
+                raise RpcError(ERR_PARAMS, str(exc)) from exc
+            return {}
         if method == "session/set_split":
             agent = self.sessions.get(str(params.get("sessionId")))
             if agent is None:
