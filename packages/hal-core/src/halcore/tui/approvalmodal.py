@@ -68,6 +68,9 @@ class ApprovalModal(ModalScreen[tuple[str, str]]):
         Binding("e", "note", "note", show=False),
         Binding("y", "focus_allow('allow-once')", show=False),
         Binding("a", "focus_allow('allow-session')", show=False),
+        Binding("pagedown", "scroll_args('page_down')", show=False),
+        Binding("pageup", "scroll_args('page_up')", show=False),
+        Binding("end", "scroll_args('end')", show=False),
     ]
 
     def __init__(self, request: Mapping[str, object], *, position: int = 1, total: int = 1, arm_s: float = ARM_S) -> None:
@@ -154,6 +157,12 @@ class ApprovalModal(ModalScreen[tuple[str, str]]):
             if button.id in ALLOW_IDS:
                 button.disabled = not ready
         self.query_one("#gate", SafeStatic).display = not self.seen
+
+    def action_scroll_args(self, how: str) -> None:
+        """PgDn, PgUp, End scroll the arguments wherever the focus is."""
+        args = self.query_one("#args", VerticalScroll)
+        {"page_down": args.scroll_page_down, "page_up": args.scroll_page_up, "end": args.scroll_end}[how](animate=False)
+        self.call_after_refresh(self.check_seen)
 
     def action_focus_allow(self, button_id: str) -> None:
         """`y` or `a`: moves focus to that allow button (once it is on); it is not pressed."""

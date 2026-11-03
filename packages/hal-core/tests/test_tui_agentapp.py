@@ -514,3 +514,27 @@ def test_layout_fits_80_by_24_without_horizontal_scroll(tmp_path):
 
     height, right, side = drive(tmp_path, script, size=(80, 24))
     assert height >= 12 and right <= 80 and not side
+
+
+def test_page_down_in_an_approval_scrolls_its_arguments_not_the_transcript(tmp_path):
+    # regression: the app's PgUp/PgDn and Shift+Tab bindings took the keys away from open dialogs
+    from test_tui_approval_modal import REQUEST, FakeBridge
+
+    long = {**REQUEST, "display": "\n".join(f"arg{i}: value" for i in range(80))}
+    bridge = FakeBridge({"hal-1": long})
+
+    async def script(pilot, app, agent):
+        send = app.ui.approval_sender(bridge, lambda note: None)
+        await send({"id": "hal-1"})
+        assert await until(pilot, lambda: isinstance(app.screen, ApprovalModal))
+        modal = app.screen
+        mode = app.state.mode
+        await pilot.press("shift+tab")
+        await settle(pilot)
+        for _ in range(12):
+            await pilot.press("pagedown")
+        await settle(pilot)
+        return modal.seen, app.state.mode == mode
+
+    seen, mode_kept = drive(tmp_path, script)
+    assert seen and mode_kept

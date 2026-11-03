@@ -798,6 +798,15 @@ class AgentApp(App[int]):
 
     # -- actions ---------------------------------------------------------------------------------
 
+    SCREEN_ONLY = frozenset({"scroll", "cycle_mode", "quit_or_delete", "expand_all", "toggle_side", "todo", "history",
+                             "clear_view", "palette", "help", "stop"})  # fmt: skip
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        """While a dialog is open its own keys win: PgDn scrolls its text, Shift+Tab moves its focus."""
+        if action in self.SCREEN_ONLY and isinstance(self.screen, ModalScreen):
+            return False
+        return True
+
     def action_interrupt(self) -> None:
         """Ctrl+C: clear the composer, else stop the turn (denying an open approval), else quit on a second press."""
         composer = self.query_one(Composer)
