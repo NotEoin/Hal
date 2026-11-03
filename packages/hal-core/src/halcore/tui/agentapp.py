@@ -296,8 +296,7 @@ class Composer(TextArea):
         data = event.text.replace("\r\n", "\n").replace("\r", "\n")
         lines = data.count("\n") + 1
         if lines < PASTE_COLLAPSE_LINES:
-            await super()._on_paste(event)
-            return
+            return  # Textual calls `TextArea._on_paste` next (it walks the MRO); calling it here too pasted twice
         event.stop()
         event.prevent_default()
         chip = f"[pasted {lines} lines #{len(self.pastes) + 1}]"

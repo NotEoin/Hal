@@ -754,3 +754,13 @@ def test_ctrl_q_asks_about_unaccepted_changes_like_ctrl_d(tmp_path):
         return asked, app.is_running
 
     assert drive(tmp_path, script, session=session, project=project) == (True, True)
+
+
+def test_a_one_line_paste_is_inserted_once(tmp_path):
+    # regression: the composer called `TextArea._on_paste` and Textual called it again, so it pasted twice
+    async def script(pilot, app, agent):
+        app.post_message(events.Paste("https://example.invalid/a"))  # the way the driver delivers a paste
+        await settle(pilot)
+        return app.query_one(Composer).text
+
+    assert drive(tmp_path, script) == "https://example.invalid/a"
