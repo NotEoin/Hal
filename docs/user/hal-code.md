@@ -85,9 +85,9 @@ When you leave, the full screen prints one line: the session id and the command 
   reason in words when the turn did not finish normally (`cancelled`, `stopped: hit the output
   limit`). `UNSANDBOXED` is added to it, to the status bar and to a red banner when the session
   runs without a box. The line UI shows the raw reason and mode: `[end_turn] mode default`.
-- A long turn rings the bell when it ends while the terminal is in the background
-  (`[ui].notify = "bell"`; `"off"` silences it). The line UI can also send an OSC 9
-  notification (`"osc9"`).
+- A long turn rings the bell when it ends while the terminal is in the background, and a turn
+  of a minute or more always does, for terminals that do not report focus
+  (`[ui].notify = "bell"`; `"osc9"` sends a desktop notification instead; `"off"` silences it).
 
 ## Approvals
 

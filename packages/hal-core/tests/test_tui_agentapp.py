@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import time
 import types
 
 import pytest
@@ -676,3 +677,32 @@ def test_side_panel_closes_when_the_terminal_narrows_until_ctrl_b_sets_it(tmp_pa
         return states
 
     assert drive(tmp_path, script, size=(130, 36)) == [True, False, True]
+
+
+def test_notify_setting_picks_osc9_bell_or_nothing():
+    for mode, wanted in (("osc9", [("write", agentapp.OSC9)]), ("bell", [("bell",)]), ("off", [])):
+        calls = []
+        fake = types.SimpleNamespace(
+            look=types.SimpleNamespace(notify=mode), is_headless=False,
+            _driver=types.SimpleNamespace(write=lambda text, calls=calls: calls.append(("write", text))),
+            bell=lambda calls=calls: calls.append(("bell",)),
+        )  # fmt: skip
+        AgentApp.notify_turn(fake)
+        assert calls == wanted, mode
+
+
+def test_a_very_long_turn_notifies_even_when_the_terminal_never_reports_focus():
+    # regression: without focus reports the full screen never signalled the end of a long turn
+    from halcore.tui.render import TurnStats
+
+    signalled = []
+    app = types.SimpleNamespace(
+        look=LOOK, window_focused=True, notify_turn=lambda: signalled.append(True), set_busy=lambda busy: None,
+        controller=types.SimpleNamespace(session=types.SimpleNamespace(backend="docker"),
+                                         renderer=types.SimpleNamespace(sink=types.SimpleNamespace(write=lambda line: None))),
+    )  # fmt: skip
+    ui = agentapp.TextualUi(app)
+    for elapsed in (30.0, agentapp.NOTIFY_LONG_S):
+        stats = TurnStats(started=time.monotonic() - elapsed)
+        ui.turn_ended(stats, "end_turn")
+    assert signalled == [True]

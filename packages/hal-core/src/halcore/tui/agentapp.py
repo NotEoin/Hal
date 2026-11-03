@@ -67,6 +67,8 @@ QUIT_WINDOW_S = 2.0  # a second Ctrl+C within this many seconds quits
 WORKING_HZ = 4  # redraws per second of the "working" line
 STATUS_EVERY_S = 2.0  # how often the slow status fields refresh while a turn runs
 NOTIFY_MIN_S = 10.0  # a turn this long rings the bell when the window is not focused
+NOTIFY_LONG_S = 60.0  # a turn this long notifies even when the terminal never reports focus (as the line UI)
+OSC9 = "\x1b]9;Hal: turn finished\x07"  # fixed text: nothing from the model reaches the terminal title bar
 POPUP_ROWS = 8
 CONTEXT_BAR_CELLS = 24  # the side panel is 38 columns; the bar leaves room for the percentage
 HISTORY_ROW_CHARS = 120  # one row of the Ctrl+R list; the full message is what goes back in the box
@@ -454,8 +456,8 @@ class TextualUi:
             line.append(f"{sep}UNSANDBOXED", style="bold reverse")
         self.app.controller.renderer.sink.write(line)
         self.app.set_busy(False)
-        if stats.elapsed >= NOTIFY_MIN_S and not self.app.window_focused and self.app.look.notify != "off":
-            self.app.bell()
+        if stats.elapsed >= NOTIFY_LONG_S or (stats.elapsed >= NOTIFY_MIN_S and not self.app.window_focused):
+            self.app.notify_turn()
 
     def status_changed(self) -> None:
         """Redraws the status bar."""
@@ -1052,6 +1054,14 @@ class AgentApp(App[int]):
             self.fit_header()
             if not self.side_pinned:
                 self.query_one("#side").set_class(event.size.width >= WIDE, "shown")
+
+    def notify_turn(self) -> None:
+        """The end-of-turn signal `[ui].notify` asks for: nothing, the bell, or an OSC 9 notification."""
+        if self.look.notify == "osc9":
+            if not self.is_headless and self._driver is not None:
+                self._driver.write(OSC9)  # noqa: SLF001 - Textual has no public raw write; `App.bell` does the same
+        elif self.look.notify != "off":
+            self.bell()
 
     def on_app_focus(self, event: events.AppFocus) -> None:
         """The terminal window has focus."""
