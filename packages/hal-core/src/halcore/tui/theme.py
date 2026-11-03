@@ -6,6 +6,11 @@ encoding is UTF-8 and `[ui].unicode` is true, plain ASCII otherwise (this overri
 ASCII default, see docs/design/06-core-cli.md REQ-CLI-24). The console is built with markup,
 emoji and highlighting off, so a string printed through it is never parsed as markup: model text
 cannot restyle the screen (REQ-SEC-25).
+
+One set of colour tokens drives every surface: `PALETTES` (rich styles for the line UI),
+`PT_COLORS` (prompt_toolkit) and `textual_themes()` (the full-screen UI), so a theme change looks
+the same everywhere. `Look.theme` names the theme; nothing guesses it from a colour value.
+`textual_themes` imports Textual only when called, so the headless paths never load it.
 """
 
 from __future__ import annotations
@@ -16,9 +21,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TextIO
 
+from typing import TYPE_CHECKING
+
 from halkit import config as kitconfig
 from rich import box as richbox
 from rich.console import Console
+
+if TYPE_CHECKING:
+    from textual.theme import Theme
 
 ACCENT = "#e5484d"  # HAL red
 THEMES = ("dark", "light", "mono")
@@ -95,6 +105,17 @@ PALETTES = {
     "light": Palette(ACCENT, "grey42", "dark_green", "red3", "default"),
     "mono": Palette("bold", "dim", "", "", "ansi_dark"),
 }
+PT_COLORS = {  # the same tokens as prompt_toolkit styles
+    "dark": {"accent": ACCENT, "muted": "#8a8a8a", "ok": "#5faf5f", "bad": ACCENT},
+    "light": {"accent": ACCENT, "muted": "#6c6c6c", "ok": "#2e7d32", "bad": "#c62828"},
+    "mono": {"accent": "bold", "muted": "", "ok": "", "bad": ""},
+}
+WARNING = {"dark": "#d4a72c", "light": "#9a6700"}  # amber for "tight" and "uses RAM"
+SURFACES = {  # background, surface, panel and foreground of the full-screen UI
+    "dark": ("#121212", "#1c1c1c", "#262626", "#e4e4e4"),
+    "light": ("#fafafa", "#f0f0f0", "#e4e4e4", "#1c1c1c"),
+}
+TEXTUAL_NAMES = {"dark": "hal-dark", "light": "hal-light", "mono": "hal-mono"}
 
 
 @dataclass(frozen=True)
@@ -104,6 +125,7 @@ class Look:
     glyphs: Glyphs
     palette: Palette
     color: bool
+    theme: str = "dark"  # one of `THEMES`; `mono` also when `NO_COLOR` is set
     tool_output_lines: int = 8
     diff_max_lines: int = 80
     refresh_hz: int = 8
@@ -115,6 +137,11 @@ class Look:
     def unicode(self) -> bool:
         """True when this look draws Unicode glyphs."""
         return self.glyphs is UNICODE
+
+    @property
+    def textual_theme(self) -> str:
+        """The name of the Textual theme that matches this look."""
+        return TEXTUAL_NAMES[self.theme]
 
 
 def encoding_is_utf8(stream: TextIO | None = None) -> bool:
@@ -129,12 +156,14 @@ def load_look(
     env = os.environ if environ is None else environ
     ui = dict(settings) if settings is not None else {key.name: key.default for key in UI_TABLE.keys}
     theme = str(ui.get("theme", "dark"))
+    theme = theme if theme in THEMES else "dark"
     unicode_ok = bool(ui.get("unicode", True)) and encoding_is_utf8(stream)
     color = theme != "mono" and not env.get("NO_COLOR")
     return Look(
         glyphs=UNICODE if unicode_ok else ASCII,
-        palette=PALETTES.get(theme, PALETTES["dark"]),
+        palette=PALETTES[theme],
         color=color,
+        theme=theme if color else "mono",
         tool_output_lines=int(ui.get("tool_output_lines", 8)),  # type: ignore[call-overload]  # config validated the type
         diff_max_lines=int(ui.get("diff_max_lines", 80)),  # type: ignore[call-overload]  # config validated the type
         refresh_hz=max(1, int(ui.get("markdown_refresh_hz", 8))),  # type: ignore[call-overload]  # config validated the type
@@ -153,3 +182,22 @@ def make_console(look: Look, file: TextIO | None = None, *, width: int | None = 
     if width is None and not console.is_terminal:
         console.width = DEFAULT_WIDTH
     return console
+
+
+def textual_themes() -> list[Theme]:
+    """`hal-dark`, `hal-light` and `hal-mono` as Textual themes, built from the tokens above."""
+    from textual.theme import Theme  # noqa: PLC0415 - Textual loads only for the full-screen UI
+
+    out = []
+    for name in ("dark", "light"):
+        background, surface, panel, foreground = SURFACES[name]
+        colors = PT_COLORS[name]
+        out.append(
+            Theme(
+                name=TEXTUAL_NAMES[name], primary=ACCENT, accent=ACCENT, secondary=colors["muted"],
+                success=colors["ok"], error=colors["bad"], warning=WARNING[name], foreground=foreground,
+                background=background, surface=surface, panel=panel, dark=name == "dark",
+            )
+        )  # fmt: skip
+    out.append(Theme(name=TEXTUAL_NAMES["mono"], primary="ansi_default", ansi=True, dark=True))
+    return out

@@ -49,3 +49,28 @@ def test_ui_table_defaults_load():
     from halkit import config
 
     assert config.load(theme.UI_TABLE, environ={}, path=None)["theme"] == "dark"
+
+
+def test_look_names_its_theme_and_no_color_means_mono():
+    for name in theme.THEMES:
+        assert theme.load_look({"theme": name}, environ={}).theme == name
+    assert theme.load_look({"theme": "light"}, environ={"NO_COLOR": "1"}).theme == "mono"
+    assert theme.load_look({"theme": "nonsense"}, environ={}).theme == "dark"
+
+
+def test_every_theme_has_a_textual_theme_with_the_hal_accent():
+    built = {t.name: t for t in theme.textual_themes()}
+    assert set(built) == {"hal-dark", "hal-light", "hal-mono"}
+    assert built["hal-dark"].primary == built["hal-light"].primary == theme.ACCENT
+    assert built["hal-mono"].ansi and not built["hal-light"].dark
+    for name in theme.THEMES:
+        assert theme.load_look({"theme": name}, environ={}).textual_theme in built
+
+
+def test_importing_the_theme_does_not_load_textual():
+    import subprocess
+    import sys
+
+    code = "import sys, halcore.tui.theme, halcore.tui.status; print('textual' in sys.modules)"
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=True)
+    assert done.stdout.strip() == "False"

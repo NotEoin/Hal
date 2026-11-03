@@ -43,8 +43,8 @@ from rich.console import Console, Group
 from rich.text import Text
 
 from . import modelplan, tunepresets, tunestate
-from .tui.status import PT_COLORS, context_bar
-from .tui.theme import Look, load_look, make_console
+from .tui.status import context_bar
+from .tui.theme import PT_COLORS, Look, load_look, make_console
 
 log = logging.getLogger(__name__)
 
@@ -401,8 +401,7 @@ class PtPrompter:
     def __init__(self, look: Look, *, input: Input | None = None, output: Output | None = None) -> None:  # noqa: A002 - prompt_toolkit's own names
         self.look = look
         self._input, self._output = input, output
-        theme = "mono" if not look.color else ("light" if look.palette.muted == "grey42" else "dark")
-        self._colors = PT_COLORS[theme]
+        self._colors = PT_COLORS[look.theme]
 
     def ask(self, text: str, choices: Sequence[str] = ()) -> str | None:
         """One line of input with Tab completion of `choices`."""

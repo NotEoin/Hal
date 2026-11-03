@@ -21,7 +21,7 @@ from halkit.paths import UnsafePathError
 from rich.text import Text
 
 from .render import clean, clip
-from .theme import Glyphs, Look
+from .theme import PT_COLORS, Glyphs, Look
 
 log = logging.getLogger(__name__)
 
@@ -30,11 +30,6 @@ MAX_HEAD_BYTES = 512  # a symbolic ref line; anything longer is not a HEAD file
 HEAD_REF_PREFIX = "ref: refs/heads/"
 MAX_FIELD_CHARS = 40
 WARN_PERCENT = 85  # the point where a 16k to 64k window starts truncating useful history
-PT_COLORS = {
-    "dark": {"accent": "#e5484d", "muted": "#8a8a8a", "ok": "#5faf5f", "bad": "#e5484d"},
-    "light": {"accent": "#e5484d", "muted": "#6c6c6c", "ok": "#2e7d32", "bad": "#c62828"},
-    "mono": {"accent": "bold", "muted": "", "ok": "", "bad": ""},
-}
 
 
 @dataclass
@@ -104,8 +99,7 @@ def to_rich(parts: list[tuple[str, str]], look: Look) -> Text:
 
 def to_prompt_toolkit(parts: list[tuple[str, str]], look: Look) -> list[tuple[str, str]]:
     """The segments as prompt_toolkit formatted text."""
-    theme = "mono" if not look.color else ("light" if look.palette.muted == "grey42" else "dark")
-    colors = PT_COLORS[theme]
+    colors = PT_COLORS[look.theme]
     return [(colors.get(role, ""), text) for role, text in parts]
 
 

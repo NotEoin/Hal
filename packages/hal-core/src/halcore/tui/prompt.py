@@ -31,8 +31,7 @@ from prompt_toolkit.styles import Style
 from halkit import effort
 
 from . import mentions
-from .status import PT_COLORS
-from .theme import Look
+from .theme import PT_COLORS, Look
 
 log = logging.getLogger(__name__)
 
@@ -116,8 +115,7 @@ class PromptInput:
         self.look = look
         self.pastes: dict[str, str] = {}
         self.hooks = hooks or Hooks()
-        theme = "mono" if not look.color else ("light" if look.palette.muted == "grey42" else "dark")
-        colors = PT_COLORS[theme]
+        colors = PT_COLORS[look.theme]
         self.style = Style.from_dict(
             {
                 "bottom-toolbar": "noreverse",

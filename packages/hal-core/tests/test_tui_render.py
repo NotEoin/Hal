@@ -255,4 +255,4 @@ def test_approval_panel_uses_the_ui_theme():
         await approval.make_asker(bridge, line, io.StringIO(), look=light, console=Spy())({"id": "r1"})
 
     asyncio.run(go())
-    assert seen == [light.palette.accent] and light.palette.muted == "grey42"
+    assert seen == [light.palette.accent] and light.theme == "light"
