@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import tomllib
 
 import pytest
@@ -193,14 +194,32 @@ def test_a_role_with_no_fitting_model_is_left_alone_and_the_note_says_how_to_get
         notes = s.apply_preset(preset("gpu-12"))
     assert s.model_of("chat") is None
     chat = next(n for n in notes if n.startswith("chat:"))
-    assert "no discovered model fits 12 GB GPU" in chat and "ollama pull" in chat
+    assert "no discovered model fits 12 GB GPU" in chat and "`ollama pull gemma4:12b-it-qat`" in chat
 
 
-def test_presets_are_a_data_table_without_model_names():
+def test_presets_cover_every_common_card_size_and_cpu():
     from halcore import tunepresets
 
-    assert [p.key for p in tunepresets.PRESETS] == ["auto", "gpu-12", "gpu-24", "cpu"]
+    keys = [p.key for p in tunepresets.PRESETS]
+    assert keys == ["auto", "gpu-8", "gpu-12", "gpu-16", "gpu-24", "cpu"]
     assert tunepresets.describe(preset("cpu"), hardware.from_dict(CARD_24GB)) == "no GPU layers"
+
+
+def test_every_preset_recommends_a_model_for_every_role():
+    from halcore import tunepresets
+    from halkit import modelconf
+
+    real = hardware.from_dict(CARD_24GB)
+    for p in tunepresets.PRESETS:
+        assert all(tunepresets.recommended(p, role, real) for role in modelconf.ROLES), p.key
+
+
+def test_auto_recommends_the_largest_tier_the_real_card_covers():
+    from halcore import tunepresets
+
+    assert tunepresets.tier_for(preset("auto"), hardware.from_dict(CARD_24GB)) == "gpu-24"
+    no_gpu = dataclasses.replace(hardware.from_dict(CARD_24GB), gpus=())
+    assert tunepresets.tier_for(preset("auto"), no_gpu) == "cpu"
 
 
 def test_effort_can_be_cleared_back_to_the_model_default(home, server):

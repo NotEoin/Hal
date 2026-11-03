@@ -97,6 +97,9 @@ the fit shown is the same arithmetic as the automatic plan.
 session hardware for `hardware_for(preset, real)` (a card with equal total and free memory, or
 no GPU), keeps each role's model if it still runs fully on that hardware, and otherwise calls
 `modelplan.choose` for the best discovered model. Roles stay unwritten until the user saves.
+When no discovered model fits, the note names `tunepresets.recommended(preset, role, real)`, a
+tag from `RECOMMENDED`; `tier_for` maps *This machine* to the largest tier the card covers,
+counting a card as its nominal size when it reports at least 95% of it.
 
 ## Limits
 

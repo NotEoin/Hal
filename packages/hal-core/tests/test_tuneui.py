@@ -316,12 +316,14 @@ def test_clicking_a_row_chooses_it_and_other_mouse_events_are_ignored():
     assert view.result == "c" and view.finished
 
 
-def test_quick_setup_shows_the_four_presets_and_previews_the_result_without_writing(home, server):
+def test_quick_setup_shows_every_preset_and_previews_the_result_without_writing(home, server):
     screen, out, prompter = open_screen(home, server, picks=["preset", "gpu-12", None, "yes"])
     before = home.config.read_text()
     assert screen.run() == 0
     labels = prompter.seen[1][1]
-    assert [lb.split("  ")[0].strip() for lb in labels] == ["This machine (auto)", "12 GB GPU", "24 GB GPU", "CPU only"]
+    assert [lb.split("  ")[0].strip() for lb in labels] == [
+        "This machine (auto)", "8 GB GPU", "12 GB GPU", "16 GB GPU", "24 GB GPU", "CPU only"
+    ]
     text = out.getvalue()
     assert "config.toml (new)" in text and "preview" in text and "Planning for: 12 GB GPU" in text
     assert home.config.read_text() == before

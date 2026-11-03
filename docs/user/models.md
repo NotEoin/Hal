@@ -120,11 +120,12 @@ mouse events, use the keys). `GB` here means 1024 MiB.
 
 - **Quick setup** tunes every role against a VRAM budget, then shows the result as a diff for
   review; nothing is written until you choose Save and exit. The presets are *This machine
-  (auto)* (the card's total memory), *12 GB GPU*, *24 GB GPU* and *CPU only* (no GPU layers).
-  A role keeps its model if it fits the preset, otherwise it gets the best model you have that
-  does. If none fits, the screen says so and suggests pulling a smaller model (for example with
-  `ollama pull`) or adding a source. A preset stays in force for the rest of the session; pick
-  *This machine* to go back. The presets are rows of a table in `halcore/tunepresets.py`.
+  (auto)* (the card's total memory), *8 GB*, *12 GB*, *16 GB* and *24 GB GPU*, and *CPU only*
+  (no GPU layers). A role keeps its model if it fits the preset, otherwise it gets the best
+  model you have that does. If none fits, the screen names the recommended model to pull (see
+  [Recommended models](#recommended-models)) or suggests adding a source. A preset stays in
+  force for the rest of the session; pick *This machine* to go back. The presets are rows of a
+  table in `halcore/tunepresets.py`.
 - **Adjust a role** opens a menu for one role: Model (a list you can filter by typing), Context
   (8K to 128K or Custom, each with its size and `fits`, `tight` or `too big`), KV cache, Effort
   (only for models that can think; `default` clears it), Temperature, and Auto-tune this role.
@@ -151,6 +152,35 @@ command may start with a role: `model code`.
 | `diff`, `write`, `quit`, `menu` | Show the changes, write them, leave, or go back to the menus |
 
 It works with no GPU, in an 80 by 24 terminal, with `NO_COLOR`, and in ASCII mode.
+
+
+## Recommended models
+
+New to local models? Pull the row for your card, then run `hal tune` and pick its preset.
+*This machine* uses the largest row your card covers. Vision and writer use the chat model.
+
+| Preset | chat, vision, writer | fast | code |
+| --- | --- | --- | --- |
+| CPU only | `gemma4:e4b-it-qat` | `qwen3.5:2b` | `qwen3.5:4b` |
+| 8 GB GPU | `gemma4:e4b-it-qat` | `qwen3.5:2b` | `qwen3.5:9b` |
+| 12 GB GPU | `gemma4:12b-it-qat` | `qwen3.5:4b` | `qwen3.5:9b` |
+| 16 GB GPU | `gemma4:12b-it-qat` | `qwen3.5:4b` | `gpt-oss:20b` |
+| 24 GB GPU | `gemma4:26b-a4b-it-qat` | `qwen3.5:4b` | `qwen3.8:27b` |
+
+Every preset also uses `embeddinggemma` for embed and `granite4.1-guardian:8b` for the safety
+check, which runs on the CPU and needs about 7 GB of free RAM ([Security](security.md)).
+
+```bash
+for m in gemma4:12b-it-qat qwen3.5:4b qwen3.5:9b embeddinggemma granite4.1-guardian:8b; do
+  ollama pull "$m"                                       # the 12 GB row; one model per pull
+done
+hal tune                                                 # Quick setup, then the 12 GB preset
+```
+
+How these were chosen: the 24 GB row is the set this project runs every day on an RTX 3090. The
+other rows are picked by weight size from the Ollama library (checked 2026-11-03), so that each
+model leaves room for context on its own card. They are not quality-tested; if a model calls
+tools badly, try the next row's chat model with a smaller context.
 
 ## Tuning
 

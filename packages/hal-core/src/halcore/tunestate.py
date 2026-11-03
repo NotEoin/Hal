@@ -276,9 +276,11 @@ class TuneSession:
             rp = modelplan.choose(role, self.found, self.sources, self.hw, self.limits, {})
             if rp.model is None:
                 kind = ROLE_KINDS.get(role, "model")
+                tag = tunepresets.recommended(preset, role, self.real_hw)
+                pull = f"`ollama pull {tag}`" if tag else f"a smaller {kind} with `ollama pull <model>`"
                 notes.append(
-                    f"{role}: no discovered model fits {preset.label}. Pull a smaller {kind} "
-                    "(for example with `ollama pull <model>`) or add a source, then run Quick setup again"
+                    f"{role}: no discovered model fits {preset.label}. Pull {pull} "
+                    "or add a source, then run Quick setup again"
                 )
                 continue
             self.choose(role, rp.model)
