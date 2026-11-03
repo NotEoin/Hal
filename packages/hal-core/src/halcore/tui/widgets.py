@@ -38,7 +38,7 @@ from textual.widgets import Static
 
 from .render import clean
 
-VALUE_WIDTH = 8  # columns kept for the value text right of a slider track
+VALUE_WIDTH = 9  # columns kept for the value text right of a slider track
 PAGE_CELLS = 10  # PgUp / PgDn move the knob this many cells
 MIN_TRACK = 4
 TIMER_S = 1.0  # a running tool card redraws its elapsed time this often
@@ -136,11 +136,11 @@ class Slider(Widget, can_focus=True):
     def __init__(
         self, value: float, low: float, high: float, step: float, *, log: bool = False,
         fmt: Callable[[float], str] = lambda v: f"{v:g}", allow_auto: bool = False, auto: bool = False,
-        reason: str = "", **kwargs: object,
+        auto_label: Callable[[float], str] = lambda v: "auto", reason: str = "", **kwargs: object,
     ) -> None:  # fmt: skip
         super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
         self.low, self.high, self.step_size, self.log_scale = low, high, step, log
-        self.fmt, self.allow_auto = fmt, allow_auto
+        self.fmt, self.allow_auto, self.auto_label = fmt, allow_auto, auto_label
         self.reason = reason  # shown instead of the track when disabled
         self.set_reactive(Slider.value, snap(value, low, high, step))
         self.set_reactive(Slider.auto, auto)
@@ -161,7 +161,7 @@ class Slider(Widget, can_focus=True):
         bar.append(fill * at, style="bold" if not self.auto else "dim")
         bar.append(knob, style="bold reverse" if self.has_focus else "bold")
         bar.append(line * (self.track - at - 1), style="dim")
-        label = "auto" if self.auto else self.fmt(self.value)
+        label = self.auto_label(self.value) if self.auto else self.fmt(self.value)
         bar.append(" " + label.rjust(VALUE_WIDTH)[-VALUE_WIDTH:])
         return bar
 

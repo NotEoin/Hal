@@ -90,7 +90,6 @@ class RoleEditor(VerticalScroll, can_focus=False):
     RoleEditor .why { color: $text-muted; height: auto; }
     RoleEditor .actions { height: 1; margin-top: 1; }
     RoleEditor .actions Button { height: 1; border: none; margin-right: 2; min-width: 12; }
-    #model-btn { width: 1fr; text-align: left; }
     """
 
     def __init__(self, app_: TuneApp, role: str) -> None:
@@ -130,7 +129,8 @@ class RoleEditor(VerticalScroll, can_focus=False):
         with Horizontal(classes="row"):
             yield SafeStatic(Text("Context"), classes="label")
             yield Slider(tuning.MIN_CONTEXT, tuning.MIN_CONTEXT, ceiling, tuning.CONTEXT_STEP, log=True,
-                         fmt=tokens_label, allow_auto=True, id="ctx")  # fmt: skip
+                         fmt=tokens_label, allow_auto=True, auto_label=lambda v: f"auto {tokens_label(v)}",
+                         id="ctx")  # fmt: skip
             yield Button("Auto", id="ctx-auto")
         with Horizontal(classes="row"):
             yield SafeStatic(Text("KV cache"), classes="label")
@@ -138,7 +138,8 @@ class RoleEditor(VerticalScroll, can_focus=False):
         total, reason = state.layers_of(role)
         with Horizontal(classes="row"):
             yield SafeStatic(Text("GPU layers"), classes="label")
-            yield Slider(total, 0, max(total, 1), 1, fmt=lambda v: f"{int(v)}", allow_auto=True,
+            yield Slider(total, 0, max(total, 1), 1, fmt=lambda v: "all" if int(v) == total else f"{int(v)}",
+                         allow_auto=True, auto_label=lambda v: "auto all" if int(v) == total else f"auto {int(v)}",
                          reason=reason, disabled=not total, id="layers")  # fmt: skip
             yield Button("Auto", id="layers-auto", disabled=not total)
         levels, why_not = state.effort_options(role)
@@ -150,7 +151,7 @@ class RoleEditor(VerticalScroll, can_focus=False):
         with Horizontal(classes="row"):
             yield SafeStatic(Text("Temperature"), classes="label")
             yield Slider(TEMP_SHOWN_DEFAULT, 0, modelconf.MAX_TEMPERATURE, TEMP_STEP, allow_auto=True,
-                         fmt=lambda v: f"{v:.2f}", id="temp")  # fmt: skip
+                         fmt=lambda v: f"{v:.2f}", auto_label=lambda v: "default", id="temp")  # fmt: skip
             yield Button("Default", id="temp-default")
         with Horizontal(classes="row"):
             yield SafeStatic(Text("Memory"), classes="label")
@@ -306,7 +307,7 @@ class QuickStart(ModalScreen[str | None]):
     QuickStart { align: center middle; }
     QuickStart .modal-box { width: 96%; max-width: 140; }
     QuickStart #scroll { height: auto; max-height: 30; }
-    QuickStart #cards { grid-size: 3; grid-gutter: 0 1; height: auto; }
+    QuickStart #cards { grid-size: 2; grid-gutter: 0 1; height: auto; }
     """
     BINDINGS = [Binding("escape", "skip", "skip")]
 
@@ -343,6 +344,7 @@ class TuneApp(App[int]):
     """The full-screen tune app; `run()` returns the exit status of `hal tune`."""
 
     TITLE = "Hal tune"
+    ENABLE_COMMAND_PALETTE = False  # its Quit would skip the unsaved-changes question
     CSS = """
     Screen { layout: vertical; overflow: hidden; }
     #tabs { height: 1fr; }
@@ -351,7 +353,8 @@ class TuneApp(App[int]):
     #hw { height: auto; color: $text-muted; padding: 0 1; }
     #presets { height: 1; padding: 0 1; margin-bottom: 1; }
     #presets .label { width: 10; color: $text-muted; }
-    #roles { width: 30; height: 1fr; border: none; }
+    #roles { width: 40; height: 1fr; border: none; }
+    Button#model-btn { width: 1fr; content-align: left middle; text-align: left; }
     #role-pane { height: 1fr; }
     #sources { height: auto; max-height: 12; border: none; }
     .bar { height: 1; margin-top: 1; }
@@ -784,6 +787,10 @@ class TuneApp(App[int]):
         elif choice == "save":
             await self.save_flow()
 
+    async def action_quit(self) -> None:
+        """Every way to quit (Textual's own Ctrl+Q too) asks first when there are unsaved changes."""
+        self.action_leave()
+
     def action_help(self) -> None:
         """F1: the keys and what each control does."""
         keys = [("Tab / Shift+Tab", "next / previous control"), ("Left / Right", "adjust a slider or choose a segment"),
@@ -814,7 +821,7 @@ class TuneApp(App[int]):
                     lines.append(line)
             finally:
                 self.state.restore(snap)
-            title = f"{preset.label}  -  {tunepresets.describe(preset, self.state.real_hw)}"
+            title = f"{preset_label(preset)}  ({tunepresets.describe(preset, self.state.real_hw)})"
             out.append((preset, title, lines or [Text("no discovered model fits", style="dim")]))
         return out
 
