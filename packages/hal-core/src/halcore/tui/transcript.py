@@ -180,6 +180,12 @@ class Transcript(VerticalScroll):
 
 HOVER_GAP = 2  # cells between two hover action words
 HOVER_MARGIN = 1  # cells kept free right of the last action word
+STAMP_FORMAT = "%H:%M"  # the local time a chat block was shown, on hover
+
+
+def stamp_now() -> str:
+    """The local `HH:MM` now, for a block's hover timestamp."""
+    return time.strftime(STAMP_FORMAT, time.localtime())
 
 
 class HoverActions:
@@ -190,17 +196,27 @@ class HoverActions:
     """
 
     hover_x = -1  # the pointer's column, for the word under it
+    stamp = ""  # in `hal chat`: the local `HH:MM` the block was shown, drawn after the actions as text
 
     def hover_actions(self) -> list[str]:
         """The action words this block offers."""
         return ["copy"]
 
+    def on_mount(self) -> None:
+        """In `hal chat`, notes the time the block was shown."""
+        if not getattr(self.app, "code", True):  # type: ignore[attr-defined]  # a Widget
+            self.stamp = stamp_now()
+
+    def hover_words(self) -> list[str]:
+        """What hovering draws: the actions, then the timestamp (text, not a button) when there is one."""
+        return [*self.hover_actions(), *([self.stamp] if self.stamp else [])]
+
     def run_hover_action(self, name: str) -> None:
         """Runs action `name`."""
 
     def hover_spans(self, width: int) -> list[tuple[str, int, int]]:
-        """Each action word with its start and end column on the first row; empty when the row is too narrow."""
-        words = self.hover_actions()
+        """Each hover word with its start and end column on the first row; empty when the row is too narrow."""
+        words = self.hover_words()
         total = sum(len(w) for w in words) + HOVER_GAP * (len(words) - 1) + HOVER_MARGIN
         x, spans = width - total, []
         if not words or x <= 0:
@@ -215,7 +231,8 @@ class HoverActions:
         if y != 0:
             return None
         width = self.content_size.width  # type: ignore[attr-defined]  # a Widget
-        return next((word for word, a, b in self.hover_spans(width) if a <= x < b), None)
+        actions = self.hover_actions()
+        return next((word for word, a, b in self.hover_spans(width) if a <= x < b and word in actions), None)
 
     def watch_mouse_hover(self, hovered: bool) -> None:
         """The words show and hide with the pointer."""
@@ -250,7 +267,7 @@ class HoverActions:
         for word, a, b in spans:
             if a > pos:
                 segments.append(Segment(" " * (a - pos), faint))
-            segments.append(Segment(word, lit if a <= self.hover_x < b else faint))
+            segments.append(Segment(word, lit if a <= self.hover_x < b and word != self.stamp else faint))
             pos = b
         segments.append(Segment(" " * (width - pos), faint))
         return Strip.join([strip.crop(0, start), Strip(segments)])
@@ -259,8 +276,8 @@ class HoverActions:
 class UserMessage(HoverActions, SafeStatic):
     """A message the human sent, behind the turn's rail: prompt mark, then the text bold (hanging indent).
 
-    Hovering shows `copy edit again` (and `rewind` in code when the message has a checkpoint);
-    a click elsewhere on it, or Enter, offers the same actions in a dialog.
+    Hovering shows `copy edit again` (and `rewind` in code when the message has a checkpoint, the
+    time it was sent in chat); a click elsewhere on it, or Enter, offers the same actions in a dialog.
     """
 
     DEFAULT_CSS = """
@@ -326,7 +343,7 @@ class UserMessage(HoverActions, SafeStatic):
 
 
 class AssistantBlock(HoverActions, SafeStatic):
-    """One committed block of the assistant's prose; hovering offers `copy` of its markdown source."""
+    """One committed block of the assistant's prose; hovering offers `copy` of its markdown source (and the time in chat)."""
 
     def __init__(self, renderable: Markdown, **kwargs: object) -> None:
         super().__init__(renderable, **kwargs)

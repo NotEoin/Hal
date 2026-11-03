@@ -53,6 +53,8 @@ per turn and updates it in place, the bar easing on the motion ticker. `ConsoleS
 hovered (in `render_line`, so hovering never reflows the text) and maps a click to a word by its
 column. `UserMessage` sends `copy`, `edit`, `again` and `rewind` to `AgentApp.message_action`;
 `AssistantBlock` (each prose block written as rich `Markdown`) copies its markdown source.
+In `hal chat` a hover block also notes `stamp_now()` at mount and draws it after the actions;
+the stamp is text, never matched as an action.
 Child agent updates (`hal_subagent`) go to `Sink.subagent(sid, phase, name, task, tool,
 elapsed)` when the sink has it; `TextualSink` keeps one `SubagentTree` per id, updated in place,
 and stops the trees still running when the turn ends. Without it the renderer writes today's rows.

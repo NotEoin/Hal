@@ -1251,7 +1251,7 @@ def test_hover_actions_offer_copy_edit_again_and_rewind_only_with_a_checkpoint(t
 
     before, hovered, offered = drive(tmp_path, script, mode=mode)
     assert offered == words and "copy" not in before
-    assert hovered.rstrip().endswith("  ".join(words)) and "change things" in hovered
+    assert "  ".join(words) in hovered and "change things" in hovered
 
 
 def test_hover_actions_hide_rewind_until_the_message_has_a_checkpoint(tmp_path):
@@ -1261,6 +1261,33 @@ def test_hover_actions_hide_rewind_until_the_message_has_a_checkpoint(tmp_path):
         return message.hover_actions()
 
     assert drive(tmp_path, script) == ["copy", "edit", "again"]
+
+
+@pytest.mark.parametrize(("mode", "stamped"), [("chat", True), ("code", False)])
+def test_chat_shows_time_on_hover(tmp_path, monkeypatch, mode, stamped):
+    from halcore.tui import transcript
+    from halcore.tui.transcript import AssistantBlock
+
+    monkeypatch.setattr(transcript, "stamp_now", lambda: "18:42")
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "hello")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: not app.busy and app.query(AssistantBlock))
+        await settle(pilot)
+        rows = []
+        for widget in (app.transcript.query_one(UserMessage), app.query(AssistantBlock).first()):
+            await pilot.hover(widget, offset=(0, 0))
+            await settle(pilot)
+            rows.append(row_zero(widget).rstrip())
+        stamp = app.transcript.query_one(UserMessage)
+        start = next(a for w, a, _ in stamp.hover_spans(stamp.content_size.width) if w == stamp.hover_words()[-1])
+        return rows, stamp.action_at(start, 0)
+
+    rows, clicked = drive(tmp_path, script, mode=mode, turns=[[chunk("Hi there.\n\n")]])
+    assert all(r.endswith("18:42") for r in rows) is stamped
+    assert rows[0].endswith("again  18:42" if stamped else "again  rewind") and rows[1].endswith("copy  18:42" if stamped else "copy")
+    assert clicked is None if stamped else clicked == "rewind"
 
 
 def test_again_sends_the_same_text_as_a_new_turn(tmp_path):

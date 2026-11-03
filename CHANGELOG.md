@@ -154,6 +154,7 @@ First release of the monorepo (uv workspace on branch `next`).
 - Hover actions in the full screen: `copy edit again` (and `rewind` with a checkpoint) on your
   messages, `copy` on reply blocks. `again` sends the same text as a new turn; it is not a
   regenerate, and the earlier turn stays in the history. The message dialog gains Edit and Send again.
+- `hal chat` shows the local time a message or reply appeared when you hover it.
 - Reasoning in the full screen folds to one faint `thought for 4s` row (time from the first to
   the last thought chunk); opening it adds the token estimate.
 - `hal chat` offers only the commands that work in a chat: `/help`, Tab and Esc Esc leave out the

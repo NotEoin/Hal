@@ -49,7 +49,8 @@ row once the run ends; a click shows them. Edits and failures never fold. Ctrl+O
 A code block in a reply shows its language and `copy` on the row above it; a click on that row
 copies the code only, and a long line scrolls sideways instead of wrapping. Hovering one of
 your messages shows `copy edit again` at the right end of its first row, plus `rewind` in
-`hal code` once the message has a checkpoint; a reply block shows `copy` (its markdown). `edit`
+`hal code` once the message has a checkpoint; a reply block shows `copy` (its markdown). In
+`hal chat` both also show the local time (`18:42`) they appeared on screen. `edit`
 puts the message back in the box to change and send; `again` sends the same text as a new turn.
 Neither removes the earlier turn from the agent's history: it is not a regenerate. `rewind`
 puts back the files from before that message (the conversation stays). A click elsewhere on a
