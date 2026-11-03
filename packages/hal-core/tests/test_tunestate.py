@@ -201,3 +201,13 @@ def test_presets_are_a_data_table_without_model_names():
 
     assert [p.key for p in tunepresets.PRESETS] == ["auto", "gpu-12", "gpu-24", "cpu"]
     assert tunepresets.describe(preset("cpu"), hardware.from_dict(CARD_24GB)) == "no GPU layers"
+
+
+def test_effort_can_be_cleared_back_to_the_model_default(home, server):
+    # regression: once set, the effort could not return to "default"
+    state = session(home, server)
+    model = state.find("local", "qwen3:8b")
+    state.choose("chat", model)
+    state.set_effort("chat", "medium")
+    state.set_effort("chat", "default")
+    assert state.drafts["chat"].effort == ""

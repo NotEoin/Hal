@@ -319,3 +319,15 @@ def test_setup_off_a_terminal_only_prints_the_next_step(tmp_path, monkeypatch):
     monkeypatch.setattr(tune, "is_interactive", lambda: False)
     assert hsetup.offer_tuning(dry_run=False) is False
     assert "hal tune --auto --write" in hsetup._models_step().skip
+
+
+def test_setup_says_how_to_skip_the_tune_screen(tmp_path, monkeypatch, capsys):
+    # regression: setup said "type quit" on a menu screen with nothing to type at
+    from halcore import tune, tuneui
+
+    monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "config.toml"))
+    monkeypatch.setattr(tuneui, "run_interactive", lambda **kw: 0)
+    monkeypatch.setattr(tune, "is_interactive", lambda: True)
+    hsetup.offer_tuning(dry_run=False)
+    said = capsys.readouterr().out
+    assert "press Esc to skip" in said and "type quit" not in said

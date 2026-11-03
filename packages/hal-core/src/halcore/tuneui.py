@@ -496,16 +496,20 @@ class TuneScreen:
             elif choice == "review":
                 self.cmd_diff("")
             elif choice == "save":
+                if not self.state.has_changes():
+                    self.say("No changes to write.", "muted")
+                    return 0
                 if self._guarded(self.cmd_write, ""):
                     return 0
             elif choice == "quit":
-                return self._leave()
+                if not self.state.has_changes() or self._confirm("Leave without saving?", "no"):
+                    return self._leave()
             elif choice is None and (not self.state.has_changes() or self._confirm("Leave without saving?", "no")):
                 return self._leave()
 
     def _confirm(self, question: str, otherwise: str = "yes") -> bool:
         """A Yes / No menu; Esc and Ctrl-C answer `otherwise`."""
-        answer = self.prompter.pick(question, YES_NO, filterable=False) or otherwise
+        answer = self.prompter.pick(question, YES_NO, otherwise, filterable=False) or otherwise
         return answer == "yes"
 
     def _guarded(self, handler: Callable[[str], object], arg: str) -> object:
@@ -680,8 +684,10 @@ class TuneScreen:
         if not levels:
             self.say(f"{role}: no effort setting, {reason}", "muted")
             return
+        current = self.state.drafts[role].effort or tunestate.DEFAULT_EFFORT
         value = rest or self.prompter.pick(
-            f"{role} effort", [(lv, lv) for lv in levels], self.state.drafts[role].effort, filterable=False) or ""
+            f"{role} effort", [(tunestate.DEFAULT_EFFORT, tunestate.DEFAULT_EFFORT), *((lv, lv) for lv in levels)],
+            current, filterable=False) or ""
         if value:
             self.state.set_effort(role, value)
             self.dirty = True

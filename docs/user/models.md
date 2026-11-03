@@ -127,11 +127,13 @@ mouse events, use the keys). `GB` here means 1024 MiB.
   *This machine* to go back. The presets are rows of a table in `halcore/tunepresets.py`.
 - **Adjust a role** opens a menu for one role: Model (a list you can filter by typing), Context
   (8K to 128K or Custom, each with its size and `fits`, `tight` or `too big`), KV cache, Effort
-  (only for models that can think), Temperature, and Auto-tune this role.
+  (only for models that can think; `default` clears it), Temperature, and Auto-tune this role.
 - **Model sources** adds or removes a source.
 - **Review changes** shows the diff of `config.toml`; nothing is written yet.
-- **Save and exit** shows the diff and asks Yes or No before it writes.
-- A `*` marks a role changed and not saved. Esc on the main menu asks before it drops changes.
+- **Save and exit** shows the diff and asks Yes or No before it writes. With nothing changed it
+  just exits.
+- A `*` marks a role changed and not saved. Esc on the main menu and **Quit without saving**
+  both ask before they drop changes; the highlight starts on No.
 
 Press `:` on the main menu for the typed command line (Tab completes; `menu` goes back). A
 command may start with a role: `model code`.

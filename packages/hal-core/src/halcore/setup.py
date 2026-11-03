@@ -313,7 +313,7 @@ def offer_tuning(*, dry_run: bool) -> bool:
 
     if dry_run or not tune.is_interactive() or modelplan.assignment_status()[0]:
         return False
-    print("No chat model is assigned yet. Opening the tune screen; type quit to skip it.")
+    print("No chat model is assigned yet. Opening the tune screen; press Esc to skip it.")
     tuneui.run_interactive()
     return True
 

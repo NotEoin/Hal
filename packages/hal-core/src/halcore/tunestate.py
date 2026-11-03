@@ -29,6 +29,7 @@ from . import modelplan, tunepresets
 CONTEXT_PRESETS = (8192, 16384, 32768, 65536, 131072)
 KV_OPTIONS = modelconf.KV_CHOICES
 OPTIONAL_ROLES = ("writer",)  # empty by design: falls back to chat
+DEFAULT_EFFORT = "default"  # the word the screens show for "no effort set"
 ROLE_KINDS = {"code": "coding model", "vision": "vision model", "embed": "embedding model"}
 
 
@@ -197,8 +198,11 @@ class TuneSession:
             d.manual, d.context = False, 0
 
     def set_effort(self, role: str, level: str) -> None:
-        """Sets the default effort; refused when the capability table says the model cannot use it."""
+        """Sets the default effort (`""` = the model's default); refused when the model cannot use the level."""
         d, _ = self._need(role)
+        if level in ("", DEFAULT_EFFORT):
+            d.effort = ""
+            return
         options, reason = self.effort_options(role)
         if level not in modelconf.EFFORT_CHOICES:
             raise ValueError(f"effort must be one of {', '.join(modelconf.EFFORT_CHOICES)}")

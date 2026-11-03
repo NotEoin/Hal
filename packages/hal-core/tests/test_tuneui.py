@@ -233,7 +233,7 @@ def test_the_menus_choose_a_model_and_context_and_save_without_typing(home, serv
 
 
 def test_the_role_menu_offers_every_setting_and_the_context_menu_shows_each_fit(home, server):
-    screen, _, prompter = open_screen(home, server, picks=["role", "chat", "context", None, "back", None, "quit"])
+    screen, _, prompter = open_screen(home, server, picks=["role", "chat", "context", None, "back", None, "quit", "yes"])
     screen.state.auto_tune("chat")
     screen.run()
     role_items = prompter.seen[2][1]
@@ -364,3 +364,26 @@ def test_a_broken_policy_toml_is_a_note_in_the_summary_not_a_crash(home, server)
     home.config.with_name("policy.toml").write_text("schema_version = 99\n")
     home.config.with_name("policy.toml").chmod(0o600)
     assert tuneui.guard_line() == ("?", "policy.toml unreadable (ConfigError)")
+
+
+def test_tune_save_without_changes_exits(home, server):
+    # regression: "Save and exit" with nothing changed went back to the menu
+    screen, out, prompter = open_screen(home, server, picks=["save"])
+    assert screen.run() == 0 and len(prompter.seen) == 1 and "No changes" in out.getvalue()
+
+
+def test_tune_quit_row_asks_when_there_are_changes(home, server):
+    # regression: "Quit without saving" dropped changes without asking, unlike Esc
+    screen, out, prompter = open_screen(home, server, picks=["quit", "no", "quit", "yes"])
+    screen.state.auto_tune("chat")
+    before = home.config.read_text()
+    assert screen.run() == 0 and home.config.read_text() == before
+    assert [t for t, _ in prompter.seen].count("Leave without saving?") == 2
+
+
+def test_tune_effort_menu_can_clear_the_effort(home, server):
+    # regression: the effort menu listed only levels, so a set effort could not be cleared
+    screen, _, prompter = open_screen(home, server, asks=["model", "effort", "effort", "quit"],
+                                      picks=["local\nqwen3:8b", "medium", "default"])
+    screen.run_commands()
+    assert prompter.seen[-1][1][0] == "default" and screen.state.drafts["chat"].effort == ""

@@ -120,6 +120,9 @@ First release of the monorepo (uv workspace on branch `next`).
   terminal. `hal chat` records its sessions as chats, and its `/resume` lists only chat sessions.
   The approval panel follows `[ui].theme`. Leaving `hal code` names the accept command only when
   the copy has changes.
+- `hal tune`: Save and exit with nothing changed exits, Quit without saving asks first when there
+  are changes, and an effort can be set back to `default`. `hal setup` says to press Esc to skip
+  the tune screen.
 
 ### Security
 
