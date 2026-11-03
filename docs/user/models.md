@@ -108,7 +108,8 @@ Plan for  [ This machine ] [ 8 GB ] [ 12 GB ] [ 16 GB ] [ 24 GB ] [ CPU only ]
   rows of a table in `halcore/tunepresets.py`.
 - **Roles** lists every role with its real model (a tag built from another model shows that model
   first and the tag in brackets) and how it fits; `*` marks a change not saved yet. Moving in the
-  list opens that role on the right.
+  list opens that role on the right. On a narrow terminal (down to 60 columns) the list gets
+  narrower and the rows of buttons drop their padding, so every control stays on screen.
 - **Context**, **GPU layers** and **Temperature** are sliders: drag the knob, click the track,
   use the wheel on a focused slider (elsewhere the wheel scrolls), or focus them and press
   Left/Right (PgUp/PgDn for big steps, Home/End for the ends). The memory bar moves while you drag; the change lands when you let go. `Auto` (or `a`)

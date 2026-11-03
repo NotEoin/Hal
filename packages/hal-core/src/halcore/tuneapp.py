@@ -84,7 +84,8 @@ class RoleEditor(VerticalScroll, can_focus=False):
     DEFAULT_CSS = """
     RoleEditor { padding: 0 1; }
     RoleEditor .row { height: 1; margin-bottom: 1; }
-    RoleEditor .label { width: 13; color: $text-muted; }
+    RoleEditor .label { width: 12; color: $text-muted; }
+    RoleEditor .row Segmented { width: 1fr; }
     RoleEditor .row Button { min-width: 9; height: 1; border: none; margin-left: 1; }
     RoleEditor .title { text-style: bold; color: $primary; margin-bottom: 1; }
     RoleEditor .why { color: $text-muted; height: auto; }
@@ -306,8 +307,8 @@ class QuickStart(ModalScreen[str | None]):
 
     DEFAULT_CSS = screens.MODAL_CSS + """
     QuickStart { align: center middle; }
-    QuickStart .modal-box { width: 96%; max-width: 140; }
-    QuickStart #scroll { height: auto; max-height: 30; }
+    QuickStart .modal-box { width: 96%; max-width: 140; height: 90%; max-height: 40; }
+    QuickStart #scroll { height: 1fr; }
     QuickStart #cards { grid-size: 2; grid-gutter: 0 1; height: auto; }
     """
     BINDINGS = [Binding("escape", "skip", "skip")]
@@ -353,8 +354,9 @@ class TuneApp(App[int]):
     #tabs TabPane { height: 1fr; padding: 0; }
     #hw { height: auto; color: $text-muted; padding: 0 1; }
     #presets { height: 1; padding: 0 1; margin-bottom: 1; }
+    #presets Segmented { width: 1fr; }
     #presets .label { width: 10; color: $text-muted; }
-    #roles { width: 40; height: 1fr; border: none; }
+    #roles { width: 30%; min-width: 20; max-width: 40; height: 1fr; border: none; }
     Button#model-btn { width: 1fr; content-align: left middle; text-align: left; }
     #role-pane { height: 1fr; }
     #sources { height: auto; max-height: 12; border: none; }

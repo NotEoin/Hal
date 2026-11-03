@@ -431,3 +431,41 @@ def test_ctrl_c_in_a_dialog_does_not_quit_the_app(home, server):
         return isinstance(app.screen, tuneapp.SourceModal), app.is_running
 
     assert drive(state, script)[0] == (True, True)
+
+
+def test_every_control_and_quick_start_button_is_on_screen_at_80_by_24_and_60_by_20(home, server):
+    # regression: the KV and effort rows ran past the right edge at 80 columns, and Quick start's
+    # Skip and Adjust by hand buttons sat below the bottom of a 24-row screen
+    for size in ((80, 24), (60, 20)):
+        state = open_state(home, server, roles=CHAT_ROLE)
+
+        async def script(pilot, app, size=size):
+            await settle(pilot)
+            return [w.id for w in app.query("RoleEditor Button, RoleEditor Slider, RoleEditor Segmented, #preset")
+                    if w.region.right > size[0]]  # fmt: skip
+
+        off, _, _ = drive(state, script, size=size)
+        assert off == [], (size, off)
+
+        async def quick(pilot, app, size=size):
+            await settle(pilot)
+            return [b.id for b in app.screen.query(Button) if b.region.bottom > size[1] or not b.region.height]
+
+        off, _, _ = drive(open_state(home, server), quick, first_run=True, size=size)
+        assert off == [], (size, off)
+
+
+def test_effort_options_stay_clickable_when_the_row_is_compact(home, server):
+    state = open_state(home, server, roles=CHAT_ROLE)
+
+    async def script(pilot, app):
+        await settle(pilot)
+        effort = app.query_one("#effort", Segmented)
+        compact = effort.pad() == 0
+        start, end, last = [s for s in effort.spans() if not s[2].reason][-1]
+        await pilot.click("#effort", offset=(start, 0))
+        await settle(pilot)
+        return compact, last.value, state.drafts["chat"].effort or "default"
+
+    compact, wanted, effort = drive(state, script, size=(80, 24))[0]
+    assert compact and wanted != "default" and effort == wanted

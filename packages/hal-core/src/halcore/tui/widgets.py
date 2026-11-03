@@ -18,7 +18,8 @@ Design decisions:
 - The wheel moves a slider only while it has focus; otherwise it scrolls the view around it, so
   wheeling down a page of sliders never changes a value the pointer happens to pass over.
 - `Segmented` is one focusable widget, not a row of buttons, so Tab moves past it in one step
-  and Left/Right move inside it, like a radio group.
+  and Left/Right move inside it, like a radio group. When its width is less than it asks for,
+  it drops the space around each label so every option stays visible and clickable.
 """
 
 from __future__ import annotations
@@ -281,29 +282,37 @@ class Segmented(Widget, can_focus=True):
         self.segments = list(segments)
         self.set_reactive(Segmented.selected, selected)
 
-    def spans(self) -> list[tuple[int, int, Segment]]:
-        """`(start, end, segment)` column spans of each option as drawn."""
+    def spans(self, pad: int | None = None) -> list[tuple[int, int, Segment]]:
+        """`(start, end, segment)` column spans of each option as drawn (`pad` spaces around each label)."""
+        pad = self.pad() if pad is None else pad
         out, x = [], 0
         for seg in self.segments:
-            width = len(clean(seg.label)) + 2
+            width = len(clean(seg.label)) + 2 * pad
             out.append((x, x + width, seg))
             x += width + 1
         return out
 
+    def pad(self) -> int:
+        """1 when the full labels fit the widget's width, else 0 (the compact form)."""
+        full = self.spans(1)
+        width = self.size.width
+        return 1 if not full or width == 0 or width >= full[-1][1] else 0
+
     def render(self) -> RenderableType:
         """The options as `[ label ]` cells; the chosen one reversed, disabled ones struck through."""
         text = Text()
+        space = " " * self.pad()
         for i, (_, _, seg) in enumerate(self.spans()):
             if i:
                 text.append(" ")
             style = "reverse bold" if seg.value == self.selected else ""
             if seg.reason:
                 style = "dim strike"
-            text.append(f" {clean(seg.label)} ", style=style)
+            text.append(f"{space}{clean(seg.label)}{space}", style=style)
         return text
 
     def get_content_width(self, container: object, viewport: object) -> int:  # noqa: D102 - Textual's sizing hook
-        spans = self.spans()
+        spans = self.spans(1)
         return spans[-1][1] if spans else 1
 
     def choose(self, value: str) -> bool:
