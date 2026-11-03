@@ -20,7 +20,8 @@ User docs: [hal-code.md](../user/hal-code.md), [tui.md](../user/tui.md) and
 | `halcore/tui/chrome.py` | The bars around the transcript: `HalEye` (and, from the top bar on, the rest of the chrome) |
 | `halcore/tui/screens.py` | Shared modals: `PickerModal`, `ConfirmModal`, `ChoiceModal`, `HelpScreen`, and `ask()` |
 | `halcore/tui/approvalmodal.py` | The approval gate of the full screen (`ApprovalModal`) and `ModalAsker`, its bridge sender |
-| `halcore/tui/agentapp.py` | The full-screen `hal code` and `hal chat`: `AgentApp`, `TextualUi`, `TextualSink`, `Composer` |
+| `halcore/tui/agentapp.py` | The full-screen `hal code` and `hal chat`: `AgentApp`, `TextualUi`, `Composer` |
+| `halcore/tui/transcript.py` | The conversation view: `Transcript`, `UserMessage` and `TextualSink` (the `render.Sink` that mounts into it) |
 | `halcore/tui/fallback.py` | `can_run_textual`, `StartFailed`, `reason_of` and the notice printed before the line UI takes over |
 | `halcore/tuneapp.py` | The full-screen `hal tune` (`TuneApp`, `QuickStart`, `SourceModal`) |
 | `halcore/tuneview.py` | What both tune screens show, as plain text |
