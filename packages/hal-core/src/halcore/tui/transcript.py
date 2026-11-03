@@ -326,15 +326,11 @@ class ToolGroup(Widget):
     can_focus = True
     BINDINGS = [Binding("enter", "toggle", "expand", show=False)]
 
-    def __init__(self, cards: list[ToolCard], **kwargs: object) -> None:
+    def __init__(self, cards: list[ToolCard], rows: list[ToolRow], **kwargs: object) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
         self.cards = cards
+        self.rows = rows  # from the sink: a card that never started gets its own row only after a refresh
         self.open = False
-
-    @property
-    def rows(self) -> list[ToolRow]:
-        """The folded calls' parts."""
-        return [c.row for c in self.cards if c.row is not None]
 
     def render(self) -> RenderableType:
         """`* ran 3 tools  read a.py, b.py | grep x      0.3s  ok  >`."""
@@ -380,7 +376,7 @@ class TextualSink:
         self.cards: dict[str, ToolCard] = {}
         self.rows: dict[str, ToolRow] = {}  # parts of a finished call, from `tool_row`, until `tool_finished`
         self.pending: list[Callable[[], None]] = []  # output before the app has mounted
-        self.run: list[ToolCard] = []  # finished calls in a row that may fold into a `ToolGroup`
+        self.run: list[tuple[ToolCard, ToolRow]] = []  # finished calls in a row that may fold into a `ToolGroup`
 
     def _run(self, action: Callable[[], None]) -> None:
         # updates arrive on the ACP reader task; `call_later` runs them on the app's own loop, in order,
@@ -404,10 +400,11 @@ class TextualSink:
     def fold(self) -> None:
         """Ends the current run of tool calls; 3 or more become one `ToolGroup` row (runs on the app's loop)."""
         run, self.run = self.run, []
-        cards = [c for c in run if c.is_attached]
+        run = [(c, r) for c, r in run if c.is_attached]
+        cards = [c for c, _ in run]
         if len(cards) < FOLD_MIN or len({id(c.parent) for c in cards}) != 1:
             return
-        group = ToolGroup(cards)
+        group = ToolGroup(cards, [r for _, r in run])
         group.set_class(cards[0].has_class("gap"), "gap")
         cards[0].parent.mount(group, before=cards[0])  # type: ignore[union-attr]  # attached: has a parent
         for card in cards:
@@ -477,7 +474,7 @@ class TextualSink:
             else:
                 card.finish(header, body, full, row)
             if row is not None and row.ok and not row.diff and row.depth == 0:
-                self.run.append(card)
+                self.run.append((card, row))
             else:
                 self.fold()  # an edit or a failure ends the run and stays on screen
             self.app.status_soon()

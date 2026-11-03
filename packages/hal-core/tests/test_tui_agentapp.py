@@ -1131,3 +1131,18 @@ def test_code_block_language_label_is_sanitised(tmp_path):
 def test_hostile_code_language_cannot_add_markup(tmp_path):
     label, header, _, copied = code_scene(tmp_path, "```[@click=app.quit]\nboom\n```\n")
     assert "[" not in header and "=" not in header and copied == ["boom"]
+
+
+def test_tool_group_summary_comes_from_the_sink_rows_not_unfinished_cards():
+    # regression: a group of calls that never started rendered "ran 3 tools" with no targets
+    # when it was drawn before the cards' deferred `finish` set their rows (flaky snapshot)
+    from rich.text import Text
+
+    from halcore.tui.render import ToolRow
+    from halcore.tui.transcript import ToolGroup, group_summary
+
+    cards = [ToolCard(f"r{i}", Text(""), 0) for i in range(3)]
+    rows = [ToolRow(verb="Read", target=f"src/f{i}.py", ok=True, seconds=0.1) for i in range(3)]
+    group = ToolGroup(cards, rows)
+    assert all(c.row is None for c in cards)
+    assert group_summary(group.rows) == ["read f0.py, f1.py, f2.py"]
