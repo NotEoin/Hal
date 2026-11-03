@@ -12,6 +12,7 @@ keeps the non-interactive paths: headless `hal -p` and `hal sessions`.
 | `[ui].interface = "line"`, or `HAL_TUI=line` | Line UI (scrollback, keys only) |
 | `[ui].interface = "full"` | Full screen wherever it can start |
 | No terminal, piped stdin, `TERM=dumb` | Line UI; `hal code` without a terminal runs the agent's own prompt |
+| The `textual` package is missing (a pull without re-running the installer) | One line `full-screen UI unavailable: the textual package is not installed (re-run scripts/install.sh); using the line UI`, then the line UI |
 | The full screen fails before it draws | One line `full-screen UI unavailable: REASON; using the line UI`, then the line UI on the same session |
 | `hal chat MESSAGE`, `hal chat --json`, `hal -p`, `hal acp`, `hal tune --auto` | No UI: these never load the full-screen code |
 

@@ -19,6 +19,8 @@ from typing import TextIO
 log = logging.getLogger(__name__)
 
 NOTICE = "full-screen UI unavailable: {reason}; using the line UI"
+# the one reason that is an install fault, not a terminal choice, so it is printed with its fix
+MISSING_TEXTUAL = "the textual package is not installed (re-run scripts/install.sh)"
 
 
 class StartFailed(Exception):
@@ -37,7 +39,7 @@ def can_run_textual(
     if not term or term == "dumb":
         return False, f"TERM is {term or 'unset'}"
     if importlib.util.find_spec("textual") is None:
-        return False, "the textual package is not installed"
+        return False, MISSING_TEXTUAL
     return True, ""
 
 
@@ -52,6 +54,11 @@ def reason_of(app: object) -> str:
     """Why a Textual app stopped: the error it caught, or a fixed phrase when it kept none."""
     error = getattr(app, "_exception", None)  # Textual keeps the error it caught here (checked on 8.2)
     return (str(error) or type(error).__name__) if error is not None else "the app stopped before its first draw"
+
+
+def worth_telling(reason: str) -> bool:
+    """True for a fallback the person did not choose and can fix; piped input or `TERM=dumb` stay quiet."""
+    return reason == MISSING_TEXTUAL
 
 
 def notice(reason: str) -> str:

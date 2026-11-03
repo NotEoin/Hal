@@ -306,3 +306,20 @@ def test_controller_keeps_the_agent_crash_message_for_the_full_screen(tmp_path, 
 
     assert asyncio.run(go()) == 1
     assert controller.failure.startswith("the agent failed: gone")
+
+
+def test_a_missing_textual_package_is_reported_with_its_fix(monkeypatch, capsys):
+    """Regression: after a pull without re-running the installer, the old UI ran with no word why."""
+    from halcore.tui import app
+    from halcore.tui.theme import load_look
+
+    monkeypatch.setattr(fallback.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(sys, "stdin", Tty())
+    monkeypatch.setenv("TERM", "xterm-256color")
+    assert app.wants_full_screen(load_look({}, stream=io.StringIO(), environ={}), Tty()) is False
+    assert "re-run scripts/install.sh" in capsys.readouterr().err
+
+
+def test_a_chosen_fallback_stays_quiet(capsys):
+    assert not fallback.worth_telling("stdin or stdout is not a terminal")
+    assert not fallback.worth_telling("TERM is dumb")

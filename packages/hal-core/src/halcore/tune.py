@@ -98,6 +98,8 @@ def run_screen(hw: hardware.Hardware | None = None) -> int:
         look = load_look(stream=sys.stdout)
     ok, reason = fallback.can_run_textual(sys.stdin, sys.stdout, os.environ, look.interface)
     if not ok:
+        if fallback.worth_telling(reason):
+            print(fallback.notice(reason), file=sys.stderr)
         from . import tuneui  # noqa: PLC0415 - prompt_toolkit loads only for the line screen
 
         return tuneui.run_interactive(hw=hw)

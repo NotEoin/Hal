@@ -235,6 +235,8 @@ def wants_full_screen(look: Look, out: TextIO) -> bool:
     ok, reason = fallback.can_run_textual(sys.stdin, out, os.environ, look.interface)
     if not ok:
         log.info("line UI: %s", reason)
+        if fallback.worth_telling(reason):
+            print(fallback.notice(reason), file=sys.stderr)
     return ok
 
 
