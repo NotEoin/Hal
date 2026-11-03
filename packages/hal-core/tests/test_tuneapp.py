@@ -484,3 +484,17 @@ def test_typing_a_context_sets_it_by_hand(home, server):
         return state.drafts["chat"].context, state.drafts["chat"].manual
 
     assert drive(state, script)[0] == (16384, True)
+
+
+def test_role_rows_never_wrap_a_model_name(home, server):
+    """Regression: at 80 columns `gemma4:26b-a4b-it-qat` broke across two lines of the role list."""
+    state = open_state(home, server, roles=CHAT_ROLE)
+
+    async def script(pilot, app):
+        row = app.role_row("chat")
+        styles = app.query_one("#roles").styles
+        return (styles.text_wrap, styles.text_overflow), row.plain.splitlines()
+
+    (css, lines), _, _ = drive(state, script, size=(80, 24))
+    assert css == ("nowrap", "ellipsis")  # OptionList wraps a prompt whatever the Text says
+    assert lines[0].startswith("chat") and "qwen3:8b" in lines[1]

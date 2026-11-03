@@ -361,7 +361,7 @@ class TuneApp(App[int]):
     #presets { height: 1; padding: 0 1; margin-bottom: 1; }
     #presets Segmented { width: 1fr; }
     #presets .label { width: 10; color: $text-muted; }
-    #roles { width: 30%; min-width: 20; max-width: 40; height: 1fr; border: none; }
+    #roles { width: 30%; min-width: 20; max-width: 40; height: 1fr; border: none; text-wrap: nowrap; text-overflow: ellipsis; }
     Button#model-btn { width: 1fr; content-align: left middle; text-align: left; }
     #role-pane { height: 1fr; }
     #sources { height: auto; max-height: 12; border: none; }
@@ -456,27 +456,31 @@ class TuneApp(App[int]):
     # -- role list -------------------------------------------------------------------------------
 
     def role_row(self, role: str) -> Text:
-        """One role list row: role, model, a star when changed, and the fit word."""
+        """One role list row: the role, its context and fit, then the model on its own line.
+
+        Neither line wraps: a narrow list cuts the model with an ellipsis, since a model name
+        broken across lines (`gemma4:26b-a4b` / `-it-qat`) reads as two different things.
+        """
+        row = Text(no_wrap=True, overflow="ellipsis")
+        row.append(f"{role:<7}", style="bold")
         if role == GUARD:
             model, note = self.guard
-            row = Text(f"{GUARD:<7}", style="bold")
-            row.append(clean(model))
-            row.append(f"\n        ({clean(note)})", style="dim")
+            row.append(f" {clean(note)}", style="dim")
+            row.append(f"\n  {clean(model)}")
             return row
         d = self.state.drafts.get(role)
-        row = Text(f"{role:<7}", style="bold")
         if d is None or not d.model:
             direct = self.direct.get(role, "")
-            row.append(clean(direct) if direct else "-", style="" if direct else "dim")
             note = "set in [hal] (not tuned)" if direct else ("falls back to chat" if role == "writer" else "no model yet")
-            row.append(f"\n        {note}", style="dim")
+            row.append(f" {note}", style="dim")
+            row.append(f"\n  {clean(direct) if direct else '-'}", style="" if direct else "dim")
             return row
-        row.append(clean(model_label(self.state, d.source, d.model)))
-        if role in self.state.changed_roles():
-            row.append(" *", style="bold")
         fit = self.state.fit(role)
         word = fit_word(fit) or fit.status
-        row.append(f"\n        {tokens_label(fit.context) + '  ' if fit.context else ''}{word}", style="dim")
+        row.append(f" {tokens_label(fit.context) + '  ' if fit.context else ''}{word}", style="dim")
+        if role in self.state.changed_roles():
+            row.append(" *", style="bold")
+        row.append(f"\n  {clean(model_label(self.state, d.source, d.model))}")
         return row
 
     def fill_roles(self) -> None:
