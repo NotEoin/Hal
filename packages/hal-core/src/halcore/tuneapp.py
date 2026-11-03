@@ -390,6 +390,12 @@ class TuneApp(App[int]):
         if not look.animations:
             self.animation_level = "none"
 
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        """While a dialog is open only its own keys act (Ctrl+C or Esc there never quits the app)."""
+        if action in ("leave", "save", "undo", "show_tab", "help") and isinstance(self.screen, ModalScreen):
+            return False
+        return True
+
     # -- layout ----------------------------------------------------------------------------------
 
     def compose(self) -> ComposeResult:

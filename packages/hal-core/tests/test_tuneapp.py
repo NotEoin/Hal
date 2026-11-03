@@ -416,3 +416,18 @@ def test_without_a_source_the_app_opens_on_the_sources_tab(home):
 
     (tab, focused), _, _ = drive(state, script, first_run=True)
     assert tab == "tab-sources" and focused == "sources"
+
+
+def test_ctrl_c_in_a_dialog_does_not_quit_the_app(home, server):
+    state = open_state(home, server, roles=CHAT_ROLE)
+
+    async def script(pilot, app):
+        await pilot.press("f3")
+        await settle(pilot)
+        await pilot.click("#source-add")
+        await settle(pilot)
+        await pilot.press("ctrl+c")
+        await settle(pilot)
+        return isinstance(app.screen, tuneapp.SourceModal), app.is_running
+
+    assert drive(state, script)[0] == (True, True)

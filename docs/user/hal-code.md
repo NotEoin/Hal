@@ -108,7 +108,7 @@ In the full screen a broker approval opens a dialog over everything else:
   presses it; with the mouse it is a full click on the button.
 - The allow buttons stay off for a moment after the dialog opens, so a key you were typing in
   the message box cannot allow anything, and they stay off until you have scrolled to the end
-  of the arguments.
+  of the arguments (PgDn, End or the wheel).
 - "Allow these exact arguments this session" appears only when the request offers it.
 - `e` (or the button) opens a line for a note: Enter denies and sends the note to the agent as
   your next message.
