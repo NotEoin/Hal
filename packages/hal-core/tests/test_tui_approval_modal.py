@@ -383,3 +383,43 @@ def test_y_right_after_scrolling_to_the_end_still_selects_allow():
         await pilot.press("enter")
 
     assert run_modal(long, script) == ("y", "")
+
+
+def test_focused_allow_button_is_drawn_in_warning_colour():
+    from textual.color import Color
+
+    seen = {}
+
+    async def script(pilot, modal):
+        await armed(pilot, modal)
+        await pilot.press("y")
+        await pilot.pause()
+        allow = modal.query_one("#allow-once", Button)
+        seen["focused"] = modal.focused is allow
+        seen["warning"] = allow.styles.background == Color.parse(modal.app.get_css_variables()["warning"])
+        await pilot.press("escape")
+
+    run_modal(REQUEST, script)
+    assert seen == {"focused": True, "warning": True}
+
+
+def test_on_answer_runs_after_consume_and_cannot_change_the_answer():
+    bridge, reports = FakeBridge({"hal-1": REQUEST}), []
+
+    def on_answer(letter, view):
+        reports.append((letter, view.header, list(bridge.answers)))
+        raise RuntimeError("a broken record must not touch the answer")
+
+    async def go():
+        app = Host()
+        async with app.run_test(size=(110, 40)) as pilot:
+            asker = ModalAsker(app, bridge, [].append, arm_s=QUICK, poll_s=0.02, ring=False, on_answer=on_answer)
+            await asker.send({"id": "hal-1"})
+            await asyncio.sleep(0.05)
+            await pilot.press("enter")
+            await asyncio.sleep(0.1)
+            await pilot.pause()
+
+    asyncio.run(go())
+    assert bridge.answers == [("hal-1", "deny")]
+    assert reports == [("n", "shell.run [exec] from hal-tools", [("hal-1", "deny")])]

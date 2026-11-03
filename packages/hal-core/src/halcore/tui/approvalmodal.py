@@ -21,6 +21,10 @@ Rules, each one tested in `test_tui_approval_modal.py`:
 7. Esc, Ctrl+C or the request vanishing (`gone`) close the modal as a deny or with no answer.
 8. "Deny with a note" opens a line in the modal; Enter sends the note, an empty note is a deny.
 
+After an answer is consumed (or the request is gone) `ModalAsker` reports it to `on_answer(letter,
+view)`, which the full screen turns into one transcript row (`record_text`). The callback only
+reports: the answer has already gone to the bridge, and a failing callback is logged, never raised.
+
 Small terminals: the buttons and the note line stay on screen at 80x24 and 60x20. When the
 buttons do not fit side by side they stack as one-line buttons, and the arguments view gives up
 rows (down to `ARGS_MIN_ROWS`) so the rest of the box fits. The gate line keeps its row when
@@ -30,7 +34,8 @@ the arguments have been read, so the buttons never move under the pointer as the
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+import logging
+from collections.abc import Callable, Mapping
 
 from rich.text import Text
 from textual import events
@@ -41,14 +46,22 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input
 
 from . import approval
+from .chrome import role_colours
 from .screens import MODAL_CSS
+from .theme import Look
 from .widgets import SafeStatic, toast
+
+log = logging.getLogger(__name__)
 
 ARM_S = 0.6  # a person reading the panel takes longer; a key in flight from the composer arrives sooner
 ALLOW_IDS = ("allow-once", "allow-session")
 LETTER_OF = {"deny": "n", "deny-note": "e", "allow-once": "y", "allow-session": "a"}
 RISK_CLASS = {"low": "risk-low", "medium": "risk-medium", "high": "risk-high", "critical": "risk-high"}
+RISK_MARK = "! "  # fixed prefix of a medium, high or critical risk row
 GONE = "gone"  # the dismiss value when the request was answered elsewhere
+RECORD_WORDS = {"n": "denied", "e": "denied with a note", "y": "allowed once", "a": "allowed this session"}
+RECORD_GONE = "answered elsewhere"
+RECORD_WORDS_W = max(len(w) for w in (*RECORD_WORDS.values(), RECORD_GONE))
 TYPING_GAP_S = 0.5  # keys closer together than this are a person typing a sentence, not choosing
 KEEP_ALLOW_FOCUS = frozenset({"enter", "tab", "shift+tab", "y", "a", "escape", "ctrl+c"})
 ARGS_MAX_ROWS = 12  # the arguments view's tallest size, border included (its CSS `max-height`)
@@ -68,6 +81,7 @@ class ApprovalModal(ModalScreen[tuple[str, str]]):
     ApprovalModal { align: center middle; }
     ApprovalModal .modal-box { border: heavy $primary; width: 90%; max-width: 110; }
     ApprovalModal #args { height: auto; max-height: 12; border: round $panel; padding: 0 1; }
+    ApprovalModal #allow-once:focus, ApprovalModal #allow-session:focus { background: $warning; color: $background; }
     ApprovalModal .risk-high { color: $error; text-style: bold; }
     ApprovalModal .risk-medium { color: $warning; }
     ApprovalModal .risk-low { color: $success; }
@@ -113,7 +127,9 @@ class ApprovalModal(ModalScreen[tuple[str, str]]):
                 facts.append(f"   key {view.key}", style="dim")
             yield SafeStatic(facts)
             if view.risk:
-                yield SafeStatic(Text(view.risk), classes=RISK_CLASS.get(str(self.request.get("risk")), "why"))
+                kind = RISK_CLASS.get(str(self.request.get("risk")), "why")
+                mark = RISK_MARK if kind in ("risk-medium", "risk-high") else ""
+                yield SafeStatic(Text(mark + view.risk), classes=kind)
             yield SafeStatic(Text(view.why), classes="why")
             yield SafeStatic(Text("Arguments (every one, exactly as the tool receives them)"), classes="args-title")
             with VerticalScroll(id="args"):
@@ -299,8 +315,9 @@ class ModalAsker:
     """
 
     def __init__(self, app, bridge, on_note, *, arm_s: float = ARM_S, poll_s: float = approval.VANISH_POLL_S,
-                 ring: bool = True, on_change=None) -> None:  # noqa: ANN001 - a Textual App, a PermissionBridge and callbacks
+                 ring: bool = True, on_change=None, on_answer=None) -> None:  # noqa: ANN001 - a Textual App, a PermissionBridge and callbacks
         self.app, self.bridge, self.on_note = app, bridge, on_note
+        self.on_answer: Callable[[str, approval.ApprovalView], None] | None = on_answer  # after consume: the record
         self.on_change = on_change  # called when a modal opens or closes (the HAL eye and the status line)
         self.arm_s, self.poll_s, self.ring = arm_s, poll_s, ring
         self.lock = asyncio.Lock()
@@ -330,13 +347,13 @@ class ModalAsker:
                 if request is None or not self.pending(rid):
                     return
                 letter, note = await self.show(rid, request)
-                if letter == GONE:
-                    return
-                option = approval.answer_to_option(letter, request)
-                if letter == "e" and note:
-                    self.on_note(note)
-                outcome: dict[str, object] = {"outcome": "selected", "optionId": option}
-                self.bridge.consume({"jsonrpc": "2.0", "id": rid, "result": {"outcome": outcome}})
+                if letter != GONE:
+                    option = approval.answer_to_option(letter, request)
+                    if letter == "e" and note:
+                        self.on_note(note)
+                    outcome: dict[str, object] = {"outcome": "selected", "optionId": option}
+                    self.bridge.consume({"jsonrpc": "2.0", "id": rid, "result": {"outcome": outcome}})
+                self.report(letter, request)
         finally:
             self.waiting -= 1
 
@@ -365,6 +382,15 @@ class ModalAsker:
             self.current = None
             self._changed()
 
+    def report(self, letter: str, request: Mapping[str, object]) -> None:
+        """Tells `on_answer` what was answered; it runs after `consume`, so it cannot change the answer."""
+        if self.on_answer is None:
+            return
+        try:
+            self.on_answer(letter, approval.view_of(request))
+        except Exception:  # noqa: BLE001 - the record is display only; the approval loop must go on
+            log.exception("approval record failed")
+
     def _changed(self) -> None:
         if self.on_change is not None:
             self.on_change()
@@ -380,3 +406,25 @@ class ModalAsker:
         """Drops every waiting request (the hub times them out as denies)."""
         for task in self.tasks:
             task.cancel()
+
+
+def record_text(letter: str, view: approval.ApprovalView, look: Look) -> Text:
+    """The transcript row for an answered approval: mark, fixed words, the escaped header and key.
+
+    Deny is drawn `bad`, allow `warn` (an allow is the notable event), answered elsewhere `faint`.
+    Only `view` text from the request appears, as plain `Text`.
+    """
+    roles = role_colours(look)
+    ascii_look = look.glyphs.ok == "ok"
+    if letter in ("y", "a"):
+        mark, style = ("ok" if ascii_look else look.glyphs.ok), roles.get("warn", "bold")
+    elif letter == GONE:
+        mark, style = "-", roles.get("faint", "dim")
+    else:  # `answer_to_option` denies any letter but `y` and `a`, so the record says denied too
+        mark, style = ("x" if ascii_look else look.glyphs.fail), roles.get("bad", "bold")
+    words = RECORD_GONE if letter == GONE else RECORD_WORDS.get(letter, RECORD_WORDS["n"])
+    text = Text(f"{mark} ", style=style).append(words.ljust(RECORD_WORDS_W + 1), style=style)
+    text.append(view.header, style=roles.get("fg", ""))
+    if view.key:
+        text.append(f"   key {view.key}", style=roles.get("faint", "dim"))
+    return text

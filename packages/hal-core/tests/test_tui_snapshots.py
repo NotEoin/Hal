@@ -109,7 +109,23 @@ async def scene_approval(pilot, app):
     await settle(pilot)
 
 
-SCENES = {"welcome": scene_welcome, "turn": scene_turn, "approval": scene_approval}
+async def scene_approval_record(pilot, app):
+    await scene_turn(pilot, app)
+    bridge = FakeBridge({"hal-1": REQUEST, "hal-2": {**REQUEST, "id": "apr_2"}})
+    send = app.ui.approval_sender(bridge, lambda note: None)
+    await send({"id": "hal-1"})
+    await send({"id": "hal-2"})
+    for keys in (("enter",), ("y", "enter")):
+        assert await until(pilot, lambda: isinstance(app.screen, ApprovalModal))
+        await asyncio.sleep(app.screen.arm_s + 0.1)
+        await settle(pilot)
+        await pilot.press(*keys)
+        await settle(pilot)
+    assert await until(pilot, lambda: len(bridge.answers) == 2 and not isinstance(app.screen, ApprovalModal))
+    await until_idle(pilot, app)
+
+
+SCENES = {"welcome": scene_welcome, "turn": scene_turn, "approval": scene_approval, "approval-record": scene_approval_record}
 ASCII_SCENES = ("welcome", "turn", "approval")
 
 

@@ -56,7 +56,8 @@ from textual.widgets.option_list import Option
 
 from . import fuzzy, mentions, motion, palette, screens, tokens
 from . import fallback
-from .approvalmodal import ModalAsker
+from .approval import ApprovalView
+from .approvalmodal import ModalAsker, record_text
 from .chrome import ChangesList, HalEye, role_colours, SideHandle, StatusLine, TopBar, TopInfo
 from .controller import (
     PLAN_CHOICES, Controller, Sender, checkpoint_label, history_path, refresh_status, stop_words, turn_facts,
@@ -368,8 +369,15 @@ class TextualUi:
 
     def approval_sender(self, bridge, on_note: Callable[[str], None]) -> Sender:  # noqa: ANN001 - a PermissionBridge
         """Approvals in the modal, one at a time."""
-        self.asker = ModalAsker(self.app, bridge, on_note, ring=self.app.look.notify != "off", on_change=self.app.approval_changed)
+        self.asker = ModalAsker(
+            self.app, bridge, on_note, ring=self.app.look.notify != "off", on_change=self.app.approval_changed,
+            on_answer=self.approval_answered,
+        )  # fmt: skip
         return self.asker.send
+
+    def approval_answered(self, letter: str, view: ApprovalView) -> None:
+        """One row in the turn saying what was answered; the answer itself is already with the bridge."""
+        self.app.transcript.add(SafeStatic(record_text(letter, view, self.app.look), classes="approval-record"), kind="approval")
 
     def show(self, result: Result) -> None:
         """A picker for a listing command, a theme switch, else the text in the transcript."""

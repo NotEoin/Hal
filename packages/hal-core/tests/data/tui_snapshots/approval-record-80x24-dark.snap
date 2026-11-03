@@ -1,0 +1,63 @@
+# hal tui snapshot: screen=approval-record size=80x24 theme=dark look=unicode textual=8.2.8
+## text
+ \u25cf  code  work    gemma-3-27b-it \u25be \u00b7 default \u25be \u00b7 default \u25be       \u25b0\u25b0\u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1\u25b1 40% 
+ \u2502 plan  \u25b0\u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1  1 of 3                                                       
+ \u2502   \u2713 Read the failing test                                                    
+ \u2502   \u203a Fix add()                                                                
+ \u2502   \u25cb Run pytest                                                               
+ \u2502 \u25cf ran 3 tools  read calc.py, test_calc.py \u00b7 grep add(            0.0s  \u2713  \u25b8  
+ \u2502 \u25cf Edit   src/calc.py  +1 -1                                      0.0s  \u2713  \u25b8  
+ \u2502      1   def add(a, b):                                                      
+ \u2502      2 -     return a - b                                                    
+ \u2502      2 +     return a + b                                                  \u2584 
+ \u2502 \u25cf Run    pytest -q                                               0.0s  \u2713  \u25b8  
+ \u2502 Here is the fix:                                                             
+ \u2502   python                                                               copy  
+ \u2502   def add(a, b):                                                             
+ \u2502       return a + b                                                           
+ \u2502 The tests pass now.                                                          
+ \u2502 1 file +1 -1 \u00b7 ~70 tok \u00b7 0.0s                                                
+ \u2502 \u2717 denied               shell.run [exec] from hal-tools   key 3f9a0c12d4e8    
+ \u2502 \u2713 allowed once         shell.run [exec] from hal-tools   key 3f9a0c12d4e8    
+ \u2502                                                                              
+                                                                                
+\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+ \u203a Message Hal   / commands  @ files  Enter sends  Alt+Enter new line           
+ box runsc                                           ^P cmds  ^B panel  F1 help 
+## roles
+00 _1 d1 _2 m4 _2 m4 _4 f14 _1 f1 _1 i1 _1 f7 _1 f1 _1 i1 _1 f7 _1 f1 _7 m10 _1 m3 _1
+01 _1 p1 _1 m4 _2 a3 p5 _2 i1 _1 i2 _1 i1 _55
+02 _1 p1 _3 o1 _1 i4 _1 i3 _1 i7 _1 i4 _52
+03 _1 p1 _3 a1 _1 f3 _1 f5 _64
+04 _1 p1 _3 m1 _1 m3 _1 m6 _63
+05 _1 p1 _1 i1 _1 F3 _1 F1 _1 F5 _2 m4 _1 m8 _1 m12 _1 m1 _1 m4 _1 m4 _12 i4 _2 o1 _2 i1 _2
+06 _1 p1 _1 i1 _1 F4 _3 m11 _2 o2 _1 a2 _38 i4 _2 o1 _2 i1 _2
+07 _1 p1 _6 x1 _3 x3 _1 x6 _1 x3 _54
+08 _1 p1 _6 x1 _1 x1 _5 x6 _1 x1 _1 x1 _1 x1 _52
+09 _1 p1 _6 x1 _1 x1 _5 x6 _1 x1 _1 x1 _1 x1 _50 p1 _1
+10 _1 p1 _1 i1 _1 F3 _4 m6 _1 m2 _47 i4 _2 o1 _2 i1 _2
+10bg .78 P1 .1
+11 _1 p1 _1 f4 _1 f2 _1 f3 _1 f4 _61
+11bg .78 P1 .1
+12 _1 p1 _3 i6 _63 i4 _2
+12bg .78 P1 .1
+13 _1 p1 _3 x3 _1 X3 x3 _1 x3 _61
+13bg .5 S73 P1 .1
+14 _1 p1 _7 x6 _1 x1 _1 X1 _1 x1 _59
+14bg .5 S73 P1 .1
+15 _1 p1 _1 f3 _1 f5 _1 f4 _1 f4 _58
+15bg .78 P1 .1
+16 _1 p1 _1 i1 _1 i4 _1 i2 _1 i2 _1 i1 _1 i3 _1 i3 _1 i1 _1 i4 _48
+16bg .78 P1 .1
+17 _1 p1 _1 a1 _1 a6 _15 f9 _1 f6 _1 f4 _1 f9 _3 i3 _1 i12 _4
+17bg .78 P1 .1
+18 _1 p1 _1 w1 _1 w7 _1 w4 _9 f9 _1 f6 _1 f4 _1 f9 _3 i3 _1 i12 _4
+18bg .78 P1 .1
+19 _1 p1 _78
+19bg .78 P1 .1
+20 _80
+20bg .78 P1 .1
+21 p80
+22 _1 I1 _1 x1 i6 _1 i3 _3 i1 _1 i8 _2 i1 _1 i5 _2 i5 _1 i5 _2 i9 _1 i3 _1 i4 _11
+22bg .3 F1 .76
+23 _1 m3 _1 m5 _43 f2 _1 i4 _2 f2 _1 i5 _2 f2 _1 i4 _1

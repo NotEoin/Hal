@@ -1756,3 +1756,30 @@ def test_chat_hover_stamp_is_local_hours_and_minutes():
     from halcore.tui import transcript
 
     assert re.fullmatch(r"\d\d:\d\d", transcript.stamp_now())
+
+
+def test_approval_answer_is_recorded_in_the_transcript(tmp_path):
+    from test_tui_approval_modal import REQUEST, FakeBridge
+
+    async def script(pilot, app, agent):
+        bridge = FakeBridge({"hal-1": REQUEST})
+        await app.ui.approval_sender(bridge, lambda note: None)({"id": "hal-1"})
+        assert await until(pilot, lambda: isinstance(app.screen, ApprovalModal))
+        await asyncio.sleep(app.screen.arm_s + 0.1)
+        await pilot.press("enter")
+        assert await until(pilot, lambda: app.query(".approval-record"))
+        return bridge.answers, plain(app.query_one(".approval-record"))
+
+    answers, row = drive(tmp_path, script)
+    assert answers == [("hal-1", "deny")]
+    assert row.split() == ["x", "denied", "shell.run", "[exec]", "from", "hal-tools", "key", "3f9a0c12d4e8"]
+
+
+def test_approval_record_text_is_escaped():
+    from halcore.tui import approval
+    from halcore.tui.approvalmodal import record_text
+
+    hostile = {"tool": "evil[bold]\x1b]0;pwned\x07\u202e", "tier": "exec", "pack": "p", "key": "sha256:" + "a" * 64}
+    text = record_text("y", approval.view_of(hostile), LOOK)
+    assert text.plain.startswith("ok allowed once")
+    assert not any(ch in text.plain for ch in ("\x1b", "\x07", "\u202e")) and "evil[bold]" in text.plain  # shown, not parsed

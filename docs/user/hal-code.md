@@ -144,14 +144,20 @@ In the full screen a broker approval opens a dialog over everything else:
 ```text
 +-- Approval needed: leaves the box ------------------------------- 1 of 2 --+
 | shell.run [exec] from hal-tools   key 3f9a0c12d4e8                          |
-| classifier: high - writes outside the workspace                             |
+| ! classifier: high - writes outside the workspace                           |
 | why: tool tier exec needs approval under lockdown standard                  |
 | Arguments (every one, exactly as the tool receives them)                    |
 | {"command": "rm -rf build/", "cwd": "/work"}                                |
-| [ Deny  n ] [ Deny with a note  e ] [ Allow once  y ] [ Allow these exact   |
-|                                       arguments this session  a ]           |
+|  Deny  n   Deny with a note  e   Allow once  y   Allow these exact          |
+|  arguments this session  a                                                  |
 +-----------------------------------------------------------------------------+
 ```
+
+The screen behind the dialog dims, the focused Deny is filled red and a focused allow button is
+filled amber. After you answer, one row in the turn records it, for example
+`x denied  shell.run [exec] from hal-tools  key 3f9a0c12d4e8` (also `denied with a note`,
+`allowed once`, `allowed this session` and `answered elsewhere`). The line UI prints what it
+printed before.
 
 - Deny has the focus, so Enter alone denies; Esc and Ctrl+C deny too.
 - Allowing takes two steps: `y` or `a` moves the focus to that button, then Enter presses it;

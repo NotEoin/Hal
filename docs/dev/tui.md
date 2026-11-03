@@ -147,6 +147,11 @@ one-row buttons (no border, one column of line padding a side, so `BUTTON_CHROME
 the focused one filled in the accent. Only the approval box and the plan card
 (`ChoiceModal(attention=True)`) keep the heavy accent border. The CSS uses Textual's own `$panel`
 and `$text-disabled`, not `$hal-*`, because the modal tests run on a plain `App`.
+`ApprovalModal` keeps its in-box `.modal-title` (with `N of M`) instead of a border title, because
+`test_tui_approval_modal.py` is the unchanged contract and reads it there. `ModalAsker` calls
+`on_answer(letter, view)` after `bridge.consume` (and for `gone`), and logs a failing callback
+instead of raising; `TextualUi.approval_answered` mounts `approvalmodal.record_text` as a
+`.approval-record` row of the active turn.
 
 ## Writing Pilot tests
 
