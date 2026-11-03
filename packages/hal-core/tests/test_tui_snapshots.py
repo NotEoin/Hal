@@ -190,12 +190,12 @@ TUNE_MASKS = ((r"127\.0\.0\.1:\d+", "127.0.0.1:PORT"), (r"localhost:\d+", "local
 @pytest.mark.parametrize("size", SIZES, ids=lambda s: f"{s[0]}x{s[1]}")
 def test_tune_screen_matches_its_golden(tmp_path, size):
     from test_tune import CARD_24GB, SHOW, TAGS, arch_doc  # noqa: PLC0415 - tune fixtures only for this test
-    from test_tuneui import QWEN_TAG  # noqa: PLC0415
+    from test_tuneui import QWEN_TAG  # noqa: PLC0415 - tune fixtures only for this test
 
-    from halcore import tuneapp, tunestate  # noqa: PLC0415
-    from halkit import hardware  # noqa: PLC0415
-    from halkit.testing import TempHalHome  # noqa: PLC0415
-    from halkit.testing.ollama import FakeOllama  # noqa: PLC0415
+    from halcore import tuneapp, tunestate  # noqa: PLC0415 - tune fixtures only for this test
+    from halkit import hardware  # noqa: PLC0415 - tune fixtures only for this test
+    from halkit.testing import TempHalHome  # noqa: PLC0415 - tune fixtures only for this test
+    from halkit.testing.ollama import FakeOllama  # noqa: PLC0415 - tune fixtures only for this test
 
     look = look_for("dark")
     with TempHalHome() as home, FakeOllama([*TAGS, QWEN_TAG], {**SHOW, "qwen3:8b": arch_doc(36, 32, 8, 128, 40960)}) as server:
