@@ -105,7 +105,9 @@ When you leave, the full screen prints one line: the session id and the command 
   it in place, and `[ui].show_thinking = true` starts it open.
 - Each tool call is a card: title, then status and duration when it ends. Output is folded to
   `[ui].tool_output_lines` lines. Edits show a numbered, coloured unified diff, cut at
-  `[ui].diff_max_lines`. Subagent calls are indented under their parent. The todo list is a
+  `[ui].diff_max_lines`. Subagent calls are indented under their parent. A subagent is one
+  row in the full screen (name, task, time; a spinner while it runs, `ok` and its time when done)
+  with its last three tool calls below it and `+N more` above them. The todo list is a
   checklist: in the full screen one `plan` block per turn with a progress bar and `1 of 3`,
   updated in place as items finish; in the line UI a `Todo` panel each time it changes.
 - The line after each turn shows files changed, `+/-` lines, tokens, time and tok/s, and the stop

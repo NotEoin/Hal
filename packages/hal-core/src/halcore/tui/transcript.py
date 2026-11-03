@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import re
+import time
 from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING
 
@@ -28,7 +29,7 @@ from textual.widget import Widget
 from . import motion, tokens
 from .render import ToolRow, clean
 from .theme import Look
-from .widgets import SafeStatic, ThinkingFold, ToolCard, toast
+from .widgets import SPINNER_HZ, TIMER_S, SafeStatic, ThinkingFold, ToolCard, toast
 
 if TYPE_CHECKING:
     from .agentapp import AgentApp
@@ -436,6 +437,111 @@ class PlanBlock(Widget):
         return text
 
 
+SUBAGENT_TOOLS_SHOWN = 3  # latest tool rows a subagent tree shows before "+N more" (spec 5.8)
+
+
+class SubagentTree(Widget):
+    """One child agent, updated in place: name, task and time, then its latest tool calls.
+
+    The header spins while it runs (a static mark with motion off) and shows `ok` and the total
+    time when done. Only the last `SUBAGENT_TOOLS_SHOWN` tools are drawn, after a `+N more` row.
+    """
+
+    DEFAULT_CSS = """
+    SubagentTree { height: auto; }
+    """
+
+    def __init__(self, name: str, task: str, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
+        self.agent, self.job = name, task  # cleaned by the renderer
+        self.tools: list[str] = []
+        self.done = False
+        self.elapsed = 0.0  # seconds, as the renderer measured them at the last update
+        self.began = time.monotonic()  # for the running time between updates
+        self.tick = 0
+        self._handles: list[motion.Handle] = []
+
+    def on_mount(self) -> None:
+        """Joins the app's motion clock: the time each second, spinner frames when motion is on."""
+        ticker = getattr(self.app, "motion", None)
+        if ticker is not None and not self.done:
+            self._handles = [ticker.every(TIMER_S, self._redraw), ticker.subscribe(self._spin, SPINNER_HZ)]
+
+    def on_unmount(self) -> None:
+        """Leaves the motion clock."""
+        self.stop()
+
+    def stop(self) -> None:
+        """Stops the spinner and the clock (a turn ended before the agent said it was done)."""
+        for handle in self._handles:
+            handle.cancel()
+        self._handles = []
+
+    def _spin(self, now: float) -> bool:
+        self.tick += 1
+        return self._redraw(now)
+
+    def _redraw(self, now: float = 0.0) -> bool:
+        if self.done or not self.is_attached:
+            return False
+        self.refresh()
+        return True
+
+    def add_tool(self, tool: str, elapsed: float) -> None:
+        """One more tool call by this agent."""
+        self.tools.append(tool)
+        self.elapsed, self.began = elapsed, time.monotonic() - elapsed
+        self.refresh(layout=True)
+
+    def finish(self, elapsed: float) -> None:
+        """The agent ended after `elapsed` seconds."""
+        self.done, self.elapsed = True, elapsed
+        self.stop()
+        self.refresh()
+
+    def render(self) -> RenderableType:
+        """`* explorer  task      3s`, then `|- Grep  add(` rows."""
+        look = getattr(self.app, "look", None)
+        g = look.glyphs if look is not None else None
+        roles = tokens.ROLES.get(look.theme, {}) if look is not None and look.color else {}
+        faint, muted = roles.get("faint", "dim"), roles.get("muted", "dim")
+        if self.done:
+            mark, mark_style = (g.ok if g else "ok"), roles.get("ok", "")
+            time_text = f"{self.elapsed:.1f}s"
+        else:
+            animated = look is not None and look.animations and g is not None
+            mark = g.spinner_frames[self.tick % len(g.spinner_frames)] if animated else (g.tool if g else "*")
+            mark_style = roles.get("accent", "")
+            time_text = f"{max(self.elapsed, time.monotonic() - self.began):.0f}s"
+        width = self.size.width or 80
+        head = Text(no_wrap=True, overflow="ellipsis")
+        head.append(f"{mark} ", style=mark_style)
+        head.append(self.agent, style="bold")
+        right = Text(time_text, style=faint)
+        room = width - head.cell_len - right.cell_len - 4
+        if self.job and room > 0:
+            ellipsis = g.ellipsis if g else "..."
+            task = self.job if len(self.job) <= room else self.job[: max(0, room - len(ellipsis))] + ellipsis
+            head.append(f"  {task}", style=muted)
+        head.append(" " * max(2, width - head.cell_len - right.cell_len))
+        head.append_text(right)
+        lines = [head]
+        hidden = max(0, len(self.tools) - SUBAGENT_TOOLS_SHOWN)
+        if hidden:
+            lines.append(Text(f"  +{hidden} more", style=faint))
+        shown = self.tools[hidden:]
+        for i, tool in enumerate(shown):
+            last = i == len(shown) - 1
+            branch = (g.nest if last else g.branch) if g else ("`-" if last else "|-")
+            verb, target = ToolRow.split(tool)
+            row = Text(no_wrap=True, overflow="ellipsis")
+            row.append(f"  {branch} ", style=faint)
+            row.append(f"{verb:<6} ", style=muted)
+            row.append(target, style=faint)
+            lines.append(row)
+        return Text("\n").join(lines)
+
+
 class TextualSink:
     """The `render.Sink` of the full-screen UI: mounts what the renderer built into the transcript."""
 
@@ -446,6 +552,7 @@ class TextualSink:
         self.pending: list[Callable[[], None]] = []  # output before the app has mounted
         self.run: list[tuple[ToolCard, ToolRow]] = []  # finished calls in a row that may fold into a `ToolGroup`
         self.plan_block: PlanBlock | None = None  # this turn's plan, updated in place
+        self.subagents: dict[str, SubagentTree] = {}  # one tree per child agent id, updated in place
 
     def _run(self, action: Callable[[], None]) -> None:
         # updates arrive on the ACP reader task; `call_later` runs them on the app's own loop, in order,
@@ -581,6 +688,29 @@ class TextualSink:
 
         self._run(show)
 
+    def subagent(self, sid: str, phase: str, name: str, task: str, tool: str, elapsed: float) -> None:
+        """One `SubagentTree` per child agent: mounted at its start, then updated in place."""
+
+        def show() -> None:
+            tree = self.subagents.get(sid)
+            if tree is None or not tree.is_attached:
+                self.fold()
+                tree = SubagentTree(name, task)
+                self.subagents[sid] = tree
+                self.app.transcript.add(tree, "tools")
+            if phase == "tool":
+                tree.add_tool(tool, elapsed)
+            elif phase == "done":
+                tree.finish(elapsed)
+                self.subagents.pop(sid, None)
+
+        self._run(show)
+
+    def _stop_subagents(self) -> None:
+        for tree in self.subagents.values():
+            tree.stop()
+        self.subagents.clear()
+
     def turn_started(self) -> None:
         """A new turn gets its own plan block; `TextualUi.turn_started` shows the working line."""
 
@@ -590,8 +720,9 @@ class TextualSink:
         self._run(reset)
 
     def turn_ended(self) -> None:
-        """Running cards that never finished stop their timers; the last run of calls folds."""
+        """Running cards and subagents that never finished stop their timers; the last run of calls folds."""
         self._run(self.fold)
+        self._run(self._stop_subagents)
         if not self.app.is_running:
             self.cards.clear()
             return

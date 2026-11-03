@@ -265,7 +265,9 @@ class Sink(Protocol):
     `write`; `thought_timed(seconds, tokens, body, shown)` replaces `thought` with how long the
     model thought (first to last thought chunk) and its token estimate; `plan(entries)` replaces
     the written todo panel with the whole list as `(status, text)` pairs, text cleaned and clipped,
-    each time the list changes. `ConsoleSink` has none of them, so the line UI prints exactly what
+    each time the list changes; `subagent(sid, phase, name, task, tool, elapsed)` receives each
+    child agent update (`start`, `tool`, `done`; text cleaned, `elapsed` in seconds since its
+    start) instead of the written rows. `ConsoleSink` has none of them, so the line UI prints exactly what
     it printed before.
     """
 
@@ -564,22 +566,33 @@ class Renderer:
         self._flush_for_card()
         pal, g = self.look.palette, self.look.glyphs
         sid, name = str(update.get("subagentId", "")), clean(str(update.get("agent") or "agent"))
-        phase = update.get("phase")
+        phase = str(update.get("phase"))
+        task = clean(str(update.get("task") or "")).replace("\n", " ")
+        tool = clip(clean(str(update.get("tool") or "tool")).replace("\n", " "))
         if phase == "start":
             self._subagents[sid] = (name, clock())
-            task = clean(str(update.get("task") or "")).replace("\n", " ")
+            elapsed = 0.0
+        elif phase == "done":
+            _, started = self._subagents.pop(sid, (name, clock()))
+            elapsed = clock() - started
+        else:
+            elapsed = clock() - self._subagents.get(sid, (name, clock()))[1]
+        tree = getattr(self.sink, "subagent", None)
+        if tree is not None:
+            if phase in ("start", "tool", "done"):
+                tree(sid, phase, name, clip(task), tool if phase == "tool" else "", elapsed)
+            return
+        if phase == "start":
             row = Text(f"{g.tool} ", style=pal.muted)
             row.append(f"{name}", style="bold")
             row.append(f"  {clip(task)}" if task else "", style=pal.muted)
             self.sink.write(row)
         elif phase == "tool":
-            tool = clip(clean(str(update.get("tool") or "tool")).replace("\n", " "))
             self.sink.write(Text(f"  {g.nest} {tool}", style=pal.muted))
         elif phase == "done":
-            _, started = self._subagents.pop(sid, (name, clock()))
             row = Text(f"  {g.nest} ", style=pal.muted)
             row.append(f"{name} done {g.ok}", style=pal.ok)
-            row.append(f"  {clock() - started:.1f}s", style=pal.muted)
+            row.append(f"  {elapsed:.1f}s", style=pal.muted)
             self.sink.write(row)
 
     def _flush_for_card(self) -> None:

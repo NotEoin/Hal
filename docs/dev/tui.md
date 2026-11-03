@@ -49,6 +49,9 @@ drops those rows so a turn fits a small terminal.
 unknown status read as `pending`) when the sink has it; `TextualSink.plan` keeps one `PlanBlock`
 per turn and updates it in place, the bar easing on the motion ticker. `ConsoleSink` has no
 `plan`, so the line UI writes the `Todo` panel as before.
+Child agent updates (`hal_subagent`) go to `Sink.subagent(sid, phase, name, task, tool,
+elapsed)` when the sink has it; `TextualSink` keeps one `SubagentTree` per id, updated in place,
+and stops the trees still running when the turn ends. Without it the renderer writes today's rows.
 `Renderer` cuts each committed block with `split_fences` and, when the sink has `code`, sends
 fenced code there and the prose around it through `write`. `ConsoleSink` has no `code`, so the
 line UI prints one markdown block as before. `CodeBlock` shows only a sanitised language label

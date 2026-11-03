@@ -1206,6 +1206,27 @@ def test_each_turn_gets_its_own_plan_block(tmp_path):
     assert drive(tmp_path, script, turns=turns) == [True, True]
 
 
+def test_subagent_tree_updates_in_place(tmp_path):
+    from halcore.tui.transcript import SubagentTree
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "go")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: "done" in transcript_text(app) and not app.busy)
+        await settle(pilot)
+        return [(t.done, str(t.render())) for t in app.query(SubagentTree)]
+
+    sub = {"sessionUpdate": "hal_subagent", "subagentId": "s1", "agent": "explorer"}
+    tools = [{**sub, "phase": "tool", "tool": f"Read src/f{i}.py"} for i in range(5)]
+    turn = [{**sub, "phase": "start", "task": "find the callers of add()"}, *tools, {**sub, "phase": "done"}, chunk("done")]
+    trees = drive(tmp_path, script, turns=[turn])
+    assert len(trees) == 1
+    done, shown = trees[0]
+    lines = shown.splitlines()
+    assert done and lines[0].startswith("ok explorer  find the callers of add()") and lines[0].rstrip().endswith("s")
+    assert lines[1:] == ["  +2 more", "  |- Read   src/f2.py", "  |- Read   src/f3.py", "  `- Read   src/f4.py"]
+
+
 def test_tool_group_summary_comes_from_the_sink_rows_not_unfinished_cards():
     # regression: a group of calls that never started rendered "ran 3 tools" with no targets
     # when it was drawn before the cards' deferred `finish` set their rows (flaky snapshot)

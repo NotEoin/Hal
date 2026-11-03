@@ -234,6 +234,29 @@ def test_hostile_subagent_text_is_cleaned():
     assert "\x1b" not in out.getvalue() and "\x07" not in out.getvalue()
 
 
+def test_subagent_updates_go_to_the_sink_cleaned_with_elapsed_time(monkeypatch):
+    from halcore.tui import render
+
+    class TreeSink(RecordingSink):
+        def subagent(self, sid, phase, name, task, tool, elapsed):
+            self.calls.append(("sub", sid, phase, name, task, tool, elapsed))
+
+    now = [50.0]
+    monkeypatch.setattr(render, "clock", lambda: now[0])
+    sink = TreeSink()
+    r = Renderer(io.StringIO(), LOOK, sink=sink)
+    sub = {"sessionUpdate": "hal_subagent", "subagentId": "7", "agent": "exp\x07lorer"}
+    r.update({**sub, "phase": "start", "task": "find\nit"})
+    now[0] += 1.5
+    r.update({**sub, "phase": "tool", "tool": "Grep add\x07("})
+    now[0] += 2.5
+    r.update({**sub, "phase": "done"})
+    subs = [c for c in sink.calls if c[0] == "sub"]
+    assert subs == [("sub", "7", "start", "explorer", "find it", "", 0.0), ("sub", "7", "tool", "explorer", "", "Grep add(", 1.5),
+                    ("sub", "7", "done", "explorer", "", "", 4.0)]  # fmt: skip
+    assert not [c for c in sink.calls if c[0] == "write"]
+
+
 def test_approval_panel_uses_the_ui_theme():
     # regression: the panel built its own look and ignored `[ui].theme`
     import asyncio
