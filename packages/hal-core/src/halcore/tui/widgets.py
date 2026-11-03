@@ -15,6 +15,8 @@ Design decisions:
   suits temperature. The knob follows a drag even outside the widget (the mouse is captured),
   and `Changed.final` is true only when the button is released or a key step lands, so costly
   listeners act once per change.
+- The wheel moves a slider only while it has focus; otherwise it scrolls the view around it, so
+  wheeling down a page of sliders never changes a value the pointer happens to pass over.
 - `Segmented` is one focusable widget, not a row of buttons, so Tab moves past it in one step
   and Left/Right move inside it, like a radio group.
 """
@@ -227,14 +229,14 @@ class Slider(Widget, can_focus=True):
             event.stop()
 
     def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
-        """The wheel steps up."""
-        if not self.disabled:
+        """The wheel steps up while the slider has focus; else the view around it scrolls."""
+        if self.has_focus and not self.disabled:
             self.action_step(1)
             event.stop()
 
     def on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
-        """The wheel steps down."""
-        if not self.disabled:
+        """The wheel steps down while the slider has focus; else the view around it scrolls."""
+        if self.has_focus and not self.disabled:
             self.action_step(-1)
             event.stop()
 

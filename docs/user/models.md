@@ -110,8 +110,8 @@ Plan for  [ This machine ] [ 8 GB ] [ 12 GB ] [ 16 GB ] [ 24 GB ] [ CPU only ]
   first and the tag in brackets) and how it fits; `*` marks a change not saved yet. Moving in the
   list opens that role on the right.
 - **Context**, **GPU layers** and **Temperature** are sliders: drag the knob, click the track,
-  use the wheel, or focus them and press Left/Right (PgUp/PgDn for big steps, Home/End for the
-  ends). The memory bar moves while you drag; the change lands when you let go. `Auto` (or `a`)
+  use the wheel on a focused slider (elsewhere the wheel scrolls), or focus them and press
+  Left/Right (PgUp/PgDn for big steps, Home/End for the ends). The memory bar moves while you drag; the change lands when you let go. `Auto` (or `a`)
   hands the value back to tuning; `Default` leaves the temperature to the model.
 - **GPU layers** puts that many layers on the GPU by hand. It is off, with the reason, when the
   model's layer count is unknown, when the server sizes the model, or when the plan has no GPU.

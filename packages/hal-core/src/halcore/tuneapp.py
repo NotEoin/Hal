@@ -809,7 +809,7 @@ class TuneApp(App[int]):
                 ("PgUp / PgDn, Home / End", "big slider steps, ends"), ("a", "back to auto on a slider"),
                 ("Ctrl+Z", "undo the last change"), ("Ctrl+S", "save (shows the diff first)"), ("Esc", "quit (asks when unsaved)")]  # fmt: skip
         mouse = [("click", "buttons, segments, list rows"), ("drag", "slider knobs; the memory bar follows"),
-                 ("wheel", "slider steps, scrolling"), ("Shift+drag", "select text in most terminals")]  # fmt: skip
+                 ("wheel", "steps a focused slider, else scrolls"), ("Shift+drag", "select text in most terminals")]  # fmt: skip
         self.push_screen(screens.HelpScreen("hal tune", [screens.HelpSection("Keys", keys), screens.HelpSection("Mouse", mouse)]))
 
     # -- quick start -----------------------------------------------------------------------------

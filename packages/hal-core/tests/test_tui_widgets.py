@@ -201,3 +201,30 @@ def test_toast_shows_markup_and_escapes_literally():
 
     message, title, markup = run(app, script)
     assert message.startswith("[@click=app.quit]") and "\x1b" not in message and title == "[b]t[/b]" and markup is False
+
+
+def test_wheel_moves_a_slider_only_while_it_has_focus():
+    # regression: wheeling down a page of sliders changed whichever value the pointer passed over
+    from textual import events
+
+    slider = Slider(5, 0, 10, 1, id="s")
+    app = Host(slider)
+
+    async def script(pilot):
+        def wheel(cls):
+            r = slider.region
+            x, y = r.x + 2, r.y
+            app.post_message(cls(None, x, y, 0, 1, 0, False, False, False, screen_x=x, screen_y=y))
+
+        slider.blur()
+        await pilot.pause()
+        wheel(events.MouseScrollUp)
+        await pilot.pause()
+        unfocused = slider.value
+        slider.focus()
+        await pilot.pause()
+        wheel(events.MouseScrollUp)
+        await pilot.pause()
+        return unfocused, slider.value
+
+    assert run(app, script) == (5, 6)
