@@ -32,7 +32,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from rich.console import RenderableType
+from rich.console import Group, RenderableType
 from rich.text import Text
 from textual import events
 from textual.binding import Binding
@@ -583,6 +583,9 @@ class ToolCard(Vertical):
     ToolCard { height: auto; }
     ToolCard:focus-within > .header { background: $surface; }
     ToolCard > DiffView { padding-left: 2; color: $secondary; }
+    ToolCard > .preview { padding-left: 2; height: auto; }
+    ToolCard > .more { padding-left: 2; color: $secondary; }
+    ToolCard > .more:hover { color: $primary; text-style: underline; }
     """
     can_focus = True
     BINDINGS = [Binding("enter", "toggle", "expand", show=False)]
@@ -652,6 +655,11 @@ class ToolCard(Vertical):
             self.mount(self.body)
             if row is not None:
                 self.body.display = False
+                if row.preview:
+                    self.mount(SafeStatic(Group(*row.preview), classes="preview"))
+                    if row.more:
+                        glyph = self.app.look.glyphs.fold_closed if hasattr(self.app, "look") else ">"
+                        self.mount(SafeStatic(Text(f"{glyph} {row.more} more lines"), classes="more"))
                 if not row.ok:  # a failure is what the human needs to read: it opens by itself
                     self.action_toggle()
         self.query_one(ToolHeader).refresh()
@@ -668,6 +676,8 @@ class ToolCard(Vertical):
         if self.body.foldable and self.body.expanded != self.open:
             self.body.toggle()
         self.body.display = self.open
+        for part in self.query(".preview, .more"):
+            part.display = not self.open
         self.query_one(ToolHeader).refresh()
 
     @property

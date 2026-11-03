@@ -40,7 +40,10 @@ together by a thin rail on the left. The rail is red while the turn runs, amber 
 waits, and grey once it is done; a message sent during a turn gets its own faint rail and a
 `queued` tag until its turn starts. Each tool call is one row: a spinner and the time while it runs, then the verb, its target,
 the `+N -N` of an edit, the time taken and the result at the right. A click on the row (or Enter
-on it) opens its output or diff, and a failed call opens by itself. Ctrl+O opens or closes them all. A click on one
+on it) opens its output or diff, and a failed call opens by itself. An edit also shows its first
+six changed lines under the row, with a line before and after each, and `> N more lines` when
+there is more; a click on the row or on that line shows the whole diff. A click on a path in the
+transcript only opens that row's diff: nothing the model wrote can open a file. Ctrl+O opens or closes them all. A click on one
 of your messages offers Copy and, in `hal code`, Rewind files to before it. The side panel
 (Ctrl+B; open from 110 columns and closed below, following resizes until you press Ctrl+B)
 has the todo list, the changes of the copy with Diff, Accept and Export buttons, and the

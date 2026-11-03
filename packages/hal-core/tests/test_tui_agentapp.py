@@ -980,3 +980,44 @@ def test_output_of_a_turn_stays_inside_its_rail(tmp_path):
 
     text = drive(tmp_path, script)
     assert "go" in text and "hi" in text and "tok" in text
+
+
+def edit_update(cid="e1", n=10):
+    old = "".join(f"line {i}\n" for i in range(n))
+    new = "".join(f"line {i} changed\n" for i in range(n))
+    return {"sessionUpdate": "tool_call", "toolCallId": cid, "title": "Edit src/many.py", "status": "completed",
+            "content": [{"type": "diff", "path": "src/many.py", "oldText": old, "newText": new}]}  # fmt: skip
+
+
+def test_edit_row_shows_six_diff_lines_and_expands_to_all(tmp_path):
+    async def script(pilot, app, agent):
+        await type_text(pilot, "edit")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: app.query(ToolCard) and not app.busy)
+        await settle(pilot)
+        card = app.query_one(ToolCard)
+        preview = plain(card.query_one(".preview"))
+        more = plain(card.query_one(".more"))
+        card.action_toggle()
+        await settle(pilot)
+        return preview, more, card.open, len(card.body.children), card.query_one(".preview").display
+
+    preview, more, opened, full_rows, preview_shown = drive(tmp_path, script, turns=[[edit_update(), chunk("done")]])
+    assert len([ln for ln in preview.splitlines() if " + " in ln or " - " in ln]) == 6
+    assert "more lines" in more and "@@" not in preview
+    assert opened and full_rows > 6 and not preview_shown
+
+
+def test_click_on_an_edit_path_only_expands_that_diff(tmp_path):
+    async def script(pilot, app, agent):
+        await type_text(pilot, "edit")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: app.query(ToolCard) and not app.busy)
+        await settle(pilot)
+        card = app.query_one(ToolCard)
+        screen, prompts = app.screen, len(agent.prompts)
+        await pilot.click(ToolCard, offset=(10, 0))
+        await settle(pilot)
+        return card.open, app.screen is screen, len(agent.prompts) == prompts, app.inbox.empty()
+
+    assert drive(tmp_path, script, turns=[[edit_update(), chunk("done")]]) == (True, True, True, True)

@@ -140,7 +140,8 @@ First release of the monorepo (uv workspace on branch `next`).
   an approval waits) instead of flush blocks; a queued message gets its own rail, and the "new
   below" line is a faint row instead of a filled bar.
 - Tool calls in the full screen are one-line rows (verb, target, diffstat, time, result) whose
-  output stays closed until clicked; a failed call opens by itself.
+  output stays closed until clicked; a failed call opens by itself. Edits show a preview of up
+  to six changed lines that expands to the full diff.
 - `hal chat` offers only the commands that work in a chat: `/help`, Tab and Esc Esc leave out the
   project-copy commands (`/rewind`, `/diff`, `/accept`, `/export`, `/ide`, `/init`), and `!`, `#`
   and `@` are sent as plain text.

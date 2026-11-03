@@ -116,6 +116,8 @@ class ToolRow:
     adds: int = 0
     dels: int = 0
     diff: bool = False
+    preview: tuple[Text, ...] = ()  # an edit's first changed lines, shown under the closed row
+    more: int = 0  # diff rows the preview leaves out
 
     @staticmethod
     def split(title: str) -> tuple[str, str]:
@@ -173,6 +175,34 @@ def diff_text(rows: list[tuple[str, int, int, str]], look: Look, limit: int) -> 
     if len(rows) > limit:
         out.append(Text(f"    ... {len(rows) - limit} more lines (use /diff)", style=pal.muted))
     return out
+
+
+DIFF_PREVIEW_LINES = 6  # changed lines an edit row shows before it is opened
+
+
+def diff_preview(rows: list[tuple[str, int, int, str]], look: Look, limit: int = DIFF_PREVIEW_LINES) -> tuple[list[Text], int]:
+    """At most `limit` changed lines with one context line each side, a blank row between hunks; and how many rows were left out."""
+    pal = look.palette
+    lines = [r for r in rows if r[0] != "hunk"]
+    changed = [n for n, r in enumerate(lines) if r[0] in ("add", "del")][:limit]
+    keep: set[int] = set()
+    for n in changed:
+        keep.add(n)
+        for near in (n - 1, n + 1):
+            if 0 <= near < len(lines) and lines[near][0] == "ctx":
+                keep.add(near)
+    out: list[Text] = []
+    last = None
+    for n in sorted(keep):
+        if last is not None and n != last + 1:
+            out.append(Text(""))
+        kind, old_no, new_no, text = lines[n]
+        mark, style = {"add": ("+", pal.ok), "del": ("-", pal.bad)}.get(kind, (" ", pal.muted))
+        line = Text(f"{new_no or old_no:>4} ", style=pal.muted)
+        line.append(f"{mark} {clip(clean(text))}", style=style)
+        out.append(line)
+        last = n
+    return out, len(lines) - len(keep)
 
 
 def _hal_meta(update: Update) -> dict[str, object]:
@@ -522,7 +552,8 @@ class Renderer:
         diffs = [i for i in items if i.get("type") == "diff"]
         body: list[RenderableType] = []
         full: list[RenderableType] = []
-        total_adds = total_dels = 0
+        total_adds = total_dels = more = 0
+        preview: list[Text] = []
         for item in diffs:
             path = clean(item.get("path", "?")).replace("\n", " ")
             rows = diff_rows(str(item.get("oldText") or ""), str(item.get("newText") or ""))
@@ -535,13 +566,17 @@ class Renderer:
             row.append(f"+{adds}", style=pal.ok)
             row.append(" ")
             row.append(f"-{dels}", style=pal.bad)
+            shown, left = diff_preview(rows, self.look, max(0, DIFF_PREVIEW_LINES - len(preview)))
+            preview += ([Text("")] if preview and shown else []) + shown
+            more += left
             body += diff_text(rows, self.look, self.look.diff_max_lines)
             full += diff_text(rows, self.look, MAX_VERBOSE_LINES)
         flat = clip(clean(title).replace("\n", " "))
         verb, target = ToolRow.split(flat)
         tool_row = getattr(self.sink, "tool_row", None)
         if tool_row is not None:
-            tool_row(cid, ToolRow(verb, target, ok, clock() - card.started, card.depth, total_adds, total_dels, bool(diffs)))
+            seconds = clock() - card.started
+            tool_row(cid, ToolRow(verb, target, ok, seconds, card.depth, total_adds, total_dels, bool(diffs), tuple(preview), more))
         texts = [
             str(i["content"]["text"])
             for i in items
