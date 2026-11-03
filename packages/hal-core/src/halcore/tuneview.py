@@ -46,7 +46,7 @@ def fit_line(fit: tunestate.Fit, layers: int | None, look: Look) -> tuple[str, s
     """`(style role, text)` of the fit line of one role."""
     g = look.glyphs
     if fit.status == "empty":
-        return "muted", "no model: press m to choose one, or a to tune"
+        return "muted", "no model: choose one, or auto-tune the role"
     if fit.status in ("missing", "server"):
         return "bad" if fit.status == "missing" else "muted", fit.notes[0] if fit.notes else fit.status
     bar = context_bar(fit.used_mib, fit.budget_mib, g)

@@ -5,8 +5,10 @@ user's keys. The look comes from `halcore.tui.theme` (glyphs, palette, `NO_COLOR
 matches `hal code`: ASCII glyphs when the look says so, no colour on `mono`. The layout stacks
 three lines per role instead of using a wide table, so it reads the same at 80 columns.
 
-The screen is a set of menus: a live summary of every role, then a highlighted list. Up and Down
-move, Enter chooses, 1 to 9 jump to a row, Esc or `q` go back, and a click on a row chooses it.
+It is the fallback of the full-screen app (`halcore.tuneapp`): `hal tune` uses it when the
+terminal cannot run the full screen. The screen is a set of menus: a live summary of every role,
+then a highlighted list. Up and Down move, Enter chooses, 1 to 9 jump to a row (short lists),
+Esc goes back, and a click on a row chooses it.
 Pressing `:` on the main menu opens the old typed command line (`model code`, `context chat 48k`)
 for power users.
 
@@ -104,45 +106,6 @@ def parse_tokens(text: str) -> int:
 
 
 # --- drawing ---------------------------------------------------------------------------------
-
-
-def render_screen(state: tunestate.TuneSession, look: Look, current: str) -> Group:
-    """The main screen as a rich renderable."""
-    pal, g = look.palette, look.glyphs
-    rows: list[Text] = [Text("Hal tune", style=pal.accent), Text("")]
-    rows += [Text(line, style=pal.muted if line.startswith("note") else "") for line in hardware_lines(state.hw)]
-    rows += [Text(""), Text("Sources", style=pal.accent)]
-    if not state.sources:
-        rows.append(Text("none yet: press s to add one", style=pal.muted))
-    for name, src in state.sources.items():
-        found = state.found.get(name)
-        count = f"{len(found.models)} models" if found and not found.error else (found.error if found else "not read")
-        rows.append(Text.assemble((f"{name}", ""), (f"  {src.kind}  {src.url or src.path or 'key file'}  {g.sep} {count}", pal.muted)))
-    rows += [Text(""), Text("Roles", style=pal.accent)]
-    for role in modelconf.ROLES:
-        d = state.drafts.get(role)
-        mark = g.prompt if role == current else " "
-        if d is None or not d.model:
-            tail = " (falls back to chat)" if role == "writer" else ""
-            rows.append(Text.assemble((f"{mark} ", pal.accent), (f"{role:<7}", ""), (f"-{tail}", pal.muted)))
-            continue
-        fit = state.fit(role)
-        model = state.model_of(role)
-        levels, reason = state.effort_options(role)
-        eff = d.effort or "-" if levels else "n/a"
-        ctx = f"{fit.context}" + ("" if d.manual else " (auto)") if fit.context else "-"
-        layers = "all" if fit.gpu_layers < 0 else str(fit.gpu_layers)
-        temp = "default" if d.temperature == modelconf.UNSET_TEMPERATURE else f"{d.temperature:g}"
-        changed = " *" if role in state.changed_roles() else ""
-        rows.append(Text.assemble((f"{mark} ", pal.accent), (f"{role:<7}", ""), (f"{model_label(state, d.source, d.model)}{changed}", "")))
-        rows.append(Text(f"    context {ctx}  kv {fit.kv_type or 'auto'}  gpu layers {layers}  effort {eff}  temp {temp}", style=pal.muted))
-        style, text = fit_line(fit, model.layers if model else None, look)
-        rows.append(Text("    " + text, style={"ok": pal.ok, "bad": pal.bad}.get(style, pal.muted)))
-    rows.append(Text(""))
-    if state.has_changes():
-        rows.append(Text("* changed, not written yet (d shows the diff, w writes)", style=pal.muted))
-    rows.append(Text(f"role {current}. Commands: model context kv effort temp auto source diff write quit (? for help)", style=pal.muted))
-    return Group(*rows)
 
 
 def render_summary(state: tunestate.TuneSession, look: Look) -> Group:

@@ -68,29 +68,29 @@ def open_screen(home, server, hw=CARD_24GB, asks=(), picks=(), unicode=True, wid
     return tuneui.TuneScreen(state, look, prompter, console), out, prompter
 
 
-def test_the_main_screen_shows_hardware_sources_and_roles_within_80_columns(home, server):
+def test_the_summary_shows_hardware_and_roles_within_80_columns(home, server):
     screen, out, _ = open_screen(home, server, width=80)
     screen.state.auto_tune()
-    screen.console.print(tuneui.render_screen(screen.state, screen.look, "chat"))
+    screen.console.print(tuneui.render_summary(screen.state, screen.look))
     text = out.getvalue()
-    assert "RTX 4090  24000 / 24564 MiB free" in text and "local  ollama" in text and "gemma:12b" in text
-    assert "of" in text and "GiB VRAM" in text
+    assert "RTX 4090  24000 / 24564 MiB free" in text and "gemma:12b" in text and "GB" in text
     assert max(len(line) for line in text.splitlines()) <= 80
 
 
 def test_a_machine_without_a_gpu_says_so_and_plans_on_the_cpu(home, server):
     screen, out, _ = open_screen(home, server, CPU_ONLY)
     screen.state.auto_tune("chat")
-    screen.console.print(tuneui.render_screen(screen.state, screen.look, "chat"))
+    screen.console.print(tuneui.render_summary(screen.state, screen.look))
     text = out.getvalue()
-    assert "GPU  none: models run on the CPU" in text and "in system RAM, CPU only" in text
+    assert "GPU  none: models run on the CPU" in text and "CPU only" in text
+    assert "in system RAM, CPU only" in tuneui.fit_line(screen.state.fit("chat"), None, screen.look)[1]
 
 
 def test_the_ascii_look_draws_only_ascii(home, server):
     screen, out, _ = open_screen(home, server, unicode=False)
     assert screen.look.glyphs is ASCII and UNICODE is not ASCII
     screen.state.auto_tune()
-    screen.console.print(tuneui.render_screen(screen.state, screen.look, "chat"))
+    screen.console.print(tuneui.render_summary(screen.state, screen.look))
     assert out.getvalue().isascii()
 
 
