@@ -9,6 +9,15 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `hal code` and `hal chat` run full screen on a capable terminal: clickable chips for model, mode
+  and effort, tool calls as cards with their own timer, a composer with `/` and `@` completion,
+  paste chips and history, pickers for `/model`, `/resume`, `/rewind`, `/mode`, `/effort` and
+  `/theme`, a side panel (todo, changes, context), a plan card, an accept dialog with the exact
+  patch, an exit dialog for unaccepted changes, and an approval dialog with Deny focused, a short
+  arm delay, a scroll gate and a two-step allow. Ctrl-C needs a second press to quit an idle
+  session. The line UI stays as the fallback (`[ui].interface = "line"`, `HAL_TUI=line`, no
+  terminal, or a failed start).
+
 - `hal tune` opens a full-screen app on a capable terminal: a preset row, sliders for context,
   GPU layers and temperature with a memory bar that moves while you drag, buttons for KV cache
   and effort, a source form, a review tab, Ctrl+Z undo and a Quick start on first run. GPU layers

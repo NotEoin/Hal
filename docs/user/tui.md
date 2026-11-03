@@ -1,8 +1,22 @@
 # The terminal UI
 
 `hal code` (on a terminal) and `hal chat` open the terminal UI. The tour, keys, slash commands,
-approvals and settings are in [hal-code.md](hal-code.md). This page keeps the non-interactive
-paths: headless `hal -p` and `hal sessions`.
+approvals and settings are in [hal-code.md](hal-code.md). This page says which UI runs when, and
+keeps the non-interactive paths: headless `hal -p` and `hal sessions`.
+
+## Full screen and line UI
+
+| Situation | UI |
+| --- | --- |
+| A terminal on stdin and stdout, `TERM` set and not `dumb` | Full screen (mouse and keys) |
+| `[ui].interface = "line"`, or `HAL_TUI=line` | Line UI (scrollback, keys only) |
+| `[ui].interface = "full"` | Full screen wherever it can start |
+| No terminal, piped stdin, `TERM=dumb` | Line UI; `hal code` without a terminal runs the agent's own prompt |
+| The full screen fails before it draws | One line `full-screen UI unavailable: REASON; using the line UI`, then the line UI on the same session |
+| `hal chat MESSAGE`, `hal chat --json`, `hal -p`, `hal acp`, `hal tune --auto` | No UI: these never load the full-screen code |
+
+`hal tune` follows the same rules ([models.md](models.md#the-tune-screen)). Checked by
+`packages/hal-core/tests/test_tui_fallback.py`.
 
 ## Headless: `hal -p`
 

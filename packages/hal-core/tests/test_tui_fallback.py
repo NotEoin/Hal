@@ -90,3 +90,73 @@ def test_headless_acp_and_one_shot_paths_do_not_import_textual(module):
     code = f"import sys, {module}; print('textual' in sys.modules)"
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=IMPORT_TIMEOUT_S, check=True)
     assert done.stdout.strip() == "False"
+
+
+def started_controller(tmp_path, monkeypatch):
+    """A controller on the scripted agent of the full-screen tests, started."""
+    import asyncio
+    import types
+
+    from test_tui_agentapp import LOOK, FakeSession, ScriptedAgent
+
+    from halcore.acp.records import RecordStore
+    from halcore.tui.controller import Controller
+    from halcore.tui.render import Renderer
+
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "state"))
+    box = types.SimpleNamespace(session=FakeSession(), transport=ScriptedAgent())
+    controller = Controller(box, Renderer(io.StringIO(), LOOK), cwd="/work", store=RecordStore(tmp_path / "s"), live=False)
+    return controller, LOOK, asyncio
+
+
+def test_textual_start_failure_falls_back_with_the_same_session(tmp_path, monkeypatch, capsys):
+    from halcore.tui import agentapp, app
+
+    controller, look, asyncio = started_controller(tmp_path, monkeypatch)
+
+    async def boom(self, **kw):
+        raise RuntimeError("no driver")
+
+    monkeypatch.setattr(agentapp.AgentApp, "run_async", boom)
+
+    async def go():
+        await controller.start()
+        sid = controller.state.sid
+        status = await app._run_full(controller, look)
+        await controller.client.close()
+        return status, sid, controller.state.sid
+
+    status, before, after = asyncio.run(go())
+    assert status is None and before == after
+    assert "full-screen UI unavailable: no driver; using the line UI" in capsys.readouterr().err
+
+
+def test_a_full_screen_crash_after_mount_is_raised(tmp_path, monkeypatch):
+    from halcore.tui import agentapp, app
+
+    controller, look, asyncio = started_controller(tmp_path, monkeypatch)
+
+    async def crash(self, **kw):
+        self.mounted = True
+        raise RuntimeError("bug after mount")
+
+    monkeypatch.setattr(agentapp.AgentApp, "run_async", crash)
+
+    async def go():
+        await controller.start()
+        try:
+            await app._run_full(controller, look)
+        finally:
+            await controller.client.close()
+
+    with pytest.raises(RuntimeError, match="bug after mount"):
+        asyncio.run(go())
+
+
+def test_line_interface_or_a_pipe_never_starts_the_full_screen():
+    from halcore.tui import app
+    from halcore.tui.theme import load_look
+
+    line = load_look({"interface": "line"}, stream=io.StringIO(), environ={})
+    auto = load_look({"interface": "auto"}, stream=io.StringIO(), environ={})
+    assert not app.wants_full_screen(line, Tty()) and not app.wants_full_screen(auto, io.StringIO())

@@ -92,6 +92,10 @@ Run the check in the last column and report the result.
 | GPU in the model server | Unverified; needs the Windows driver | `nvidia-smi` inside Ubuntu, then `hal tune --auto` |
 | Hermetic test suite | Unverified on WSL2 | `uv run pytest -q` |
 
+In Windows Terminal the full-screen `hal code`, `hal chat` and `hal tune` take the mouse: click
+and drag as on Linux, hold Shift to select text, and use Alt+Enter (not Shift+Enter, which
+Windows Terminal does not report) for a new line in a message.
+
 ## Symptoms and fixes
 
 | Symptom | Fix |
@@ -103,5 +107,7 @@ Run the check in the last column and report the result.
 | `hal doctor` warns that the box runs on runc | `runsc` is not registered. Install it ([install-gvisor.md](install-gvisor.md)) or accept `runc` at `standard` lockdown. |
 | `hal code` refuses to start at `strict` lockdown | `strict` needs `runsc`. Register it, or set `[sandbox].lockdown = "standard"` in `config.toml` (`hal lockdown` only explains the level). |
 | `systemctl --user` says `Failed to connect to bus` | Log in again, or run `loginctl enable-linger "$USER"` and `wsl --shutdown`. |
+| Shift+Enter sends the message in `hal code` | Windows Terminal does not report Shift+Enter; use Alt+Enter or Ctrl+J. |
+| Selecting text with the mouse does nothing | Hold Shift while you drag, or set `[ui].mouse = false`. |
 | Hal is slow to read project files | The project is under `/mnt/c`. Move it into the Linux file system. |
 | The model server on Windows is not reachable | Use `http://127.0.0.1:PORT` first. A non-local address needs `allow_remote = true` and https (see [../user/models.md](../user/models.md)). |

@@ -184,13 +184,20 @@ deselected by default; markers per E12), **manual**.
   `[ui].mention_max_bytes`, a `resource_link` otherwise. A path outside the project root MUST
   need an explicit y/N confirmation. Test: unit `test_mentions.py`.
 - **REQ-CLI-20** (MUST) Enter MUST submit and Alt-Enter (or Ctrl-J) MUST insert a newline;
-  bracketed paste MUST keep pasted newlines without submitting. Test: unit
-  `test_alt_enter_inserts_newline_and_paste_does_not_submit`.
+  Shift-Enter SHOULD insert a newline where the terminal reports it; bracketed paste MUST keep
+  pasted newlines without submitting. Test: unit
+  `test_alt_enter_inserts_newline_and_paste_does_not_submit`; full screen
+  `test_enter_sends_and_alt_enter_inserts_newline`, `test_multiline_paste_becomes_one_chip_and_backspace_removes_it`.
 - **REQ-CLI-21** (MUST) Ctrl-C during a turn MUST send ACP `session/cancel`, answer any open
   permission request with `cancelled`, deny any open broker approval, and return to the
   prompt when the agent replies `cancelled`. A second Ctrl-C after `CANCEL_GRACE_S` MUST stop
   the box and keep the session resumable. Ctrl-C at the prompt MUST clear the line; Ctrl-D on
-  an empty line MUST exit. Test: integration `test_ctrl_c_cancels_turn_and_denies_pending_approval`.
+  an empty line MUST exit. In the full screen a Ctrl-C on an empty, idle prompt MUST only warn,
+  and a second one within 2 s exits (so one stray Ctrl-C never ends a session). Test: integration
+  `test_ctrl_c_cancels_turn_and_denies_pending_approval`; full screen
+  `test_ctrl_c_clears_the_composer_then_stops_a_running_turn`,
+  `test_ctrl_c_on_empty_idle_composer_needs_a_second_press_to_quit`,
+  `test_approval_request_opens_the_modal_and_ctrl_c_denies`.
 - **REQ-CLI-22** (MUST) A status line MUST show the model alias and backend model, context
   use in percent from the last `usage_update`, the sandbox backend (with `no runsc` or
   `UNSANDBOXED` when that applies), the session mode, the policy profile, the last
@@ -205,6 +212,11 @@ deselected by default; markers per E12), **manual**.
 - **REQ-CLI-24** (SHOULD) Output SHOULD use Unicode box drawing and spinners when the terminal
   encoding is UTF-8 and `[ui].unicode` is true (the default), and plain ASCII otherwise
   (user directive 2026-10-30; this replaces the earlier ASCII default). Test: unit `test_default_render_is_ascii`.
+  On a capable terminal `hal code`, `hal chat` and `hal tune` SHOULD run full screen (Textual,
+  mouse and keys) and MUST fall back to the line UI with one notice when the terminal is not
+  capable, `[ui].interface` is `line`, or the full screen fails before its first draw; the
+  non-interactive paths MUST NOT load it (user directive 2026-11-03). Test:
+  `test_tui_fallback.py`.
 
 ### Approvals
 
@@ -218,13 +230,21 @@ renders prompts; it defines no second data model.
   (01) and show the tool, pack, tier, the policy reason, every canonical argument, the first
   12 hex digits of the approval key after `sha256:`, and the label `leaves the box`; an
   in-box ACP permission request MUST be labelled `inside the box` and MUST NOT use the broker
-  layout. Test: unit `test_broker_and_box_prompts_are_distinct`.
+  layout. Test: unit `test_broker_and_box_prompts_are_distinct`; the panel
+  `test_line_approval_panel_shows_key_prefix_and_leaves_the_box_label`, the full-screen modal
+  `test_modal_shows_key_prefix_and_leaves_the_box_label`.
 - **REQ-CLI-26** (MUST) The approve keys MUST be disabled until every argument has been
   shown; arguments longer than `APPROVAL_PAGE_LINES` require the `v` view first. Test: unit
-  `test_long_arguments_cannot_be_approved_unseen`.
+  `test_long_arguments_cannot_be_approved_unseen`. In the full-screen modal the allow buttons
+  stay off until the argument view has been scrolled to its end (or fits), and allowing takes
+  two deliberate actions (a key moves focus to the button, Enter or a full click presses it).
+  Test: `test_allow_disabled_until_arguments_scrolled_to_end`, `test_y_moves_focus_and_needs_enter_to_allow_once`.
 - **REQ-CLI-27** (MUST) Before an approval prompt reads a key, pending terminal input MUST be
   discarded (`tcflush(TCIFLUSH)`), and Enter alone MUST mean deny. Test: unit
-  `test_typeahead_is_flushed_and_enter_denies`.
+  `test_typeahead_is_flushed_and_enter_denies`. The full-screen modal drops key events sent
+  before it opened, keeps the allow buttons inert for 0.6 s and opens with Deny focused. Test:
+  `test_typeahead_before_the_modal_is_dropped`, `test_allow_is_inert_during_the_arm_delay`,
+  `test_approval_modal_focuses_deny_and_enter_denies`.
 - **REQ-CLI-28** (MUST) String arguments in an approval prompt MUST be displayed through
   `halkit.termsafe.escape` (01-security, "Approval surfaces and protocol", display rules), so
   hidden or reordered text cannot change what is read. Test: unit

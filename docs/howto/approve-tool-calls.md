@@ -13,8 +13,11 @@ see why, answer a request, and make a rule last. The rules behind it are in
    hal policy explain send_mail --args '{}' --exit-code            # exit 0 allow, 20 ask, 21 deny
    ```
 
-2. Answer a request that is waiting for you. A terminal session asks inline; a channel or a
-   background job waits on a control socket.
+2. Answer a request that is waiting for you. `hal code` and `hal chat` ask in a dialog: Deny has
+   the focus (Enter denies), `y` or `a` moves to an allow button and Enter presses it, Esc
+   denies, and the allow buttons wait until you have scrolled through every argument (details
+   in [hal-code.md](../user/hal-code.md#approvals)). A channel or a background job waits on a
+   control socket.
 
    ```sh
    hal approvals          # lists every pending request, with the tool and its arguments
@@ -60,4 +63,5 @@ see why, answer a request, and make a rule last. The rules behind it are in
 | `hal policy edit` prints a load error and changes nothing | Edit again and fix the line it names; the live file was not touched |
 | `hal approvals` lists nothing but a call waits | The session that asked has ended; run the call again |
 | `no tool named X` from `explain` | `hal-hub tools` lists the names; install the pack that has it |
+| The allow buttons in `hal code` stay grey | Scroll the arguments to the end; they also wait a moment after the dialog opens |
 | A call is denied with `no-approver` | Nobody can answer in that session; start it from a terminal or answer with `hal approve` |

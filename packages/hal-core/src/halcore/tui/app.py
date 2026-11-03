@@ -226,14 +226,11 @@ class LineUi:
             task.cancel()
 
 
-FULL_BY_DEFAULT = False  # until then the full screen runs only with `[ui].interface = "full"`
-
-
 def wants_full_screen(look: Look, out: TextIO) -> bool:
-    """True when the full-screen UI should run: asked for (or `auto` once it is the default) and possible."""
+    """True when the full-screen UI should run: `[ui].interface` is `auto` or `full` and the terminal can."""
     from . import fallback  # noqa: PLC0415 - small, but keeps the line path free of the check's imports
 
-    if look.interface == "line" or (look.interface == "auto" and not FULL_BY_DEFAULT):
+    if look.interface == "line":
         return False
     ok, reason = fallback.can_run_textual(sys.stdin, out, os.environ, look.interface)
     if not ok:
@@ -255,7 +252,16 @@ async def _run_full(controller: Controller, look: Look) -> int | None:
             raise
         sys.stderr.write(fallback.notice(str(exc) or type(exc).__name__) + "\n")
         return None
+    sys.stdout.write(exit_summary(controller))
     return status
+
+
+def exit_summary(controller: Controller) -> str:
+    """What the full screen leaves in the scrollback: the session and how to reopen it."""
+    assert controller.state is not None
+    sid = controller.state.sid
+    command = "hal code --resume" if controller.mode == "code" else "hal sessions resume"
+    return f"session {sid}: `{command} {sid}` reopens it; `hal sessions export {sid}` writes the transcript\n"
 
 
 async def run_tui(box: sessions.BoxedAgent, **kwargs) -> int:  # noqa: ANN003 - same keywords as `_run_tui`

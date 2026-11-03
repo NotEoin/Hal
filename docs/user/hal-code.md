@@ -1,80 +1,121 @@
 # Hal code: a tour of the terminal UI
 
-`hal code [DIR]` and `hal chat` open a terminal UI that lives in your normal scrollback (no
-alternate screen), so you can scroll, select and search what it printed. The agent always runs in
-a box; the UI talks to it over ACP. Verified by the tests in `packages/hal-core/tests/test_tui*.py`
-with a scripted agent. Not yet run against a live model: check a real session with a 12B to 32B
-model before relying on the speed figures.
+`hal code [DIR]` and `hal chat` open a full-screen terminal UI you can drive with the keys or the
+mouse. The agent always runs in a box; the UI talks to it over ACP. Where the full screen cannot
+run (no terminal, `TERM=dumb`, `[ui].interface = "line"`), the line UI opens instead: it prints
+into your scrollback and is described in [The line UI](#the-line-ui). Verified by the tests in
+`packages/hal-core/tests/test_tui*.py` with a scripted agent. Not yet run against a live model:
+check a real session with a 12B to 32B model before relying on the speed figures.
 
-```
-+------------------------------------------------------------------+
-| Hal 0.1.0                                                        |
-| qwen3-coder-30b | 32k context | lockdown standard | box runsc    |
-| workspace ~/proj                                                 |
-| copy ~/.local/state/hal/isolated/ab12/work                       |
-+------------------------------------------------------------------+
-
-> fix the failing test in @tests/test_parse.py
-
-Looking at the test first.
-
-* Read tests/test_parse.py  ok  0.0s
-* Edit src/parse.py  ok  0.1s  src/parse.py +2 -1
-       41   if not text:
-       42 - return None
-       42 + raise ValueError("empty input")
-* Run pytest -q  ok  3.2s
-    3 passed in 0.41s
-
-[end_turn] mode default | 1 file +2 -1 | ~210 tok | 11.8s | 36 tok/s
-> _
- qwen3-coder-30b | ####------ 38% | 36 tok/s | mode default | lockdown standard/balanced | 1 unaccepted
+```text
+ Hal 0.1.0  code  ~/proj (isolated copy)     model: qwen3-coder-30b  mode: default  effort: default  lockdown: standard
+ > fix the failing test in @tests/test_parse.py                          | Todo  Changes  Context
+ Looking at the test first.                                              | 1 changed path in the copy
+   * Read tests/test_parse.py  ok  0.0s                                  | [Diff] [Accept...] [Export]
+   * Edit src/parse.py  ok  0.1s  src/parse.py +2 -1                     |
+          41   if not text:                                              |
+          42 -     return None                                           |
+          42 +     raise ValueError("empty input")                       |
+   | Run pytest -q  running 3s                                           |
+ / working 12s | ~210 tok | 36 tok/s | Esc stops
+ +-----------------------------------------------------------------------------------------------------------+
+ | Message Hal   (/ commands, Enter sends, Alt+Enter new line)                                               |
+ +-----------------------------------------------------------------------------------------------------------+
+  qwen3-coder-30b | ####------ 38% | 36 tok/s | mode default | lockdown standard/balanced | 1 unaccepted
+ ^c Stop / clear  ^d Quit  shift+tab Mode  ^b Panel  ^p Commands  f1 Help
 ```
 
-With a UTF-8 terminal the box lines are rounded and the marks are U+276F, U+25CF and U+2713 instead of `>`, `*` and `ok`;
-set `[ui].unicode = false` to force the ASCII form shown above.
+The header chips open a picker (model, mode, effort) when clicked; the lockdown chip says where
+to change it. Each tool call is a card: it shows a spinner and its own timer while it runs, then
+its result, and a click (or Enter on it) shows the folded output or diff in full. A click on one
+of your messages offers Copy and, in `hal code`, Rewind files to before it. The side panel
+(Ctrl+B; open by default from 110 columns) has the todo list, the changes of the copy with Diff,
+Accept and Export buttons, and the context use. With a UTF-8 terminal the marks are Unicode;
+set `[ui].unicode = false` to force ASCII.
 
 ## Input
 
 | Key or prefix | What it does |
 | --- | --- |
-| Enter | Send |
-| Alt-Enter, Ctrl-J | New line in the message |
-| Paste of 3+ lines | Shown as `[pasted N lines #K]`; the real text is sent |
-| Up, Ctrl-R | History and history search (kept in `tui-history` in the state dir, mode 0600) |
-| Tab | Complete `/commands` (with descriptions) and `@files` |
-| `@path` | Attach that file of the workspace to the message (up to `[ui].mention_max_bytes`; links are never followed) |
+| Enter | Send; with the completion list open, take the highlighted entry first |
+| Alt+Enter, Ctrl+J | New line in the message (Shift+Enter too where the terminal reports it) |
+| Paste of 3+ lines | Shown as `[pasted N lines #K]`; Backspace removes the whole chip; the real text is sent |
+| Up, Down | History on the first or last line (kept in `tui-history` in the state dir, mode 0600) |
+| Ctrl+R | Pick an earlier message from a filterable list |
+| `/`, Tab | The command list with descriptions, then the fixed arguments; Tab takes the highlighted entry |
+| `@path` | Attach that file of the workspace (up to `[ui].mention_max_bytes`; links are never followed); `@` opens the file list |
 | `!cmd` | Run `cmd` in the box (`/work`, 120 s limit); its output joins your next message |
 | `# note` | Append the note to `AGENTS.md` in the copy |
-| Shift-Tab | Cycle the permission mode: default, auto-edit, plan |
-| Esc | Interrupt the turn (Ctrl-C does too) |
-| Esc Esc | Open `/rewind` |
-| Ctrl-O | Show folded tool output and the last thinking block in full |
-| Ctrl-T | Show or hide the todo panel |
-| Ctrl-L | Clear the screen |
-| Ctrl-D | Leave |
+| Shift+Tab | Cycle the permission mode: default, auto-edit, plan |
+| Esc | Close the completion list; else stop the running turn |
+| Ctrl+C | Clear the message; else stop the turn and deny an open approval; else press twice within 2 s to quit |
+| Ctrl+D | Quit (on an empty message); asks first when the copy has unaccepted changes |
+| Ctrl+O | Expand or fold every tool card and thinking block |
+| Ctrl+B, Ctrl+T | Show or hide the side panel; open it on the todo list |
+| Ctrl+P | Every command in a filterable list |
+| Ctrl+L | Clear the transcript view (the session keeps its history) |
+| PgUp, PgDn | Scroll the transcript |
+| F1, `/help` | Help: keys, commands, prefixes and mouse |
+
+A message typed while a turn runs is queued and sent when the turn ends; the working line counts
+the queued messages. `hal chat` has no mode chip, no Changes tab and none of `@`, `!`, `#`.
+
+The mouse: click chips, cards, buttons, messages and completion entries; the wheel scrolls.
+To select text with the mouse, hold Shift while you drag (Windows Terminal, GNOME Terminal,
+kitty and most others), or set `[ui].mouse = false` to leave the mouse to the terminal.
+
+When you leave, the full screen prints one line: the session id and the command that reopens it.
+`/export` and `hal sessions export` write the whole transcript.
 
 ## What streams
 
-- The answer is rendered as markdown while it arrives; finished blocks go to scrollback, the open
-  block and a spinner line (time, tokens, tok/s, "Esc interrupts") stay at the bottom. Tokens are
+- The answer is rendered as markdown while it arrives; finished blocks stay put, the open block
+  grows at the bottom, with a working line (time, tokens, tok/s, "Esc stops"). Tokens are
   estimated at 4 characters each until the server reports usage.
 - Code blocks are syntax highlighted. Links print as `text (url)`, never as hidden hyperlinks.
-- Reasoning from thinking models is folded to one dim line, `thought for ~N tokens`; set
-  `[ui].show_thinking = true` to see it.
-- Each tool call is one line: mark, title, status, duration. Output is folded to
+- Reasoning from thinking models is folded to one dim line, `thought for ~N tokens`; a click opens
+  it in place, and `[ui].show_thinking = true` starts it open.
+- Each tool call is a card: title, then status and duration when it ends. Output is folded to
   `[ui].tool_output_lines` lines. Edits show a numbered, coloured unified diff, cut at
   `[ui].diff_max_lines`. Subagent calls are indented under their parent. The todo list is a
-  checklist panel.
-- The line after each turn shows the stop reason, mode, files changed, `+/-` lines, tokens, time
-  and tok/s. `UNSANDBOXED` is added when the session runs without a box.
-- A long turn rings the bell (`[ui].notify = "bell"`) or sends an OSC 9 notification (`"osc9"`)
-  when it ends while the terminal is in the background (10 s or more, if the terminal reports
-  focus) or after 60 s regardless. `"off"` silences it.
+  checklist (side panel, and inline in the line UI).
+- The line after each turn shows files changed, `+/-` lines, tokens, time and tok/s, and the stop
+  reason in words when the turn did not finish normally (`cancelled`, `stopped: hit the output
+  limit`). `UNSANDBOXED` is added to it, to the status bar and to a red banner when the session
+  runs without a box. The line UI shows the raw reason and mode: `[end_turn] mode default`.
+- A long turn rings the bell when it ends while the terminal is in the background
+  (`[ui].notify = "bell"`; `"off"` silences it). The line UI can also send an OSC 9
+  notification (`"osc9"`).
 
 ## Approvals
 
-A broker approval is a rounded panel: tool, tier, pack, the label `leaves the box` and the first
+In the full screen a broker approval opens a dialog over everything else:
+
+```text
++-- Approval needed: leaves the box ------------------------------- 1 of 2 --+
+| shell.run [exec] from hal-tools   key 3f9a0c12d4e8                          |
+| classifier: high - writes outside the workspace                             |
+| why: tool tier exec needs approval under lockdown standard                  |
+| Arguments (every one, exactly as the tool receives them)                    |
+| {"command": "rm -rf build/", "cwd": "/work"}                                |
+| [ Deny  n ] [ Deny with a note  e ] [ Allow once  y ] [ Allow these exact   |
+|                                       arguments this session  a ]           |
++-----------------------------------------------------------------------------+
+```
+
+- Deny has the focus, so Enter alone denies; Esc and Ctrl+C deny too.
+- Allowing takes two steps: `y` or `a` moves the focus to that button, then Enter or Space
+  presses it; with the mouse it is a full click on the button.
+- The allow buttons stay off for a moment after the dialog opens, so a key you were typing in
+  the message box cannot allow anything, and they stay off until you have scrolled to the end
+  of the arguments.
+- "Allow these exact arguments this session" appears only when the request offers it.
+- `e` (or the button) opens a line for a note: Enter denies and sends the note to the agent as
+  your next message.
+- Requests queue and are answered one at a time; the status bar says `approval waiting` and the
+  bell rings once.
+
+In the line UI a broker approval is a rounded panel: tool, tier, pack, the label `leaves the box` and the first
 12 hex digits of the approval key, the classifier's verdict when the hub sent one, the reason,
 every argument exactly as the tool receives it, and the keys.
 
@@ -129,7 +170,42 @@ that cannot use it. When the `code` role has an `effort`, `hal code` starts with
 levels. How a level maps to a model is in [models.md](models.md#effort).
 
 In `plan` mode, when a turn ends with a todo list, the UI shows the plan and asks
-`Run this plan?`. `d` or `a` leaves plan mode for `default` or `auto-edit`; anything else keeps it.
+`Run this plan?`. In the full screen the buttons are Keep planning (focused, so Enter keeps it),
+Run in default mode and Run in auto-edit. In the line UI `d` or `a` leaves plan mode for
+`default` or `auto-edit`; anything else keeps it. Only your choice leaves plan mode.
+
+### Accepting and leaving
+
+`/accept` (or Accept... in the side panel) shows the diff report and the exact patch that will be
+applied, scrollable, with Cancel focused. A checkbox to apply high-risk changes too appears only
+when the report flags some. Apply writes exactly the patch you saw: if the copy changed in the
+meantime, nothing is applied.
+
+Leaving `hal code` with unaccepted changes asks first: Keep for later (focused; `hal code accept
+SID` applies them later), Review and accept, Discard the copy (asks again), or Cancel. Without
+changes it leaves at once.
+
+## The line UI
+
+The line UI prints into your normal scrollback, so you can scroll, select and search what it
+printed. It runs when the full screen cannot (no terminal, `TERM=dumb`, a failed start, which
+prints `full-screen UI unavailable: REASON; using the line UI`) or when you ask for it with
+`[ui].interface = "line"` or `HAL_TUI=line`.
+
+| Key or prefix | What it does |
+| --- | --- |
+| Enter | Send |
+| Alt-Enter, Ctrl-J | New line in the message |
+| Paste of 3+ lines | Shown as `[pasted N lines #K]`; the real text is sent |
+| Up, Ctrl-R | History and history search |
+| Tab | Complete `/commands` (with descriptions) and `@files` |
+| Shift-Tab | Cycle the permission mode |
+| Esc | Interrupt the turn (Ctrl-C does too) |
+| Esc Esc | Open `/rewind` (`hal code` only) |
+| Ctrl-O | Show folded tool output and the last thinking block in full |
+| Ctrl-T | Show or hide the todo panel |
+| Ctrl-C | Clear the line; on an empty line, leave |
+| Ctrl-D | Leave |
 
 ## Settings (`[ui]`)
 
@@ -151,11 +227,17 @@ In `plan` mode, when a turn ends with a todo list, the UI shows the plan and ask
 
 | Symptom | Fix |
 | --- | --- |
+| `full-screen UI unavailable: ...; using the line UI` | The terminal or the start failed; the line UI runs the same session. Check `TERM`, or set `HAL_TUI=line` to skip the attempt |
+| Clicks do nothing | The terminal does not send mouse events, or `[ui].mouse = false`; every action also has a key (F1 lists them) |
+| Cannot select text with the mouse | Hold Shift while dragging, or set `[ui].mouse = false` |
+| Shift+Enter sends instead of adding a line | Your terminal does not report Shift+Enter (Windows Terminal does not); use Alt+Enter or Ctrl+J |
+| The allow buttons stay grey | Scroll the arguments to the end; they also wait a moment after the dialog opens |
+| Ctrl+C did not quit | One Ctrl+C on an empty message only warns; press it again within 2 s, or Ctrl+D |
 | Box lines show as `?` or letters | The terminal is not UTF-8: it falls back to ASCII by itself; set `[ui].unicode = false` to be sure |
 | No colour | `NO_COLOR` is set or `[ui].theme = "mono"` |
 | `!cmd` says it needs the docker box | The session has backend `none` or `bwrap`; `!` only runs through `docker exec` |
 | `@file` is not attached | It is over `[ui].mention_max_bytes`, not UTF-8, a symlink, or outside the workspace |
-| Esc does nothing during a turn | stdin is not a terminal; use Ctrl-C |
+| Esc does nothing during a turn (line UI) | stdin is not a terminal; use Ctrl-C |
 | `/rewind` says it works in `hal code` | `hal chat` boxes have no work tree; use `hal code` |
 | `/model` shows no list | No source is configured or none answered (`hal models list`); `/model NAME` still works |
 | `/effort` says not available | The model has no thinking control; pick one marked `thinks` in `/model` |
