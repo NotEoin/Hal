@@ -92,7 +92,7 @@ class ApprovalModal(ModalScreen[tuple[str, str]]):
     ApprovalModal.noting #note { display: block; }
     ApprovalModal .modal-buttons { align-horizontal: left; }
     ApprovalModal .modal-buttons Button { margin: 0 1 0 0; }
-    ApprovalModal.narrow .modal-buttons { layout: vertical; }
+    ApprovalModal.narrow .modal-buttons { layout: vertical; margin-top: 0; }
     ApprovalModal.narrow .modal-buttons Button { width: 100%; margin: 0; }
     """
     BINDINGS = [

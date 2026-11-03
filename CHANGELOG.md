@@ -214,6 +214,8 @@ First release of the monorepo (uv workspace on branch `next`).
   the tune screen.
 - In `hal code` and `hal chat`, the times on tool rows, folded groups and subagents line up in
   one column, whether or not a row has a body or failed.
+- The approval panel shows its whole hint line at 60x20; the stacked buttons used to push the
+  end of it out of the box.
 
 ### Security
 

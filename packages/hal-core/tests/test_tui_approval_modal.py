@@ -423,3 +423,21 @@ def test_on_answer_runs_after_consume_and_cannot_change_the_answer():
     asyncio.run(go())
     assert bridge.answers == [("hal-1", "deny")]
     assert reports == [("n", "shell.run [exec] from hal-tools", [("hal-1", "deny")])]
+
+
+def test_hint_shows_in_full_at_60_by_20():
+    # regression: at 60x20 the stacked buttons pushed the second row of the hint out of the box
+    shown = {}
+
+    async def script(pilot, modal):
+        await armed(pilot, modal)
+        await pilot.pause()
+        hint = modal.query_one(".hint")
+        box = modal.query_one(".modal-box")
+        shown["rows"] = (hint.region.height, hint.virtual_size.height)
+        shown["inside"] = hint.region.bottom <= box.content_region.bottom
+        await pilot.press("ctrl+c")
+
+    assert run_modal(REQUEST, script, size=(60, 20)) == ("n", "")
+    rows, needed = shown["rows"]
+    assert shown["inside"] and rows == needed >= 2
