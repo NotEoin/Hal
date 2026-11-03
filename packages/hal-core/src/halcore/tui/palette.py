@@ -13,6 +13,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from halkit import paths
+
 from .. import sessionscmd
 from . import fuzzy
 from .render import clean
@@ -56,14 +58,18 @@ def commands(state: TuiState) -> list[PaletteItem]:
 
 
 def sessions(state: TuiState, limit: int = PALETTE_SESSIONS) -> list[PaletteItem]:
-    """Stored sessions of this project and surface, newest first; each resumes by id."""
+    """Stored sessions of this project and surface, newest first; each resumes by id.
+
+    A meta's `id` is file content, so one that is not a session id is skipped: it becomes part of
+    a command line.
+    """
     if state.records is None:
         return []
     rows = sessionscmd.list_sessions(state.records, state.project, limit, mode=state.surface)
     return [
         PaletteItem("session", clean(m.get("title", "")) or "(untitled)", when(m.get("updated", "")), "send", f"/resume {m['id']}")
         for m in rows
-        if m.get("id") and m["id"] != state.sid
+        if paths.SESSION_ID_RE.fullmatch(str(m.get("id", ""))) and m["id"] != state.sid
     ]
 
 

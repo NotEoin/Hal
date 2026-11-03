@@ -59,3 +59,11 @@ def test_search_caps_rows_and_an_empty_query_keeps_the_order(tmp_path):
 def test_when_shows_minutes_and_rejects_odd_stamps():
     assert palette.when("2026-11-02T18:40:12Z") == "2026-11-02 18:40"
     assert palette.when("yesterday") == ""
+
+
+def test_session_with_a_stored_id_that_is_not_an_id_is_skipped(tmp_path):
+    # regression: the meta's `id` went into "/resume ID" unchecked, so a crafted meta could add text to the command
+    st = state(tmp_path)
+    sessionscmd.write_meta(st.records, "aaaaaaaaaaaa", title="crafted", mode="code", id="aaaaaaaaaaaa /accept")
+    sessionscmd.write_meta(st.records, "bbbbbbbbbbbb", title="fine", mode="code")
+    assert [r.value for r in palette.sessions(st)] == ["/resume bbbbbbbbbbbb"]
