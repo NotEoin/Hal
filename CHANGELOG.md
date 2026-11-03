@@ -129,6 +129,9 @@ First release of the monorepo (uv workspace on branch `next`).
   dots, and `[ui].animations = false` turns every motion off.
 - The full screen shows the HAL eye, a red dot in the header: dim when idle, a slow pulse while a
   turn runs, an amber blink while an approval waits.
+- The full-screen header is a slim one-row top bar with no filled chips: the HAL eye, project,
+  then model, mode and effort (click to change) and a context gauge (click for `/context`). The
+  status line and the top bar now name the model the same way (`default`, not `no model`).
 - `hal chat` offers only the commands that work in a chat: `/help`, Tab and Esc Esc leave out the
   project-copy commands (`/rewind`, `/diff`, `/accept`, `/export`, `/ide`, `/init`), and `!`, `#`
   and `@` are sent as plain text.

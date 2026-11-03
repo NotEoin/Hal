@@ -1,6 +1,6 @@
 # hal tui snapshot: screen=welcome size=80x24 theme=light look=unicode textual=8.2.8
 ## text
- \u25cf Hal 0.1.0  code     model: gemma-3-27b-it   mode: default   effort: default  
+ \u25cf  code  work    gemma-3-27b-it \u25be \u00b7 default \u25be \u00b7 default \u25be        \u25b1\u25b1\u25b1\u25b1\u25b1\u25b1\u25b1\u25b1\u25b1\u25b1 0% 
  \u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e           
  \u2502 Hal 0.1.0                                                        \u2502           
  \u2502 gemma-3-27b-it \u00b7 box runsc                                       \u2502           
@@ -25,8 +25,7 @@
   gemma-3-27b-it \u00b7 mode default \u00b7 box runsc                                     
  ^d Quit  ^c Stop / clear  shift+tab Mode  ^b Panel  ^p Commands  f1 Help       
 ## roles
-00 _1 d1 _1 F3 _1 X5 _2 X4 _5 F6 _1 F14 _3 F5 _1 F7 _3 F7 _1 F7 _2
-00bg .22 P23 .1 P15 .1 P17 .1
+00 _1 d1 _2 m4 _2 m4 _4 f14 _1 f1 _1 i1 _1 f7 _1 f1 _1 i1 _1 f7 _1 f1 _8 m10 _1 m2 _1
 01 _1 x68 _11
 02 _1 x1 _1 A3 _1 x5 _56 x1 _11
 03 _1 x1 _1 x14 _1 x1 _1 x3 _1 x5 _39 x1 _11

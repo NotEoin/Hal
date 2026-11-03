@@ -5,7 +5,8 @@ is its `Ui` (`TextualUi`) and its output sink (`TextualSink`). Everything the ag
 arrives as renderables `Renderer` built from cleaned text and is mounted with `SafeStatic`, never
 as Textual markup (see docs/dev/tui.md, "Rendering safety").
 
-Layout: a header line with clickable chips (model, mode, effort, lockdown), the transcript (tool
+Layout: a one-row top bar (the HAL eye, project, then clickable model, mode, effort and context
+gauge), the transcript (tool
 calls appear as cards with their own timer while they run), a "working" line during a turn, the
 composer (Enter sends, Alt+Enter or Ctrl+J adds a line, `/` and `@` open completions), the status
 bar and the key hints. Ctrl+B shows a side panel with the todo list, the changes of the copy and
@@ -23,9 +24,9 @@ Design decisions:
   second press within `QUIT_WINDOW_S` before quitting; one stray Ctrl+C never ends a session.
 - Typing always reaches the message box: a press on a chip or button gives the focus back to it,
   and a printable key that arrives while a card has focus moves to it.
-- The header chips always fit the width: on a narrow terminal the model name is shortened, the
-  read-only lockdown chip is left to the status bar, then the `model:` style prefixes go
-  (`fit_header`); a chip is never pushed off screen where it cannot be clicked.
+- The top bar always fits the width (`chrome.fit_top`): on a narrow terminal the project becomes
+  its basename, the model name is clipped, the gauge shrinks; model, mode, effort and the gauge
+  are never pushed off screen where they cannot be clicked. Lockdown is in the status line.
 """
 
 from __future__ import annotations
@@ -48,18 +49,17 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Footer, OptionList, TabbedContent, TabPane, TextArea
 from textual.widgets.option_list import Option
 
-from .. import __version__
 from . import mentions, motion, screens, tokens
 from . import fallback
 from .approvalmodal import ModalAsker
-from .chrome import HalEye
+from .chrome import HalEye, TopBar, TopInfo
 from .controller import (
     PLAN_CHOICES, Controller, Sender, checkpoint_label, history_path, refresh_status, stop_words, turn_facts,
 )
 from .prompt import COMMAND_ARGUMENTS, PASTE_COLLAPSE_LINES, private_history
 from .render import TurnStats, clean
 from .slash import KEY_HELP, PickItem, PickRequest, Result, TuiState, command_descriptions, commands_for
-from .status import context_bar, percent, segments, to_rich
+from .status import context_bar, model_label, percent, segments, to_rich
 from .theme import Look, textual_themes
 from .transcript import TextualSink, Transcript, UserMessage
 from .widgets import SafeStatic, ThinkingFold, ToolCard, toast
@@ -78,12 +78,6 @@ TOAST_SHORT_S = 2.0  # a confirmation of something the user just did
 TOAST_WAIT_S = 3.0  # "listing...": long enough to see while the picker loads
 TOAST_LONG_S = 6.0  # a warning the user should have time to read
 WIDE = 110  # at this width or more the side panel opens by default
-CHIPS = ("model", "mode", "effort", "lockdown")
-CHIP_CHROME = 3  # a chip's one-cell padding on each side plus its one-cell left margin
-TITLE_MIN = 16  # "Hal 0.1.0  code" and the start of the project path
-MODEL_CHIP_MAX = 32  # the longest model label a chip shows in full width
-MODEL_CHIP_NARROW = 16
-HEADER_LEVELS = 4  # 0 full, 1 shorter model, 2 no lockdown chip, 3 no prefixes
 QUIT = object()  # the inbox item that ends `read_message`
 
 
@@ -344,10 +338,8 @@ class AgentApp(App[int]):
         scrollbar-color-active: $primary; scrollbar-background: $background; scrollbar-background-hover: $background;
         scrollbar-background-active: $background;
     }
-    #header { height: 1; padding: 0 1; }
-    #header .chip { height: 1; min-width: 6; border: none; margin-left: 1; background: $panel; }
-    #header .chip:hover { background: $primary 40%; }
-    #title { width: 1fr; margin-left: 1; }
+    #topbar { height: 1; padding: 0 1; }
+    #topbar TopBar { margin-left: 2; }
     #main { height: 1fr; }
     #side { width: 38; border-left: solid $panel; display: none; }
     #side.shown { display: block; }
@@ -430,14 +422,9 @@ class AgentApp(App[int]):
 
     def compose(self) -> ComposeResult:
         """Header, transcript and side panel, working line, completions, composer, status and keys."""
-        with Horizontal(id="header"):
+        with Horizontal(id="topbar"):
             yield HalEye(id="eye")
-            yield SafeStatic(self.title_text(), id="title")
-            yield Button(self.chip_text("model"), id="chip-model", classes="chip")
-            if self.code:
-                yield Button(self.chip_text("mode"), id="chip-mode", classes="chip")
-            yield Button(self.chip_text("effort"), id="chip-effort", classes="chip")
-            yield Button(self.chip_text("lockdown"), id="chip-lockdown", classes="chip")
+            yield TopBar(self.top_info(), id="top")
         yield SafeStatic(Text("UNSANDBOXED: this session runs without a box"), id="unsandboxed")
         with Horizontal(id="main"):
             yield self.transcript
@@ -461,46 +448,18 @@ class AgentApp(App[int]):
         yield SafeStatic("", id="status")
         yield Footer()
 
-    def title_text(self) -> Text:
-        """`Hal 0.1.0 | code | ~/proj (isolated copy)`."""
+    def top_info(self) -> TopInfo:
+        """The top bar's data: surface, project, model, mode, effort and context use."""
         session = self.controller.session
+        info = self.controller.live_info() if self.mounted else self.state.status
         where = str(getattr(session, "project", None) or self.state.cwd)
         home = str(Path.home())
         where = "~" + where[len(home):] if where.startswith(home) else where
-        copy = " (isolated copy)" if getattr(session, "iso", None) is not None else ""
-        text = Text("Hal", style="bold")
-        text.append(f" {__version__}  {self.state.surface}  {clean(where)}{copy}", style="dim")
-        return text
-
-    def chip_text(self, which: str, level: int = 0) -> Text:
-        """The label of a header chip, built as `Text` so a model name is never markup; `level` compacts it."""
-        info = self.state.status
-        prefix = "" if level >= 3 else f"{which}: "
-        if which == "model":
-            text = Text(prefix + (clean(info.model) or "default"))
-            text.truncate(len(prefix) + (MODEL_CHIP_NARROW if level >= 1 else MODEL_CHIP_MAX), overflow="ellipsis")
-            return text
-        if which == "mode":
-            return Text(f"{prefix}{info.mode}")
-        if which == "effort":
-            return Text(f"{prefix}{clean(info.effort) or 'default'}")
-        if not info.lockdown:
-            return Text("lockdown")
-        return Text(f"{prefix}{info.lockdown}" + (f"/{info.paranoia}" if info.paranoia else ""))
-
-    def fit_header(self) -> None:
-        """Picks the least compact chip labels that leave the title `TITLE_MIN` columns."""
-        chips = {which: found.first(Button) for which in CHIPS if (found := self.query(f"#chip-{which}"))}
-        level = 0
-        for level in range(HEADER_LEVELS):
-            shown = [w for w in chips if not (w == "lockdown" and level >= 2)]
-            need = sum(self.chip_text(w, level).cell_len + CHIP_CHROME for w in shown)
-            if need + TITLE_MIN <= self.size.width:
-                break
-        for which, chip in chips.items():
-            chip.label = self.chip_text(which, level)
-            if which == "lockdown":
-                chip.display = level < 2
+        return TopInfo(
+            surface=self.state.surface, project=where, copy=getattr(session, "iso", None) is not None,
+            model=model_label(info), mode=info.mode if self.code else None, effort=clean(info.effort) or "default",
+            used=info.used, size=info.size,
+        )  # fmt: skip
 
     async def on_mount(self) -> None:
         """Theme, the side panel on wide terminals, then the controller loop."""
@@ -739,7 +698,7 @@ class AgentApp(App[int]):
             line.append(f" {self.look.glyphs.sep} ", style="dim")
             line.append("approval waiting", style="bold reverse")
         self.query_one("#status", SafeStatic).update(line)
-        self.fit_header()
+        self.query_one(TopBar).show(self.top_info())
         self.query_one("#todo", SafeStatic).update(Text(self.state.renderer.todo_text()))
         if info.size:
             bar = context_bar(info.used, info.size, self.look.glyphs, CONTEXT_BAR_CELLS)
@@ -894,15 +853,22 @@ class AgentApp(App[int]):
             self.send(pick.command_for(chosen))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Header chips and side panel buttons."""
+        """Side panel buttons."""
         which = str(event.button.id)
-        commands = {"chip-model": "/model", "chip-mode": "/mode", "chip-effort": "/effort",
-                    "act-diff": "/diff", "act-accept": "/accept", "act-export": "/export"}  # fmt: skip
+        commands = {"act-diff": "/diff", "act-accept": "/accept", "act-export": "/export"}
         if which in commands:
             self.send(commands[which])
-        elif which == "chip-lockdown":
-            toast(self, "Lockdown and paranoia are read only here: change them on the host with `hal config set`.")
-        self.query_one(Composer).focus()  # the next thing typed is a message, not another press of the chip
+        self.query_one(Composer).focus()  # the next thing typed is a message, not another press of the button
+
+    @on(TopBar.Clicked)
+    def top_clicked(self, event: TopBar.Clicked) -> None:
+        """Model and mode open their pickers, effort its levels, the gauge the context breakdown."""
+        commands = {"model": "/model", "mode": "/mode", "effort": "/effort", "gauge": "/context"}
+        if event.key in commands and not (event.key == "mode" and not self.code):
+            self.send(commands[event.key])
+        elif event.key == "copy":
+            toast(self, "Edits go to an isolated copy; /accept applies them to your project.", timeout=TOAST_LONG_S)
+        self.query_one(Composer).focus()  # the next thing typed is a message, not another click
 
     def on_click(self, event: events.Click) -> None:
         """A click on the "new below" line jumps to the newest output."""
@@ -974,9 +940,8 @@ class AgentApp(App[int]):
         self.inbox.put_nowait(QUIT)
 
     def on_resize(self, event: events.Resize) -> None:
-        """A new terminal size: the chips are fitted again, and the side panel follows `WIDE` until Ctrl+B."""
+        """A new terminal size: the side panel follows `WIDE` until Ctrl+B (the top bar fits itself)."""
         if self.mounted:
-            self.fit_header()
             if not self.side_pinned:
                 self.query_one("#side").set_class(event.size.width >= WIDE, "shown")
 

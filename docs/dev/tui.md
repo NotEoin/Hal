@@ -71,8 +71,8 @@ exits and returns None with `App.return_code` set to 1. `agentapp.run_full` and
 
 ## Small terminals
 
-Every screen is checked at 80x24 and 60x20 in the Pilot tests. The header chips shorten in steps
-(`AgentApp.fit_header`), `Segmented` drops the padding around its labels when its width is short,
+Every screen is checked at 80x24 and 60x20 in the Pilot tests. The top bar fits itself in steps
+(`chrome.fit_top`, tested at every width from 40 to 200), `Segmented` drops the padding around its labels when its width is short,
 dialogs size their scrolling part in `vh` or by measuring the rest of the box (`ApprovalModal.fit`),
 and the approval buttons stack as one-line buttons when they do not fit side by side.
 

@@ -1,6 +1,6 @@
 # hal tui snapshot: screen=approval size=80x24 theme=dark look=ascii textual=8.2.8
 ## text
- ! Hal 0.1.0  code     model: gemma-3-27b-it   mode: default   effort: default  
+ !  code  work    gemma-3-27b-it v | default v | default v       ####------ 40% 
            return a - b                                                         
    * Edit src/calc.py  ok  0.0s  src/calc.py +1 -1                              
     \u250f\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2513    
@@ -25,8 +25,7 @@
   gemma-3-27b-it | ####------ 40% | mode default | box runsc | approval waiting 
  ^c Stop / clear                                                                
 ## roles
-00 _1 X1 _1 I3 _1 X5 _2 X4 _5 I6 _1 I14 _3 I5 _1 I7 _3 I7 _1 I7 _2
-00bg .22 S23 .1 S15 .1 S17 .1
+00 _1 X1 _2 x4 _2 x4 _4 i14 _1 i1 _1 x1 _1 i7 _1 i1 _1 x1 _1 i7 _1 i1 _7 x10 _1 x3 _1
 01 _11 i6 _1 i1 _1 i1 _1 i1 _57
 02 _3 x1 _1 I4 _1 I11 _2 x2 _2 x4 _2 x11 _1 x2 _1 x2 _30
 03 _4 x72 _4

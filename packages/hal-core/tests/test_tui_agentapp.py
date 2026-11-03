@@ -311,18 +311,33 @@ def test_ctrl_c_on_empty_idle_composer_needs_a_second_press_to_quit(tmp_path):
     assert drive(tmp_path, script) == (True, False)
 
 
-def test_model_chip_click_opens_picker_and_switches_model(tmp_path):
+async def click_top(pilot, app, key):
+    from halcore.tui.chrome import TopBar
+
+    bar = app.query_one(TopBar)
+    start, _ = bar.spans[key]
+    await pilot.click(TopBar, offset=(start, 0))
+    await settle(pilot)
+
+
+def top_text(app):
+    from halcore.tui.chrome import TopBar
+
+    return str(app.query_one(TopBar).render())
+
+
+def test_model_click_in_the_top_bar_opens_picker_and_switches_model(tmp_path):
     def setup(controller):
         controller.state.list_models = lambda: [{"id": "qwen3:8b"}, {"id": "gemma3:12b", "context_length": 32768}]
 
     async def script(pilot, app, agent):
-        await pilot.click("#chip-model")
+        await click_top(pilot, app, "model")
         assert await until(pilot, lambda: isinstance(app.screen, screens.PickerModal))
         await type_text(pilot, "gemma")
         await pilot.press("enter")
         assert await until(pilot, lambda: ("session/set_model", {"sessionId": SID, "modelId": "gemma3:12b"}) in agent.calls)
         await settle(pilot)
-        return str(app.query_one("#chip-model", Button).label)
+        return top_text(app)
 
     label = drive(tmp_path, script, setup=setup)
     assert "gemma3:12b" in label
@@ -332,10 +347,10 @@ def test_shift_tab_cycles_mode_and_status_updates(tmp_path):
     async def script(pilot, app, agent):
         await pilot.press("shift+tab")
         await settle(pilot)
-        return app.state.mode, str(app.query_one("#status").render()), str(app.query_one("#chip-mode", Button).label)
+        return app.state.mode, str(app.query_one("#status").render()), top_text(app)
 
-    mode, status, chip = drive(tmp_path, script)
-    assert mode == "auto-edit" and "mode auto-edit" in status and chip == "mode: auto-edit"
+    mode, status, top = drive(tmp_path, script)
+    assert mode == "auto-edit" and "mode auto-edit" in status and "auto-edit" in top
 
 
 def test_plan_card_keeps_planning_by_default_and_runs_only_on_button(tmp_path):
@@ -443,7 +458,9 @@ def test_chat_surface_hides_code_only_commands_and_hints(tmp_path):
     async def script(pilot, app, agent):
         await type_text(pilot, "/")
         shown = {o.prompt.plain.split()[0] for o in app.popup._options}
-        return shown, bool(app.query("#chip-mode")), bool(app.query("#side-changes"))
+        from halcore.tui.chrome import TopBar
+
+        return shown, "mode" in app.query_one(TopBar).spans, bool(app.query("#side-changes"))
 
     shown, has_mode, has_changes = drive(tmp_path, script, mode="chat")
     assert "/model" in shown and not shown & {"/diff", "/accept", "/rewind", "/export", "/init", "/ide"}
@@ -541,8 +558,10 @@ def test_page_down_in_an_approval_scrolls_its_arguments_not_the_transcript(tmp_p
     assert seen and mode_kept
 
 
-def test_header_chips_stay_on_screen_with_a_long_model_label(tmp_path):
+def test_top_bar_items_stay_on_screen_with_a_long_model_label(tmp_path):
     # regression: at 80x24 a real model label pushed the effort and lockdown chips off screen
+    from halcore.tui.chrome import TopBar
+
     def setup(controller):
         controller.state.status.model = "ollama/qwen3-coder:30b-a3b-instruct (q4_K_M)"
         controller.state.status.lockdown, controller.state.status.paranoia = "strict", "high"
@@ -552,14 +571,14 @@ def test_header_chips_stay_on_screen_with_a_long_model_label(tmp_path):
         async def script(pilot, app, agent):
             app.refresh_status()
             await settle(pilot)
-            chips = [b for b in app.query("#header Button") if b.display]
-            return [(b.id, b.region.right) for b in chips], app.query_one("#title").region.width
+            bar = app.query_one(TopBar)
+            return dict(bar.spans), bar.region, str(app.query_one("#status").render())
 
-        chips, title = drive(tmp_path, script, size=size, setup=setup)
-        assert all(right <= size[0] for _, right in chips), (size, chips)
-        assert {"chip-model", "chip-mode", "chip-effort"} <= {c for c, _ in chips} and title >= 10, (size, chips)
+        spans, region, status = drive(tmp_path, script, size=size, setup=setup)
+        assert {"model", "mode", "effort", "gauge"} <= set(spans), (size, spans)
+        assert all(region.x + end <= size[0] for _, end in spans.values()) and region.height == 1, (size, spans)
         if size[0] >= 140:
-            assert "chip-lockdown" in {c for c, _ in chips}
+            assert "lockdown strict/high" in status
 
 
 def test_esc_or_ctrl_c_on_the_leave_question_stays_in_the_session(tmp_path):
@@ -628,7 +647,9 @@ def test_typing_after_clicking_a_chip_or_a_card_goes_into_the_message_box(tmp_pa
 
     async def script(pilot, app, agent):
         composer = app.query_one(Composer)
-        await pilot.click("#chip-lockdown")
+        await click_top(pilot, app, "effort")
+        if isinstance(app.screen, screens.PickerModal):
+            await pilot.press("escape")
         await settle(pilot)
         await type_text(pilot, "hi")
         after_chip = composer.text

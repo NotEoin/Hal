@@ -72,3 +72,46 @@ def test_eye_pulses_between_dim_and_full_red_while_thinking():
     assert chrome.eye_style("thinking", 0.0, on) == roles["accent_dim"]
     assert chrome.eye_style("thinking", motion.EYE_PULSE_PERIOD_S / 2, on) == roles["accent"]
     assert chrome.eye_style("approval", 0.6, on) == roles["accent_dim"]
+
+
+INFO = chrome.TopInfo(surface="code", project="/home/me/projects/calculator", copy=True,
+                      model="ollama/qwen3-coder:30b-a3b-instruct (q4_K_M)", mode="default", effort="high",
+                      used=13100, size=32768)  # fmt: skip
+
+
+def test_top_bar_keeps_model_mode_effort_and_gauge_at_every_width():
+    from halcore.tui.theme import ASCII, UNICODE
+
+    for glyphs in (ASCII, UNICODE):
+        for width in range(40, 201):
+            layout = chrome.fit_top(INFO, width, glyphs)
+            assert {"model", "mode", "effort", "gauge"} <= layout.keys(), width
+            assert layout.width < width, (width, layout.width)
+
+
+def test_top_bar_clips_long_model_names_with_an_ellipsis():
+    from halcore.tui.theme import ASCII
+
+    wide = chrome.fit_top(INFO, 200, ASCII)
+    narrow = chrome.fit_top(INFO, 80, ASCII)
+    model = dict((k, t) for k, t, _ in narrow.left)["model"]
+    assert wide.level == 0 and "(q4_K_M)" in dict((k, t) for k, t, _ in wide.left)["model"]
+    assert model.endswith("... v") and len(model) <= chrome.MODEL_CHIP_NARROW + 2
+    assert "project" not in chrome.fit_top(INFO, 60, ASCII).keys()
+
+
+def test_chat_top_bar_has_no_mode_item():
+    from dataclasses import replace
+
+    from halcore.tui.theme import ASCII
+
+    assert "mode" not in chrome.fit_top(replace(INFO, mode=None), 120, ASCII).keys()
+
+
+def test_model_label_is_the_same_in_bar_and_status():
+    from halcore.tui import status
+
+    info = status.StatusInfo()
+    assert status.model_label(info) == "default"
+    assert "default" in status.to_rich(status.segments(info, look_of(False)), look_of(False)).plain
+    assert "no model" not in status.to_rich(status.segments(info, look_of(False)), look_of(False)).plain

@@ -8,7 +8,7 @@ into your scrollback and is described in [The line UI](#the-line-ui). Verified b
 check a real session with a 12B to 32B model before relying on the speed figures.
 
 ```text
- Hal 0.1.0  code  ~/proj (isolated copy)     model: qwen3-coder-30b  mode: default  effort: default  lockdown: standard
+ o  hal code  ~/proj  copy    qwen3-coder-30b v | default v | effort default v                         ####------ 38%
  > fix the failing test in @tests/test_parse.py                          | Todo  Changes  Context
  Looking at the test first.                                              | 1 changed path in the copy
    * Read tests/test_parse.py  ok  0.0s                                  | [Diff] [Accept...] [Export]
@@ -25,11 +25,14 @@ check a real session with a 12B to 32B model before relying on the speed figures
  ^c Stop / clear  ^d Quit  shift+tab Mode  ^b Panel  ^p Commands  f1 Help
 ```
 
-The red dot at the left of the header is the HAL eye: dim while Hal is idle, pulsing slowly while
-a turn runs, blinking amber while an approval waits (the status line says "approval waiting" too;
-in the ASCII look the dot is `o`, `O` or `!`). The header chips open a picker (model, mode, effort) when clicked; the lockdown chip says where
-to change it. On a narrow terminal the chips shorten (a shorter model name, then no lockdown
-chip, which the status bar still shows, then no `model:` prefixes) so all of them stay clickable. Each tool call is a card: it shows a spinner and its own timer while it runs, then
+The top bar is one row. The red dot at its left is the HAL eye: dim while Hal is idle, pulsing
+slowly while a turn runs, blinking amber while an approval waits (the status line says "approval
+waiting" too; in the ASCII look the dot is `o`, `O` or `!`). Then come the surface, the project and
+`copy` when edits go to an isolated copy, then the model, the mode (`hal code` only) and the effort:
+a click on one opens its picker. The context gauge at the right edge runs `/context`. On a narrow
+terminal the project becomes its folder name, the model name is cut with an ellipsis and the gauge
+gets shorter, so model, mode, effort and the gauge always stay clickable. Lockdown and paranoia
+are in the status line (change them on the host with `hal config set`). Each tool call is a card: it shows a spinner and its own timer while it runs, then
 its result, and a click (or Enter on it) shows the folded output or diff in full. A click on one
 of your messages offers Copy and, in `hal code`, Rewind files to before it. The side panel
 (Ctrl+B; open from 110 columns and closed below, following resizes until you press Ctrl+B)

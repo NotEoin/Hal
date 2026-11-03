@@ -53,6 +53,11 @@ class StatusInfo:
     notice: str = ""  # a short transient message, for example "verbose on"
 
 
+def model_label(info: StatusInfo) -> str:
+    """The model name as every bar shows it: cleaned, `default` when the session uses the default."""
+    return clean(info.model) or "default"
+
+
 def context_bar(used: int, size: int, glyphs: Glyphs, width: int = BAR_WIDTH) -> str:
     """A bar of `width` cells filled in proportion to `used` of `size`, empty when `size` is unknown."""
     return tokens.bar(used / size if size > 0 else 0.0, width, glyphs.bar_full, glyphs.bar_empty)
@@ -67,7 +72,7 @@ def segments(info: StatusInfo, look: Look) -> list[tuple[str, str]]:
     """The status line as `(role, text)` pairs."""
     g = look.glyphs
     sep = (("muted", f" {g.sep} "),)
-    out: list[tuple[str, str]] = [("accent", f" {clip(clean(info.model) or 'no model', MAX_FIELD_CHARS)}")]
+    out: list[tuple[str, str]] = [("accent", f" {clip(model_label(info), MAX_FIELD_CHARS)}")]
     if info.effort:
         out += [*sep, ("muted", f"effort {clip(clean(info.effort), MAX_FIELD_CHARS)}")]
     if info.size:
