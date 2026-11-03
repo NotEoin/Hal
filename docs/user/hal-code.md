@@ -26,7 +26,8 @@ check a real session with a 12B to 32B model before relying on the speed figures
 ```
 
 The header chips open a picker (model, mode, effort) when clicked; the lockdown chip says where
-to change it. Each tool call is a card: it shows a spinner and its own timer while it runs, then
+to change it. On a narrow terminal the chips shorten (a shorter model name, then no lockdown
+chip, which the status bar still shows, then no `model:` prefixes) so all of them stay clickable. Each tool call is a card: it shows a spinner and its own timer while it runs, then
 its result, and a click (or Enter on it) shows the folded output or diff in full. A click on one
 of your messages offers Copy and, in `hal code`, Rewind files to before it. The side panel
 (Ctrl+B; open by default from 110 columns) has the todo list, the changes of the copy with Diff,

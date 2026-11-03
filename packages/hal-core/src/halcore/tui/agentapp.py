@@ -19,6 +19,9 @@ Design decisions:
   the chosen value, so the picker adds no new path into the session.
 - Ctrl+C clears the composer, else stops the turn and denies an open approval, else asks for a
   second press within `QUIT_WINDOW_S` before quitting; one stray Ctrl+C never ends a session.
+- The header chips always fit the width: on a narrow terminal the model name is shortened, the
+  read-only lockdown chip is left to the status bar, then the `model:` style prefixes go
+  (`fit_header`); a chip is never pushed off screen where it cannot be clicked.
 """
 
 from __future__ import annotations
@@ -62,6 +65,12 @@ NOTIFY_MIN_S = 10.0  # a turn this long rings the bell when the window is not fo
 POPUP_ROWS = 8
 WIDE = 110  # at this width or more the side panel opens by default
 SPIN = ("|", "/", "-", "\\")
+CHIPS = ("model", "mode", "effort", "lockdown")
+CHIP_CHROME = 3  # a chip's one-cell padding on each side plus its one-cell left margin
+TITLE_MIN = 16  # "Hal 0.1.0  code" and the start of the project path
+MODEL_CHIP_MAX = 32  # the longest model label a chip shows in full width
+MODEL_CHIP_NARROW = 16
+HEADER_LEVELS = 4  # 0 full, 1 shorter model, 2 no lockdown chip, 3 no prefixes
 QUIT = object()  # the inbox item that ends `read_message`
 
 
@@ -557,18 +566,35 @@ class AgentApp(App[int]):
         text.append(f" {__version__}  {self.state.surface}  {clean(where)}{copy}", style="dim")
         return text
 
-    def chip_text(self, which: str) -> Text:
-        """The label of a header chip, built as `Text` so a model name is never markup."""
+    def chip_text(self, which: str, level: int = 0) -> Text:
+        """The label of a header chip, built as `Text` so a model name is never markup; `level` compacts it."""
         info = self.state.status
+        prefix = "" if level >= 3 else f"{which}: "
         if which == "model":
-            return Text(f"model: {clean(info.model) or 'default'}")
+            text = Text(prefix + (clean(info.model) or "default"))
+            text.truncate(len(prefix) + (MODEL_CHIP_NARROW if level >= 1 else MODEL_CHIP_MAX), overflow="ellipsis")
+            return text
         if which == "mode":
-            return Text(f"mode: {info.mode}")
+            return Text(f"{prefix}{info.mode}")
         if which == "effort":
-            return Text(f"effort: {clean(info.effort) or 'default'}")
+            return Text(f"{prefix}{clean(info.effort) or 'default'}")
         if not info.lockdown:
             return Text("lockdown")
-        return Text(f"lockdown: {info.lockdown}" + (f"/{info.paranoia}" if info.paranoia else ""))
+        return Text(f"{prefix}{info.lockdown}" + (f"/{info.paranoia}" if info.paranoia else ""))
+
+    def fit_header(self) -> None:
+        """Picks the least compact chip labels that leave the title `TITLE_MIN` columns."""
+        chips = {which: found.first(Button) for which in CHIPS if (found := self.query(f"#chip-{which}"))}
+        level = 0
+        for level in range(HEADER_LEVELS):
+            shown = [w for w in chips if not (w == "lockdown" and level >= 2)]
+            need = sum(self.chip_text(w, level).cell_len + CHIP_CHROME for w in shown)
+            if need + TITLE_MIN <= self.size.width:
+                break
+        for which, chip in chips.items():
+            chip.label = self.chip_text(which, level)
+            if which == "lockdown":
+                chip.display = level < 2
 
     async def on_mount(self) -> None:
         """Theme, the side panel on wide terminals, then the controller loop."""
@@ -779,10 +805,7 @@ class AgentApp(App[int]):
             line.append(f" {self.look.glyphs.sep} ", style="dim")
             line.append("approval waiting", style="bold reverse")
         self.query_one("#status", SafeStatic).update(line)
-        for which in ("model", "mode", "effort", "lockdown"):
-            found = self.query(f"#chip-{which}")
-            if found:
-                found.first(Button).label = self.chip_text(which)
+        self.fit_header()
         self.query_one("#todo", SafeStatic).update(Text(self.state.renderer.todo_text()))
         if info.size:
             bar = context_bar(info.used, info.size, self.look.glyphs, 24)
@@ -990,6 +1013,11 @@ class AgentApp(App[int]):
                     toast(self, f"could not discard: {exc}", severity="error")
                     return
         self.inbox.put_nowait(QUIT)
+
+    def on_resize(self, event: events.Resize) -> None:
+        """A new terminal size: the chips are fitted again."""
+        if self.mounted:
+            self.fit_header()
 
     def on_app_focus(self, event: events.AppFocus) -> None:
         """The terminal window has focus."""

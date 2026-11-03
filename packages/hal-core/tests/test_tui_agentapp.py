@@ -538,3 +538,24 @@ def test_page_down_in_an_approval_scrolls_its_arguments_not_the_transcript(tmp_p
 
     seen, mode_kept = drive(tmp_path, script)
     assert seen and mode_kept
+
+
+def test_header_chips_stay_on_screen_with_a_long_model_label(tmp_path):
+    # regression: at 80x24 a real model label pushed the effort and lockdown chips off screen
+    def setup(controller):
+        controller.state.status.model = "ollama/qwen3-coder:30b-a3b-instruct (q4_K_M)"
+        controller.state.status.lockdown, controller.state.status.paranoia = "strict", "high"
+
+    for size in ((140, 36), (80, 24), (60, 20)):
+
+        async def script(pilot, app, agent):
+            app.refresh_status()
+            await settle(pilot)
+            chips = [b for b in app.query("#header Button") if b.display]
+            return [(b.id, b.region.right) for b in chips], app.query_one("#title").region.width
+
+        chips, title = drive(tmp_path, script, size=size, setup=setup)
+        assert all(right <= size[0] for _, right in chips), (size, chips)
+        assert {"chip-model", "chip-mode", "chip-effort"} <= {c for c, _ in chips} and title >= 10, (size, chips)
+        if size[0] >= 140:
+            assert "chip-lockdown" in {c for c, _ in chips}
