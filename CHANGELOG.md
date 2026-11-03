@@ -138,7 +138,8 @@ First release of the monorepo (uv workspace on branch `next`).
   pastes and pending attachments show as chips under it, and `x` on a chip removes it.
 - The full-screen transcript groups each turn behind a left rail (red while running, amber while
   an approval waits) instead of flush blocks; a queued message gets its own rail, and the "new
-  below" line is a faint row instead of a filled bar.
+  below" line is a faint row instead of a filled bar. Blocks of a different kind in a turn
+  (prose, tool rows, thought, end line) have one blank row between them, none below 90x30.
 - Tool calls in the full screen are one-line rows (verb, target, diffstat, time, result) whose
   output stays closed until clicked; a failed call opens by itself. Edits show a preview of up
   to six changed lines that expands to the full diff. Three or more consecutive read-only calls

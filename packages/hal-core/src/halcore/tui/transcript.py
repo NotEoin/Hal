@@ -47,6 +47,7 @@ class TurnView(Vertical):
     TurnView.waiting { border-left: solid $warning; }
     TurnView.waiting.ascii { border-left: ascii $warning; }
     TurnView > .tail { height: auto; }
+    TurnView > .gap { margin-top: 1; }
     TurnView > .turn-end { color: $hal-faint; }
     """
 
@@ -54,15 +55,19 @@ class TurnView(Vertical):
         super().__init__(classes="queued ascii" if ascii else "queued")
         self.message = message
         self.tail = SafeStatic("", classes="tail")
+        self.last_kind = "you"  # the kind of block added last, for the gap between kinds
 
     def compose(self) -> ComposeResult:
         """The message, then the streaming tail (kept last)."""
         yield self.message
         yield self.tail
 
-    def add(self, widget: object) -> None:
-        """Mounts `widget` above this turn's streaming tail."""
-        self.mount(widget, before=self.tail)  # type: ignore[arg-type]  # a Widget
+    def add(self, widget: Widget, kind: str = "") -> None:
+        """Mounts `widget` above this turn's streaming tail; a block of a new kind gets a blank row above it."""
+        if kind:
+            widget.set_class(kind != self.last_kind, "gap")
+            self.last_kind = kind
+        self.mount(widget, before=self.tail)
 
 
 class Transcript(VerticalScroll):
@@ -71,6 +76,7 @@ class Transcript(VerticalScroll):
     DEFAULT_CSS = """
     Transcript { height: 1fr; padding: 0 1 0 1; }
     Transcript > .notice { color: $hal-muted; }
+    Transcript.compact TurnView > .gap { margin-top: 0; }  /* here: a TurnView rule is scoped under TurnView */
     """
 
     def __init__(self, **kwargs: object) -> None:
@@ -91,10 +97,13 @@ class Transcript(VerticalScroll):
         """The transcript's own streaming tail, kept last."""
         yield self.root_tail
 
-    def add(self, widget: object) -> None:
-        """Mounts `widget` in the active turn (or above the tail) and keeps the view at the bottom when following."""
+    def add(self, widget: Widget, kind: str = "") -> None:
+        """Mounts `widget` in the active turn (or above the tail) and keeps the view at the bottom when following.
+
+        `kind` (`prose`, `code`, `tools`, `thought`, `plan`, `end`) spaces blocks of different kinds apart.
+        """
         if self.active is not None and self.active.is_attached:
-            self.active.add(widget)
+            self.active.add(widget, kind)
         else:
             self.mount(widget, before=self.root_tail)  # type: ignore[arg-type]  # a Widget
         self.followed()
@@ -319,6 +328,7 @@ class TextualSink:
         if len(cards) < FOLD_MIN or len({id(c.parent) for c in cards}) != 1:
             return
         group = ToolGroup(cards)
+        group.set_class(cards[0].has_class("gap"), "gap")
         cards[0].parent.mount(group, before=cards[0])  # type: ignore[union-attr]  # attached: has a parent
         for card in cards:
             card.display = False
@@ -328,7 +338,7 @@ class TextualSink:
 
         def add() -> None:
             self.fold()
-            self.app.transcript.add(SafeStatic(renderable))
+            self.app.transcript.add(SafeStatic(renderable), "prose")
 
         self._run(add)
 
@@ -342,13 +352,22 @@ class TextualSink:
 
         self._run(show)
 
+    def end_line(self, line: Text) -> None:
+        """The end-of-turn facts, a blank row below the turn's last block."""
+
+        def add() -> None:
+            self.fold()
+            self.app.transcript.add(SafeStatic(line, classes="turn-end"), "end")
+
+        self._run(add)
+
     def tool_started(self, cid: str, title: Text, depth: int) -> None:
         """A card with a spinner and its own timer."""
 
         def start() -> None:
             card = ToolCard(cid, title, depth)
             self.cards[cid] = card
-            self.app.transcript.add(card)
+            self.app.transcript.add(card, "tools")
 
         self._run(start)
 
@@ -364,7 +383,7 @@ class TextualSink:
             card = self.cards.pop(cid, None)
             if card is None:
                 card = ToolCard(cid, Text(""), row.depth if row else 0)
-                self.app.transcript.add(card)
+                self.app.transcript.add(card, "tools")
                 card.call_after_refresh(card.finish, header, body, full, row)
             else:
                 card.finish(header, body, full, row)
@@ -380,7 +399,7 @@ class TextualSink:
         """A fold that opens in place."""
         def add() -> None:
             self.fold()
-            self.app.transcript.add(ThinkingFold(summary, body, shown))
+            self.app.transcript.add(ThinkingFold(summary, body, shown), "thought")
 
         self._run(add)
 

@@ -1068,3 +1068,28 @@ def test_a_failed_tool_stays_open_and_ends_the_group(tmp_path):
     assert len(shown) == 1 and "ran 3 tools" in shown[0]
     failed = [c for c in cards if c[1] and c[2]]
     assert len(failed) == 1 and cards[-1][1]  # the failure is open; the read after it stays a row
+
+
+def block_gaps(tmp_path, size):
+    async def script(pilot, app, agent):
+        await type_text(pilot, "go")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: "done" in transcript_text(app) and not app.busy)
+        await settle(pilot)
+        turn = app.transcript.active or app.query("TurnView").last()
+        rows = [w for w in turn.children if w.display and w is not turn.message and w is not turn.tail]
+        return [(type(w).__name__, w.styles.margin.top) for w in rows], app.transcript.has_class("compact")
+
+    updates = [chunk("Looking.\n\n"), read_update("r0", "a.py"), read_update("r1", "b.py"), chunk("done")]
+    return drive(tmp_path, script, turns=[updates], size=size)
+
+
+def test_blocks_of_a_new_kind_get_one_blank_row_and_tool_rows_none(tmp_path):
+    rows, compact = block_gaps(tmp_path, (120, 36))
+    assert not compact
+    assert [m for _, m in rows] == [1, 1, 0, 1, 1]  # prose, tool, tool, prose, end line
+
+
+def test_a_small_screen_drops_the_blank_rows_between_blocks(tmp_path):
+    rows, compact = block_gaps(tmp_path, (80, 24))
+    assert compact and all(m == 0 for _, m in rows)

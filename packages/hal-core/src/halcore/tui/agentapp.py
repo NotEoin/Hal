@@ -74,6 +74,8 @@ NOTIFY_MIN_S = 10.0  # a turn this long rings the bell when the window is not fo
 NOTIFY_LONG_S = 60.0  # a turn this long notifies even when the terminal never reports focus (as the line UI)
 OSC9 = "\x1b]9;Hal: turn finished\x07"  # fixed text: nothing from the model reaches the terminal title bar
 POPUP_ROWS = 8
+COMPACT_WIDTH = 90  # below this width or `COMPACT_HEIGHT` rows, blocks in a turn lose their blank row
+COMPACT_HEIGHT = 30
 SPARK_SAMPLES = 24  # seconds of tok/s kept for the sparkline
 CONTEXT_BAR_CELLS = 24  # the side panel is 38 columns; the bar leaves room for the percentage
 HISTORY_ROW_CHARS = 120  # one row of the Ctrl+R list; the full message is what goes back in the box
@@ -390,7 +392,8 @@ class TextualUi:
         line = Text(sep.join(parts), style=faint)
         if self.app.controller.session.backend == "none":
             line.append(f"{sep}UNSANDBOXED", style="bold reverse")
-        self.app.controller.renderer.sink.write(line)
+        sink = self.app.controller.renderer.sink
+        (getattr(sink, "end_line", None) or sink.write)(line)
         self.app.set_busy(False)
         if stats.elapsed >= NOTIFY_LONG_S or (stats.elapsed >= NOTIFY_MIN_S and not self.app.window_focused):
             self.app.notify_turn()
@@ -552,6 +555,7 @@ class AgentApp(App[int]):
         self.sink.flush()
         self.refresh_status()
         self.query_one("#compose").set_class(not self.look.unicode, "ascii")
+        self.transcript.set_class(self.size.width < COMPACT_WIDTH or self.size.height < COMPACT_HEIGHT, "compact")
         self.query_one(Composer).focus()
         self.run_worker(self.loop(), group="controller", exit_on_error=False)
 
@@ -1052,6 +1056,7 @@ class AgentApp(App[int]):
 
     def on_resize(self, event: events.Resize) -> None:
         """A new terminal size: the side panel follows `WIDE` until Ctrl+B (the top bar fits itself)."""
+        self.transcript.set_class(event.size.width < COMPACT_WIDTH or event.size.height < COMPACT_HEIGHT, "compact")
         if self.mounted:
             if not self.side_pinned:
                 self.query_one("#side").set_class(event.size.width >= WIDE, "shown")

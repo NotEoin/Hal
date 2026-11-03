@@ -41,6 +41,10 @@ The transcript holds one `TurnView` per message. `AgentApp.send` mounts a queued
 turn the active one, so output (also of slash commands) lands in the turn of the message that
 caused it, even when messages were queued. The rail is the Textual `solid` border (U+2502 in
 Textual 8.2.8), `ascii` in the ASCII look.
+`TextualSink` passes each block's kind (`prose`, `code`, `tools`, `thought`, `plan`, `end`) to
+`Transcript.add`; a block whose kind differs from the one before it gets the `gap` class (one
+blank row above). The app sets `compact` on the transcript below 90 columns or 30 rows, which
+drops those rows so a turn fits a small terminal.
 
 Updates from the agent arrive on the ACP reader task. `TextualSink` hands each one to
 `App.call_later`, so widgets are mounted on the app's loop, in order, with the app's context.
