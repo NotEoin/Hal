@@ -220,12 +220,32 @@ async def _resume(state: TuiState, args: str) -> Result:
     if args.isdigit() and 1 <= int(args) <= len(state.resume_choices):
         args = state.resume_choices[int(args) - 1]
     try:
-        _, records = sessionscmd.load_for_resume(state.records, args, state.project)
+        meta, records = sessionscmd.load_for_resume(state.records, args, state.project)
         await state.client.load_session(args, state.cwd, records)
     except (sessionscmd.SessionsError, AcpError) as exc:
         return Result(message=f"/resume: {safe(str(exc))}")
     state.sid = args
-    return Result(message=f"resumed {args}")
+    note = await _reset_for_session(state, meta)
+    return Result(message=f"resumed {args}" + (f"\n{note}" if note else ""))
+
+
+async def _reset_for_session(state: TuiState, meta: dict[str, str]) -> str:
+    """Clears what belonged to the previous session (todo, turn stats, context) and takes the stored model.
+
+    Returns a note when the stored model could not be selected.
+    """
+    state.renderer.todo = []
+    state.turns.clear()
+    state.status.used = state.status.size = 0
+    state.status.tok_s = 0.0
+    model = str(meta.get("model") or "")
+    if not model or model == state.model:
+        return ""
+    try:
+        await _switch(state, model)
+    except AcpError as exc:
+        return f"the session's model {safe(model)} was not selected: {safe(str(exc))}"
+    return ""
 
 
 async def _fork(state: TuiState, args: str) -> Result:
@@ -238,6 +258,7 @@ async def _fork(state: TuiState, args: str) -> Result:
     except (sessionscmd.SessionsError, AcpError) as exc:
         return Result(message=f"/fork: {safe(str(exc))}")
     state.sid = new
+    state.turns.clear()
     return Result(message=f"forked into {new}; the original session is unchanged")
 
 

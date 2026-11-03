@@ -76,6 +76,8 @@ def segments(info: StatusInfo, look: Look) -> list[tuple[str, str]]:
     if info.tok_s:
         out += [*sep, ("muted", f"{info.tok_s:.0f} tok/s")]
     out += [*sep, ("muted", f"mode {info.mode}")]
+    if info.backend and not info.unsandboxed:
+        out += [*sep, ("muted", f"box {clip(clean(info.backend), MAX_FIELD_CHARS)}")]
     if info.lockdown:
         out += [*sep, ("muted", f"lockdown {info.lockdown}" + (f"/{info.paranoia}" if info.paranoia else ""))]
     if info.jobs:

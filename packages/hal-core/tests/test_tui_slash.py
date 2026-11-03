@@ -220,3 +220,31 @@ def test_chat_help_and_completion_offer_only_chat_commands():
 
 def test_a_code_only_command_in_chat_says_where_it_works():
     assert "works in `hal code`" in run("/diff", state(surface="chat")).message
+
+
+def test_resume_resets_todo_stats_and_takes_the_sessions_model(tmp_path):
+    # regression: /resume kept the old todo list, turn stats and context bar, and the old model
+    from halcore import sessionscmd
+    from halcore.acp.records import RecordStore
+
+    store = RecordStore(tmp_path / "sessions")
+    store.append("aaaaaaaaaaaa", {"type": "session", "v": 1, "id": "aaaaaaaaaaaa"})
+    sessionscmd.write_meta(store, "aaaaaaaaaaaa", project="", mode="code", model="qwen3:8b")
+    st = state(records=store)
+    st.client.load_session = lambda *a: asyncio.sleep(0)
+    st.renderer.todo = [{"content": "old", "status": "pending"}]
+    st.turns.append(TurnStats())
+    st.status.used, st.status.size = 900, 1000
+    result = run("/resume aaaaaaaaaaaa", st)
+    assert "resumed" in result.message and st.renderer.todo == [] and st.turns == []
+    assert (st.status.used, st.status.size) == (0, 0) and st.model == "qwen3:8b" and st.client.models == ["qwen3:8b"]
+
+
+def test_status_line_shows_the_box_backend():
+    from halcore.tui import status, theme
+
+    look = theme.load_look({"unicode": False}, environ={})
+    shown = status.to_rich(status.segments(status.StatusInfo(backend="runsc"), look), look).plain
+    assert "box runsc" in shown
+    unboxed = status.to_rich(status.segments(status.StatusInfo(backend="none", unsandboxed=True), look), look).plain
+    assert "box" not in unboxed and "UNSANDBOXED" in unboxed

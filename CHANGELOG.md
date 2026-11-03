@@ -139,6 +139,8 @@ First release of the monorepo (uv workspace on branch `next`).
   terminal. `hal chat` records its sessions as chats, and its `/resume` lists only chat sessions.
   The approval panel follows `[ui].theme`. Leaving `hal code` names the accept command only when
   the copy has changes.
+- `/resume` starts from a clean todo list, turn stats and context bar and switches to the
+  session's stored model. The status line names the box backend (`box runsc`).
 - An approval panel in `hal code` or `hal chat` closes as soon as its request is answered in
   another terminal or the console; before, it kept reading and took the next line typed for the
   main prompt. Two requests no longer draw over each other.

@@ -616,6 +616,8 @@ class AgentApp(App[int]):
         if line in ("/quit", "/exit"):
             self.action_leave()
             return
+        if line == "/clear":
+            self.action_clear_view()
         self.send(line)
 
     def send(self, line: str) -> None:
