@@ -50,6 +50,7 @@ PRESET_SHORT = {"auto": "This machine", "cpu": "CPU only"}  # other presets show
 TEMP_STEP = 0.05
 TEMP_SHOWN_DEFAULT = 0.7  # where the knob rests while the temperature is the model's default
 MAX_UNDO = 100
+TOAST_READ_S = 10.0  # a note with several lines (a preset's changes, why nothing was written)
 EXIT_OK = 0
 GUARD = "guard"
 
@@ -448,7 +449,7 @@ class TuneApp(App[int]):
         if not self.state.sources:
             self.action_show_tab("tab-sources")
             toast(self, "Add a model source to begin: Ollama, an OpenAI-compatible server or a folder of GGUF files.",
-                  title="No model source yet", timeout=10)  # fmt: skip
+                  title="No model source yet", timeout=TOAST_READ_S)  # fmt: skip
         elif self.first_run and self.state.models():
             self.push_screen(QuickStart(self.previews()), self.quick_start_done)
 
@@ -573,7 +574,7 @@ class TuneApp(App[int]):
             toast(
                 self,
                 Text("\n".join(clean(n) for n in notes)),  # type: ignore[union-attr]
-                title=f"Planned for {preset.label}", severity="warning" if missing else "information", timeout=8,
+                title=f"Planned for {preset.label}", severity="warning" if missing else "information", timeout=TOAST_READ_S,
             )  # fmt: skip
         segmented = self.query_one("#preset", Segmented)
         segmented.selected = key
@@ -770,7 +771,7 @@ class TuneApp(App[int]):
         try:
             lines = await asyncio.to_thread(self.state.write)
         except (ValueError, OSError, *modelplan.plain_errors()) as exc:
-            toast(self, clean(exc), title="Nothing written", severity="error", timeout=10)
+            toast(self, clean(exc), title="Nothing written", severity="error", timeout=TOAST_READ_S)
             return
         self.written = list(lines)
         self.undo.clear()

@@ -51,7 +51,9 @@ from .. import __version__
 from . import mentions, screens
 from . import fallback
 from .approvalmodal import ModalAsker
-from .controller import PLAN_CHOICES, Controller, Sender, history_path, refresh_status, stop_words, turn_facts
+from .controller import (
+    PLAN_CHOICES, Controller, Sender, checkpoint_label, history_path, refresh_status, stop_words, turn_facts,
+)
 from .prompt import COMMAND_ARGUMENTS, PASTE_COLLAPSE_LINES, private_history
 from .render import TurnStats, clean
 from .slash import KEY_HELP, PickItem, PickRequest, Result, TuiState, command_descriptions, commands_for
@@ -66,6 +68,11 @@ WORKING_HZ = 4  # redraws per second of the "working" line
 STATUS_EVERY_S = 2.0  # how often the slow status fields refresh while a turn runs
 NOTIFY_MIN_S = 10.0  # a turn this long rings the bell when the window is not focused
 POPUP_ROWS = 8
+CONTEXT_BAR_CELLS = 24  # the side panel is 38 columns; the bar leaves room for the percentage
+HISTORY_ROW_CHARS = 120  # one row of the Ctrl+R list; the full message is what goes back in the box
+TOAST_SHORT_S = 2.0  # a confirmation of something the user just did
+TOAST_WAIT_S = 3.0  # "listing...": long enough to see while the picker loads
+TOAST_LONG_S = 6.0  # a warning the user should have time to read
 WIDE = 110  # at this width or more the side panel opens by default
 SPIN = ("|", "/", "-", "\\")
 CHIPS = ("model", "mode", "effort", "lockdown")
@@ -665,9 +672,9 @@ class AgentApp(App[int]):
         self.inbox.put_nowait(line)
         self.queued_count = self.inbox.qsize() if self.busy else 0
         if self.busy:
-            toast(self, "queued: it is sent when this turn ends", timeout=2)
+            toast(self, "queued: it is sent when this turn ends", timeout=TOAST_SHORT_S)
         elif line.split(" ", 1)[0] in ("/model", "/effort") and self.state.choices is None and self.state.load_choices:
-            toast(self, "listing the models of your sources...", timeout=3)
+            toast(self, "listing the models of your sources...", timeout=TOAST_WAIT_S)
         self.refresh_status()
 
     @on(TextArea.Changed, "#composer")
@@ -772,7 +779,7 @@ class AgentApp(App[int]):
             return
         label = str(listed[-1].label)
         for message in self.waiting_messages:
-            if label == f"before: {message.text[:40]}":
+            if label == checkpoint_label(message.text):
                 message.checkpoint = listed[-1].n
                 self.waiting_messages.remove(message)
                 return
@@ -818,7 +825,7 @@ class AgentApp(App[int]):
         self.fit_header()
         self.query_one("#todo", SafeStatic).update(Text(self.state.renderer.todo_text()))
         if info.size:
-            bar = context_bar(info.used, info.size, self.look.glyphs, 24)
+            bar = context_bar(info.used, info.size, self.look.glyphs, CONTEXT_BAR_CELLS)
             context = Text(f"{bar} {percent(info.used, info.size)}%\n{info.used} of {info.size} tokens\n\n/compact frees room")
         else:
             context = Text("context size not reported yet", style="dim")
@@ -855,7 +862,7 @@ class AgentApp(App[int]):
             if self.ui.asker is not None:
                 self.ui.asker.deny_open()
             self.run_worker(self.controller.cancel(), group="cancel")
-            toast(self, "stopping the turn", timeout=2)
+            toast(self, "stopping the turn", timeout=TOAST_SHORT_S)
             return
         now = time.monotonic()
         if now - self.last_ctrl_c <= QUIT_WINDOW_S:
@@ -868,14 +875,14 @@ class AgentApp(App[int]):
         """Esc: stops a running turn."""
         if self.busy:
             self.run_worker(self.controller.cancel(), group="cancel")
-            toast(self, "stopping the turn", timeout=2)
+            toast(self, "stopping the turn", timeout=TOAST_SHORT_S)
 
     def action_cycle_mode(self) -> None:
         """Shift+Tab: the next permission mode (code only)."""
         if not self.code:
             return
         mode = self.controller.cycle_mode()
-        toast(self, f"mode: {mode}", timeout=2)
+        toast(self, f"mode: {mode}", timeout=TOAST_SHORT_S)
         self.refresh_status()
 
     def action_expand_all(self) -> None:
@@ -952,7 +959,7 @@ class AgentApp(App[int]):
         for text in reversed(composer.sent):
             if text not in seen:
                 seen.append(text)
-        items = [PickItem(t.replace("\n", " ")[:120], t) for t in seen]
+        items = [PickItem(t.replace("\n", " ")[:HISTORY_ROW_CHARS], t) for t in seen]
         self.run_worker(self.history_pick(items), group="pick")
 
     async def history_pick(self, items: list[PickItem]) -> None:
@@ -995,7 +1002,7 @@ class AgentApp(App[int]):
         choice = await screens.ask(self, screens.ChoiceModal("Message", Text(clean(message.text)), choices, "cancel"))
         if choice == "copy":
             self.copy_to_clipboard(message.text)
-            toast(self, "copied", timeout=2)
+            toast(self, "copied", timeout=TOAST_SHORT_S)
         elif choice == "rewind":
             self.send(f"/rewind {message.checkpoint}")
 
@@ -1062,7 +1069,7 @@ class NotifyHandler(logging.Handler):
         """One toast per warning."""
         with contextlib.suppress(Exception):  # noqa: BLE001 - logging must never raise into the app
             if self.app.mounted:
-                toast(self.app, self.format(record), severity="warning", timeout=6)
+                toast(self.app, self.format(record), severity="warning", timeout=TOAST_LONG_S)
 
 
 async def run_full(controller: Controller, look: Look) -> tuple[int, AgentApp]:

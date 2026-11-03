@@ -62,6 +62,7 @@ SHELL_TIMEOUT_S = 120.0  # a `!` command that runs longer is killed; the agent's
 MAX_SHELL_CHARS = 20_000  # shell output that joins the context, about 5k tokens
 MAX_NOTE_CHARS = 500
 MODEL_LIST_TIMEOUT_S = 3.0
+CHECKPOINT_LABEL_CHARS = 40  # enough of the message to recognise it in `/rewind`'s list
 AGENTS_FILE = "AGENTS.md"
 PLAN_PROMPT = "Run this plan? [d]efault mode, [a]uto-edit mode, anything else keeps plan mode: "
 PLAN_ANSWERS = {"d": "default", "a": "auto-edit"}  # typed by the human; agent text never reaches this table
@@ -341,7 +342,7 @@ async def run_turn(state: TuiState, box: sessions.BoxedAgent, text: str, ui: Ui 
     session = box.session
     look = state.renderer.look
     if session.checkpoints is not None:
-        session.checkpoint(f"before: {text[:40]}")
+        session.checkpoint(checkpoint_label(text))
     ide_blocks = state.ide.blocks() if state.ide is not None else []  # type: ignore[attr-defined]
     blocks: list[dict[str, object]] = [{"type": "text", "text": text}, *state.attachments, *ide_blocks]
     state.attachments.clear()
@@ -586,6 +587,11 @@ class Controller:
         except (SandboxError, OSError) as exc:
             log.warning("change count unavailable: %s", exc)
             return 0
+
+
+def checkpoint_label(text: str) -> str:
+    """The label of the checkpoint taken before the turn that runs `text`."""
+    return f"before: {text[:CHECKPOINT_LABEL_CHARS]}"
 
 
 def history_path() -> Path:
