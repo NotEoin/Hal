@@ -26,9 +26,6 @@ asks you before anything that matters.
 
 ## Screenshots
 
-`hal code` in a dark terminal at 120x36. These screens come from a scripted session, so the
-model name and the project are placeholders.
-
 | | |
 | --- | --- |
 | ![A finished turn: plan, tool rows, an inline diff and a code block](media/hal-code-turn.png) | ![The Ctrl+P palette over commands, sessions, files, models and settings](media/hal-code-palette.png) |
