@@ -14,6 +14,7 @@ User docs: [hal-code.md](../user/hal-code.md), [tui.md](../user/tui.md) and
 | `halcore/tui/slash.py` | Slash commands; a bare listing command returns a `PickRequest` |
 | `halcore/tui/approval.py` | Approval panel text, `answer_to_option`, the line UI's asker |
 | `halcore/tui/tokens.py` | Design tokens: colour roles per theme, glyph sets (Unicode and ASCII), spacing; no Textual or rich import |
+| `halcore/tui/motion.py` | Easing helpers and `Ticker`, the one frame clock per app (no Textual import) |
 | `halcore/tui/theme.py` | `[ui]` settings and the `Glyphs`, `Palette`, prompt_toolkit colours and Textual themes built from `tokens.py` |
 | `halcore/tui/widgets.py` | Shared Textual widgets: `SafeStatic`, `Slider` (with `ValueEntry` to type a value), `Segmented`, `FitGauge`, `ToolCard`, `DiffView`, `ThinkingFold` |
 | `halcore/tui/screens.py` | Shared modals: `PickerModal`, `ConfirmModal`, `ChoiceModal`, `HelpScreen`, and `ask()` |
@@ -96,6 +97,17 @@ least 4.5:1 on `bg`, `faint` at least 3:1.
 gets one set or the other. Source files write glyphs as `\u` escapes. Helpers: `tokens.bar`
 (block bar), `tokens.spark` (sparkline scaled to the window's maximum) and `tokens.spinner_frame`.
 `test_tui_tokens.py` checks that the ASCII set is pure ASCII and each Unicode glyph is one cell.
+
+## Motion
+
+`motion.Ticker` is the app's only animation clock. Widgets call `subscribe(callback, hz)` for
+motion (spinners, the eye), `tween(start, end, seconds, on_value)` to ease a value, and
+`every(seconds, callback)` for numbers that change on their own (elapsed time, tok/s samples).
+The single Textual timer is created on the first subscription, runs at
+`min(FPS_MAX, fastest subscriber)` and is paused when the last subscription ends, so an idle app
+has no running timer. With `[ui].animations = false`, `subscribe` starts nothing and `tween`
+jumps to its end value; `every` still runs. A callback returns False to end its subscription; one
+that raises is logged and dropped. Three frames in a row over budget halve the frame cap.
 
 ## Snapshot tests
 
