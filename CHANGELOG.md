@@ -101,6 +101,10 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Changed
 
+- `hal chat` offers only the commands that work in a chat: `/help`, Tab and Esc Esc leave out the
+  project-copy commands (`/rewind`, `/diff`, `/accept`, `/export`, `/ide`, `/init`), and `!`, `#`
+  and `@` are sent as plain text.
+
 - `README.md` and `SETUP.md` are rewritten for the current install (`scripts/install.sh`, `hal setup`, `hal models`, `hal tune`).
 - `setup.sh` and `hal setup` download no model. `setup.sh --pull-suggested` is the optional old behaviour.
   `hal setup` and `hal doctor` say when no chat model is assigned and print the command that assigns one.

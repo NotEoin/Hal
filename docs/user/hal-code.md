@@ -97,6 +97,9 @@ reviewed), `/ide`, `/export [FILE]`, `/cost`, `/context`, `/todo`, `/jobs`, `/in
 `hal config set`), `/quit`. Your own commands are files `.hal/commands/NAME.md` in the project;
 `$ARGUMENTS` is replaced by what you type after the name.
 
+`hal chat` has no project copy, so it leaves out `/rewind`, `/diff`, `/accept`, `/export`, `/ide`
+and `/init`, and `!`, `#` and `@` are plain text there. `/help` and Tab show only what works.
+
 ### Model and effort
 
 `/model` lists the models Hal finds in your sources (see [models.md](models.md)), grouped by source,
@@ -147,7 +150,7 @@ In `plan` mode, when a turn ends with a todo list, the UI shows the plan and ask
 | `!cmd` says it needs the docker box | The session has backend `none` or `bwrap`; `!` only runs through `docker exec` |
 | `@file` is not attached | It is over `[ui].mention_max_bytes`, not UTF-8, a symlink, or outside the workspace |
 | Esc does nothing during a turn | stdin is not a terminal; use Ctrl-C |
-| `/rewind` says no checkpoints | `hal chat` boxes have no work tree; use `hal code` |
+| `/rewind` says it works in `hal code` | `hal chat` boxes have no work tree; use `hal code` |
 | `/model` shows no list | No source is configured or none answered (`hal models list`); `/model NAME` still works |
 | `/effort` says not available | The model has no thinking control; pick one marked `thinks` in `/model` |
 | `/model` says a model cannot be used yet | Run `/model save` (after choosing a served model), or `hal models assign code SOURCE MODEL` |

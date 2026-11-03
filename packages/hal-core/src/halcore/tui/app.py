@@ -75,11 +75,12 @@ class LineUi:
         if self.interactive:
             self.editor = PromptInput(
                 self.look,
-                command_descriptions(self.state.user_commands),
+                command_descriptions(self.state.user_commands, self.state.surface),
                 lambda: to_prompt_toolkit(segments(self.state.status, self.look), self.look),
                 root=lambda: controller.workdir if self.state.surface == "code" else None,
                 history=private_history(history_path()),
                 hooks=Hooks(self.cycle_mode, self.renderer.toggle_verbose, self.renderer.toggle_todo),
+                escape_rewind=self.state.surface == "code",
             )
 
     # -- reading ---------------------------------------------------------------------------------

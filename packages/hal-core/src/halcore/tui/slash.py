@@ -4,6 +4,11 @@ A command returns a `Result`: text to print, a prompt to send to the agent, or a
 that touch files act on the host side of the box (checkpoints, diff, accept), because nothing
 reaches the real project except through `accept` (RESOLUTIONS I3). A user command file is the
 person's own text from the real project, not from the box copy, so it is a human message.
+
+A bare listing command (`/model`, `/resume`, `/rewind`, `/mode`, `/effort`, `/theme`) also
+returns a `PickRequest`: the line UI prints the numbered list as before, the full-screen UI opens
+a picker whose choice runs the same command with the chosen value. Commands that need a project
+copy (`CODE_ONLY`) are not offered in `hal chat`.
 """
 
 from __future__ import annotations
@@ -55,8 +60,37 @@ INIT_PROMPT = (
     "code conventions and pitfalls. Keep it under 60 lines and verify every command you list."
 )
 MODES = {"default": "review", "auto-edit": "auto", "plan": "plan"}  # TUI mode name -> hal-agent mode id
+MODE_NOTES = {
+    "default": "asks per policy",
+    "auto-edit": "edits in the box copy without asking",
+    "plan": "read-only; ends with a plan to approve",
+}
 ARGUMENTS = "$ARGUMENTS"
 Block = dict[str, object]
+
+
+@dataclass(frozen=True)
+class PickItem:
+    """One row of a picker; `label` and `note` are already escaped for display."""
+
+    label: str
+    value: str
+    note: str = ""
+    disabled: bool = False
+
+
+@dataclass(frozen=True)
+class PickRequest:
+    """A list the full-screen UI shows as a picker; choosing a row runs `command` with its value."""
+
+    title: str
+    items: tuple[PickItem, ...]
+    command: str  # a slash command with `{value}`, for example `/model {value}`
+    current: str = ""
+
+    def command_for(self, value: str) -> str:
+        """The command line that picking `value` runs."""
+        return self.command.replace("{value}", value)
 
 
 @dataclass
@@ -67,6 +101,8 @@ class Result:
     prompt: str | None = None
     quit: bool = False
     renderable: RenderableType | None = None
+    pick: PickRequest | None = None
+    theme: str | None = None  # a theme to apply to every surface now
 
 
 @dataclass
@@ -130,12 +166,14 @@ async def dispatch(line: str, state: TuiState, user_commands: dict[str, str]) ->
     args = args.strip()
     if name == "exit":
         return Result(quit=True)
+    if name in CODE_ONLY and state.surface != "code":
+        return Result(message=f"/{name} works in `hal code`; a chat has no project copy")
     handler = BUILTINS.get(name)
     if handler is not None:
         return await handler(state, args)
     if name in user_commands:
         return Result(prompt=user_commands[name].replace(ARGUMENTS, args))
-    known = sorted({*COMMAND_HELP, *user_commands})
+    known = sorted({*commands_for(state.surface), *user_commands})
     return Result(message=f"unknown command /{safe(name)}; known: " + ", ".join("/" + n for n in known))
 
 
@@ -144,12 +182,11 @@ async def _help(state: TuiState, args: str) -> Result:
     table = Table(box=look.glyphs.box, border_style=look.palette.muted, title="Commands", title_justify="left", expand=False)
     table.add_column("Command", style=look.palette.accent, no_wrap=True)
     table.add_column("What it does")
-    for usage, text in COMMAND_HELP.values():
+    for usage, text in commands_for(state.surface).values():
         table.add_row(usage, text)
     for name in sorted(state.user_commands):
         table.add_row(f"/{safe(name)}", "your command from .hal/commands")
-    keys = "Enter send | Alt-Enter newline | Shift-Tab mode | Esc stop | Esc Esc /rewind | Ctrl-O output | Ctrl-T todo | @file | !cmd | # note"
-    return Result(renderable=table, message=keys)
+    return Result(renderable=table, message=KEY_HELP[state.surface])
 
 
 async def _clear(state: TuiState, args: str) -> Result:
@@ -170,9 +207,13 @@ async def _resume(state: TuiState, args: str) -> Result:
         if not rows:
             return Result(message="no stored chat sessions" if state.surface == "chat" else "no stored sessions for this project")
         state.resume_choices = [str(m["id"]) for m in rows]
+        items = tuple(
+            PickItem(safe(m.get("title", "")) or "(untitled)", str(m["id"]), f"{m['id']}  {m.get('updated', '')}") for m in rows
+        )
         return Result(
             message="sessions (use /resume N or /resume ID):\n"
-            + "\n".join(f"{i}  {m['id']}  {m.get('updated', '')}  {safe(m.get('title', ''))}" for i, m in enumerate(rows, 1))
+            + "\n".join(f"{i}  {m['id']}  {m.get('updated', '')}  {safe(m.get('title', ''))}" for i, m in enumerate(rows, 1)),
+            pick=PickRequest("Resume a session", items, "/resume {value}", state.sid),
         )
     if args.isdigit() and 1 <= int(args) <= len(state.resume_choices):
         args = state.resume_choices[int(args) - 1]
@@ -200,7 +241,8 @@ async def _fork(state: TuiState, args: str) -> Result:
 
 async def _mode(state: TuiState, args: str) -> Result:
     if not args:
-        return Result(message=f"mode: {state.mode} (default, auto-edit, plan)")
+        items = tuple(PickItem(name, name, MODE_NOTES[name]) for name in MODES)
+        return Result(message=f"mode: {state.mode} (default, auto-edit, plan)", pick=PickRequest("Mode", items, "/mode {value}", state.mode))
     if args not in MODES:
         return Result(message="modes: default (ask per policy), auto-edit (edits in the box copy without asking), plan (read-only)")
     await state.client.set_mode(state.sid, MODES[args])
@@ -275,7 +317,7 @@ async def _model(state: TuiState, args: str) -> Result:
         return Result(message=f"model: {safe(args)} from the next turn" + (f"\n{note}" if note else ""))
     current = f"model: {safe(state.model) or '(default)'}"
     if state.choices:
-        return Result(message=_choice_list(state, current))
+        return Result(message=_choice_list(state, current), pick=_choice_pick(state))
     if state.list_models is None:
         return Result(message=current)
     try:
@@ -285,11 +327,13 @@ async def _model(state: TuiState, args: str) -> Result:
         return Result(message=current + "\n(the gateway did not list its models)")
     state.model_choices = [str(r["id"]) for r in rows]
     lines = [current, "models (use /model N or /model NAME):"]
+    items = []
     for i, row in enumerate(rows, 1):
         size = context_size_of(row)
         mark = "*" if str(row["id"]) == state.model else " "
         lines.append(f"{mark}{i}  {safe(row['id'])}" + (f"  {size // 1024}k context" if size else ""))
-    return Result(message="\n".join(lines))
+        items.append(PickItem(safe(row["id"]), str(row["id"]), f"{size // 1024}k context" if size else ""))
+    return Result(message="\n".join(lines), pick=PickRequest("Model", tuple(items), "/model {value}", state.model))
 
 
 def _choice_list(state: TuiState, current: str) -> str:
@@ -306,6 +350,17 @@ def _choice_list(state: TuiState, current: str) -> str:
         why = f"  [{c.note}]" if c.note and not c.gateway else ""
         lines.append(f"{'*' if c is here else ' '}{i}  {safe(c.name)}{size}{extra}{why}")
     return "\n".join(lines)
+
+
+def _choice_pick(state: TuiState) -> PickRequest:
+    """The discovered models as a picker; a model the gateway cannot serve yet is shown disabled with the reason."""
+    items = []
+    for c in state.choices or []:
+        size = f"{c.size_bytes / 1024**3:.1f} GiB" if c.size_bytes else ""
+        facts = "  ".join(f for f in (size, "thinks" if c.thinks else "") if f)
+        value = c.gateway or f"{c.source}/{c.name}"
+        items.append(PickItem(f"{safe(c.source)}/{safe(c.name)}", value, c.note if not c.gateway else facts, not c.gateway))
+    return PickRequest("Model", tuple(items), "/model {value}", state.model)
 
 
 async def _model_save(state: TuiState) -> Result:
@@ -327,7 +382,11 @@ async def _effort(state: TuiState, args: str) -> Result:
     if not args:
         if not levels:
             return Result(message=f"effort: not available for {safe(state.model) or 'this model'}, {reason}")
-        return Result(message=f"effort: {state.effort or 'default'}; this model supports {', '.join(levels)} (or default)")
+        items = tuple(PickItem(level, level) for level in ("default", *levels))
+        return Result(
+            message=f"effort: {state.effort or 'default'}; this model supports {', '.join(levels)} (or default)",
+            pick=PickRequest("Effort", items, "/effort {value}", state.effort or "default"),
+        )
     if args not in (*effort.LEVELS, "default"):
         return Result(message=f"/effort: use one of {', '.join(effort.LEVELS)}, or default")
     if not levels:
@@ -410,8 +469,10 @@ async def _rewind(state: TuiState, args: str) -> Result:
         session = _require_session(state)
         if not args:
             assert session.checkpoints is not None
-            rows = [f"  {ck.n}  {ck.created}  {safe(ck.label)}" for ck in session.checkpoints.list()]
-            return Result(message="checkpoints (use /rewind N):\n" + "\n".join(rows))
+            listed = session.checkpoints.list()
+            rows = [f"  {ck.n}  {ck.created}  {safe(ck.label)}" for ck in listed]
+            items = tuple(PickItem(f"{ck.n}  {safe(ck.label)}", str(ck.n), str(ck.created)) for ck in reversed(listed))
+            return Result(message="checkpoints (use /rewind N):\n" + "\n".join(rows), pick=PickRequest("Rewind to", items, "/rewind {value}"))
         result = session.undo(int(args))
     except (SandboxError, ValueError) as exc:
         return Result(message=f"/rewind: {exc}")
@@ -520,11 +581,15 @@ async def _init(state: TuiState, args: str) -> Result:
 
 
 async def _theme(state: TuiState, args: str) -> Result:
-    if args not in THEMES:
-        return Result(message="theme: pick one of " + ", ".join(THEMES) + " (set [ui].theme to keep it)")
     r = state.renderer
+    if args not in THEMES:
+        items = tuple(PickItem(name, name) for name in THEMES)
+        return Result(
+            message="theme: pick one of " + ", ".join(THEMES) + " (set [ui].theme to keep it)",
+            pick=PickRequest("Theme", items, "/theme {value}", r.look.theme),
+        )
     r.look = load_look({"theme": args, "unicode": r.look.unicode, "show_thinking": r.look.show_thinking}, stream=r.out)
-    return Result(message=f"theme: {args} for this session")
+    return Result(message=f"theme: {args} for this session", theme=args)
 
 
 async def _lockdown(state: TuiState, args: str) -> Result:
@@ -550,7 +615,7 @@ COMMAND_HELP = {
     "clear": ("/clear", "start a fresh conversation in the same box"),
     "resume": ("/resume [N|ID]", "pick a saved session of this project"),
     "fork": ("/fork", "branch this session; the original is unchanged"),
-    "rewind": ("/rewind [N]", "list or restore checkpoints (Esc Esc)"),
+    "rewind": ("/rewind [N]", "list or restore checkpoints"),
     "diff": ("/diff [N]", "patch of the copy against the real repo"),
     "accept": ("/accept [--allow-flags]", "apply the copy to the real repo"),
     "export": ("/export [FILE]", "write a patch (or .bundle) instead of applying"),
@@ -573,8 +638,21 @@ BUILTINS = {
 }  # fmt: skip
 
 
-def command_descriptions(user_commands: dict[str, str]) -> dict[str, str]:
+CODE_ONLY = frozenset({"rewind", "diff", "accept", "apply", "export", "ide", "init"})  # need a project copy
+KEY_HELP = {
+    "code": "Enter send | Alt-Enter newline | Shift-Tab mode | Esc stop | Esc Esc /rewind | Ctrl-O output | Ctrl-T todo"
+    " | @file | !cmd | # note",
+    "chat": "Enter send | Alt-Enter newline | Esc stop | Ctrl-O output | Ctrl-T todo",
+}
+
+
+def commands_for(surface: str) -> dict[str, tuple[str, str]]:
+    """The built-in commands of a surface (`code` or `chat`) with their usage and description."""
+    return {name: row for name, row in COMMAND_HELP.items() if surface == "code" or name not in CODE_ONLY}
+
+
+def command_descriptions(user_commands: dict[str, str], surface: str = "code") -> dict[str, str]:
     """Name -> one-line description for tab completion, built-ins first then the user's own."""
-    out = {name: text for name, (_, text) in COMMAND_HELP.items()}
+    out = {name: text for name, (_, text) in commands_for(surface).items()}
     out.update({name: "your command from .hal/commands" for name in user_commands})
     return out

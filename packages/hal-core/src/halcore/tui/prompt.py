@@ -111,8 +111,10 @@ class PromptInput:
         hooks: Hooks | None = None,
         input: Input | None = None,  # noqa: A002 - prompt_toolkit's own keyword; tests pass a pipe
         output: Output | None = None,
+        escape_rewind: bool = True,
     ) -> None:
         self.look = look
+        self.escape_rewind = escape_rewind  # a chat has no checkpoints, so Esc Esc does nothing there
         self.pastes: dict[str, str] = {}
         self.hooks = hooks or Hooks()
         colors = PT_COLORS[look.theme]
@@ -158,7 +160,8 @@ class PromptInput:
 
         @kb.add("escape", "escape")
         def _rewind(event) -> None:
-            event.app.exit(result="/rewind")
+            if self.escape_rewind:
+                event.app.exit(result="/rewind")
 
         @kb.add("c-o")
         def _verbose(event) -> None:

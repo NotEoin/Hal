@@ -183,3 +183,40 @@ def test_image_outside_flag_attaches_with_a_warning(tmp_path):
     st = state(project=ws)
     msg = run(f"/image --outside {tmp_path / 'x.png'}", st).message
     assert msg.startswith("WARNING:") and len(st.attachments) == 1
+
+
+def test_bare_listing_commands_also_return_a_picker_that_runs_the_same_command():
+    st = state()
+    mode = run("/mode", st)
+    assert "mode: default" in mode.message and [i.value for i in mode.pick.items] == ["default", "auto-edit", "plan"]
+    assert mode.pick.command_for("plan") == "/mode plan" and mode.pick.current == "default"
+    theme = run("/theme", st)
+    assert theme.pick.command_for("light") == "/theme light"
+    assert run("/theme light", st).theme == "light"
+
+
+def test_model_picker_shows_models_the_gateway_cannot_serve_as_disabled_with_the_reason():
+    from halcore.tui import choices
+
+    st = state()
+    st.choices = [
+        choices.Choice("local", "ollama", "qwen3:8b", "qwen3:8b", size_bytes=5 * 2**30),
+        choices.Choice("disk", "gguf", "big.gguf", "", note="not served yet: /model save assigns and wires it"),
+    ]
+    pick = run("/model", st).pick
+    ready, blocked = pick.items
+    assert (ready.value, ready.disabled) == ("qwen3:8b", False) and "5.0 GiB" in ready.note
+    assert blocked.disabled and "not served yet" in blocked.note
+
+
+def test_chat_help_and_completion_offer_only_chat_commands():
+    st = state(surface="chat")
+    table = shown(run("/help", st).renderable)
+    assert "/model" in table and "/diff" not in table and "/accept" not in table and "/rewind" not in table
+    assert "!cmd" not in run("/help", st).message
+    names = slash.command_descriptions({}, "chat")
+    assert "export" not in names and "model" in names
+
+
+def test_a_code_only_command_in_chat_says_where_it_works():
+    assert "works in `hal code`" in run("/diff", state(surface="chat")).message
