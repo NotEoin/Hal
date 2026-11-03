@@ -492,12 +492,20 @@ class Controller:
         assert self.state is not None
         await self.client.cancel(self.state.sid)
 
-    def banner(self) -> None:
-        """Writes the unsandboxed banner (when it applies) and the welcome panel."""
+    def banner(self, ui: object = None) -> None:
+        """Writes the unsandboxed banner (when it applies) and the welcome panel.
+
+        A `ui` with its own `welcome(state, session)` (the full screen) draws the welcome itself;
+        the unsandboxed banner is always written first.
+        """
         assert self.state is not None
         if self.session.backend == "none":
             self.renderer.write(Text(unboxed.BANNER, style=f"bold {self.renderer.look.palette.bad}"))
-        self.renderer.write(welcome(self.state, self.session, self.renderer.look))
+        own = getattr(ui, "welcome", None)
+        if callable(own):
+            own(self.state, self.session)
+        else:
+            self.renderer.write(welcome(self.state, self.session, self.renderer.look))
 
     async def handle(self, line: str, ui: Ui) -> bool:
         """Runs one message: a slash command, a prefix or a turn; True when the human asked to quit."""
@@ -546,7 +554,7 @@ class Controller:
         assert self.state is not None
         self.state.confirm = ui.confirm
         self.start_approvals(ui)
-        self.banner()
+        self.banner(ui)
         try:
             while True:
                 self.state.status.notice = ""

@@ -23,6 +23,8 @@ User docs: [hal-code.md](../user/hal-code.md), [tui.md](../user/tui.md) and
 | `halcore/tui/approvalmodal.py` | The approval gate of the full screen (`ApprovalModal`) and `ModalAsker`, its bridge sender |
 | `halcore/tui/agentapp.py` | The full-screen `hal code` and `hal chat`: `AgentApp`, `TextualUi`, `Composer` |
 | `halcore/tui/transcript.py` | The conversation view: `Transcript`, `UserMessage` and `TextualSink` (the `render.Sink` that mounts into it) |
+| `halcore/tui/palette.py` | The Ctrl+P rows (`PaletteItem`) from commands, sessions, files, models and settings (no Textual import) |
+| `halcore/tui/welcome.py` | `WelcomeView`: eye art, facts, recent sessions (`RecentRow`) and `TIPS` |
 | `halcore/tui/fallback.py` | `can_run_textual`, `StartFailed`, `reason_of` and the notice printed before the line UI takes over |
 | `halcore/tuneapp.py` | The full-screen `hal tune` (`TuneApp`, `QuickStart`, `SourceModal`) |
 | `halcore/tuneview.py` | What both tune screens show, as plain text |
@@ -74,6 +76,11 @@ in a thread under `PREVIEW_TIMEOUT_S`, then `clean()`ed into a rich `Syntax`; a 
 arguments shows them as a usage line, since the list itself cannot restyle only its highlighted row.
 Ctrl+R opens `screens.HistorySearch`, a `PickerModal` subclass over `Composer.sent` (stored history
 plus this session) newest first; its answer goes through `Composer.load`, never `send`.
+`Controller.banner(ui)` lets a `ui` with a `welcome(state, session)` method draw its own welcome;
+`TextualUi` mounts `welcome.WelcomeView` as the first transcript item and the line UI keeps the
+`controller.welcome()` panel. Recent rows reuse `palette.sessions` (ids checked, titles cleaned)
+in a thread, and only post `WelcomeView.Resume("/resume ID")`. The tip reads the module's `clock`,
+which the snapshot tests pin.
 Ctrl+P opens `screens.CommandPalette`. Its rows come from the pure `palette` module (commands,
 `list_sessions` minus the current one, `mentions.index_files` in code, `state.choices` or one
 `/model` row, settings), gathered in a thread under `PALETTE_TIMEOUT_S` once per open. An item only

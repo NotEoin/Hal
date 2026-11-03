@@ -23,6 +23,11 @@ check a real session with a 12B to 32B model before relying on the speed figures
  box runsc | lockdown standard/balanced | main | 1 unaccepted | .:-=+*#= 36 tok/s      Esc stops  ^C stop  F1 help
 ```
 
+The transcript opens with a welcome: the HAL eye (one row below 30 screen rows), the model, the
+box and the workspace, your most recent sessions of this project (three, or five on a tall screen;
+a click or Enter resumes one, and the title is the only preview a session keeps) and a tip that
+changes daily. It scrolls away like the rest. The line UI keeps its boxed header.
+
 The top bar is one row. The red dot at its left is the HAL eye: dim while Hal is idle, pulsing
 slowly while a turn runs, blinking amber while an approval waits (the status line says "approval
 waiting" too; in the ASCII look the dot is `o`, `O` or `!`). Then come the surface, the project and

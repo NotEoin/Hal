@@ -133,6 +133,8 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Changed
 
+- The full-screen welcome is the HAL eye with the model, box and workspace beside it, the recent
+  sessions of the project (a click resumes one) and a tip of the day, in place of the boxed header.
 - The light theme's accent is a darker HAL red (`#c9373c`) and its greys are darker, so every text
   colour passes the WCAG 4.5:1 contrast minimum (hints 3:1); scrollbars in the full screen are one
   thin grey column instead of a red bar.

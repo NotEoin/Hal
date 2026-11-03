@@ -66,6 +66,7 @@ from .render import TurnStats, clean, clip, patch_text, split_patch
 from .slash import KEY_HELP, PickItem, context_breakdown, effort_levels, effort_support, PickRequest, Result, TuiState, command_descriptions, commands_for
 from .status import StatusInfo, context_bar, model_label, percent, segments
 from .theme import Look, textual_themes
+from .welcome import WelcomeView
 from .transcript import TextualSink, ToolGroup, Transcript, UserMessage
 from .widgets import SafeStatic, ThinkingFold, ToolCard, toast
 
@@ -408,6 +409,10 @@ class TextualUi:
     def status_changed(self) -> None:
         """Redraws the status bar."""
         self.app.refresh_status()
+
+    def welcome(self, state: TuiState, session: object) -> None:
+        """The welcome view as the first transcript item, in place of the line UI's panel."""
+        self.app.transcript.add(WelcomeView(state, session, self.app.look))
 
 
 # --- the app ---------------------------------------------------------------------------------
@@ -1129,6 +1134,12 @@ class AgentApp(App[int]):
         if which in commands:
             self.send(commands[which])
         self.query_one(Composer).focus()  # the next thing typed is a message, not another press of the button
+
+    @on(WelcomeView.Resume)
+    def welcome_resume(self, event: WelcomeView.Resume) -> None:
+        """A recent session row: `/resume ID`, then typing goes to the message box again."""
+        self.send(event.command)
+        self.query_one(Composer).focus()
 
     @on(TopBar.Clicked)
     def top_clicked(self, event: TopBar.Clicked) -> None:

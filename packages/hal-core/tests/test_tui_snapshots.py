@@ -12,6 +12,8 @@ from __future__ import annotations
 import asyncio
 import io
 import types
+from datetime import UTC, datetime
+from unittest import mock
 
 import pytest
 import tuisnap
@@ -19,7 +21,8 @@ from test_tui_agentapp import FakeSession, ScriptedAgent, chunk, settle, until
 from test_tui_approval_modal import REQUEST, FakeBridge
 
 from halcore.acp.records import RecordStore
-from halcore.tui import render
+from halcore import sessionscmd
+from halcore.tui import render, welcome
 from halcore.tui.agentapp import AgentApp, Composer
 from halcore.tui.approvalmodal import ApprovalModal
 from halcore.tui.controller import Controller
@@ -50,7 +53,14 @@ TURN = [
     {"sessionUpdate": "usage_update", "used": 13100, "size": 32768},
     chunk(CODE),
 ]  # fmt: skip
-LABELS = [MODEL, "src/calc.py", "pytest", "Read the failing test", "Allow these exact arguments this session"]
+RECENT = [
+    ("aaaaaaaaaaa1", "Explain the sandbox profile", "2026-10-30T16:05:00Z"),
+    ("aaaaaaaaaaa2", "Add CSV export to the report command", "2026-11-01T09:12:00Z"),
+    ("aaaaaaaaaaa3", "Fix the flaky add test", "2026-11-02T18:40:00Z"),
+]
+TIP_DAY = datetime(2026, 1, 1, tzinfo=UTC)  # day 1: the second tip, fixed so the golden does not change daily
+LABELS = [MODEL, "src/calc.py", "pytest", "Read the failing test", "Allow these exact arguments this session",
+          *(title for _, title, _ in RECENT)]  # fmt: skip
 
 
 class Utf8(io.StringIO):
@@ -67,6 +77,7 @@ def look_for(theme, ascii_look=False):
 @pytest.fixture(autouse=True)
 def frozen(monkeypatch, tmp_path):
     monkeypatch.setattr(render, "clock", lambda: FROZEN)
+    monkeypatch.setattr(welcome, "clock", lambda: TIP_DAY)
     monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "state"))
     rt = tmp_path / "rt"
     rt.mkdir(mode=0o700)
@@ -113,6 +124,9 @@ def shoot(tmp_path, name, size, theme, *, ascii_look=False):
                                 mode="code", live=False)  # fmt: skip
         await controller.start()
         controller.state.status.model = MODEL
+        for sid, title, stamp in RECENT:
+            with mock.patch.object(sessionscmd, "_now", return_value=stamp):
+                sessionscmd.write_meta(controller.store, sid, title=title, mode="code")
         app = AgentApp(controller, look)
         controller.renderer.sink = app.sink
         async with app.run_test(size=size, notifications=False) as pilot:

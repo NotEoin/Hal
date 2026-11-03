@@ -1,15 +1,15 @@
 # hal tui snapshot: screen=approval size=120x36 theme=dark look=unicode textual=8.2.8
 ## text
  \u25cf  hal code  /work    gemma-3-27b-it \u25be \u00b7 default \u25be \u00b7 effort default \u25be                                   \u25b0\u25b0\u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1\u25b1 40% 
- \u2502 gemma-3-27b-it \u00b7 box runsc                                       \u2502                                                   
- \u2502 workspace /work                                                  \u2502                                                 \u2581 
- \u2502 /help commands  @file attach  !cmd shell  # note  Shift-Tab mode \u2502                                                   
- \u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f                                                   
+     > Explain the sandbox profile                           2026-10-30 16:05                                           
+                                                                                                                        
+     tip  Ctrl+R searches the messages you sent before                                                                  
+                                                                                                                        
                                                                                                                         
  \u2502 \u203a fix the add test                                                                                                   
  \u2502                                                                                                                      
  \u2502 \u2234 thought for <1s \u25b8                                                                                                  
- \u2502                                                                                                                      
+ \u2502                                                                                                                    \u2583 
  \u2502 pla\u250f\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2513      
  \u2502   \u2713\u2503 Approval needed: leaves the box                                                                          \u2503      
  \u2502   \u203a\u2503 shell.run [exec] from hal-tools   key 3f9a0c12d4e8                                                       \u2503      
@@ -38,22 +38,15 @@
  box runsc \u00b7 approval waiting                                                            ^P commands  ^B panel  F1 help 
 ## roles
 00 _1 X1 _2 I3 _1 x4 _2 x5 _4 i14 _1 i1 _1 x1 _1 i7 _1 i1 _1 x1 _1 x6 _1 i7 _1 i1 _35 x10 _1 x3 _1
-01 _1 x1 _1 x14 _1 x1 _1 x3 _1 x5 _39 x1 _51
-02 _1 x1 _1 x9 _1 x5 _50 x1 _49 s1 _1
-03 _1 x1 _1 x5 _1 x8 _2 x5 _1 x6 _2 x4 _1 x5 _2 x1 _1 x4 _2 x9 _1 x4 _1 x1 _51
-03bg .118 S1 .1
-04 _1 x68 _51
-04bg .118 S1 .1
+01 _5 x1 _1 i7 _1 i3 _1 i7 _1 i7 _27 x10 _1 x5 _43
+02 _120
+03 _5 x3 _2 x6 _1 x8 _1 x3 _1 x8 _1 x3 _1 x4 _1 x6 _66
+04 _120
 05 _120
-05bg .118 S1 .1
 06 _1 x1 _1 X1 _1 I3 _1 I3 _1 I3 _1 I4 _99
-06bg .118 S1 .1
 07 _1 x1 _118
-07bg .118 S1 .1
 08 _1 x1 _1 x1 _1 x7 _1 x3 _1 x3 _1 x1 _98
-08bg .118 S1 .1
-09 _1 x1 _118
-09bg .118 S1 .1
+09 _1 x1 _116 s1 _1
 10 _1 x1 _1 x111 _6
 10bg .6 S108 .4 S1 .1
 11 _1 x1 _3 x2 _1 X8 _1 X7 _1 X6 _1 X3 _1 X3 _74 x1 _6

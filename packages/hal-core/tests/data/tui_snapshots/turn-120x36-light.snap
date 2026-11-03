@@ -1,15 +1,15 @@
 # hal tui snapshot: screen=turn size=120x36 theme=light look=unicode textual=8.2.8
 ## text
  \u25cf  hal code  /work    gemma-3-27b-it \u25be \u00b7 default \u25be \u00b7 effort default \u25be                                   \u25b0\u25b0\u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1\u25b1 40% 
- \u2502 gemma-3-27b-it \u00b7 box runsc                                       \u2502                                                   
- \u2502 workspace /work                                                  \u2502                                                 \u2581 
- \u2502 /help commands  @file attach  !cmd shell  # note  Shift-Tab mode \u2502                                                   
- \u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f                                                   
+     > Explain the sandbox profile                           2026-10-30 16:05                                           
+                                                                                                                        
+     tip  Ctrl+R searches the messages you sent before                                                                  
+                                                                                                                        
                                                                                                                         
  \u2502 \u203a fix the add test                                                                                                   
  \u2502                                                                                                                      
  \u2502 \u2234 thought for <1s \u25b8                                                                                                  
- \u2502                                                                                                                      
+ \u2502                                                                                                                    \u2583 
  \u2502 plan  \u25b0\u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1  1 of 3                                                                                               
  \u2502   \u2713 Read the failing test                                                                                            
  \u2502   \u203a Fix add()                                                                                                        
@@ -38,22 +38,15 @@
  box runsc                                                                               ^P commands  ^B panel  F1 help 
 ## roles
 00 _1 d1 _2 F3 _1 m4 _2 m5 _4 f14 _1 f1 _1 i1 _1 f7 _1 f1 _1 i1 _1 i6 _1 f7 _1 f1 _35 m10 _1 m3 _1
-01 _1 x1 _1 x14 _1 x1 _1 x3 _1 x5 _39 x1 _51
-02 _1 x1 _1 x9 _1 x5 _50 x1 _49 p1 _1
-03 _1 x1 _1 x5 _1 x8 _2 x5 _1 x6 _2 x4 _1 x5 _2 x1 _1 x4 _2 x9 _1 x4 _1 x1 _51
-03bg .118 P1 .1
-04 _1 x68 _51
-04bg .118 P1 .1
+01 _5 i1 _1 f7 _1 f3 _1 f7 _1 f7 _27 i10 _1 i5 _43
+02 _120
+03 _5 i3 _2 m6 _1 m8 _1 m3 _1 m8 _1 m3 _1 m4 _1 m6 _66
+04 _120
 05 _120
-05bg .118 P1 .1
 06 _1 p1 _1 A1 _1 F3 _1 F3 _1 F3 _1 F4 _99
-06bg .118 P1 .1
 07 _1 p1 _118
-07bg .118 P1 .1
 08 _1 p1 _1 i1 _1 i7 _1 i3 _1 i3 _1 i1 _98
-08bg .118 P1 .1
-09 _1 p1 _118
-09bg .118 P1 .1
+09 _1 p1 _116 p1 _1
 10 _1 p1 _1 m4 _2 a3 p5 _2 i1 _1 i2 _1 i1 _95
 10bg .118 P1 .1
 11 _1 p1 _3 o1 _1 i4 _1 i3 _1 i7 _1 i4 _92
