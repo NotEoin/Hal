@@ -9,9 +9,9 @@ copy of your project. Background: [the sandbox guide](../user/sandbox.md).
    network (apt, pip, npm or the goose release, all pinned).
 
    ```sh
-   hal-sandbox image build            # the base image, about 870 MB
-   hal-sandbox image build crush      # one CLI image on top of it
-   hal-sandbox harnesses              # which CLIs are built, with their pinned versions
+   hal box image build                # the base image, about 870 MB
+   hal box image build crush          # one CLI image on top of it
+   hal box harnesses              # which CLIs are built, with their pinned versions
    ```
 
 2. Run the CLI in the project folder. Everything after `--` reaches the CLI unchanged.

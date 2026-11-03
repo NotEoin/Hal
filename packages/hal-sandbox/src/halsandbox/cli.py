@@ -194,11 +194,15 @@ def sandbox_main(argv: Sequence[str] | None = None) -> int:
 
 
 def box_main(argv: Sequence[str] | None = None) -> int:
-    """`hal box [options] -- CLI [CLI-ARGS...]`, `hal box harnesses`, `hal box image ...`."""
+    """`hal box [options] -- CLI [CLI-ARGS...]`, or one of the `hal-sandbox` commands.
+
+    The `hal-sandbox` script lives in Hal's environment, not on PATH, so every command the docs
+    name (image, deps, doctor, ls, gc, forget, harnesses) must also work as `hal box COMMAND`.
+    """
     own, rest = _split(sys.argv[1:] if argv is None else argv)
     if own[:1] == ["harnesses"]:
         return sandbox_main(["harnesses", *own[1:]])
-    if own[:1] and own[0] in ("image", "doctor", "ls", "gc", "forget"):
+    if own[:1] and own[0] in ("image", "doctor", "ls", "gc", "forget", "deps"):
         return sandbox_main(own)
     parser = argparse.ArgumentParser(prog="hal box")
     parser.add_argument("--dir", default=".")

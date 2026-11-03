@@ -1,6 +1,6 @@
 # Prepare project dependencies
 
-The box has no network, so a project's dependencies must be installed first. `hal-sandbox deps`
+The box has no network, so a project's dependencies must be installed first. `hal box deps`
 does that in a prep box whose only way out is a proxy limited to package registries. It needs
 lockdown `relaxed` or lower and the docker backend.
 
@@ -15,7 +15,7 @@ lockdown `relaxed` or lower and the docker backend.
 2. Run the prep. It asks once per lockfile; no terminal means no approval.
 
    ```sh
-   hal-sandbox deps --dir .           # asks: Install dependencies from uv.lock (uv) in the prep box? [y/N]
+   hal box deps --dir .               # asks: Install dependencies from uv.lock (uv) in the prep box? [y/N]
    ```
 
 3. Start the agent. The next `hal code` or `hal box` sees the installed dependencies; the prep

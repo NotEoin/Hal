@@ -60,3 +60,12 @@ def test_box_main_without_a_cli_is_a_usage_error():
     with pytest.raises(SystemExit) as exc:
         cli.box_main(["--dir", "."])
     assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("command", ["image", "doctor", "ls", "gc", "forget", "deps", "harnesses"])
+def test_every_documented_sandbox_command_works_through_hal_box(monkeypatch, command):
+    """Regression: the docs said `hal-sandbox deps`, which is not on PATH, and `hal box deps` ran a CLI."""
+    seen = []
+    monkeypatch.setattr(cli, "sandbox_main", lambda argv: seen.append(argv) or 0)
+    assert cli.box_main([command]) == 0
+    assert seen and seen[0][0] == command
