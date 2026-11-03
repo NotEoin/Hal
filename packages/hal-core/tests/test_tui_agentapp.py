@@ -350,7 +350,7 @@ def test_shift_tab_cycles_mode_and_status_updates(tmp_path):
         return app.state.mode, str(app.query_one("#status").render()), top_text(app)
 
     mode, status, top = drive(tmp_path, script)
-    assert mode == "auto-edit" and "mode auto-edit" in status and "auto-edit" in top
+    assert mode == "auto-edit" and "auto-edit" in top and "mode" not in status  # the top bar owns the mode
 
 
 def test_plan_card_keeps_planning_by_default_and_runs_only_on_button(tmp_path):
@@ -838,3 +838,40 @@ def test_eye_follows_turns_and_approvals(tmp_path):
         return seen
 
     assert drive(tmp_path, script) == ["idle", "thinking", "approval", "thinking", "idle"]
+
+
+def test_status_line_shows_approval_waiting_in_words(tmp_path):
+    from test_tui_approval_modal import REQUEST, FakeBridge
+
+    async def script(pilot, app, agent):
+        send = app.ui.approval_sender(FakeBridge({"hal-1": REQUEST}), lambda note: None)
+        await send({"id": "hal-1"})
+        assert await until(pilot, lambda: isinstance(app.screen, ApprovalModal))
+        return str(app.query_one("#status").render())
+
+    assert "approval waiting" in drive(tmp_path, script)
+
+
+def test_key_hints_change_while_a_turn_runs(tmp_path):
+    async def script(pilot, app, agent):
+        idle = str(app.query_one("#status").render())
+        await type_text(pilot, "go")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: app.busy)
+        await settle(pilot)
+        busy = str(app.query_one("#status").render())
+        await pilot.press("escape")
+        return idle, busy
+
+    idle, busy = drive(tmp_path, script, turns=[[WAIT_CANCEL]])
+    assert "^P commands" in idle and "Esc stops" not in idle and "Esc stops" in busy
+
+
+def test_status_line_draws_a_tok_s_sparkline_during_a_turn(tmp_path):
+    async def script(pilot, app, agent):
+        app.tok_samples = [10.0, 20.0, 40.0]
+        app.refresh_status()
+        await settle(pilot)
+        return str(app.query_one("#status").render())
+
+    assert "40 tok/s" in drive(tmp_path, script)

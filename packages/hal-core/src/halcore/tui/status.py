@@ -68,21 +68,27 @@ def percent(used: int, size: int) -> int:
     return 0 if size <= 0 else min(100, round(100 * used / size))
 
 
-def segments(info: StatusInfo, look: Look) -> list[tuple[str, str]]:
-    """The status line as `(role, text)` pairs."""
+def segments(info: StatusInfo, look: Look, where: str = "line") -> list[tuple[str, str]]:
+    """The status line as `(role, text)` pairs; `where="status"` leaves out what the full screen's top bar shows.
+
+    The line UI (`where="line"`) shows every field. The full-screen status line starts with the
+    box and leaves model, effort, context, speed and mode to the top bar and the sparkline.
+    """
     g = look.glyphs
     sep = (("muted", f" {g.sep} "),)
-    out: list[tuple[str, str]] = [("accent", f" {clip(model_label(info), MAX_FIELD_CHARS)}")]
-    if info.effort:
-        out += [*sep, ("muted", f"effort {clip(clean(info.effort), MAX_FIELD_CHARS)}")]
-    if info.size:
-        pct = percent(info.used, info.size)
-        out += [*sep, ("bad" if pct >= WARN_PERCENT else "muted", f"{context_bar(info.used, info.size, g)} {pct}%")]
-    if info.tok_s:
-        out += [*sep, ("muted", f"{info.tok_s:.0f} tok/s")]
-    out += [*sep, ("muted", f"mode {info.mode}")]
+    out: list[tuple[str, str]] = []
+    if where == "line":
+        out.append(("accent", f" {clip(model_label(info), MAX_FIELD_CHARS)}"))
+        if info.effort:
+            out += [*sep, ("muted", f"effort {clip(clean(info.effort), MAX_FIELD_CHARS)}")]
+        if info.size:
+            pct = percent(info.used, info.size)
+            out += [*sep, ("bad" if pct >= WARN_PERCENT else "muted", f"{context_bar(info.used, info.size, g)} {pct}%")]
+        if info.tok_s:
+            out += [*sep, ("muted", f"{info.tok_s:.0f} tok/s")]
+        out += [*sep, ("muted", f"mode {info.mode}")]
     if info.backend and not info.unsandboxed:
-        out += [*sep, ("muted", f"box {clip(clean(info.backend), MAX_FIELD_CHARS)}")]
+        out += [*(sep if out else ()), ("muted", f"box {clip(clean(info.backend), MAX_FIELD_CHARS)}")]
     if info.lockdown:
         out += [*sep, ("muted", f"lockdown {info.lockdown}" + (f"/{info.paranoia}" if info.paranoia else ""))]
     if info.jobs:

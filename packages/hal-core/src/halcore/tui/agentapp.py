@@ -46,20 +46,20 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Footer, OptionList, TabbedContent, TabPane, TextArea
+from textual.widgets import Button, Checkbox, OptionList, TabbedContent, TabPane, TextArea
 from textual.widgets.option_list import Option
 
 from . import mentions, motion, screens, tokens
 from . import fallback
 from .approvalmodal import ModalAsker
-from .chrome import HalEye, TopBar, TopInfo
+from .chrome import HalEye, StatusLine, TopBar, TopInfo
 from .controller import (
     PLAN_CHOICES, Controller, Sender, checkpoint_label, history_path, refresh_status, stop_words, turn_facts,
 )
 from .prompt import COMMAND_ARGUMENTS, PASTE_COLLAPSE_LINES, private_history
 from .render import TurnStats, clean
 from .slash import KEY_HELP, PickItem, PickRequest, Result, TuiState, command_descriptions, commands_for
-from .status import context_bar, model_label, percent, segments, to_rich
+from .status import context_bar, model_label, percent, segments
 from .theme import Look, textual_themes
 from .transcript import TextualSink, Transcript, UserMessage
 from .widgets import SafeStatic, ThinkingFold, ToolCard, toast
@@ -72,6 +72,7 @@ NOTIFY_MIN_S = 10.0  # a turn this long rings the bell when the window is not fo
 NOTIFY_LONG_S = 60.0  # a turn this long notifies even when the terminal never reports focus (as the line UI)
 OSC9 = "\x1b]9;Hal: turn finished\x07"  # fixed text: nothing from the model reaches the terminal title bar
 POPUP_ROWS = 8
+SPARK_SAMPLES = 24  # seconds of tok/s kept for the sparkline
 CONTEXT_BAR_CELLS = 24  # the side panel is 38 columns; the bar leaves room for the percentage
 HISTORY_ROW_CHARS = 120  # one row of the Ctrl+R list; the full message is what goes back in the box
 TOAST_SHORT_S = 2.0  # a confirmation of something the user just did
@@ -348,7 +349,6 @@ class AgentApp(App[int]):
     #working.busy { display: block; }
     #popup { height: auto; max-height: 10; display: none; border: round $panel; margin: 0 1; }
     #popup.shown { display: block; }
-    #status { height: 1; padding: 0 1; background: $panel; }
     #unsandboxed { height: 1; background: $error; color: $text; text-style: bold; padding: 0 1; display: none; }
     #unsandboxed.shown { display: block; }
     #changes-actions { height: 1; }
@@ -396,6 +396,7 @@ class AgentApp(App[int]):
         self._status_due = 0.0
         self.motion: motion.Ticker | None = None  # created on mount: it needs the app's timers
         self._working: list[motion.Handle] = []
+        self.tok_samples: list[float] = []  # tok/s once a second during turns, for the status sparkline
         self.exit_status = 0
         self.state.review_accept = self.ui.review_accept
         if not look.animations:
@@ -445,8 +446,7 @@ class AgentApp(App[int]):
         yield self.popup
         history = list(reversed(list(self.history_store.load_history_strings())))
         yield Composer(self, history)
-        yield SafeStatic("", id="status")
-        yield Footer()
+        yield StatusLine(id="status")
 
     def top_info(self) -> TopInfo:
         """The top bar's data: surface, project, model, mode, effort and context use."""
@@ -659,6 +659,7 @@ class AgentApp(App[int]):
         if not self.busy:
             return False
         self.draw_working()
+        self.tok_samples = [*self.tok_samples, self.controller.renderer.stats.tok_s][-SPARK_SAMPLES:]
         self.refresh_status()
         if time.monotonic() >= self._status_due:
             self._status_due = time.monotonic() + STATUS_EVERY_S
@@ -693,11 +694,10 @@ class AgentApp(App[int]):
         if not self.mounted:
             return
         info = self.controller.live_info()
-        line = to_rich(segments(info, self.look), self.look)
+        parts = segments(info, self.look, where="status")
         if self.ui.asker is not None and self.ui.asker.current is not None:
-            line.append(f" {self.look.glyphs.sep} ", style="dim")
-            line.append("approval waiting", style="bold reverse")
-        self.query_one("#status", SafeStatic).update(line)
+            parts.append(("warn", f" {self.look.glyphs.sep} approval waiting"))
+        self.query_one(StatusLine).show(parts, self.tok_samples, self.busy)
         self.query_one(TopBar).show(self.top_info())
         self.query_one("#todo", SafeStatic).update(Text(self.state.renderer.todo_text()))
         if info.size:

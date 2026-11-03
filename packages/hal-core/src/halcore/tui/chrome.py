@@ -315,3 +315,64 @@ class TopBar(Widget):
         if key:
             event.stop()
             self.post_message(self.Wheeled(self, key, -1))
+
+
+# --- status line -------------------------------------------------------------------------------
+
+SPARK_CELLS = 8  # tok/s samples drawn by the sparkline
+SPARK_NARROW = 4  # below `NARROW_STATUS` columns
+NARROW_STATUS = 100
+HINTS_IDLE = (("^P", "commands"), ("^B", "panel"), ("F1", "help"))
+HINTS_BUSY = (("Esc", "stops"), ("^C", "stop"), ("F1", "help"))
+HINTS_NARROW = {"commands": "cmds"}
+
+
+class StatusLine(Widget):
+    """The one-row status line: box, branch, changes, lockdown, a tok/s sparkline, then key hints at the right."""
+
+    DEFAULT_CSS = "StatusLine { width: 1fr; height: 1; padding: 0 1; overflow: hidden; }"
+
+    def __init__(self, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
+        self.parts: list[tuple[str, str]] = []
+        self.samples: list[float] = []
+        self.busy = False
+
+    def show(self, parts: list[tuple[str, str]], samples: list[float], busy: bool) -> None:
+        """New fields, tok/s samples and turn state."""
+        self.parts, self.samples, self.busy = list(parts), list(samples), busy
+        self.refresh()
+
+    def hints(self, narrow: bool) -> list[tuple[str, str]]:
+        """The key hints for the current state."""
+        rows = HINTS_BUSY if self.busy else HINTS_IDLE
+        return [(k, HINTS_NARROW.get(v, v) if narrow else v) for k, v in rows]
+
+    def render(self) -> RenderableType:
+        """Fields left, hints right; fields are cut before the hints are."""
+        look: Look | None = getattr(self.app, "look", None)
+        glyphs = look.glyphs if look is not None else ASCII
+        width = self.size.width or 80
+        narrow = width < NARROW_STATUS
+        left = Text(no_wrap=True, overflow="crop")
+        styles = {"accent": "accent", "muted": "muted", "bad": "bad", "warn": "warn", "ok": "ok"}
+        for role, value in self.parts:
+            style = role_style(styles.get(role, "muted"), look)
+            if role == "bad":
+                style = f"bold {style}"
+            left.append(value.lstrip() if not left else value, style=style)
+        if self.samples and any(self.samples):
+            cells = SPARK_NARROW if narrow else SPARK_CELLS
+            if left:
+                left.append(f" {glyphs.sep} ", style=role_style("muted", look))
+            left.append(tokens.spark(self.samples, cells, glyphs.spark), style=role_style("muted", look))
+            left.append(f" {self.samples[-1]:.0f} tok/s", style=role_style("muted", look))
+        right = Text(no_wrap=True)
+        for n, (key, what) in enumerate(self.hints(narrow)):
+            right.append(("  " if n else "") + key, style=role_style("fg", look))
+            right.append(f" {what}", style=role_style("faint", look))
+        room = max(0, width - right.cell_len - 1)
+        left.truncate(room, overflow="ellipsis")
+        left.append(" " * max(1, width - left.cell_len - right.cell_len))
+        left.append_text(right)
+        return left

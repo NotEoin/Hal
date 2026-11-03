@@ -132,6 +132,8 @@ First release of the monorepo (uv workspace on branch `next`).
 - The full-screen header is a slim one-row top bar with no filled chips: the HAL eye, project,
   then model, mode and effort (click to change) and a context gauge (click for `/context`). The
   status line and the top bar now name the model the same way (`default`, not `no model`).
+- The full-screen status line has no background: box, lockdown, branch and changes, a tok/s
+  sparkline and key hints that change while a turn runs; the separate key footer is gone.
 - `hal chat` offers only the commands that work in a chat: `/help`, Tab and Esc Esc leave out the
   project-copy commands (`/rewind`, `/diff`, `/accept`, `/export`, `/ide`, `/init`), and `!`, `#`
   and `@` are sent as plain text.

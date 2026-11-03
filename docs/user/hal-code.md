@@ -21,8 +21,7 @@ check a real session with a 12B to 32B model before relying on the speed figures
  +-----------------------------------------------------------------------------------------------------------+
  | Message Hal   (/ commands, Enter sends, Alt+Enter new line)                                               |
  +-----------------------------------------------------------------------------------------------------------+
-  qwen3-coder-30b | ####------ 38% | 36 tok/s | mode default | lockdown standard/balanced | 1 unaccepted
- ^c Stop / clear  ^d Quit  shift+tab Mode  ^b Panel  ^p Commands  f1 Help
+ box runsc | lockdown standard/balanced | main | 1 unaccepted | .:-=+*#= 36 tok/s      Esc stops  ^C stop  F1 help
 ```
 
 The top bar is one row. The red dot at its left is the HAL eye: dim while Hal is idle, pulsing
@@ -32,7 +31,10 @@ waiting" too; in the ASCII look the dot is `o`, `O` or `!`). Then come the surfa
 a click on one opens its picker. The context gauge at the right edge runs `/context`. On a narrow
 terminal the project becomes its folder name, the model name is cut with an ellipsis and the gauge
 gets shorter, so model, mode, effort and the gauge always stay clickable. Lockdown and paranoia
-are in the status line (change them on the host with `hal config set`). Each tool call is a card: it shows a spinner and its own timer while it runs, then
+are in the status line (change them on the host with `hal config set`). The status line at the
+bottom shows the box, lockdown, branch and unaccepted changes, a sparkline of the last turn's
+tokens per second, and key hints at the right (`^P commands  ^B panel  F1 help`, or how to stop
+while a turn runs). F1 lists every key. Each tool call is a card: it shows a spinner and its own timer while it runs, then
 its result, and a click (or Enter on it) shows the folded output or diff in full. A click on one
 of your messages offers Copy and, in `hal code`, Rewind files to before it. The side panel
 (Ctrl+B; open from 110 columns and closed below, following resizes until you press Ctrl+B)
