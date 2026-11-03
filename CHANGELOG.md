@@ -3,7 +3,7 @@
 Format: [Keep a Changelog](https://keepachangelog.com/). Versions follow semver; every package
 carries the same version.
 
-## 0.1.0 - unreleased
+## 0.1.0 - 2026-11-03
 
 First release of the monorepo (uv workspace on branch `next`).
 

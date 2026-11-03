@@ -6,17 +6,17 @@ schema = 1
 [sources.hal-tools]
 repo = "https://github.com/NotEoin/hal-tools.git"
 tag = "v0.1.0"
-commit = "0000000000000000000000000000000000000000"
+commit = "b53f65c27608c442eef1b1e7764edfad1c8f47bd"
 
 [sources.hal-memory]
 repo = "https://github.com/NotEoin/hal-memory.git"
 tag = "v0.1.0"
-commit = "0000000000000000000000000000000000000000"
+commit = "df8e6d0f79c65c568e49a19356a7fe80956d9a7b"
 
 [sources.hal-voice]
 repo = "https://github.com/NotEoin/hal-voice.git"
 tag = "v0.1.0"
-commit = "0000000000000000000000000000000000000000"
+commit = "3dd1fc339dd254ceac36c91fbd1d28a92016f19b"
 
 [packs.organiser]
 source = "hal-tools"
