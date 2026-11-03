@@ -1675,3 +1675,76 @@ def test_tool_group_summary_comes_from_the_sink_rows_not_unfinished_cards():
     group = ToolGroup(cards, rows)
     assert all(c.row is None for c in cards)
     assert group_summary(group.rows) == ["read f0.py, f1.py, f2.py"]
+
+
+async def open_palette(pilot, app, query):
+    await pilot.press("ctrl+p")
+    assert await until(pilot, lambda: isinstance(app.screen, screens.CommandPalette) and app.screen.entries)
+    await type_text(pilot, query)
+    await settle(pilot)
+    return app.screen
+
+
+def palette_setup(controller):
+    from halcore import sessionscmd
+
+    sessionscmd.write_meta(controller.store, "aaaaaaaaaaaa", title="Fix the flaky add test", mode="code")
+
+
+def test_palette_finds_commands_sessions_files_and_settings(tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "compute.py").write_text("x = 1\n")
+
+    async def script(pilot, app, agent):
+        found = {}
+        for query in ("compact", "flaky", "compute", "theme light"):
+            screen = await open_palette(pilot, app, query)
+            found[query] = [(screen.entries[int(i.value)].kind, i.label) for i in screen.shown][:1]
+            await pilot.press("escape")
+            await settle(pilot)
+        return found
+
+    found = drive(tmp_path, script, session=FakeSession(work=work), setup=palette_setup)
+    assert found == {
+        "compact": [("command", "/compact")],
+        "flaky": [("session", "Fix the flaky add test")],
+        "compute": [("file", "compute.py")],
+        "theme light": [("setting", "theme: light")],
+    }
+
+
+def test_palette_session_row_resumes_that_session(tmp_path):
+    async def script(pilot, app, agent):
+        sent = []
+        app.send = sent.append
+        await open_palette(pilot, app, "flaky")
+        await pilot.press("enter")
+        await settle(pilot)
+        return sent
+
+    assert drive(tmp_path, script, setup=palette_setup) == ["/resume aaaaaaaaaaaa"]
+
+
+def test_palette_file_row_inserts_a_mention(tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "compute.py").write_text("x = 1\n")
+
+    async def script(pilot, app, agent):
+        await open_palette(pilot, app, "compute")
+        await pilot.press("enter")
+        await settle(pilot)
+        return app.query_one(Composer).text, agent.prompts
+
+    assert drive(tmp_path, script, session=FakeSession(work=work)) == ("@compute.py ", [])
+
+
+def test_palette_animations_setting_switches_motion_for_the_session(tmp_path):
+    async def script(pilot, app, agent):
+        await open_palette(pilot, app, "animations")
+        await pilot.press("enter")
+        await settle(pilot)
+        return app.motion.enabled, app.animation_level
+
+    assert drive(tmp_path, script) == (True, "full")

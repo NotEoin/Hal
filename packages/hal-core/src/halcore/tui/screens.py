@@ -1,5 +1,5 @@
 """Shared modal screens of the full-screen UIs: a filterable picker, a confirm, a choice, help, a diff view,
-history search and the effort and context popovers.
+history search, the Ctrl+P palette and the effort and context popovers.
 
 Every modal answers Esc with its safe result (no choice, No, the focused safe button), puts focus
 on the safe answer when it opens, and draws text from callers as `Text` (via `SafeStatic` or
@@ -25,7 +25,7 @@ from textual.widgets import Button, Input, LoadingIndicator, OptionList, TabbedC
 from textual import events
 from textual.widgets.option_list import Option
 
-from . import fuzzy
+from . import fuzzy, palette
 from .chrome import role_colours
 from .render import clean
 from .slash import Breakdown, PickItem
@@ -201,6 +201,57 @@ class HistorySearch(PickerModal):
         options = self.query_one("#options", OptionList)
         if options.option_count:
             options.highlighted = ((options.highlighted or 0) + 1) % options.option_count
+
+
+class CommandPalette(PickerModal):
+    """Ctrl+P: commands, stored sessions, files, models and settings in one fuzzy list at the top.
+
+    `load` returns the `PaletteItem`s (it lists sessions, so the caller runs it in a thread); the
+    answer is the chosen item's index as a string, mapped back by the caller through `entries`.
+    """
+
+    DEFAULT_CSS = MODAL_CSS + """
+    CommandPalette { align: center top; }
+    CommandPalette .modal-box { margin-top: 2; }
+    CommandPalette OptionList { height: auto; max-height: 14; border: none; }
+    CommandPalette #palette-input { height: 1; }
+    CommandPalette #palette-input SafeStatic { width: 2; }
+    CommandPalette Input { border: none; height: 1; padding: 0; width: 1fr; }
+    """
+    KIND_W = 9  # "command" and "setting" plus a gap
+
+    def __init__(self, load: Callable[[], Awaitable[Sequence[palette.PaletteItem]]], prompt: str = "> ") -> None:
+        super().__init__("palette", self._load_entries)
+        self.load = load
+        self.prompt = prompt
+        self.entries: list[palette.PaletteItem] = []
+
+    async def _load_entries(self) -> list[PickItem]:
+        self.entries = list(await self.load())
+        return [PickItem(e.label, str(n), e.note) for n, e in enumerate(self.entries)]
+
+    def compose(self) -> ComposeResult:
+        """The prompt-marked search line, then the matches."""
+        with Vertical(classes="modal-box"):
+            with Horizontal(id="palette-input"):
+                yield SafeStatic(Text(self.prompt))
+                yield Input(placeholder="commands, sessions, files, models, settings", id="filter")
+            yield LoadingIndicator(id="loading")
+            yield OptionList(markup=False, id="options")
+            yield SafeStatic(Text("Enter choose  Esc cancel", style="dim"), classes="muted")
+
+    def row(self, item: PickItem, query: str = "") -> Text:
+        """The kind column faint, then the row as a picker draws it."""
+        kind = self.entries[int(item.value)].kind if item.value.isdigit() and int(item.value) < len(self.entries) else ""
+        text = Text(kind.ljust(self.KIND_W), style="dim")
+        return text.append_text(super().row(item, query))
+
+    def refill(self, query: str = "") -> None:
+        """At most `PALETTE_ROWS` matches, best first."""
+        options = self.query_one("#options", OptionList)
+        self.shown = fuzzy.rank(query, self.items, key=lambda i: f"{clean(i.label)} {clean(i.note)}", limit=palette.PALETTE_ROWS)
+        options.set_options([Option(self.row(i, query), disabled=i.disabled) for i in self.shown])
+        options.highlighted = next((n for n, i in enumerate(self.shown) if not i.disabled), None)
 
 
 @dataclass(frozen=True)

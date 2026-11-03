@@ -93,7 +93,7 @@ the kind, not the file: an attachment holds only its data.
 | Ctrl+D, Ctrl+Q | Quit (Ctrl+D on an empty message); asks first when the copy has unaccepted changes |
 | Ctrl+O | Expand every tool card and thinking block when any is folded, else fold them all |
 | Ctrl+B, Ctrl+T | Show or hide the side panel; open it scrolled to PLAN |
-| Ctrl+P | Every command in a filterable list |
+| Ctrl+P | One search over commands, stored sessions of this project, files of the copy, models (once `/model` has listed them) and settings (theme, mode, effort, animations for this session, side panel, expand all); Enter runs a command or resumes a session, a file goes into the message box as `@path` |
 | Ctrl+L | Clear the transcript view (the session keeps its history) |
 | PgUp, PgDn | Scroll the transcript; while you read further up, a `N new below` line counts new output, and a click on it (or scrolling to the bottom) follows the output again |
 | F1, `/help` | Help: keys, commands, prefixes and mouse |

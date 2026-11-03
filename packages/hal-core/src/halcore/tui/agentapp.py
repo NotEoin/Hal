@@ -54,7 +54,7 @@ from textual.widget import Widget
 from textual.widgets import Button, Checkbox, OptionList, TextArea
 from textual.widgets.option_list import Option
 
-from . import fuzzy, mentions, motion, screens, tokens
+from . import fuzzy, mentions, motion, palette, screens, tokens
 from . import fallback
 from .approvalmodal import ModalAsker
 from .chrome import ChangesList, HalEye, role_colours, SideHandle, StatusLine, TopBar, TopInfo
@@ -79,6 +79,7 @@ OSC9 = "\x1b]9;Hal: turn finished\x07"  # fixed text: nothing from the model rea
 POPUP_ROWS = 8
 PREVIEW_MIN_W = 100  # below this width the completion list has the whole row and no preview
 PREVIEW_TIMEOUT_S = 1.0  # a preview read that takes longer (a slow mount) shows a note instead
+PALETTE_TIMEOUT_S = 5.0  # listing sessions and files on a slow disk; the palette then shows "could not list"
 COMPACT_WIDTH = 90  # below this width or `COMPACT_HEIGHT` rows, blocks in a turn lose their blank row
 COMPACT_HEIGHT = 30
 SPARK_SAMPLES = 24  # seconds of tok/s kept for the sparkline
@@ -1054,25 +1055,50 @@ class AgentApp(App[int]):
         self.push_screen(screens.HelpScreen(f"hal {self.state.surface}", sections))
 
     def action_palette(self) -> None:
-        """Ctrl+P: every command of this surface in a filterable list."""
-        items = [PickItem(usage, f"/{name}", text) for name, (usage, text) in commands_for(self.state.surface).items()]
-        self.run_worker(self.palette(items), group="pick")
+        """Ctrl+P: commands, sessions, files, models and settings in one fuzzy search."""
+        self.run_worker(self.palette(), group="pick")
 
-    async def palette(self, items: list[PickItem]) -> None:
-        """Runs the chosen command (commands that need an argument go to the composer instead)."""
-        chosen = await screens.ask(self, screens.PickerModal("Commands", items))
-        if not chosen:
+    async def palette_items(self) -> list[palette.PaletteItem]:
+        """Every palette row; sessions and files are read from disk in a thread, once per open."""
+        workdir = self.controller.workdir if self.code else None
+        animations = self.motion.enabled if self.motion is not None else self.look.animations
+
+        def gather() -> list[palette.PaletteItem]:
+            names = mentions.index_files(workdir) if workdir is not None else []
+            return palette.gather(self.state, animations=animations, workdir=workdir, file_names=names)
+
+        return await asyncio.wait_for(asyncio.to_thread(gather), PALETTE_TIMEOUT_S)
+
+    async def palette(self) -> None:
+        """Does what the chosen row names: a command, a mention, a command to finish, or a UI switch."""
+        screen = screens.CommandPalette(self.palette_items, f"{self.look.glyphs.prompt} ")
+        chosen = await screens.ask(self, screen)
+        if not chosen or not chosen.isdigit() or int(chosen) >= len(screen.entries):
             return
-        if chosen in ("/help", "/quit"):
-            self.action_help() if chosen == "/help" else self.action_leave()
-            return
-        if chosen in ("/image",):
+        item = screen.entries[int(chosen)]
+        if item.action == "ui":
+            self.palette_ui(item.value)
+        elif item.action in ("insert", "compose"):
             composer = self.query_one(Composer)
-            composer.load_text(chosen + " ")
+            composer.insert(item.value) if item.action == "insert" else composer.load_text(item.value + " ")
             composer.move_cursor(composer.document.end)
             composer.focus()
-            return
-        self.send(chosen)
+        elif item.value in ("/help", "/quit"):
+            self.action_help() if item.value == "/help" else self.action_leave()
+        else:
+            self.send(item.value)
+
+    def palette_ui(self, which: str) -> None:
+        """The palette's UI-only switches; animations last for this session only."""
+        if which in (palette.UI_ANIMATIONS_ON, palette.UI_ANIMATIONS_OFF):
+            on = which == palette.UI_ANIMATIONS_ON
+            if self.motion is not None:
+                self.motion.enabled = on
+            self.animation_level = "full" if on else "none"
+        elif which == palette.UI_SIDE:
+            self.action_toggle_side()
+        elif which == palette.UI_EXPAND:
+            self.action_expand_all()
 
     def action_history(self) -> None:
         """Ctrl+R: earlier messages, newest first, in a fuzzy search; the choice goes into the composer unsent."""

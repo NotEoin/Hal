@@ -125,6 +125,8 @@ First release of the monorepo (uv workspace on branch `next`).
   or a command's arguments.
 - Ctrl+R in the full screen is a fuzzy history search above the message box; Ctrl+R again moves
   to the next match and Enter loads the message without sending it.
+- Ctrl+P in the full screen searches commands, stored sessions, files, models and settings in one
+  list at the top of the screen.
 - A click on the full-screen context gauge opens the `/context` split with a Compact button.
 - A click on a path in the full-screen CHANGES list opens a read-only view of that file's diff in
   the copy.

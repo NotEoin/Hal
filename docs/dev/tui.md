@@ -74,6 +74,11 @@ in a thread under `PREVIEW_TIMEOUT_S`, then `clean()`ed into a rich `Syntax`; a 
 arguments shows them as a usage line, since the list itself cannot restyle only its highlighted row.
 Ctrl+R opens `screens.HistorySearch`, a `PickerModal` subclass over `Composer.sent` (stored history
 plus this session) newest first; its answer goes through `Composer.load`, never `send`.
+Ctrl+P opens `screens.CommandPalette`. Its rows come from the pure `palette` module (commands,
+`list_sessions` minus the current one, `mentions.index_files` in code, `state.choices` or one
+`/model` row, settings), gathered in a thread under `PALETTE_TIMEOUT_S` once per open. An item only
+names an action (`send`, `insert`, `compose`, `ui`) and a value built by this program or from
+`clean()`ed disk text; the app performs it, so a session title cannot choose what runs.
 The gauge opens `screens.ContextPopover` with `slash.context_breakdown(state)`, the same
 `Breakdown` that `/context` formats, so the two cannot disagree. It lives in `slash`, not
 `controller`, because `controller` imports `slash`. Compact answers `"compact"` and the app runs
