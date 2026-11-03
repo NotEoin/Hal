@@ -21,6 +21,7 @@ from halkit.paths import UnsafePathError
 from rich.text import Text
 
 from .render import clean, clip
+from . import tokens
 from .theme import PT_COLORS, Glyphs, Look
 
 log = logging.getLogger(__name__)
@@ -54,8 +55,7 @@ class StatusInfo:
 
 def context_bar(used: int, size: int, glyphs: Glyphs, width: int = BAR_WIDTH) -> str:
     """A bar of `width` cells filled in proportion to `used` of `size`, empty when `size` is unknown."""
-    filled = 0 if size <= 0 else min(width, round(width * used / size))
-    return glyphs.bar_full * filled + glyphs.bar_empty * (width - filled)
+    return tokens.bar(used / size if size > 0 else 0.0, width, glyphs.bar_full, glyphs.bar_empty)
 
 
 def percent(used: int, size: int) -> int:

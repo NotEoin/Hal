@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 import sys
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TextIO
 
 from typing import TYPE_CHECKING
@@ -65,7 +65,7 @@ UI_TABLE = kitconfig.register(
 
 @dataclass(frozen=True)
 class Glyphs:
-    """The drawing characters of one glyph set."""
+    """The drawing characters of one glyph set (values and fallbacks in `tokens.py`)."""
 
     box: richbox.Box
     prompt: str
@@ -79,12 +79,32 @@ class Glyphs:
     bar_full: str
     bar_empty: str
     sep: str
-    spinner: str  # name of a rich spinner
+    spinner: str  # name of a rich spinner (the line UI's live region)
     todo: Mapping[str, str]
+    rail: str = "|"
+    rail_end: str = "`"
+    branch: str = "|-"
+    fold_closed: str = ">"
+    fold_open: str = "v"
+    caret: str = "v"
+    eye: str = "o"
+    ellipsis: str = "..."
+    rule: str = "-"
+    handle: str = "|"
+    spark: str = " .:-=+*#"
+    spinner_frames: tuple[str, ...] = tokens.ASCII_SPINNER_FRAMES
+    eye_states: Mapping[str, str] = field(default_factory=lambda: dict(tokens.ASCII_EYE))
+    plan: Mapping[str, str] = field(default_factory=lambda: dict(tokens.ASCII_PLAN))
 
 
-UNICODE = Glyphs(box=richbox.ROUNDED, spinner=tokens.UNICODE_SPINNER, todo=tokens.UNICODE_TODO, **tokens.UNICODE_GLYPHS)
-ASCII = Glyphs(box=richbox.ASCII, spinner=tokens.ASCII_SPINNER, todo=tokens.ASCII_TODO, **tokens.ASCII_GLYPHS)
+UNICODE = Glyphs(
+    box=richbox.ROUNDED, spinner=tokens.UNICODE_SPINNER, todo=tokens.UNICODE_TODO, spinner_frames=tokens.UNICODE_SPINNER_FRAMES,
+    eye_states=tokens.UNICODE_EYE, plan=tokens.UNICODE_PLAN, **tokens.UNICODE_GLYPHS,
+)
+ASCII = Glyphs(
+    box=richbox.ASCII, spinner=tokens.ASCII_SPINNER, todo=tokens.ASCII_TODO, spinner_frames=tokens.ASCII_SPINNER_FRAMES,
+    eye_states=tokens.ASCII_EYE, plan=tokens.ASCII_PLAN, **tokens.ASCII_GLYPHS,
+)
 
 
 @dataclass(frozen=True)

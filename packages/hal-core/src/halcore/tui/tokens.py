@@ -63,18 +63,53 @@ RICH_STYLES: dict[str, dict[str, str]] = {
 
 # fmt: off
 UNICODE_GLYPHS: dict[str, str] = {
-    "prompt": "\u276f", "tool": "\u25cf", "ok": "\u2713", "fail": "\u2717", "running": "\u25cb", "nest": "\u2514",
-    "bullet": "\u2022", "think": "\u2237", "bar_full": "\u2588", "bar_empty": "\u2591", "sep": "\u00b7",
+    "prompt": "\u203a", "tool": "\u25cf", "ok": "\u2713", "fail": "\u2717", "running": "\u25cb", "nest": "\u2514",
+    "bullet": "\u2022", "think": "\u2234", "bar_full": "\u25b0", "bar_empty": "\u25b1", "sep": "\u00b7",
+    "rail": "\u2502", "rail_end": "\u2514", "branch": "\u251c", "fold_closed": "\u25b8", "fold_open": "\u25be",
+    "caret": "\u25be", "eye": "\u25cf", "ellipsis": "\u2026", "rule": "\u2500", "handle": "\u2502",
+    "spark": "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588",
 }
 ASCII_GLYPHS: dict[str, str] = {
     "prompt": ">", "tool": "*", "ok": "ok", "fail": "FAIL", "running": "...", "nest": "`-", "bullet": "-",
-    "think": "~", "bar_full": "#", "bar_empty": "-", "sep": "|",
+    "think": "~", "bar_full": "#", "bar_empty": "-", "sep": "|", "rail": "|", "rail_end": "`", "branch": "|-",
+    "fold_closed": ">", "fold_open": "v", "caret": "v", "eye": "o", "ellipsis": "...", "rule": "-", "handle": "|",
+    "spark": " .:-=+*#",
 }
 # fmt: on
+UNICODE_SPINNER_FRAMES = tuple("\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f")  # braille dots
+ASCII_SPINNER_FRAMES = ("|", "/", "-", "\\")
+UNICODE_EYE = {"idle": "\u25cf", "thinking": "\u25cf", "approval": "\u25cf"}
+ASCII_EYE = {"idle": "o", "thinking": "O", "approval": "!"}  # the state in the letter, not only the colour
+UNICODE_PLAN = {"completed": "\u2713", "in_progress": "\u203a", "pending": "\u25cb"}
+ASCII_PLAN = {"completed": "[x]", "in_progress": "[>]", "pending": "[ ]"}
 UNICODE_TODO = {"pending": "\u2610", "in_progress": "\u25d0", "completed": "\u2611"}
 ASCII_TODO = {"pending": "[ ]", "in_progress": "[~]", "completed": "[x]"}
 UNICODE_SPINNER = "dots"  # names of rich spinners for the line UI's live region
 ASCII_SPINNER = "line"
+
+SPARK_LEVELS = 8  # one glyph per eighth of a cell
+
+
+def bar(fraction: float, cells: int, full: str, empty: str) -> str:
+    """`cells` cells, `round(cells * fraction)` of them full; `fraction` is clamped to 0..1."""
+    filled = round(max(0, cells) * min(1.0, max(0.0, fraction)))
+    return full * filled + empty * (max(0, cells) - filled)
+
+
+def spark(values: list[float], cells: int, levels: str) -> str:
+    """The last `cells` values as one glyph each, scaled to the window's maximum; flat when all are 0."""
+    window = [max(0.0, v) for v in values[-cells:]] if cells > 0 else []
+    top = max(window, default=0.0)
+    if top <= 0:
+        return levels[0] * len(window)
+    last = len(levels) - 1
+    return "".join(levels[min(last, round(v / top * last))] for v in window)
+
+
+def spinner_frame(frames: tuple[str, ...], index: int) -> str:
+    """Frame `index` of a spinner, wrapping around."""
+    return frames[index % len(frames)]
+
 
 # `hal tune` slider track and gauge: (line, fill, knob) and (full, empty)
 TRACK_UNICODE = ("\u2500", "\u2501", "\u25cf")  # light line, heavy line, black circle

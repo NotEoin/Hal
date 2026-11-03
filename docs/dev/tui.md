@@ -90,6 +90,13 @@ collecting the dismiss result. Verified against Textual 8.2.8.
 the snapshot role map stays exact. `test_tui_tokens.py` computes WCAG contrast: text roles at
 least 4.5:1 on `bg`, `faint` at least 3:1.
 
+## Glyphs
+
+`tokens.UNICODE_GLYPHS` and `tokens.ASCII_GLYPHS` have the same keys; `Glyphs` in `theme.py`
+gets one set or the other. Source files write glyphs as `\u` escapes. Helpers: `tokens.bar`
+(block bar), `tokens.spark` (sparkline scaled to the window's maximum) and `tokens.spinner_frame`.
+`test_tui_tokens.py` checks that the ASCII set is pure ASCII and each Unicode glyph is one cell.
+
 ## Snapshot tests
 
 `packages/hal-core/tests/test_tui_snapshots.py` renders each screen at 80x24 and 120x36, dark and
