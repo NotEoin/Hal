@@ -921,3 +921,62 @@ def test_composer_is_borderless_with_a_prompt_mark(tmp_path):
 
     height, focused, border = drive(tmp_path, script)
     assert height == 1 and focused and border in ("", "none")
+
+
+def test_queued_message_gets_its_own_turn_rail(tmp_path):
+    from halcore.tui.transcript import TurnView
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "first")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: app.busy)
+        await type_text(pilot, "second")
+        await pilot.press("enter")
+        await settle(pilot)
+        turns = list(app.query(TurnView))
+        during = [(t.message.text, t.has_class("queued"), t.has_class("running"), t.message.queued) for t in turns]
+        await pilot.press("escape")
+        assert await until(pilot, lambda: len(agent.prompts) == 2 and not app.busy)
+        await settle(pilot)
+        after = [(t.message.text, t.has_class("queued")) for t in app.query(TurnView)]
+        return during, after
+
+    during, after = drive(tmp_path, script, turns=[[WAIT_CANCEL], [chunk("two")]])
+    assert during == [("first", False, True, False), ("second", True, False, True)]
+    assert after == [("first", False), ("second", False)]
+
+
+def test_running_turn_rail_uses_the_accent(tmp_path):
+    from halcore.tui.transcript import TurnView
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "go")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: app.busy)
+        turn = app.query_one(TurnView)
+        await settle(pilot)
+        from textual.color import Color
+
+        running = (turn.has_class("running"), turn.styles.border_left[1] == Color.parse(app.theme_variables["primary"]))
+        await pilot.press("escape")
+        assert await until(pilot, lambda: not app.busy)
+        await settle(pilot)
+        return running, turn.has_class("running")
+
+    (running, accent), after = drive(tmp_path, script, turns=[[WAIT_CANCEL]])
+    assert running and accent and not after
+
+
+def test_output_of_a_turn_stays_inside_its_rail(tmp_path):
+    from halcore.tui.transcript import TurnView
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "go")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: "hi" in transcript_text(app) and not app.busy)
+        await settle(pilot)
+        turn = app.query_one(TurnView)
+        return "\n".join(plain(w) for w in turn.query(SafeStatic))
+
+    text = drive(tmp_path, script)
+    assert "go" in text and "hi" in text and "tok" in text

@@ -33,7 +33,12 @@ gets shorter, so model, mode, effort and the gauge always stay clickable. Lockdo
 are in the status line (change them on the host with `hal config set`). The status line at the
 bottom shows the box, lockdown, branch and unaccepted changes, a sparkline of the last turn's
 tokens per second, and key hints at the right (`^P commands  ^B panel  F1 help`, or how to stop
-while a turn runs). F1 lists every key. Each tool call is a card: it shows a spinner and its own timer while it runs, then
+while a turn runs). F1 lists every key.
+
+Each message starts a turn: your message after a `>` mark, then everything Hal did for it, held
+together by a thin rail on the left. The rail is red while the turn runs, amber while an approval
+waits, and grey once it is done; a message sent during a turn gets its own faint rail and a
+`queued` tag until its turn starts. Each tool call is a card: it shows a spinner and its own timer while it runs, then
 its result, and a click (or Enter on it) shows the folded output or diff in full. A click on one
 of your messages offers Copy and, in `hal code`, Rewind files to before it. The side panel
 (Ctrl+B; open from 110 columns and closed below, following resizes until you press Ctrl+B)

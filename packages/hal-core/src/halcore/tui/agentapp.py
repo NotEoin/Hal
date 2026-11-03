@@ -330,6 +330,7 @@ class TextualUi:
         item = await self.app.inbox.get()
         if item is QUIT:
             raise EOFError
+        self.app.transcript.activate_next()
         self.app.queued_count = self.app.inbox.qsize()
         self.app.status_soon()
         return str(item)
@@ -385,7 +386,8 @@ class TextualUi:
         words = stop_words(reason)
         if words:
             parts.append(words)
-        line = Text(sep.join(parts), style="dim")
+        faint = tokens.ROLES[self.app.look.theme]["faint"] if self.app.look.theme in tokens.ROLES else "dim"
+        line = Text(sep.join(parts), style=faint)
         if self.app.controller.session.backend == "none":
             line.append(f"{sep}UNSANDBOXED", style="bold reverse")
         self.app.controller.renderer.sink.write(line)
@@ -419,7 +421,8 @@ class AgentApp(App[int]):
     #main { height: 1fr; }
     #side { width: 38; border-left: solid $panel; display: none; }
     #side.shown { display: block; }
-    #below { height: 1; padding: 0 1; background: $primary 30%; display: none; }
+    #below { height: 1; padding: 0 1; color: $hal-faint; display: none; }
+    #below:hover { color: $primary; }
     #working { height: 1; padding: 0 1; color: $primary; display: none; }
     #working.busy { display: block; }
     #popup { height: auto; max-height: 10; display: none; border: round $panel; margin: 0 1; }
@@ -589,8 +592,9 @@ class AgentApp(App[int]):
     def send(self, line: str) -> None:
         """Shows the message in the transcript and queues it for the controller."""
         message = UserMessage(line, self.look)
+        message.set_queued(self.busy)
         self.transcript.jump()
-        self.transcript.add(message)
+        self.transcript.new_turn(message, ascii=not self.look.unicode)
         self.waiting_messages.append(message)
         self.inbox.put_nowait(line)
         self.queued_count = self.inbox.qsize() if self.busy else 0
@@ -718,11 +722,13 @@ class AgentApp(App[int]):
             if self.motion is not None:
                 self._working = [self.motion.subscribe(self.spin, motion.SPINNER_HZ), self.motion.every(1.0, self.tick)]
             self.tick()
+        self.transcript.set_running(busy)
         self.update_eye()
         self.refresh_status()
 
     def approval_changed(self) -> None:
-        """An approval opened or closed: the eye and the status line follow."""
+        """An approval opened or closed: the eye, the turn rail and the status line follow."""
+        self.transcript.set_waiting(self.ui.asker is not None and self.ui.asker.current is not None)
         self.update_eye()
         self.refresh_status()
 
@@ -889,9 +895,7 @@ class AgentApp(App[int]):
 
     def action_clear_view(self) -> None:
         """Ctrl+L: clears the transcript view; the session keeps its history."""
-        for child in list(self.transcript.children):
-            if child is not self.transcript.tail:
-                child.remove()
+        self.transcript.clear()
 
     def action_scroll(self, pages: int) -> None:
         """PgUp / PgDn scroll the transcript."""

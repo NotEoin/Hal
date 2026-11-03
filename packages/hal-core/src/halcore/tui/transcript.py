@@ -13,10 +13,12 @@ from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING
 
 from rich.console import RenderableType
+from rich.table import Table
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.containers import VerticalScroll
+from textual.containers import Vertical, VerticalScroll
 
+from . import tokens
 from .render import clean
 from .theme import Look
 from .widgets import SafeStatic, ThinkingFold, ToolCard
@@ -25,36 +27,120 @@ if TYPE_CHECKING:
     from .agentapp import AgentApp
 
 
-class Transcript(VerticalScroll):
-    """The conversation; follows new output while the view is at the bottom."""
+class TurnView(Vertical):
+    """One turn: the human's message and everything the agent did for it, behind a left rail.
+
+    The rail is the turn's only frame: `panel` grey once finished, `accent` while it runs, `warn`
+    while an approval waits, `faint` while queued. Each turn keeps its own streaming tail last.
+    """
 
     DEFAULT_CSS = """
-    Transcript { height: 1fr; padding: 0 1; scrollbar-size-vertical: 1; }
-    Transcript > .you { margin-top: 1; color: $primary; text-style: bold; }
-    Transcript > .you:hover { background: $boost; }
-    Transcript > .turn-end { color: $text-muted; margin-bottom: 1; }
-    Transcript > .notice { color: $text-muted; }
+    TurnView { height: auto; border-left: solid $hal-panel; padding-left: 1; margin-top: 1; }
+    TurnView.ascii { border-left: ascii $hal-panel; }
+    TurnView.queued { border-left: solid $hal-faint; }
+    TurnView.queued.ascii { border-left: ascii $hal-faint; }
+    TurnView.running { border-left: solid $primary; }
+    TurnView.running.ascii { border-left: ascii $primary; }
+    TurnView.waiting { border-left: solid $warning; }
+    TurnView.waiting.ascii { border-left: ascii $warning; }
+    TurnView > .tail { height: auto; }
+    TurnView > .turn-end { color: $hal-faint; }
+    """
+
+    def __init__(self, message: UserMessage, *, ascii: bool) -> None:
+        super().__init__(classes="queued ascii" if ascii else "queued")
+        self.message = message
+        self.tail = SafeStatic("", classes="tail")
+
+    def compose(self) -> ComposeResult:
+        """The message, then the streaming tail (kept last)."""
+        yield self.message
+        yield self.tail
+
+    def add(self, widget: object) -> None:
+        """Mounts `widget` above this turn's streaming tail."""
+        self.mount(widget, before=self.tail)  # type: ignore[arg-type]  # a Widget
+
+
+class Transcript(VerticalScroll):
+    """The conversation, one `TurnView` per message; follows new output while the view is at the bottom."""
+
+    DEFAULT_CSS = """
+    Transcript { height: 1fr; padding: 0 1 0 1; }
+    Transcript > .notice { color: $hal-muted; }
     """
 
     def __init__(self, **kwargs: object) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
         self.follow = True
-        self.tail = SafeStatic("", id="tail")
+        self.root_tail = SafeStatic("", id="tail")
+        self.active: TurnView | None = None  # the turn output goes to
+        self.pending: list[TurnView] = []  # sent, not yet read by the controller (in inbox order)
         self.unseen = 0  # items added while the user was reading further up
         self.below = SafeStatic("", id="below")  # the "new output below" line, mounted by the app
 
+    @property
+    def tail(self) -> SafeStatic:
+        """The streaming tail of the active turn (or of the transcript before the first turn)."""
+        return self.active.tail if self.active is not None and self.active.is_attached else self.root_tail
+
     def compose(self) -> ComposeResult:
-        """The streaming tail, kept last."""
-        yield self.tail
+        """The transcript's own streaming tail, kept last."""
+        yield self.root_tail
 
     def add(self, widget: object) -> None:
-        """Mounts `widget` above the streaming tail and keeps the view at the bottom when following."""
-        self.mount(widget, before=self.tail)  # type: ignore[arg-type]  # a Widget
+        """Mounts `widget` in the active turn (or above the tail) and keeps the view at the bottom when following."""
+        if self.active is not None and self.active.is_attached:
+            self.active.add(widget)
+        else:
+            self.mount(widget, before=self.root_tail)  # type: ignore[arg-type]  # a Widget
+        self.followed()
+
+    def new_turn(self, message: UserMessage, *, ascii: bool) -> TurnView:
+        """A queued turn for a message just sent; `activate_next` makes it the active one."""
+        turn = TurnView(message, ascii=ascii)
+        self.mount(turn, before=self.root_tail)
+        self.pending.append(turn)
+        self.followed()
+        return turn
+
+    def activate_next(self) -> None:
+        """The controller read the next message: its turn becomes the one output goes to."""
+        if self.active is not None:
+            self.active.remove_class("running", "waiting")
+        if not self.pending:
+            return
+        turn = self.pending.pop(0)
+        turn.remove_class("queued")
+        turn.message.set_queued(False)
+        self.active = turn
+
+    def set_running(self, running: bool) -> None:
+        """The active turn's rail turns accent while it runs."""
+        if self.active is not None:
+            self.active.set_class(running, "running")
+            if not running:
+                self.active.remove_class("waiting")
+
+    def set_waiting(self, waiting: bool) -> None:
+        """The active turn's rail turns amber while an approval waits."""
+        if self.active is not None:
+            self.active.set_class(waiting, "waiting")
+
+    def clear(self) -> None:
+        """Removes every item but the transcript's own tail."""
+        for child in list(self.children):
+            if child is not self.root_tail:
+                child.remove()
+        self.active, self.pending = None, []
+
+    def followed(self) -> None:
+        """Keeps the view at the bottom when following, else counts what arrived below."""
         if self.follow:
             self.call_after_refresh(self.scroll_end, animate=False)
         else:
             self.unseen += 1
-            self.below.update(Text(f"v {self.unseen} new below: click here or scroll down to follow", style="bold"))
+            self.below.update(Text(f"v {self.unseen} new below  (click or End to follow)"))
             self.below.display = True
 
     def watch_scroll_y(self, old: float, new: float) -> None:
@@ -72,14 +158,37 @@ class Transcript(VerticalScroll):
 
 
 class UserMessage(SafeStatic):
-    """A message the human sent; a click offers Copy and (in code) Rewind to before it."""
+    """A message the human sent: the prompt mark, then the text with a hanging indent; a click offers actions."""
+
+    DEFAULT_CSS = """
+    UserMessage { height: auto; }
+    UserMessage:hover { background: $hal-surface; }
+    """
 
     def __init__(self, text: str, look: Look) -> None:
-        shown = Text(f"{look.glyphs.prompt} ", style="bold")
-        shown.append(clean(text))
-        super().__init__(shown, classes="you")
         self.text = text
+        self.look = look
+        self.queued = False
+        super().__init__(self.shown(), classes="you")
         self.checkpoint: int | None = None  # the checkpoint taken just before this message ran
+
+    def shown(self) -> RenderableType:
+        """Prompt mark in the accent, the text bold, a faint `queued` tag while it waits."""
+        roles = tokens.ROLES.get(self.look.theme, {}) if self.look.color else {}
+        grid = Table.grid(padding=0)
+        grid.add_column(width=2, no_wrap=True)
+        grid.add_column(ratio=1)
+        body = Text(clean(self.text), style="bold")
+        if self.queued:
+            body.append("  queued", style=roles.get("faint", "dim"))
+        grid.add_row(Text(self.look.glyphs.prompt, style=f"bold {roles.get('accent', '')}".strip()), body)
+        return grid
+
+    def set_queued(self, queued: bool) -> None:
+        """Shows or drops the `queued` tag."""
+        if queued != self.queued:
+            self.queued = queued
+            self.update(self.shown())
 
     async def on_click(self) -> None:
         """Offers the message actions."""

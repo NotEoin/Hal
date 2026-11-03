@@ -36,6 +36,12 @@ prompt_toolkit and prints to scrollback; `TextualUi` reads from `AgentApp.inbox`
 composer, pickers and buttons) and answers with modals. The full screen runs the controller in a
 worker and puts the `QUIT` item in the inbox to end it.
 
+The transcript holds one `TurnView` per message. `AgentApp.send` mounts a queued turn; when
+`TextualUi.read_message` takes that message from the inbox, `Transcript.activate_next` makes its
+turn the active one, so output (also of slash commands) lands in the turn of the message that
+caused it, even when messages were queued. The rail is the Textual `solid` border (U+2502 in
+Textual 8.2.8), `ascii` in the ASCII look.
+
 Updates from the agent arrive on the ACP reader task. `TextualSink` hands each one to
 `App.call_later`, so widgets are mounted on the app's loop, in order, with the app's context.
 

@@ -136,6 +136,9 @@ First release of the monorepo (uv workspace on branch `next`).
   sparkline and key hints that change while a turn runs; the separate key footer is gone.
 - The full-screen message box is borderless with a prompt mark and grows with multiline input;
   pastes and pending attachments show as chips under it, and `x` on a chip removes it.
+- The full-screen transcript groups each turn behind a left rail (red while running, amber while
+  an approval waits) instead of flush blocks; a queued message gets its own rail, and the "new
+  below" line is a faint row instead of a filled bar.
 - `hal chat` offers only the commands that work in a chat: `/help`, Tab and Esc Esc leave out the
   project-copy commands (`/rewind`, `/diff`, `/accept`, `/export`, `/ide`, `/init`), and `!`, `#`
   and `@` are sent as plain text.
