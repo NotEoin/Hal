@@ -892,6 +892,64 @@ def test_wheel_on_model_and_mode_changes_nothing(tmp_path, monkeypatch):
     assert sent == [] and mode == "default"
 
 
+def with_usage(controller):
+    controller.state.status.used, controller.state.status.size = 13100, 32000
+    controller.state.status.lockdown = "strict"
+
+
+def test_context_popover_compact_sends_compact(tmp_path):
+    async def script(pilot, app, agent):
+        sent = record_sends(app)
+        await click_top(pilot, app, "gauge")
+        await settle(pilot)
+        shown = isinstance(app.screen, screens.ContextPopover)
+        await pilot.click("#compact")
+        await settle(pilot)
+        return shown, sent, isinstance(app.screen, screens.ContextPopover)
+
+    assert drive(tmp_path, script, setup=with_usage) == (True, ["/compact"], False)
+
+
+def test_context_popover_and_context_command_agree(tmp_path):
+    from halcore.tui import slash
+    from halcore.tui.status import short_tokens
+
+    async def script(pilot, app, agent):
+        await click_top(pilot, app, "gauge")
+        await settle(pilot)
+        popover = app.screen
+        split = plain(popover.query_one("#context-split"))
+        gauge = plain(popover.query_one("#context-gauge"))
+        message = (await slash._context(app.state, "")).message
+        return popover.b, split, gauge, message
+
+    b, split, gauge, message = drive(tmp_path, script, setup=with_usage)
+    assert (b.used, b.size, b.percent) == (13100, 32000, 41)
+    assert f"~{b.prompt_side}" in message and f"{b.free} of {b.size}" in message and "41%" in message
+    assert f"~{short_tokens(b.prompt_side)}" in split and f"~{short_tokens(b.free)}" in split and "41%" in gauge
+
+
+def test_context_popover_disables_compact_during_a_turn(tmp_path):
+    async def script(pilot, app, agent):
+        app.busy = True
+        app.run_worker(app.context_popover(), group="pick")
+        await settle(pilot)
+        return app.screen.query_one("#compact").disabled
+
+    assert drive(tmp_path, script, setup=with_usage) is True
+
+
+def test_context_popover_without_a_size_says_so(tmp_path):
+    async def script(pilot, app, agent):
+        await click_top(pilot, app, "gauge")
+        await settle(pilot)
+        text = " ".join(plain(w) for w in app.screen.query(SafeStatic))
+        return text, app.screen.query_one("#compact").disabled
+
+    text, disabled = drive(tmp_path, script)
+    assert "context size not reported yet" in text and disabled
+
+
 def test_notify_setting_picks_osc9_bell_or_nothing():
     for mode, wanted in (("osc9", [("write", agentapp.OSC9)]), ("bell", [("bell",)]), ("off", [])):
         calls = []

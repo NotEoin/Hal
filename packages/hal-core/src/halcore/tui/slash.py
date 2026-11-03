@@ -559,20 +559,47 @@ async def _cost(state: TuiState, args: str) -> Result:
     return Result(renderable=table, message="local model: no money is spent")
 
 
-async def _context(state: TuiState, args: str) -> Result:
+@dataclass(frozen=True)
+class Breakdown:
+    """How the context window is split, shared by `/context` and the full screen's context popover."""
+
+    used: int
+    size: int  # 0 while the server has not reported it
+    prompt_side: int  # system prompt, tools, files and the user's side of the history
+    written: int  # the model's own output kept in history
+    free: int
+    lockdown: str
+    paranoia: str
+
+    @property
+    def percent(self) -> int:
+        """Whole percent of the window in use."""
+        return percent(self.used, self.size)
+
+
+def context_breakdown(state: TuiState) -> Breakdown:
+    """The context split from the last reported usage and this session's turn token counts."""
     info = state.status
-    if not info.size:
-        return Result(message="context size unknown: the server has not reported usage yet")
     written = min(info.used, sum(t.tokens for t in state.turns))
-    prompt_side = max(0, info.used - written)
-    free = max(0, info.size - info.used)
-    g = state.renderer.look.glyphs
-    bar = context_bar(info.used, info.size, g, 40)
+    return Breakdown(
+        used=info.used, size=info.size, prompt_side=max(0, info.used - written), written=written,
+        free=max(0, info.size - info.used), lockdown=info.lockdown, paranoia=info.paranoia,
+    )  # fmt: skip
+
+
+CONTEXT_COMMAND_BAR_CELLS = 40  # the bar `/context` prints, as wide as its table
+
+
+async def _context(state: TuiState, args: str) -> Result:
+    b = context_breakdown(state)
+    if not b.size:
+        return Result(message="context size unknown: the server has not reported usage yet")
+    bar = context_bar(b.used, b.size, state.renderer.look.glyphs, CONTEXT_COMMAND_BAR_CELLS)
     return Result(
-        message=f"{bar} {percent(info.used, info.size)}%\n"
-        f"  input side (system, tools, files, history)  ~{prompt_side}\n"
-        f"  model output kept in history                ~{written}\n"
-        f"  free                                        {free} of {info.size}\n"
+        message=f"{bar} {b.percent}%\n"
+        f"  input side (system, tools, files, history)  ~{b.prompt_side}\n"
+        f"  model output kept in history                ~{b.written}\n"
+        f"  free                                        {b.free} of {b.size}\n"
         "  /compact summarises history; /clear starts fresh"
     )
 

@@ -32,6 +32,7 @@ HEAD_REF_PREFIX = "ref: refs/heads/"
 MAX_FIELD_CHARS = 40
 WARN_PERCENT = 85  # the point where a 16k to 64k window starts truncating useful history
 
+TOKENS_PER_K = 1000
 
 @dataclass
 class StatusInfo:
@@ -62,6 +63,11 @@ def model_label(info: StatusInfo) -> str:
 def context_bar(used: int, size: int, glyphs: Glyphs, width: int = BAR_WIDTH) -> str:
     """A bar of `width` cells filled in proportion to `used` of `size`, empty when `size` is unknown."""
     return tokens.bar(used / size if size > 0 else 0.0, width, glyphs.bar_full, glyphs.bar_empty)
+
+
+def short_tokens(n: int) -> str:
+    """A token count in a few characters: `950`, `9.1k`."""
+    return str(n) if n < TOKENS_PER_K else f"{n / TOKENS_PER_K:.1f}k"
 
 
 def percent(used: int, size: int) -> int:

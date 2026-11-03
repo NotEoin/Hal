@@ -31,7 +31,9 @@ a click on one opens its picker (for effort, a row of the levels the model suppo
 Enter, or a click; Esc closes). The mouse wheel over effort steps the level while no turn runs and
 sends it once the wheel stops; the wheel over the model or the mode does nothing, so a stray scroll
 never swaps the model or makes edits pass without asking. There is no temperature control: the
-session cannot set one. The context gauge at the right edge runs `/context`. On a narrow
+session cannot set one. A click on the context gauge at the right edge opens the same split `/context` prints (input side,
+model output kept, free, lockdown) with a Compact button that runs `/compact` (disabled while a
+turn runs). On a narrow
 terminal the project becomes its folder name, the model name is cut with an ellipsis and the gauge
 gets shorter, so model, mode, effort and the gauge always stay clickable. Lockdown and paranoia
 are in the status line (change them on the host with `hal config set`). The status line at the

@@ -62,7 +62,7 @@ from .controller import (
 )
 from .prompt import COMMAND_ARGUMENTS, PASTE_COLLAPSE_LINES, private_history
 from .render import TurnStats, clean, clip, patch_text, split_patch
-from .slash import KEY_HELP, PickItem, effort_levels, effort_support, PickRequest, Result, TuiState, command_descriptions, commands_for
+from .slash import KEY_HELP, PickItem, context_breakdown, effort_levels, effort_support, PickRequest, Result, TuiState, command_descriptions, commands_for
 from .status import StatusInfo, context_bar, model_label, percent, segments
 from .theme import Look, textual_themes
 from .transcript import TextualSink, ToolGroup, Transcript, UserMessage
@@ -1036,9 +1036,11 @@ class AgentApp(App[int]):
     @on(TopBar.Clicked)
     def top_clicked(self, event: TopBar.Clicked) -> None:
         """Model and mode open their pickers, effort its levels, the gauge the context breakdown."""
-        commands = {"model": "/model", "mode": "/mode", "gauge": "/context"}
+        commands = {"model": "/model", "mode": "/mode"}
         if event.key == "effort":
             self.run_worker(self.effort_popover(), group="pick")
+        elif event.key == "gauge":
+            self.run_worker(self.context_popover(), group="pick")
         elif event.key in commands and not (event.key == "mode" and not self.code):
             self.send(commands[event.key])
         elif event.key == "copy":
@@ -1053,6 +1055,13 @@ class AgentApp(App[int]):
         chosen = await screens.ask(self, screens.EffortPopover(levels, self.state.effort, reason, x, bar.region.bottom))
         if chosen:
             self.send(f"/effort {chosen}")
+        self.query_one(Composer).focus()
+
+    async def context_popover(self) -> None:
+        """The context breakdown `/context` prints, with a Compact button that runs `/compact`."""
+        popover = screens.ContextPopover(context_breakdown(self.state), self.look.glyphs, busy=self.busy)
+        if await screens.ask(self, popover) == "compact":
+            self.send("/compact")
         self.query_one(Composer).focus()
 
     @on(TopBar.Wheeled)

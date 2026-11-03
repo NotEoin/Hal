@@ -1,5 +1,5 @@
 """Shared modal screens of the full-screen UIs: a filterable picker, a confirm, a choice, help, a diff view and
-the effort popover.
+the effort and context popovers.
 
 Every modal answers Esc with its safe result (no choice, No, the focused safe button), puts focus
 on the safe answer when it opens, and draws text from callers as `Text` (via `SafeStatic` or
@@ -27,7 +27,9 @@ from textual.widgets.option_list import Option
 
 from .mentions import fuzzy
 from .render import clean
-from .slash import PickItem
+from .slash import Breakdown, PickItem
+from .status import context_bar, short_tokens
+from .theme import Glyphs
 from .widgets import SafeStatic, Segment, Segmented
 
 T = TypeVar("T")
@@ -323,6 +325,87 @@ class EffortPopover(ModalScreen[str | None]):
         """Answers the selected level, or None when it is the current one."""
         chosen = next((seg.selected for seg in self.query(Segmented)), self.current)
         self.dismiss(chosen if chosen != self.current else None)
+
+    def action_close(self) -> None:
+        """Closes without a change."""
+        self.dismiss(None)
+
+
+CONTEXT_POPOVER_BAR = 32  # gauge cells in the context popover
+GAUGE_EASE_S = 0.3  # the gauge fills to its value when the popover opens
+
+
+class ContextPopover(ModalScreen[str | None]):
+    """The context split, lockdown, and a Compact button; answers `"compact"` when it is pressed.
+
+    The numbers come from `slash.context_breakdown`, the same object `/context` prints, so the two
+    always agree. Compact is disabled while a turn runs. Esc or a click outside closes.
+    """
+
+    DEFAULT_CSS = MODAL_CSS + """
+    ContextPopover { align: right top; background: $background 30%; }
+    ContextPopover .modal-box { width: 48; margin: 1 1 0 0; }
+    ContextPopover #compact-row { height: 1; margin-top: 1; }
+    ContextPopover #compact-row Button { height: 1; min-width: 0; border: none; padding: 0 1; margin: 0 1 0 0; }
+    """
+    BINDINGS = [Binding("escape", "close", "close")]
+
+    def __init__(self, breakdown: Breakdown, glyphs: Glyphs, *, busy: bool) -> None:
+        super().__init__()
+        self.b, self.glyphs, self.busy = breakdown, glyphs, busy
+
+    def gauge(self, used: float) -> Text:
+        """The bar filled to `used` tokens and the percent of the real value."""
+        return Text(f"{context_bar(round(used), self.b.size, self.glyphs, CONTEXT_POPOVER_BAR)}  {self.b.percent}%")
+
+    def compose(self) -> ComposeResult:
+        """Gauge, split, lockdown, then Compact; or one line while the size is unknown."""
+        b = self.b
+        with Vertical(classes="modal-box"):
+            yield SafeStatic(Text("context"), classes="modal-title")
+            if not b.size:
+                yield SafeStatic(Text("context size not reported yet"), classes="muted")
+            else:
+                yield SafeStatic(self.gauge(0 if self._eases() else b.used), id="context-gauge")
+                rows = (
+                    ("input side (system, tools, files)", f"~{short_tokens(b.prompt_side)}"),
+                    ("model output kept in history", f"~{short_tokens(b.written)}"),
+                    ("free", f"~{short_tokens(b.free)}"),
+                )
+                yield SafeStatic(Text("\n".join(f"{label:<34}{value:>8}" for label, value in rows)), id="context-split")
+                if b.lockdown:
+                    lock = f"lockdown {clean(b.lockdown)}" + (f" / paranoia {clean(b.paranoia)}" if b.paranoia else "")
+                    yield SafeStatic(Text(lock), classes="muted")
+            with Horizontal(id="compact-row"):
+                yield Button("Compact", id="compact", disabled=self.busy or not b.size)
+                yield SafeStatic(Text("summarise history" + (" (after this turn)" if self.busy else "")), classes="muted")
+
+    def _eases(self) -> bool:
+        motion = getattr(self.app, "motion", None)
+        return motion is not None and motion.enabled
+
+    def on_mount(self) -> None:
+        """Fills the gauge with an ease when motion is on."""
+        motion = getattr(self.app, "motion", None)
+        if self.b.size and self._eases():
+            gauge = self.query_one("#context-gauge", SafeStatic)
+            self._tween = motion.tween(0, self.b.used, GAUGE_EASE_S, lambda v: gauge.update(self.gauge(v)))
+
+    def on_unmount(self) -> None:
+        """Stops the ease if the popover closes first."""
+        tween = getattr(self, "_tween", None)
+        if tween is not None:
+            tween.cancel()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Compact answers `compact`."""
+        if event.button.id == "compact":
+            self.dismiss("compact")
+
+    def on_click(self, event: events.Click) -> None:
+        """A click outside the box closes."""
+        if event.widget is self:
+            self.dismiss(None)
 
     def action_close(self) -> None:
         """Closes without a change."""

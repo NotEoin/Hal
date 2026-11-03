@@ -66,6 +66,10 @@ the levels `slash.effort_levels` returns) at the item's column; its answer runs 
 `TopBar.Wheeled` is handled for effort only, and only while idle: each notch moves
 `wheel_effort` (drawn in the bar at once) and restarts an `EFFORT_SETTLE_S` one-shot timer that
 sends one `/effort`. Model and mode ignore the wheel on purpose (spec section 6).
+The gauge opens `screens.ContextPopover` with `slash.context_breakdown(state)`, the same
+`Breakdown` that `/context` formats, so the two cannot disagree. It lives in `slash`, not
+`controller`, because `controller` imports `slash`. Compact answers `"compact"` and the app runs
+`/compact`; the gauge eases in with `Ticker.tween` only when motion is on.
 `ChangesList` (chrome.py) draws one unwrapped row per path and maps a click to its row by index,
 so a path's text cannot pick what opens. `show_change` reads `session.diff(None)` in a thread,
 cuts it with the pure `split_patch` (by `diff --git` headers, keyed by the new-side path) and

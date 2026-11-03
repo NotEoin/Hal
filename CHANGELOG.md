@@ -117,6 +117,7 @@ First release of the monorepo (uv workspace on branch `next`).
 - No-telemetry test (`tests/test_no_telemetry.py`) and a "No telemetry" README section.
 - A click on effort in the full-screen top bar opens a row of the supported levels; the mouse
   wheel over effort steps the level while idle and sends it once the wheel stops.
+- A click on the full-screen context gauge opens the `/context` split with a Compact button.
 - A click on a path in the full-screen CHANGES list opens a read-only view of that file's diff in
   the copy.
 
