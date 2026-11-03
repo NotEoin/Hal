@@ -127,6 +127,8 @@ First release of the monorepo (uv workspace on branch `next`).
 - The full screen runs one animation clock, capped at 30 frames a second, only while something
   moves; an idle session runs no timer (it used to wake 4 times a second). Spinners are braille
   dots, and `[ui].animations = false` turns every motion off.
+- The full screen shows the HAL eye, a red dot in the header: dim when idle, a slow pulse while a
+  turn runs, an amber blink while an approval waits.
 - `hal chat` offers only the commands that work in a chat: `/help`, Tab and Esc Esc leave out the
   project-copy commands (`/rewind`, `/diff`, `/accept`, `/export`, `/ide`, `/init`), and `!`, `#`
   and `@` are sent as plain text.

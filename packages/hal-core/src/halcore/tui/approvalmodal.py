@@ -299,8 +299,9 @@ class ModalAsker:
     """
 
     def __init__(self, app, bridge, on_note, *, arm_s: float = ARM_S, poll_s: float = approval.VANISH_POLL_S,
-                 ring: bool = True) -> None:  # noqa: ANN001 - a Textual App, a PermissionBridge and a callback
+                 ring: bool = True, on_change=None) -> None:  # noqa: ANN001 - a Textual App, a PermissionBridge and callbacks
         self.app, self.bridge, self.on_note = app, bridge, on_note
+        self.on_change = on_change  # called when a modal opens or closes (the HAL eye and the status line)
         self.arm_s, self.poll_s, self.ring = arm_s, poll_s, ring
         self.lock = asyncio.Lock()
         self.waiting = 0
@@ -344,6 +345,7 @@ class ModalAsker:
         future: asyncio.Future[tuple[str, str]] = asyncio.get_running_loop().create_future()
         modal = ApprovalModal(request, total=self.waiting, arm_s=self.arm_s)
         self.current = modal
+        self._changed()
 
         def done(result: tuple[str, str] | None) -> None:
             if not future.done():
@@ -361,6 +363,11 @@ class ModalAsker:
             return future.result()
         finally:
             self.current = None
+            self._changed()
+
+    def _changed(self) -> None:
+        if self.on_change is not None:
+            self.on_change()
 
     def deny_open(self) -> bool:
         """Denies the open modal, if any; True when there was one."""

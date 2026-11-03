@@ -792,3 +792,28 @@ def test_no_timer_runs_while_idle(tmp_path):
 
     before, during, after = drive(tmp_path, script, turns=[[running, 0.3, done, chunk("hi")]])
     assert before == (False, 0) and during and after == (False, 0)
+
+
+def test_eye_follows_turns_and_approvals(tmp_path):
+    from test_tui_approval_modal import REQUEST, FakeBridge
+
+    from halcore.tui.chrome import HalEye
+
+    async def script(pilot, app, agent):
+        eye = app.query_one(HalEye)
+        seen = [eye.state]
+        app.set_busy(True)
+        seen.append(eye.state)
+        send = app.ui.approval_sender(FakeBridge({"hal-1": REQUEST}), lambda note: None)
+        await send({"id": "hal-1"})
+        assert await until(pilot, lambda: isinstance(app.screen, ApprovalModal))
+        seen.append(eye.state)
+        await pilot.press("escape")
+        assert await until(pilot, lambda: not isinstance(app.screen, ApprovalModal))
+        await settle(pilot)
+        seen.append(eye.state)
+        app.set_busy(False)
+        seen.append(eye.state)
+        return seen
+
+    assert drive(tmp_path, script) == ["idle", "thinking", "approval", "thinking", "idle"]

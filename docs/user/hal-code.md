@@ -25,7 +25,9 @@ check a real session with a 12B to 32B model before relying on the speed figures
  ^c Stop / clear  ^d Quit  shift+tab Mode  ^b Panel  ^p Commands  f1 Help
 ```
 
-The header chips open a picker (model, mode, effort) when clicked; the lockdown chip says where
+The red dot at the left of the header is the HAL eye: dim while Hal is idle, pulsing slowly while
+a turn runs, blinking amber while an approval waits (the status line says "approval waiting" too;
+in the ASCII look the dot is `o`, `O` or `!`). The header chips open a picker (model, mode, effort) when clicked; the lockdown chip says where
 to change it. On a narrow terminal the chips shorten (a shorter model name, then no lockdown
 chip, which the status bar still shows, then no `model:` prefixes) so all of them stay clickable. Each tool call is a card: it shows a spinner and its own timer while it runs, then
 its result, and a click (or Enter on it) shows the folded output or diff in full. A click on one

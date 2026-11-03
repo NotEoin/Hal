@@ -1,6 +1,6 @@
 # hal tui snapshot: screen=welcome size=80x24 theme=dark look=ascii textual=8.2.8
 ## text
- Hal 0.1.0  code       model: gemma-3-27b-it   mode: default   effort: default  
+ o Hal 0.1.0  code     model: gemma-3-27b-it   mode: default   effort: default  
  +------------------------------------------------------------------+           
  | Hal 0.1.0                                                        |           
  | gemma-3-27b-it | box runsc                                       |           
@@ -25,7 +25,7 @@
   gemma-3-27b-it | mode default | box runsc                                     
  ^d Quit  ^c Stop / clear  shift+tab Mode  ^b Panel  ^p Commands  f1 Help       
 ## roles
-00 _1 F3 _1 X5 _2 X4 _7 F6 _1 F14 _3 F5 _1 F7 _3 F7 _1 F7 _2
+00 _1 d1 _1 F3 _1 X5 _2 X4 _5 F6 _1 F14 _3 F5 _1 F7 _3 F7 _1 F7 _2
 00bg .22 P23 .1 P15 .1 P17 .1
 01 _1 x68 _11
 02 _1 x1 _1 A3 _1 x5 _56 x1 _11

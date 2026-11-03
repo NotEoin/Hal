@@ -1,6 +1,6 @@
 # hal tui snapshot: screen=welcome size=120x36 theme=dark look=unicode textual=8.2.8
 ## text
- Hal 0.1.0  code  /work                             model: gemma-3-27b-it   mode: default   effort: default   lockdown  
+ \u25cf Hal 0.1.0  code  /work                           model: gemma-3-27b-it   mode: default   effort: default   lockdown  
  \u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e             \u2502 Todo  Changes  Context              
  \u2502 Hal 0.1.0                                                        \u2502             \u2502\u2578\u2501\u2501\u2501\u2501\u257a\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
  \u2502 gemma-3-27b-it \u00b7 box runsc                                       \u2502             \u2502(no todo list)                       
@@ -37,7 +37,7 @@
   gemma-3-27b-it \u00b7 mode default \u00b7 box runsc                                                                             
  ^d Quit  ^c Stop / clear  shift+tab Mode  ^b Panel  ^p Commands  f1 Help                                               
 ## roles
-00 _1 F3 _1 X5 _2 X4 _2 X5 _29 F6 _1 F14 _3 F5 _1 F7 _3 F7 _1 F7 _3 F8 _2
+00 _1 d1 _1 F3 _1 X5 _2 X4 _2 X5 _27 F6 _1 F14 _3 F5 _1 F7 _3 F7 _1 F7 _3 F8 _2
 00bg .51 P23 .1 P15 .1 P17 .1 P10 .1
 01 _1 x68 _13 p1 _1 f4 _2 x7 _2 x7 _14
 02 _1 x1 _1 A3 _1 x5 _56 x1 _13 p1 x1 a4 x32

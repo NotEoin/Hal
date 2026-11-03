@@ -1,6 +1,6 @@
 # hal tui snapshot: screen=turn size=80x24 theme=light look=unicode textual=8.2.8
 ## text
- Hal 0.1.0  code       model: gemma-3-27b-it   mode: default   effort: default  
+ \u25cf Hal 0.1.0  code     model: gemma-3-27b-it   mode: default   effort: default  
            return a - b                                                         
    \u25cf Edit src/calc.py  \u2713  0.0s  src/calc.py +1 -1                               
        @@ 1                                                                     
@@ -25,7 +25,7 @@
   gemma-3-27b-it \u00b7 \u25b0\u25b0\u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1\u25b1 40% \u00b7 mode default \u00b7 box runsc                    
  ^d Quit  ^c Stop / clear  shift+tab Mode  ^b Panel  ^p Commands  f1 Help       
 ## roles
-00 _1 F3 _1 X5 _2 X4 _7 F6 _1 F14 _3 F5 _1 F7 _3 F7 _1 F7 _2
+00 _1 d1 _1 F3 _1 X5 _2 X4 _5 F6 _1 F14 _3 F5 _1 F7 _3 F7 _1 F7 _2
 00bg .22 P23 .1 P15 .1 P17 .1
 01 _11 f6 _1 f1 _1 f1 _1 f1 _57
 02 _3 x1 _1 F4 _1 F11 _2 x1 _2 x4 _2 x11 _1 x2 _1 x2 _31

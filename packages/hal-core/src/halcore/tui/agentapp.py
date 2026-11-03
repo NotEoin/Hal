@@ -53,6 +53,7 @@ from .. import __version__
 from . import mentions, motion, screens, tokens
 from . import fallback
 from .approvalmodal import ModalAsker
+from .chrome import HalEye
 from .controller import (
     PLAN_CHOICES, Controller, Sender, checkpoint_label, history_path, refresh_status, stop_words, turn_facts,
 )
@@ -436,7 +437,7 @@ class TextualUi:
 
     def approval_sender(self, bridge, on_note: Callable[[str], None]) -> Sender:  # noqa: ANN001 - a PermissionBridge
         """Approvals in the modal, one at a time."""
-        self.asker = ModalAsker(self.app, bridge, on_note, ring=self.app.look.notify != "off")
+        self.asker = ModalAsker(self.app, bridge, on_note, ring=self.app.look.notify != "off", on_change=self.app.approval_changed)
         return self.asker.send
 
     def show(self, result: Result) -> None:
@@ -494,7 +495,7 @@ class AgentApp(App[int]):
     #header { height: 1; padding: 0 1; }
     #header .chip { height: 1; min-width: 6; border: none; margin-left: 1; background: $panel; }
     #header .chip:hover { background: $primary 40%; }
-    #title { width: 1fr; }
+    #title { width: 1fr; margin-left: 1; }
     #main { height: 1fr; }
     #side { width: 38; border-left: solid $panel; display: none; }
     #side.shown { display: block; }
@@ -578,6 +579,7 @@ class AgentApp(App[int]):
     def compose(self) -> ComposeResult:
         """Header, transcript and side panel, working line, completions, composer, status and keys."""
         with Horizontal(id="header"):
+            yield HalEye(id="eye")
             yield SafeStatic(self.title_text(), id="title")
             yield Button(self.chip_text("model"), id="chip-model", classes="chip")
             if self.code:
@@ -803,7 +805,18 @@ class AgentApp(App[int]):
             if self.motion is not None:
                 self._working = [self.motion.subscribe(self.spin, motion.SPINNER_HZ), self.motion.every(1.0, self.tick)]
             self.tick()
+        self.update_eye()
         self.refresh_status()
+
+    def approval_changed(self) -> None:
+        """An approval opened or closed: the eye and the status line follow."""
+        self.update_eye()
+        self.refresh_status()
+
+    def update_eye(self) -> None:
+        """The eye's state: approval waiting, else thinking during a turn, else idle."""
+        waiting = self.ui.asker is not None and self.ui.asker.current is not None
+        self.query_one(HalEye).state = "approval" if waiting else ("thinking" if self.busy else "idle")
 
     def link_checkpoint(self) -> None:
         """Gives the message this turn runs the checkpoint taken just before it, for Rewind."""
