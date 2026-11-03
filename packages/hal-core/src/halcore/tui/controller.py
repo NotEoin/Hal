@@ -415,6 +415,7 @@ class Controller:
         self.state: TuiState | None = None
         self._ide: IdeServer | None = None
         self._approvals: asyncio.Future[None] | None = None
+        self._defaults: asyncio.Future[None] | None = None
 
     async def start(self) -> str:
         """Opens or resumes the ACP session and fills the state; returns an error message, or ""."""
@@ -443,7 +444,8 @@ class Controller:
         )  # fmt: skip
         state.user_commands = load_commands(self.project)
         if self.live:
-            await apply_code_defaults(state, attach_model_sources(state))
+            # model discovery can take seconds per source; the UI must not wait for it to appear
+            self._defaults = asyncio.ensure_future(apply_code_defaults(state, attach_model_sources(state)))
         self.renderer.status_provider = self.live_status
         await refresh_status(state, self.session)
         return ""
@@ -563,8 +565,9 @@ class Controller:
 
     async def close(self) -> None:
         """Stops the approval poll, the IDE channel and the ACP client."""
-        if self._approvals is not None:
-            self._approvals.cancel()
+        for task in (self._approvals, self._defaults):
+            if task is not None:
+                task.cancel()
         if self._ide is not None:
             await self._ide.close()
             self._ide = None

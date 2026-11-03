@@ -155,3 +155,32 @@ def test_a_cancelled_line_read_leaves_no_reader_behind(monkeypatch):
 
     assert asyncio.run(go()) == "my next message"
     os.close(write_fd)
+
+
+def test_startup_does_not_wait_for_model_discovery(tmp_path, monkeypatch):
+    # regression: the code role's effort made startup wait up to 20 s on model discovery
+    from test_tui_agentapp import FakeSession, ScriptedAgent
+
+    from halcore.acp.records import RecordStore
+    from halcore.tui.render import Renderer
+
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "state"))
+    started = []
+
+    async def slow_defaults(state, roles):
+        started.append(1)
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(controller, "apply_code_defaults", slow_defaults)
+    monkeypatch.setattr(controller, "read_levels", lambda: ("standard", "balanced"))
+    monkeypatch.setattr(controller, "attach_model_sources", lambda state: {})
+    box = types.SimpleNamespace(session=FakeSession(), transport=ScriptedAgent())
+
+    async def go():
+        ctl = controller.Controller(box, Renderer(io.StringIO(), LOOK), cwd="/work", store=RecordStore(tmp_path / "s"))
+        error = await asyncio.wait_for(ctl.start(), 2)
+        await asyncio.sleep(0)
+        await ctl.close()
+        return error
+
+    assert asyncio.run(go()) == "" and started == [1]

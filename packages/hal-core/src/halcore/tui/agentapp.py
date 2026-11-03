@@ -630,6 +630,8 @@ class AgentApp(App[int]):
         self.queued_count = self.inbox.qsize() if self.busy else 0
         if self.busy:
             toast(self, "queued: it is sent when this turn ends", timeout=2)
+        elif line.split(" ", 1)[0] in ("/model", "/effort") and self.state.choices is None and self.state.load_choices:
+            toast(self, "listing the models of your sources...", timeout=3)
         self.refresh_status()
 
     @on(TextArea.Changed, "#composer")
