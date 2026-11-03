@@ -206,6 +206,26 @@ def remove_legacy_light(units: dict[str, str]) -> bool:
     return found
 
 
+def failing() -> list[str]:
+    """Installed units that are failed or waiting to restart after a crash, sorted.
+
+    An empty list when systemd cannot be asked, since `hal doctor` must work without it.
+    """
+    names = sorted(n for n in installed() if "@." not in n)  # `show` refuses a bare template
+    if not names or not shutil.which("systemctl"):
+        return []
+    try:
+        shown = systemctl("show", "-p", "Id,ActiveState,SubState", *names).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    bad = []
+    for block in shown.split("\n\n"):
+        props = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
+        if props.get("ActiveState") == "failed" or props.get("SubState") == "auto-restart":
+            bad.append(props.get("Id", ""))
+    return sorted(n for n in bad if n)
+
+
 def systemctl(*args: str, check: bool = False, timeout: float = SYSTEMCTL_TIMEOUT_S) -> subprocess.CompletedProcess:
     """Runs `systemctl --user` with `args`, bounded by `timeout`."""
     return subprocess.run(

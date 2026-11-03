@@ -81,6 +81,7 @@ def test_only_with_no_match_exits_2(monkeypatch, capsys):
 def test_units_rendering_outside_the_packs_warn_with_the_fix(monkeypatch):
     monkeypatch.setattr(doctor.units, "outside_packs", lambda: ["/old/hal-ecosystem/clock"])
     monkeypatch.setattr(doctor.units, "missing_exec_paths", lambda: [])
+    monkeypatch.setattr(doctor.units, "failing", lambda: [])
     check = doctor.units_check()
     assert check.status == "warn" and "/old/hal-ecosystem/clock" in check.detail and "hal setup" in check.detail
 
@@ -88,7 +89,38 @@ def test_units_rendering_outside_the_packs_warn_with_the_fix(monkeypatch):
 def test_units_check_is_ok_when_every_unit_comes_from_a_pack(monkeypatch):
     monkeypatch.setattr(doctor.units, "outside_packs", lambda: [])
     monkeypatch.setattr(doctor.units, "missing_exec_paths", lambda: [])
+    monkeypatch.setattr(doctor.units, "failing", lambda: [])
     assert doctor.units_check().status == "ok"
+
+
+def test_a_crash_looping_unit_warns_with_the_journal_command(monkeypatch):
+    """Regression: hal-telegram restarted 186 times while doctor said every unit was fine."""
+    monkeypatch.setattr(doctor.units, "outside_packs", lambda: [])
+    monkeypatch.setattr(doctor.units, "missing_exec_paths", lambda: [])
+    monkeypatch.setattr(doctor.units, "failing", lambda: ["hal-telegram.service"])
+    check = doctor.units_check()
+    assert check.status == "warn" and "hal-telegram.service" in check.detail
+    assert "journalctl --user -u hal-telegram.service" in check.detail
+
+
+def test_failing_reads_failed_and_restarting_units_from_systemctl(monkeypatch):
+    shown = (
+        "Id=hal-clock.service\nActiveState=active\nSubState=running\nNRestarts=0\n\n"
+        "Id=hal-telegram.service\nActiveState=activating\nSubState=auto-restart\nNRestarts=186\n\n"
+        "Id=hal-jobs.service\nActiveState=failed\nSubState=failed\nNRestarts=0\n\n"
+        "Id=hal-jobs.timer\nActiveState=active\nSubState=waiting\nNRestarts=\n"
+    )
+    names = ["hal-clock.service", "hal-telegram.service", "hal-jobs.service", "hal-jobs.timer"]
+    asked = []
+
+    def show(*args, **kwargs):
+        asked.extend(args)
+        return doctor.units.subprocess.CompletedProcess(args, 0, shown, "")
+
+    monkeypatch.setattr(doctor.units, "installed", lambda: dict.fromkeys([*names, "hal-briefing@.service"], "/m"))
+    monkeypatch.setattr(doctor.units, "systemctl", show)
+    assert doctor.units.failing() == ["hal-jobs.service", "hal-telegram.service"]
+    assert "hal-briefing@.service" not in asked  # systemctl refuses the whole call for a template
 
 
 def test_doctor_warns_when_no_model_is_assigned_and_names_hal_tune(monkeypatch, tmp_path):

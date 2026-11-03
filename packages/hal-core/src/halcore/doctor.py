@@ -77,9 +77,15 @@ def models_check() -> Check:
 
 
 def units_check() -> Check:
-    """Warns when a unit would render outside the registered packs or run a program that is missing."""
+    """Warns when a unit renders outside the registered packs, runs a missing program, or is crashing."""
     outside = units.outside_packs()
     missing = units.missing_exec_paths()
+    crashing = units.failing()
+    if crashing:
+        logs = "; ".join(f"`journalctl --user -u {name} -n 30`" for name in crashing)
+        crash_note = f"failed or restarting: {', '.join(crashing)}; see why with {logs}"
+        if not outside and not missing:
+            return Check("units", WARN, crash_note)
     if not outside and not missing:
         return Check("units", OK, "every unit renders from core Hal or a registered pack")
     parts = []
@@ -87,7 +93,8 @@ def units_check() -> Check:
         parts.append(f"render from outside the registered packs: {', '.join(outside)}")
     if missing:
         parts.append(f"run a missing program: {', '.join(missing)}")
-    return Check("units", WARN, "; ".join(parts) + "; run `hal setup --dry-run` to see them, `hal setup --replace` to fix")
+    detail = "; ".join(parts) + "; run `hal setup --dry-run` to see them, `hal setup --replace` to fix"
+    return Check("units", WARN, f"{crash_note}; {detail}" if crashing else detail)
 
 
 def wsl_checks(
