@@ -664,6 +664,24 @@ def test_a_recalled_message_with_a_paste_chip_sends_the_pasted_text_again(tmp_pa
     assert recalled.startswith("[pasted 3 lines") and sent == "1\n2\n3" and stored == recalled
 
 
+def test_history_search_loads_without_sending(tmp_path):
+    async def script(pilot, app, agent):
+        composer = app.query_one(Composer)
+        composer.sent = ["fix the parser", "run the tests", "fix parse error"]
+        await pilot.press("ctrl+r")
+        await settle(pilot)
+        search = app.screen
+        await type_text(pilot, "fix")
+        shown = [i.value for i in search.shown]
+        await pilot.press("ctrl+r", "enter")
+        await settle(pilot)
+        return isinstance(search, screens.HistorySearch), shown, composer.text, agent.prompts
+
+    is_search, shown, text, prompts = drive(tmp_path, script)
+    assert is_search and shown == ["fix parse error", "fix the parser"]
+    assert text == "fix the parser" and prompts == []
+
+
 def test_ctrl_o_expands_everything_when_one_card_is_open_then_folds_everything(tmp_path):
     # regression: Ctrl+O flipped each card, so an opened card folded while the others opened
     from rich.text import Text

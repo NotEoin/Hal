@@ -1,5 +1,5 @@
-"""Shared modal screens of the full-screen UIs: a filterable picker, a confirm, a choice, help, a diff view and
-the effort and context popovers.
+"""Shared modal screens of the full-screen UIs: a filterable picker, a confirm, a choice, help, a diff view,
+history search and the effort and context popovers.
 
 Every modal answers Esc with its safe result (no choice, No, the focused safe button), puts focus
 on the safe answer when it opens, and draws text from callers as `Text` (via `SafeStatic` or
@@ -164,6 +164,43 @@ class PickerModal(ModalScreen[str | None]):
     def action_cancel(self) -> None:
         """Esc: no choice."""
         self.dismiss(None)
+
+
+class HistorySearch(PickerModal):
+    """Ctrl+R: earlier messages, newest first, fuzzy filtered; Enter answers the message, Ctrl+R moves to the next match.
+
+    It sits above the message box, and the caller loads the answer there without sending it.
+    """
+
+    DEFAULT_CSS = MODAL_CSS + """
+    HistorySearch { align: center bottom; }
+    HistorySearch .modal-box { margin-bottom: 3; }
+    HistorySearch OptionList { height: auto; max-height: 12; border: none; }
+    HistorySearch #history-input { height: 1; }
+    HistorySearch #history-input SafeStatic { width: 2; }
+    HistorySearch Input { border: none; height: 1; padding: 0; width: 1fr; }
+    """
+    BINDINGS = [Binding("escape", "cancel", "cancel"), Binding("ctrl+r", "next", "next match", show=False)]
+
+    def __init__(self, items: Sequence[PickItem], prompt: str = "> ") -> None:
+        super().__init__("history", items)
+        self.prompt = prompt
+
+    def compose(self) -> ComposeResult:
+        """Title, the prompt-marked filter, the matches."""
+        with Vertical(classes="modal-box"):
+            yield SafeStatic(Text("history"), classes="modal-title")
+            with Horizontal(id="history-input"):
+                yield SafeStatic(Text(self.prompt))
+                yield Input(placeholder="type to search earlier messages", id="filter")
+            yield OptionList(markup=False, id="options")
+            yield SafeStatic(Text("Enter puts it in the message box  Ctrl+R next  Esc cancel", style="dim"), classes="muted")
+
+    def action_next(self) -> None:
+        """The next match down the list, wrapping at the end."""
+        options = self.query_one("#options", OptionList)
+        if options.option_count:
+            options.highlighted = ((options.highlighted or 0) + 1) % options.option_count
 
 
 @dataclass(frozen=True)

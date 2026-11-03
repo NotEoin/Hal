@@ -82,7 +82,7 @@ the kind, not the file: an attachment holds only its data.
 | Alt+Enter, Ctrl+J | New line in the message (Shift+Enter too where the terminal reports it) |
 | Paste of 3+ lines | Shown as `[pasted N lines #K]`; Backspace removes the whole chip; the real text is sent, also when Up or Ctrl+R brings the message back in the same session; the history file keeps only the chip |
 | Up, Down | History on the first or last line (kept in `tui-history` in the state dir, mode 0600) |
-| Ctrl+R | Pick an earlier message from a filterable list |
+| Ctrl+R | Search earlier messages, newest first (letters in order match); Ctrl+R again moves to the next match, Enter puts it in the message box without sending |
 | `/`, Tab | The command list with descriptions, then the fixed arguments; Tab takes the highlighted entry |
 | `@path` | Attach that file of the workspace (up to `[ui].mention_max_bytes`; links are never followed); `@` opens the file list, matched fuzzily: `@clc` finds `src/calc.py`; on a terminal 100 columns or wider the first 12 lines of the highlighted file show beside it |
 | `!cmd` | Run `cmd` in the box (`/work`, 120 s limit); its output joins your next message |

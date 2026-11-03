@@ -1075,7 +1075,7 @@ class AgentApp(App[int]):
         self.send(chosen)
 
     def action_history(self) -> None:
-        """Ctrl+R: earlier messages in a filterable list; the choice goes into the composer."""
+        """Ctrl+R: earlier messages, newest first, in a fuzzy search; the choice goes into the composer unsent."""
         composer = self.query_one(Composer)
         seen: list[str] = []
         for text in reversed(composer.sent):
@@ -1086,7 +1086,7 @@ class AgentApp(App[int]):
 
     async def history_pick(self, items: list[PickItem]) -> None:
         """Puts the chosen message in the composer."""
-        chosen = await screens.ask(self, screens.PickerModal("History", items))
+        chosen = await screens.ask(self, screens.HistorySearch(items, f"{self.look.glyphs.prompt} "))
         if chosen:
             self.query_one(Composer).load(chosen)
 

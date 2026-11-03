@@ -72,6 +72,8 @@ letters in the accent) and `#preview`, shown from `PREVIEW_MIN_W` columns. An `@
 `mentions.preview` (`open_regular_beneath`, at most `PREVIEW_MAX_BYTES`, a NUL means binary) read
 in a thread under `PREVIEW_TIMEOUT_S`, then `clean()`ed into a rich `Syntax`; a command with fixed
 arguments shows them as a usage line, since the list itself cannot restyle only its highlighted row.
+Ctrl+R opens `screens.HistorySearch`, a `PickerModal` subclass over `Composer.sent` (stored history
+plus this session) newest first; its answer goes through `Composer.load`, never `send`.
 The gauge opens `screens.ContextPopover` with `slash.context_breakdown(state)`, the same
 `Breakdown` that `/context` formats, so the two cannot disagree. It lives in `slash`, not
 `controller`, because `controller` imports `slash`. Compact answers `"compact"` and the app runs

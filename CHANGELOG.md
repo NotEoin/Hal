@@ -123,6 +123,8 @@ First release of the monorepo (uv workspace on branch `next`).
   column and the typed letters in the accent; on a wide terminal a preview beside the list shows
   the first lines of the highlighted `@` file (read without following links, binary files say so)
   or a command's arguments.
+- Ctrl+R in the full screen is a fuzzy history search above the message box; Ctrl+R again moves
+  to the next match and Enter loads the message without sending it.
 - A click on the full-screen context gauge opens the `/context` split with a Compact button.
 - A click on a path in the full-screen CHANGES list opens a read-only view of that file's diff in
   the copy.
