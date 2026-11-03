@@ -619,3 +619,25 @@ def test_ctrl_o_expands_everything_when_one_card_is_open_then_folds_everything(t
         return states
 
     assert drive(tmp_path, script) == [[True, True], [False, False]]
+
+
+def test_typing_after_clicking_a_chip_or_a_card_goes_into_the_message_box(tmp_path):
+    # regression: a click left the focus on the chip or card, so the next keys typed went nowhere
+    from rich.text import Text
+
+    async def script(pilot, app, agent):
+        composer = app.query_one(Composer)
+        await pilot.click("#chip-lockdown")
+        await settle(pilot)
+        await type_text(pilot, "hi")
+        after_chip = composer.text
+        composer.clear()
+        card = ToolCard("c1", Text("tool"))
+        app.transcript.add(card)
+        await settle(pilot)
+        card.focus()
+        await settle(pilot)
+        await type_text(pilot, "yo")
+        return after_chip, composer.text, composer.has_focus
+
+    assert drive(tmp_path, script) == ("hi", "yo", True)

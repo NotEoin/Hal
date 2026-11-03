@@ -19,6 +19,8 @@ Design decisions:
   the chosen value, so the picker adds no new path into the session.
 - Ctrl+C clears the composer, else stops the turn and denies an open approval, else asks for a
   second press within `QUIT_WINDOW_S` before quitting; one stray Ctrl+C never ends a session.
+- Typing always reaches the message box: a press on a chip or button gives the focus back to it,
+  and a printable key that arrives while a card has focus moves to it.
 - The header chips always fit the width: on a narrow terminal the model name is shortened, the
   read-only lockdown chip is left to the status bar, then the `model:` style prefixes go
   (`fit_header`); a chip is never pushed off screen where it cannot be clicked.
@@ -974,6 +976,16 @@ class AgentApp(App[int]):
             self.send(commands[which])
         elif which == "chip-lockdown":
             toast(self, "Lockdown and paranoia are read only here: change them on the host with `hal config set`.")
+        self.query_one(Composer).focus()  # the next thing typed is a message, not another press of the chip
+
+    def on_key(self, event: events.Key) -> None:
+        """A printable key that reached the app (focus on a card or a chip) goes into the message box."""
+        composer = self.query_one(Composer)
+        if isinstance(self.screen, ModalScreen) or composer.has_focus or not event.is_printable or not event.character:
+            return
+        composer.focus()
+        composer.insert(event.character)
+        event.stop()
 
     async def message_actions(self, message: UserMessage) -> None:
         """Copy, or (in code, with a checkpoint) Rewind to before the message."""
