@@ -652,7 +652,7 @@ class AgentApp(App[int]):
         composer.clear()
         composer.sent.append(raw)
         composer.sent_at = len(composer.sent)
-        self.history_store.store_string(text)  # the file keeps the real text: chips mean nothing next session
+        self.history_store.store_string(raw)  # pasted text stays out of the file, as in the line UI
         self.hide_popup()
         line = text.strip()
         if line in ("/help", "?"):

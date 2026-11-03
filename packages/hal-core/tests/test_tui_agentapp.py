@@ -596,7 +596,7 @@ def test_a_recalled_message_with_a_paste_chip_sends_the_pasted_text_again(tmp_pa
         return recalled, agent.prompts[1][0]["text"], stored[0]
 
     recalled, sent, stored = drive(tmp_path, script)
-    assert recalled.startswith("[pasted 3 lines") and sent == "1\n2\n3" and stored == "1\n2\n3"
+    assert recalled.startswith("[pasted 3 lines") and sent == "1\n2\n3" and stored == recalled
 
 
 def test_ctrl_o_expands_everything_when_one_card_is_open_then_folds_everything(tmp_path):

@@ -41,7 +41,7 @@ set `[ui].unicode = false` to force ASCII.
 | --- | --- |
 | Enter | Send; with the completion list open, take the highlighted entry first |
 | Alt+Enter, Ctrl+J | New line in the message (Shift+Enter too where the terminal reports it) |
-| Paste of 3+ lines | Shown as `[pasted N lines #K]`; Backspace removes the whole chip; the real text is sent, also when Up or Ctrl+R brings the message back, and the history file keeps the real text |
+| Paste of 3+ lines | Shown as `[pasted N lines #K]`; Backspace removes the whole chip; the real text is sent, also when Up or Ctrl+R brings the message back in the same session; the history file keeps only the chip |
 | Up, Down | History on the first or last line (kept in `tui-history` in the state dir, mode 0600) |
 | Ctrl+R | Pick an earlier message from a filterable list |
 | `/`, Tab | The command list with descriptions, then the fixed arguments; Tab takes the highlighted entry |
