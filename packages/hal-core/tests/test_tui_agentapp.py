@@ -875,3 +875,49 @@ def test_status_line_draws_a_tok_s_sparkline_during_a_turn(tmp_path):
         return str(app.query_one("#status").render())
 
     assert "40 tok/s" in drive(tmp_path, script)
+
+
+def test_attachment_chip_x_removes_the_image(tmp_path):
+    from halcore.tui.agentapp import AttachmentChips
+
+    async def script(pilot, app, agent):
+        app.state.attachments.append({"type": "image", "data": "", "mimeType": "image/png"})
+        app.refresh_status()
+        await settle(pilot)
+        chips = app.query_one(AttachmentChips)
+        shown = (chips.display, str(chips.render()))
+        start, _, _, _ = chips.spans[0]
+        await pilot.click(AttachmentChips, offset=(chips.styles.padding.left + start, 0))
+        await settle(pilot)
+        return shown, list(app.state.attachments), chips.display
+
+    (shown, text), left, after = drive(tmp_path, script)
+    assert shown and "image 1" in text and left == [] and not after
+
+
+def test_paste_chip_shows_under_the_composer_and_x_drops_the_paste(tmp_path):
+    from halcore.tui.agentapp import AttachmentChips
+
+    async def script(pilot, app, agent):
+        composer = app.query_one(Composer)
+        composer.post_message(events.Paste("a\nb\nc\nd"))
+        await settle(pilot)
+        chips = app.query_one(AttachmentChips)
+        text = str(chips.render())
+        app.remove_chip("paste", 0)
+        await settle(pilot)
+        return text, composer.text, composer.pastes
+
+    text, left, pastes = drive(tmp_path, script)
+    assert "paste 4 lines" in text and left == "" and pastes == {}
+
+
+def test_composer_is_borderless_with_a_prompt_mark(tmp_path):
+    from halcore.tui.agentapp import PromptMark
+
+    async def script(pilot, app, agent):
+        composer = app.query_one(Composer)
+        return composer.region.height, app.query_one(PromptMark).has_class("focused"), str(composer.styles.border_top[0])
+
+    height, focused, border = drive(tmp_path, script)
+    assert height == 1 and focused and border in ("", "none")

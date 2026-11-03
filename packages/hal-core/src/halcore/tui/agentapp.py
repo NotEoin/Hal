@@ -40,12 +40,14 @@ from pathlib import Path
 
 from halsandbox import isolated
 from halsandbox.errors import SandboxError
+from rich.console import RenderableType
 from rich.text import Text
 from textual import events, on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
+from textual.widget import Widget
 from textual.widgets import Button, Checkbox, OptionList, TabbedContent, TabPane, TextArea
 from textual.widgets.option_list import Option
 
@@ -89,14 +91,20 @@ class Composer(TextArea):
     """The message box: Enter sends, Alt+Enter or Ctrl+J adds a line, pastes of several lines become chips."""
 
     DEFAULT_CSS = """
-    Composer { height: auto; min-height: 3; max-height: 10; border: round $panel; padding: 0 1; }
-    Composer:focus { border: round $primary; }
+    Composer { height: auto; min-height: 1; max-height: 10; border: none; padding: 0; background: $background; }
+    Composer:focus { border: none; }
+    Composer .text-area--placeholder { color: $hal-faint; }
+    Composer .text-area--cursor-line { background: $background; }
     """
     NEWLINE_KEYS = ("alt+enter", "ctrl+j", "shift+enter")
+    PLACEHOLDER_CODE = "Message Hal   / commands  @ files  Enter sends  Alt+Enter new line"
+    PLACEHOLDER_CHAT = "Message Hal   / commands  Enter sends  Alt+Enter new line"
 
     def __init__(self, app_: AgentApp, history: list[str]) -> None:
+        placeholder = self.PLACEHOLDER_CODE if app_.code else self.PLACEHOLDER_CHAT
         super().__init__("", soft_wrap=True, show_line_numbers=False, highlight_cursor_line=False,
-                         placeholder="Message Hal   (/ commands, Enter sends, Alt+Enter new line)", id="composer")  # fmt: skip
+                         placeholder=placeholder, id="composer")  # fmt: skip
+        self.cursor_blink = app_.look.animations
         self.owner = app_
         self.sent = history
         self.sent_at = len(history)
@@ -187,6 +195,71 @@ class Composer(TextArea):
             text = text.replace(chip, data)
         self.pastes.clear()
         return text
+
+
+class PromptMark(SafeStatic):
+    """The prompt glyph left of the composer: accent while the composer has focus, faint otherwise."""
+
+    DEFAULT_CSS = """
+    PromptMark { width: 2; height: 1; color: $hal-faint; text-style: bold; }
+    PromptMark.focused { color: $primary; }
+    """
+
+
+class AttachmentChips(Widget):
+    """The row under the composer: one chip per collapsed paste and per pending attachment; `x` removes it."""
+
+    DEFAULT_CSS = """
+    AttachmentChips { height: 1; padding: 0 0 0 2; display: none; }
+    AttachmentChips.shown { display: block; }
+    """
+
+    def __init__(self, owner: AgentApp, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
+        self.owner = owner
+        self.spans: list[tuple[int, int, str, int]] = []  # (start, end, kind, index) of each `x`
+
+    def chips(self) -> list[tuple[str, str, int]]:
+        """`(label, kind, index)` for each paste chip and attachment; labels are fixed words and counts."""
+        out: list[tuple[str, str, int]] = []
+        for n, chip in enumerate(self.owner.query_one(Composer).pastes):
+            lines = chip.split(" ")[1] if chip.count(" ") >= 2 else "?"
+            out.append((f"paste {lines} lines", "paste", n))
+        kinds: dict[str, int] = {}
+        for n, block in enumerate(self.owner.state.attachments):
+            kind = "image" if block.get("type") == "image" else "text"
+            kinds[kind] = kinds.get(kind, 0) + 1
+            out.append((f"{kind} {kinds[kind]}", "attachment", n))
+        return out
+
+    def sync(self) -> None:
+        """Shows the row only when there is a chip."""
+        self.set_class(bool(self.chips()), "shown")
+        self.refresh()
+
+    def render(self) -> RenderableType:
+        """`[ paste 42 lines x ] [ image 1 x ]`."""
+        roles = tokens.ROLES.get(self.owner.look.theme, {}) if self.owner.look.color else {}
+        chip = f"{roles['muted']} on {roles['surface']}" if roles else "reverse"
+        text = Text(no_wrap=True, overflow="ellipsis")
+        self.spans = []
+        for label, kind, index in self.chips():
+            if text:
+                text.append(" ")
+            text.append(f" {label} ", style=chip)
+            start = text.cell_len
+            text.append("x ", style=f"bold {chip}")
+            self.spans.append((start, start + 1, kind, index))
+        return text
+
+    def on_click(self, event: events.Click) -> None:
+        """A click on a chip's `x` removes that paste or attachment."""
+        offset = event.get_content_offset(self)
+        for start, end, kind, index in self.spans:
+            if offset is not None and start <= offset.x < end:
+                self.owner.remove_chip(kind, index)
+                break
+        self.owner.query_one(Composer).focus()
 
 
 # --- modals ----------------------------------------------------------------------------------
@@ -340,6 +413,8 @@ class AgentApp(App[int]):
         scrollbar-background-active: $background;
     }
     #topbar { height: 1; padding: 0 1; }
+    #compose { height: auto; padding: 0 1; border-top: solid $hal-panel; }
+    #compose.ascii { border-top: ascii $hal-panel; }
     #topbar TopBar { margin-left: 2; }
     #main { height: 1fr; }
     #side { width: 38; border-left: solid $panel; display: none; }
@@ -445,7 +520,10 @@ class AgentApp(App[int]):
         yield SafeStatic("", id="working")
         yield self.popup
         history = list(reversed(list(self.history_store.load_history_strings())))
-        yield Composer(self, history)
+        with Horizontal(id="compose"):
+            yield PromptMark(Text(self.look.glyphs.prompt))
+            yield Composer(self, history)
+        yield AttachmentChips(self, id="chips")
         yield StatusLine(id="status")
 
     def top_info(self) -> TopInfo:
@@ -470,6 +548,7 @@ class AgentApp(App[int]):
             self.query_one("#unsandboxed").add_class("shown")
         self.sink.flush()
         self.refresh_status()
+        self.query_one("#compose").set_class(not self.look.unicode, "ascii")
         self.query_one(Composer).focus()
         self.run_worker(self.loop(), group="controller", exit_on_error=False)
 
@@ -521,9 +600,32 @@ class AgentApp(App[int]):
             toast(self, "listing the models of your sources...", timeout=TOAST_WAIT_S)
         self.refresh_status()
 
+    def on_descendant_focus(self, event: events.DescendantFocus) -> None:
+        """The prompt mark lights up while the composer has focus."""
+        self.query_one(PromptMark).set_class(isinstance(event.widget, Composer), "focused")
+
+    def on_descendant_blur(self, event: events.DescendantBlur) -> None:
+        """The prompt mark dims when the composer loses focus."""
+        if isinstance(event.widget, Composer):
+            self.query_one(PromptMark).remove_class("focused")
+
+    def remove_chip(self, kind: str, index: int) -> None:
+        """Removes a paste chip (its text goes from the box too) or a pending attachment."""
+        composer = self.query_one(Composer)
+        if kind == "paste":
+            chips = list(composer.pastes)
+            if 0 <= index < len(chips):
+                chip = chips[index]
+                composer.pastes.pop(chip)
+                composer.load_text(composer.text.replace(chip, ""))
+        elif 0 <= index < len(self.state.attachments):
+            self.state.attachments.pop(index)
+        self.query_one(AttachmentChips).sync()
+
     @on(TextArea.Changed, "#composer")
     def composer_changed(self, event: TextArea.Changed) -> None:
         """Completions for `/commands`, their fixed arguments, and `@files` (code only)."""
+        self.query_one(AttachmentChips).sync()
         composer = self.query_one(Composer)
         row, col = composer.cursor_location
         before = composer.document.get_line(row)[:col]
@@ -699,6 +801,7 @@ class AgentApp(App[int]):
             parts.append(("warn", f" {self.look.glyphs.sep} approval waiting"))
         self.query_one(StatusLine).show(parts, self.tok_samples, self.busy)
         self.query_one(TopBar).show(self.top_info())
+        self.query_one(AttachmentChips).sync()
         self.query_one("#todo", SafeStatic).update(Text(self.state.renderer.todo_text()))
         if info.size:
             bar = context_bar(info.used, info.size, self.look.glyphs, CONTEXT_BAR_CELLS)

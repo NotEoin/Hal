@@ -18,9 +18,8 @@ check a real session with a 12B to 32B model before relying on the speed figures
           42 +     raise ValueError("empty input")                       |
    | Run pytest -q  running 3s                                           |
  / working 12s | ~210 tok | 36 tok/s | Esc stops
- +-----------------------------------------------------------------------------------------------------------+
- | Message Hal   (/ commands, Enter sends, Alt+Enter new line)                                               |
- +-----------------------------------------------------------------------------------------------------------+
+ -------------------------------------------------------------------------------------------------------------
+ > Message Hal   / commands  @ files  Enter sends  Alt+Enter new line
  box runsc | lockdown standard/balanced | main | 1 unaccepted | .:-=+*#= 36 tok/s      Esc stops  ^C stop  F1 help
 ```
 
@@ -43,6 +42,12 @@ context use. With a UTF-8 terminal the marks are Unicode;
 set `[ui].unicode = false` to force ASCII.
 
 ## Input
+
+The message box has no frame: a thin rule above it and the prompt mark `>` (red while it has
+focus). It grows with each line up to 10 rows, then scrolls. Under it, a row of chips shows each
+collapsed paste (`paste 42 lines x`) and each attachment waiting for the next message
+(`image 1 x` after `/image`, `text 1 x` after a `!command`); a click on `x` removes it. Chips name
+the kind, not the file: an attachment holds only its data.
 
 | Key or prefix | What it does |
 | --- | --- |

@@ -134,6 +134,8 @@ First release of the monorepo (uv workspace on branch `next`).
   status line and the top bar now name the model the same way (`default`, not `no model`).
 - The full-screen status line has no background: box, lockdown, branch and changes, a tok/s
   sparkline and key hints that change while a turn runs; the separate key footer is gone.
+- The full-screen message box is borderless with a prompt mark and grows with multiline input;
+  pastes and pending attachments show as chips under it, and `x` on a chip removes it.
 - `hal chat` offers only the commands that work in a chat: `/help`, Tab and Esc Esc leave out the
   project-copy commands (`/rewind`, `/diff`, `/accept`, `/export`, `/ide`, `/init`), and `!`, `#`
   and `@` are sent as plain text.
