@@ -220,6 +220,7 @@ First release of the monorepo (uv workspace on branch `next`).
   one line, clipped with an ellipsis, and the palette and history search lines show their
   placeholder instead of a box drawn over them.
 - The Ctrl+P palette lines its descriptions up in one column.
+- The side panel's plan uses the same marks and colours as the plan in the transcript.
 
 ### Security
 

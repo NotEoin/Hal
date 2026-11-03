@@ -294,6 +294,27 @@ def test_slash_popup_rows_take_one_line_each_at_80_columns(tmp_path):
     assert count >= 2 and rows == count
 
 
+def test_side_panel_plan_uses_the_same_marks_as_the_plan_block(tmp_path):
+    # regression: the side panel drew the line UI's todo boxes while the transcript drew plan marks
+    from halcore.tui.transcript import PlanBlock
+
+    plan = {"sessionUpdate": "plan", "entries": [{"content": "Read it", "status": "completed"},
+                                                 {"content": "Fix it", "status": "in_progress"},
+                                                 {"content": "Test it", "status": "pending"}]}  # fmt: skip
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "go")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: not app.busy and "done" in transcript_text(app))
+        await pilot.press("ctrl+b")
+        await settle(pilot)
+        block = str(app.query_one(PlanBlock).render()).splitlines()[1:]
+        return block, plain(app.query_one("#todo")).rstrip().splitlines()
+
+    block, side = drive(tmp_path, script, turns=[[plan, chunk("done")]])
+    assert len(block) == 3 and [row.rstrip() for row in side] == [row.rstrip() for row in block]
+
+
 def test_streaming_text_lands_as_cleaned_markdown_and_markup_stays_literal(tmp_path):
     hostile = "[@click=app.quit]press[/] \x1b[2J" + chr(0x202E) + " done\n\n"
 

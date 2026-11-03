@@ -68,7 +68,7 @@ from .slash import KEY_HELP, PickItem, context_breakdown, effort_levels, effort_
 from .status import StatusInfo, context_bar, model_label, percent, segments
 from .theme import Look, textual_themes
 from .welcome import WelcomeView
-from .transcript import TextualSink, ToolGroup, Transcript, UserMessage
+from .transcript import TextualSink, ToolGroup, Transcript, UserMessage, plan_items
 from .widgets import SafeStatic, ThinkingFold, ToolCard, toast
 
 log = logging.getLogger(__name__)
@@ -918,7 +918,9 @@ class AgentApp(App[int]):
         todo = self.state.renderer.todo
         done = sum(1 for e in todo if e.get("status") == "completed")
         self.query_one("#side-plan", SafeStatic).update(Text(f"PLAN  {done} of {len(todo)}" if todo else "PLAN"))
-        self.query_one("#todo", SafeStatic).update(Text(self.state.renderer.todo_text()))
+        entries = self.state.renderer.plan_entries()
+        plan = plan_items(entries, self.look.glyphs, role_colours(self.look)) if entries else Text("(no todo list)")
+        self.query_one("#todo", SafeStatic).update(plan)
         self.query_one("#side-context", SafeStatic).update(Text(f"CONTEXT  {percent(info.used, info.size)}%" if info.size else "CONTEXT"))
         if info.size:
             bar = context_bar(info.used, info.size, self.look.glyphs, CONTEXT_BAR_CELLS)

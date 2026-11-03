@@ -33,7 +33,7 @@ from textual.widget import Widget
 
 from . import motion, tokens
 from .render import ToolRow, clean
-from .theme import Look
+from .theme import Glyphs, Look
 from .widgets import SPINNER_HZ, TIMER_S, SafeStatic, ThinkingFold, ToolCard, row_tail, toast
 
 if TYPE_CHECKING:
@@ -518,6 +518,22 @@ class ToolGroup(Widget):
 PLAN_BAR_CELLS = 8  # width of the plan's progress bar (spec 5.7)
 
 
+def plan_items(entries: list[tuple[str, str]], glyphs: Glyphs | None, roles: dict[str, str]) -> Text:
+    """The plan's items, one per row under a 2-column indent: the plan block and the side panel draw the same marks."""
+    marks = glyphs.plan if glyphs is not None else tokens.ASCII_PLAN
+    faint, muted, fg = roles.get("faint", "dim"), roles.get("muted", "dim"), roles.get("fg", "")
+    text = Text(no_wrap=True, overflow="ellipsis")
+    for n, (status, item) in enumerate(entries):
+        mark, style, mark_style = {
+            "completed": (marks["completed"], faint, roles.get("ok", "")),
+            "in_progress": (marks["in_progress"], fg, roles.get("accent", "")),
+        }.get(status, (marks["pending"], muted, muted))
+        text.append("\n  " if n else "  ")
+        text.append(mark, style=mark_style)
+        text.append(f" {item}", style=style)
+    return text
+
+
 class PlanBlock(Widget):
     """The turn's todo list, updated in place: `plan  ###-----  1 of 3`, then one row per item.
 
@@ -562,8 +578,7 @@ class PlanBlock(Widget):
         look = getattr(self.app, "look", None)
         g = look.glyphs if look is not None else None
         roles = tokens.ROLES.get(look.theme, {}) if look is not None and look.color else {}
-        faint, muted, fg = roles.get("faint", "dim"), roles.get("muted", "dim"), roles.get("fg", "")
-        marks = g.plan if g is not None else tokens.ASCII_PLAN
+        faint, muted = roles.get("faint", "dim"), roles.get("muted", "dim")
         done = sum(1 for status, _ in self.entries if status == "completed")
         text = Text(no_wrap=True, overflow="ellipsis")
         text.append("plan  ", style=muted)
@@ -572,15 +587,8 @@ class PlanBlock(Widget):
         text.append(full * cells, style=roles.get("accent", ""))
         text.append(empty * (PLAN_BAR_CELLS - cells), style=roles.get("panel", "dim"))
         text.append(f"  {done} of {len(self.entries)}", style=faint)
-        for status, item in self.entries:
-            mark, style, mark_style = {
-                "completed": (marks["completed"], faint, roles.get("ok", "")),
-                "in_progress": (marks["in_progress"], fg, roles.get("accent", "")),
-            }.get(status, (marks["pending"], muted, muted))
-            text.append("\n  ")
-            text.append(mark, style=mark_style)
-            text.append(f" {item}", style=style)
-        return text
+        text.append("\n")
+        return text.append_text(plan_items(self.entries, g, roles))
 
 
 SUBAGENT_TOOLS_SHOWN = 3  # latest tool rows a subagent tree shows before "+N more" (spec 5.8)
