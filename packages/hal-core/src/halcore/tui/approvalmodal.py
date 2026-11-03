@@ -18,6 +18,11 @@ Rules, each one tested in `test_tui_approval_modal.py`:
    and a forged `a` still goes through `answer_to_option`, which denies it.
 7. Esc, Ctrl+C or the request vanishing (`gone`) close the modal as a deny or with no answer.
 8. "Deny with a note" opens a line in the modal; Enter sends the note, an empty note is a deny.
+
+Small terminals: the buttons and the note line stay on screen at 80x24 and 60x20. When the
+buttons do not fit side by side they stack as one-line buttons, and the arguments view gives up
+rows (down to `ARGS_MIN_ROWS`) so the rest of the box fits. The gate line keeps its row when
+the arguments have been read, so the buttons never move under the pointer as they turn on.
 """
 
 from __future__ import annotations
@@ -42,6 +47,14 @@ ALLOW_IDS = ("allow-once", "allow-session")
 LETTER_OF = {"deny": "n", "deny-note": "e", "allow-once": "y", "allow-session": "a"}
 RISK_CLASS = {"low": "risk-low", "medium": "risk-medium", "high": "risk-high", "critical": "risk-high"}
 GONE = "gone"  # the dismiss value when the request was answered elsewhere
+ARGS_MAX_ROWS = 12  # the arguments view's tallest size, border included (its CSS `max-height`)
+ARGS_MIN_ROWS = 3  # one line of arguments between its borders
+BOX_HEIGHT = 0.9  # `.modal-box { max-height: 90% }` in `screens.MODAL_CSS`
+BOX_CHROME_ROWS = 2  # the box's top and bottom border
+BUTTON_CHROME_COLS = 4  # a button's border and padding around its label, plus the gap after it
+RECHECK_S = 0.05  # a wait for the next layout; a tighter `call_after_refresh` loop starves the layout
+GATE_CLOSED = "scroll to read every argument before allowing (PgDn, End or the wheel)"
+GATE_OPEN = "every argument shown"
 
 
 class ApprovalModal(ModalScreen[tuple[str, str]]):
@@ -56,10 +69,13 @@ class ApprovalModal(ModalScreen[tuple[str, str]]):
     ApprovalModal .risk-low { color: $success; }
     ApprovalModal .why, ApprovalModal .hint, ApprovalModal .args-title { color: $text-muted; }
     ApprovalModal #gate { color: $warning; height: auto; }
+    ApprovalModal #gate.open { color: $text-muted; }
     ApprovalModal #note { display: none; margin-top: 1; }
     ApprovalModal.noting #note { display: block; }
     ApprovalModal .modal-buttons { align-horizontal: left; }
     ApprovalModal .modal-buttons Button { margin: 0 1 0 0; }
+    ApprovalModal.narrow .modal-buttons { layout: vertical; }
+    ApprovalModal.narrow .modal-buttons Button { width: 100%; margin: 0; }
     """
     BINDINGS = [
         Binding("escape", "deny", "deny", show=False),
@@ -97,14 +113,14 @@ class ApprovalModal(ModalScreen[tuple[str, str]]):
             yield SafeStatic(Text("Arguments (every one, exactly as the tool receives them)"), classes="args-title")
             with VerticalScroll(id="args"):
                 yield SafeStatic(Text(view.display))
-            yield SafeStatic(Text("scroll to read every argument before allowing"), id="gate")
+            yield SafeStatic(Text(GATE_CLOSED), id="gate")
+            yield Input(placeholder="note for the agent; Enter sends it with the deny", id="note")
             with Horizontal(classes="modal-buttons"):
                 yield Button(f"{approval.DENY}  n", id="deny", variant="primary")
                 yield Button(f"{approval.DENY_NOTE}  e", id="deny-note")
                 yield Button(f"{approval.ALLOW_ONCE}  y", id="allow-once", disabled=True)
                 if view.session_offered:
                     yield Button(f"{approval.ALLOW_SESSION}  a", id="allow-session", disabled=True)
-            yield Input(placeholder="note for the agent; Enter sends it with the deny", id="note")
             yield SafeStatic(Text("y or a selects an allow button; Enter or a click confirms. Enter alone denies."), classes="hint")
 
     def title_text(self) -> Text:
@@ -123,6 +139,40 @@ class ApprovalModal(ModalScreen[tuple[str, str]]):
         self.opened_at = event.time
         self.query_one("#deny", Button).focus()
         self.set_timer(self.arm_s, self.arm)
+        self.call_after_refresh(self.fit)
+
+    def on_resize(self, event: events.Resize) -> None:
+        """A new terminal size: lay the box out again."""
+        self.call_after_refresh(self.fit)
+
+    def fit(self) -> None:
+        """Stacks the buttons when they do not fit in a row, then sizes the arguments view."""
+        if not self.is_attached:
+            return
+        box = self.query_one(".modal-box", Vertical)
+        buttons = list(self.query(Button))
+        wanted = sum(len(str(b.label)) + BUTTON_CHROME_COLS for b in buttons)
+        narrow = wanted > box.content_region.width
+        self.set_class(narrow, "narrow")
+        for button in buttons:
+            button.compact = narrow
+        self.call_after_refresh(self.fit_args)
+
+    def fit_args(self) -> None:
+        """Gives the arguments the rows the rest of the box leaves, between the min and max sizes."""
+        if not self.is_attached:
+            return
+        box = self.query_one(".modal-box", Vertical)
+        args = self.query_one("#args", VerticalScroll)
+        used = sum(
+            child.outer_size.height + child.styles.margin.top + child.styles.margin.bottom
+            for child in box.children if child is not args and child.display
+        )  # fmt: skip
+        room = int(self.size.height * BOX_HEIGHT) - BOX_CHROME_ROWS - used
+        rows = max(ARGS_MIN_ROWS, min(ARGS_MAX_ROWS, room))
+        if args.styles.max_height is None or args.styles.max_height.value != rows:
+            args.styles.max_height = rows
+            box.refresh(layout=True)
         self.call_after_refresh(self.check_seen)
 
     def arm(self) -> None:
@@ -132,7 +182,13 @@ class ApprovalModal(ModalScreen[tuple[str, str]]):
 
     def check_seen(self) -> None:
         """The arguments count as read once their view is scrolled to the end (or needs no scroll)."""
+        if not self.is_attached:
+            return
         args = self.query_one("#args", VerticalScroll)
+        limit = args.styles.max_height
+        if limit is not None and args.outer_size.height > limit.value:
+            self.set_timer(RECHECK_S, self.check_seen)  # the layout predates a smaller size: judge the next one
+            return
         if args.scroll_y >= args.max_scroll_y:
             self.seen = True
         self.update_gate()
@@ -156,7 +212,9 @@ class ApprovalModal(ModalScreen[tuple[str, str]]):
         for button in self.query(Button):
             if button.id in ALLOW_IDS:
                 button.disabled = not ready
-        self.query_one("#gate", SafeStatic).display = not self.seen
+        gate = self.query_one("#gate", SafeStatic)
+        gate.update(Text(GATE_OPEN if self.seen else GATE_CLOSED))
+        gate.set_class(self.seen, "open")
 
     def action_scroll_args(self, how: str) -> None:
         """PgDn, PgUp, End scroll the arguments wherever the focus is."""
@@ -187,6 +245,7 @@ class ApprovalModal(ModalScreen[tuple[str, str]]):
         """Opens the note line."""
         self.add_class("noting")
         self.query_one("#note", Input).focus()
+        self.call_after_refresh(self.fit_args)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Enter in the note line: deny, with the note when there is one."""
@@ -198,6 +257,7 @@ class ApprovalModal(ModalScreen[tuple[str, str]]):
         if self.has_class("noting"):
             self.remove_class("noting")
             self.query_one("#deny", Button).focus()
+            self.call_after_refresh(self.fit_args)
             return
         self.dismiss(("n", ""))
 

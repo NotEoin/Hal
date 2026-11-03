@@ -110,6 +110,8 @@ In the full screen a broker approval opens a dialog over everything else:
   the message box cannot allow anything, and they stay off until you have scrolled to the end
   of the arguments (PgDn, End or the wheel).
 - "Allow these exact arguments this session" appears only when the request offers it.
+- On a small terminal (down to 60x20) the buttons stack as one-line buttons and the arguments
+  view gets shorter, so every button stays on screen; you still scroll it to the end to allow.
 - `e` (or the button) opens a line for a note: Enter denies and sends the note to the agent as
   your next message.
 - Requests queue and are answered one at a time; the status bar says `approval waiting` and the

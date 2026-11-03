@@ -277,3 +277,60 @@ def test_deny_open_denies_the_visible_request():
 
     run_asker(bridge, script)
     assert bridge.answers == [("hal-1", "deny")]
+
+
+def on_screen(widget, size):
+    region = widget.region
+    return region.width > 0 and region.height > 0 and region.right <= size[0] and region.bottom <= size[1]
+
+
+def test_buttons_and_note_line_stay_on_screen_in_small_terminals():
+    # regression: at 80x24 and 60x20 a long argument list pushed the buttons below the screen edge
+    long = {**REQUEST, "display": "\n".join(f"arg{i}: value" for i in range(60))}
+    for size in ((80, 24), (60, 20)):
+        shown = {}
+
+        async def script(pilot, modal, size=size, shown=shown):
+            await armed(pilot, modal)
+            await pilot.pause()
+            shown["buttons"] = all(on_screen(b, size) for b in modal.query(Button))
+            await pilot.press("e")
+            for _ in range(3):
+                await pilot.pause()
+            shown["note"] = on_screen(modal.query_one("#note"), size)
+            await pilot.press("ctrl+c")
+
+        assert run_modal(long, script, size=size) == ("n", "")
+        assert shown == {"buttons": True, "note": True}, size
+
+
+def test_buttons_do_not_move_when_the_arguments_have_been_read():
+    long = {**REQUEST, "display": "\n".join(f"arg{i}: value" for i in range(60))}
+
+    async def script(pilot, modal):
+        await armed(pilot, modal)
+        before = modal.query_one("#deny", Button).region
+        await pilot.press("end")
+        for _ in range(3):
+            await pilot.pause()
+        assert modal.seen and not modal.query_one("#allow-once", Button).disabled
+        assert modal.query_one("#deny", Button).region == before
+        await pilot.press("n")
+
+    assert run_modal(long, script) == ("n", "")
+
+
+def test_arguments_that_fit_only_before_the_view_shrinks_still_need_scrolling():
+    # the view shrinks to fit a 60x20 screen; eight lines fit the tallest view but not the shrunk one
+    eight = {**REQUEST, "display": "\n".join(f"arg{i}: value" for i in range(8))}
+
+    async def script(pilot, modal):
+        await armed(pilot, modal)
+        for _ in range(3):
+            await pilot.pause()
+        args = modal.query_one("#args")
+        assert args.max_scroll_y > 0
+        assert not modal.seen and modal.query_one("#allow-once", Button).disabled
+        await pilot.press("n")
+
+    assert run_modal(eight, script, size=(60, 20)) == ("n", "")
