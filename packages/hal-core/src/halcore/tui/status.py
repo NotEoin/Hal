@@ -48,6 +48,7 @@ class StatusInfo:
     branch: str = ""
     changes: int = 0
     unsandboxed: bool = False
+    backend: str = ""  # the box runtime (`runsc`, `runc`, `docker`) or `none`
     notice: str = ""  # a short transient message, for example "verbose on"
 
 

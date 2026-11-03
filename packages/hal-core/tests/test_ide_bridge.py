@@ -95,7 +95,7 @@ def test_ide_command_toggles_ambient_sharing(parts):
 
 
 def test_open_ide_needs_an_isolated_copy_and_registers_the_bridge(monkeypatch):
-    from halcore.tui.app import open_ide
+    from halcore.tui.controller import open_ide
 
     with tempfile.TemporaryDirectory(prefix="hal-ide-") as tmp:
         monkeypatch.setenv("HAL_RUNTIME_DIR", str(Path(tmp, "run")))

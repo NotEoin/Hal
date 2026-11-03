@@ -97,6 +97,7 @@ class TuiState:
     ide: object | None = None  # an `IdeBridge` when the IDE channel is open
     confirm: Callable[[str], Awaitable[bool]] | None = None  # a yes/no typed on the terminal; None refuses
     surface: str = "code"  # `code` or `chat`: the session kind `/resume` lists
+    busy: bool = False  # True while a turn runs
 
 
 def image_block(path: Path) -> Block:

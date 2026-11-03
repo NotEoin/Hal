@@ -10,7 +10,7 @@ import pytest
 from halcore import sessions
 from halcore.acp.client import AcpClient
 from halcore.acp.transport import SubprocessTransport
-from halcore.tui import app, approval, slash
+from halcore.tui import app, approval, controller, slash
 from halcore import pids
 from halcore.tui.app import run_tui
 from halcore.tui.render import Renderer
@@ -257,8 +257,8 @@ def test_plan_is_run_only_after_the_human_picks_a_mode():
     async def run_it(prompt=""):
         return "a"
 
-    assert run(app.approve_plan(state, keep, out)) is None and state.mode == "plan"
-    assert run(app.approve_plan(state, run_it, out)) == app.PLAN_APPROVED_PROMPT
+    assert run(controller.approve_plan(state, keep, out)) is None and state.mode == "plan"
+    assert run(controller.approve_plan(state, run_it, out)) == controller.PLAN_APPROVED_PROMPT
     assert state.mode == "auto-edit" and state.client.modes == ["auto"]
     assert "write tests" in state.renderer.out.getvalue()
 
@@ -307,7 +307,7 @@ def test_plan_question_is_shown_on_a_terminal_prompt():
     async def editor_like(prompt=""):
         return "n"  # draws only its glyph, like `PromptInput.read`
 
-    run(app.approve_plan(state, editor_like, io.StringIO()))
+    run(controller.approve_plan(state, editor_like, io.StringIO()))
     assert "Run this plan?" in state.renderer.out.getvalue()
 
 

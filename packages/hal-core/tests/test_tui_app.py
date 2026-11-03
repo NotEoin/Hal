@@ -6,7 +6,7 @@ import os
 import sys
 import types
 
-from halcore.tui import app, slash, theme
+from halcore.tui import app, controller, slash, theme
 from halcore.tui.render import Renderer, TurnStats
 from halcore.acp.transport import SubprocessTransport
 from test_acp_client import FAKE_AGENT
@@ -31,7 +31,7 @@ def test_welcome_panel_has_the_header_facts():
     st.status.model, st.status.size, st.status.lockdown, st.status.paranoia = "qwen3-coder", 32768, "standard", "balanced"
     iso = types.SimpleNamespace(work="/state/isolated/abc/work")
     session = types.SimpleNamespace(runtime="runsc", backend="docker", project="/home/u/proj", iso=iso)
-    text = shown(app.welcome(st, session, LOOK, "9.9.9"))
+    text = shown(controller.welcome(st, session, LOOK, "9.9.9"))
     for part in ("Hal", "9.9.9", "qwen3-coder", "32k context", "lockdown standard", "paranoia balanced", "box runsc", "/home/u/proj", "/state/isolated/abc/work"):
         assert part in text
     assert text.isascii()
@@ -40,7 +40,7 @@ def test_welcome_panel_has_the_header_facts():
 def test_turn_line_lists_files_lines_tokens_and_time():
     s = TurnStats()
     s.files, s.added, s.removed, s.out_chars = {"a", "b"}, 10, 3, 400
-    line = app.turn_line(s, "end_turn", "plan", unsandboxed=True)
+    line = controller.turn_line(s, "end_turn", "plan", unsandboxed=True)
     assert line.startswith("[end_turn] mode plan UNSANDBOXED | 2 files +10 -3 | ~100 tok |")
 
 
@@ -55,7 +55,7 @@ def test_notify_rings_the_bell_or_sends_osc9_only_on_a_terminal():
 
 
 def test_note_is_appended_to_agents_md_in_the_copy(tmp_path):
-    assert "noted" in app.append_note(tmp_path, " use pytest -x \n and ruff ")
+    assert "noted" in controller.append_note(tmp_path, " use pytest -x \n and ruff ")
     assert (tmp_path / "AGENTS.md").read_text() == "- use pytest -x and ruff\n"
 
 
@@ -65,16 +65,16 @@ def test_note_does_not_follow_a_planted_symlink(tmp_path):
     work = tmp_path / "work"
     work.mkdir()
     os.symlink(outside, work / "AGENTS.md")
-    assert "refused" in app.append_note(work, "x")
+    assert "refused" in controller.append_note(work, "x")
     assert outside.read_text() == "keep"
 
 
 def test_note_without_a_copy_says_so():
-    assert "no working copy" in app.append_note(None, "x")
+    assert "no working copy" in controller.append_note(None, "x")
 
 
 def test_shell_needs_a_docker_box():
-    ok, text = asyncio.run(app.shell_in_box(types.SimpleNamespace(backend="none", container=""), "ls", "/work"))
+    ok, text = asyncio.run(controller.shell_in_box(types.SimpleNamespace(backend="none", container=""), "ls", "/work"))
     assert not ok and "docker" in text
 
 
@@ -85,11 +85,11 @@ def test_shell_runs_through_docker_exec_with_a_timeout(monkeypatch):
         seen.update(argv=argv, timeout=timeout)
         return types.SimpleNamespace(returncode=1, stdout=b"out", stderr=b"err")
 
-    monkeypatch.setattr(app.proc, "run", fake_run)
+    monkeypatch.setattr(controller.proc, "run", fake_run)
     session = types.SimpleNamespace(backend="docker", container="box1", docker="docker")
-    ok, text = asyncio.run(app.shell_in_box(session, "pytest -q", "/work"))
+    ok, text = asyncio.run(controller.shell_in_box(session, "pytest -q", "/work"))
     assert not ok and text == "exit 1\nouterr"
-    assert seen["argv"] == ["docker", "exec", "-w", "/work", "box1", "sh", "-c", "pytest -q"] and seen["timeout"] == app.SHELL_TIMEOUT_S
+    assert seen["argv"] == ["docker", "exec", "-w", "/work", "box1", "sh", "-c", "pytest -q"] and seen["timeout"] == controller.SHELL_TIMEOUT_S
 
 
 def test_loop_handles_note_shell_and_mention_prefixes(tmp_path, monkeypatch):
@@ -104,8 +104,8 @@ def test_loop_handles_note_shell_and_mention_prefixes(tmp_path, monkeypatch):
     session.backend = "docker"
     session.container = "box1"
     session.docker = "docker"
-    monkeypatch.setattr(app.proc, "run", lambda argv, **kw: types.SimpleNamespace(returncode=0, stdout=b"3 passed", stderr=b""))
-    monkeypatch.setattr(app, "refresh_status", lambda state, s: asyncio.sleep(0))
+    monkeypatch.setattr(controller.proc, "run", lambda argv, **kw: types.SimpleNamespace(returncode=0, stdout=b"3 passed", stderr=b""))
+    monkeypatch.setattr(controller, "refresh_status", lambda state, s: asyncio.sleep(0))
     sent = []
 
     async def go():
@@ -117,13 +117,13 @@ def test_loop_handles_note_shell_and_mention_prefixes(tmp_path, monkeypatch):
             return next(lines)
 
         out = io.StringIO()
-        real = app.AcpClient.prompt
+        real = controller.AcpClient.prompt
 
         async def spy(self, sid, blocks):
             sent.extend(blocks)
             return await real(self, sid, blocks)
 
-        monkeypatch.setattr(app.AcpClient, "prompt", spy)
+        monkeypatch.setattr(controller.AcpClient, "prompt", spy)
         await app.run_tui(box, cwd="/work", out=out, stdin_line=read, look=LOOK)
         return out.getvalue()
 
@@ -136,4 +136,4 @@ def test_loop_handles_note_shell_and_mention_prefixes(tmp_path, monkeypatch):
 
 def test_note_refuses_a_planted_fifo_without_blocking(tmp_path):
     os.mkfifo(tmp_path / "AGENTS.md")
-    assert "refused" in app.append_note(tmp_path, "x")
+    assert "refused" in controller.append_note(tmp_path, "x")
