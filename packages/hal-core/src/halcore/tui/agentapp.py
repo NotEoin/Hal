@@ -1044,6 +1044,11 @@ class AgentApp(App[int]):
         elif not isinstance(self.screen, ModalScreen):
             self.action_leave()
 
+    async def action_quit(self) -> None:
+        """Textual's own Ctrl+Q leaves the same way as Ctrl+D: through the unaccepted-changes question."""
+        if not isinstance(self.screen, ModalScreen):
+            self.action_leave()
+
     def action_leave(self) -> None:
         """Ctrl+D, /quit: quits, asking first when the copy has unaccepted changes."""
         self.run_worker(self.leave_flow(), group="leave", exclusive=True)

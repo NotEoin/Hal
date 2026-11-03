@@ -740,3 +740,17 @@ def test_scrolled_up_transcript_counts_new_output_and_a_click_follows_it_again(t
         return shown, still_up, app.transcript.scroll_y >= app.transcript.max_scroll_y - 1, below.display
 
     assert drive(tmp_path, script) == (True, True, True, False)
+
+
+def test_ctrl_q_asks_about_unaccepted_changes_like_ctrl_d(tmp_path):
+    # regression: Textual's built-in Ctrl+Q quit at once, skipping the leave question
+    session, project = isolated_session(tmp_path)
+
+    async def script(pilot, app, agent):
+        await pilot.press("ctrl+q")
+        asked = await until(pilot, lambda: isinstance(app.screen, screens.ChoiceModal))
+        await pilot.press("escape")
+        await settle(pilot)
+        return asked, app.is_running
+
+    assert drive(tmp_path, script, session=session, project=project) == (True, True)
