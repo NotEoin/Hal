@@ -84,7 +84,7 @@ the kind, not the file: an attachment holds only its data.
 | Up, Down | History on the first or last line (kept in `tui-history` in the state dir, mode 0600) |
 | Ctrl+R | Pick an earlier message from a filterable list |
 | `/`, Tab | The command list with descriptions, then the fixed arguments; Tab takes the highlighted entry |
-| `@path` | Attach that file of the workspace (up to `[ui].mention_max_bytes`; links are never followed); `@` opens the file list, matched fuzzily: `@clc` finds `src/calc.py` |
+| `@path` | Attach that file of the workspace (up to `[ui].mention_max_bytes`; links are never followed); `@` opens the file list, matched fuzzily: `@clc` finds `src/calc.py`; on a terminal 100 columns or wider the first 12 lines of the highlighted file show beside it |
 | `!cmd` | Run `cmd` in the box (`/work`, 120 s limit); its output joins your next message |
 | `# note` | Append the note to `AGENTS.md` in the copy |
 | Shift+Tab | Cycle the permission mode: default, auto-edit, plan |

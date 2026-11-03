@@ -55,6 +55,29 @@ def match_files(root: Path, query: str, *, count: int = 40) -> list[str]:
     return rank(query, index_files(root), limit=count)
 
 
+PREVIEW_LINES = 12  # rows the completion preview shows
+PREVIEW_MAX_BYTES = 4096  # read at most this much of a file to preview it
+NOT_PREVIEWABLE = "(not a readable file in the workspace)"
+BINARY = "(binary file)"
+
+
+def preview(root: Path, rel: str, *, lines: int = PREVIEW_LINES, max_bytes: int = PREVIEW_MAX_BYTES) -> str:
+    """The first `lines` lines of workspace file `rel` for the `@` completion preview; not cleaned.
+
+    Opened beneath `root` without following links, like an attached mention, so the preview
+    cannot show a host file a link in the copy points at. A NUL in the bytes read means binary.
+    """
+    try:
+        fd = fsafe.open_regular_beneath(root, rel)
+    except (fsafe.UnsafePathError, OSError):
+        return NOT_PREVIEWABLE
+    with os.fdopen(fd, "rb") as handle:
+        data = handle.read(max_bytes)
+    if b"\0" in data:
+        return BINARY
+    return "\n".join(data.decode("utf-8", errors="replace").splitlines()[:lines])
+
+
 def attach_mentions(text: str, root: Path | None, max_bytes: int) -> tuple[list[Block], list[str]]:
     """Text blocks for each `@path` in `text` that names a readable file, and notes for the ones skipped."""
     blocks: list[Block] = []

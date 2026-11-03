@@ -237,6 +237,51 @@ def test_at_popup_completes_workspace_files_in_code_only(tmp_path):
     assert drive(tmp_path, chat, session=FakeSession(work=work), mode="chat") is False
 
 
+def test_at_popup_previews_the_highlighted_file_on_a_wide_screen(tmp_path):
+    work = tmp_path / "work"
+    (work / "src").mkdir(parents=True)
+    (work / "src" / "parse.py").write_text("def parse():\n    return '\x1b]0;evil\x07'\n")
+    (work / "src" / "blob.bin").write_bytes(b"\x00\x01")
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "@pars")
+        await settle(pilot)
+        wide = app.query_one("#preview").has_class("shown"), plain(app.query_one("#preview"))
+        app.query_one(Composer).clear()
+        await type_text(pilot, "@blob")
+        await settle(pilot)
+        return wide, plain(app.query_one("#preview"))
+
+    (shown, text), binary = drive(tmp_path, script, session=FakeSession(work=work))
+    assert shown and "def parse" in text and "\x1b" not in text and "\x07" not in text
+    assert "(binary file)" in binary
+
+
+def test_completion_preview_is_left_out_on_a_narrow_screen(tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "parse.py").write_text("x = 1\n")
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "@pars")
+        await settle(pilot)
+        return app.popup.display, app.query_one("#preview").has_class("shown")
+
+    assert drive(tmp_path, script, session=FakeSession(work=work), size=(80, 24)) == (True, False)
+
+
+def test_slash_popup_rows_show_descriptions_and_argument_usage(tmp_path):
+    async def script(pilot, app, agent):
+        await type_text(pilot, "/eff")
+        await settle(pilot)
+        row = app.popup._options[0].prompt
+        return row.plain, plain(app.query_one("#preview"))
+
+    row, usage = drive(tmp_path, script)
+    assert row.startswith("/effort") and len(row.split()) > 1
+    assert usage.strip().startswith("usage: /effort") and "high" in usage
+
+
 def test_streaming_text_lands_as_cleaned_markdown_and_markup_stays_literal(tmp_path):
     hostile = "[@click=app.quit]press[/] \x1b[2J" + chr(0x202E) + " done\n\n"
 

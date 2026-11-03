@@ -119,6 +119,10 @@ First release of the monorepo (uv workspace on branch `next`).
   wheel over effort steps the level while idle and sends it once the wheel stops.
 - Pickers and `@` file completion match fuzzily (letters in order, word starts and file names
   first) and pickers show the matched letters in bold.
+- Full-screen completions sit in one bordered box: commands with their description in a second
+  column and the typed letters in the accent; on a wide terminal a preview beside the list shows
+  the first lines of the highlighted `@` file (read without following links, binary files say so)
+  or a command's arguments.
 - A click on the full-screen context gauge opens the `/context` split with a Compact button.
 - A click on a path in the full-screen CHANGES list opens a read-only view of that file's diff in
   the copy.

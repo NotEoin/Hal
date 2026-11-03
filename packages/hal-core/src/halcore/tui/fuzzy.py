@@ -20,6 +20,7 @@ CONSECUTIVE = 5  # a letter right after the previous match
 BASENAME = 3  # per letter inside the last path part
 PREFIX = 10  # the whole text starts with the query
 GAP = 1  # per skipped character between the first and the last match
+COVERAGE = 4  # at most this much more for a query that covers more of the basename (`calc.py` over `calc-notes.md`)
 SEPARATORS = frozenset(" /_-.:@")
 
 
@@ -69,6 +70,7 @@ def score(query: str, text: str) -> tuple[int, list[int]] | None:
     total += sum(BASENAME for i in indices if i >= base) if base else 0
     total += PREFIX if low.startswith(q) else 0
     total -= GAP * (indices[-1] - indices[0] + 1 - len(indices))
+    total += round(COVERAGE * sum(1 for i in indices if i >= base) / max(1, len(text) - base))
     return total, indices
 
 

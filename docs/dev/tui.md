@@ -67,6 +67,11 @@ the levels `slash.effort_levels` returns) at the item's column; its answer runs 
 `TopBar.Wheeled` is handled for effort only, and only while idle: each notch moves
 `wheel_effort` (drawn in the bar at once) and restarts an `EFFORT_SETTLE_S` one-shot timer that
 sends one `/effort`. Model and mode ignore the wheel on purpose (spec section 6).
+Completions live in `#complete-box`: the `#popup` `OptionList` (rows built by `match_row`, typed
+letters in the accent) and `#preview`, shown from `PREVIEW_MIN_W` columns. An `@` row's preview is
+`mentions.preview` (`open_regular_beneath`, at most `PREVIEW_MAX_BYTES`, a NUL means binary) read
+in a thread under `PREVIEW_TIMEOUT_S`, then `clean()`ed into a rich `Syntax`; a command with fixed
+arguments shows them as a usage line, since the list itself cannot restyle only its highlighted row.
 The gauge opens `screens.ContextPopover` with `slash.context_breakdown(state)`, the same
 `Breakdown` that `/context` formats, so the two cannot disagree. It lives in `slash`, not
 `controller`, because `controller` imports `slash`. Compact answers `"compact"` and the app runs

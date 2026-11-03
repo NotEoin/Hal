@@ -42,6 +42,7 @@ from pathlib import Path
 from halsandbox import isolated
 from halsandbox.errors import SandboxError
 from rich.console import RenderableType
+from rich.syntax import Syntax
 from rich.text import Text
 from textual import events, on
 from textual.app import App, ComposeResult
@@ -53,10 +54,10 @@ from textual.widget import Widget
 from textual.widgets import Button, Checkbox, OptionList, TextArea
 from textual.widgets.option_list import Option
 
-from . import mentions, motion, screens, tokens
+from . import fuzzy, mentions, motion, screens, tokens
 from . import fallback
 from .approvalmodal import ModalAsker
-from .chrome import ChangesList, HalEye, SideHandle, StatusLine, TopBar, TopInfo
+from .chrome import ChangesList, HalEye, role_colours, SideHandle, StatusLine, TopBar, TopInfo
 from .controller import (
     PLAN_CHOICES, Controller, Sender, checkpoint_label, history_path, refresh_status, stop_words, turn_facts,
 )
@@ -76,6 +77,8 @@ NOTIFY_MIN_S = 10.0  # a turn this long rings the bell when the window is not fo
 NOTIFY_LONG_S = 60.0  # a turn this long notifies even when the terminal never reports focus (as the line UI)
 OSC9 = "\x1b]9;Hal: turn finished\x07"  # fixed text: nothing from the model reaches the terminal title bar
 POPUP_ROWS = 8
+PREVIEW_MIN_W = 100  # below this width the completion list has the whole row and no preview
+PREVIEW_TIMEOUT_S = 1.0  # a preview read that takes longer (a slow mount) shows a note instead
 COMPACT_WIDTH = 90  # below this width or `COMPACT_HEIGHT` rows, blocks in a turn lose their blank row
 COMPACT_HEIGHT = 30
 SPARK_SAMPLES = 24  # seconds of tok/s kept for the sparkline
@@ -438,8 +441,12 @@ class AgentApp(App[int]):
     #below:hover { color: $primary; }
     #working { height: 1; padding: 0 1; color: $primary; display: none; }
     #working.busy { display: block; }
-    #popup { height: auto; max-height: 10; display: none; border: round $panel; margin: 0 1; }
+    #complete-box { height: auto; max-height: 14; display: none; border: round $hal-panel; margin: 0 1; }
+    #complete-box.shown { display: block; }
+    #popup { height: auto; max-height: 12; width: 1fr; display: none; border: none; padding: 0; }
     #popup.shown { display: block; }
+    #preview { width: 1fr; height: auto; max-height: 12; display: none; padding: 0 1; border-left: solid $hal-panel; }
+    #preview.shown { display: block; }
     #unsandboxed { height: 1; background: $error; color: $text; text-style: bold; padding: 0 1; display: none; }
     #unsandboxed.shown { display: block; }
     """
@@ -535,7 +542,9 @@ class AgentApp(App[int]):
                 yield SafeStatic("", id="context")
         yield self.transcript.below
         yield SafeStatic("", id="working")
-        yield self.popup
+        with Horizontal(id="complete-box"):
+            yield self.popup
+            yield SafeStatic("", id="preview")
         history = list(reversed(list(self.history_store.load_history_strings())))
         with Horizontal(id="compose"):
             yield PromptMark(Text(self.look.glyphs.prompt))
@@ -648,38 +657,100 @@ class AgentApp(App[int]):
         composer = self.query_one(Composer)
         row, col = composer.cursor_location
         before = composer.document.get_line(row)[:col]
-        items: list[tuple[str, str]] = []  # (label, replacement of the current token)
+        items: list[tuple[Text, str]] = []  # (row, replacement of the current token)
         typed = before.rsplit(" ", 1)[-1]
         if row == 0 and before.startswith("/") and " " not in before:
-            for name, desc in command_descriptions(self.state.user_commands, self.state.surface).items():
+            described = command_descriptions(self.state.user_commands, self.state.surface)
+            width = max((len(n) for n in described), default=0) + 3
+            for name, desc in described.items():
                 if name.startswith(before[1:]):
-                    items.append((f"/{name}  {desc}", f"/{name} "))
+                    label = self.match_row(f"/{name}", before, prefix=True)
+                    label.append(" " * (width - len(name) - 1))
+                    label.append(clean(desc), style=self.role("muted"))
+                    items.append((label, f"/{name} "))
         elif row == 0 and before.startswith("/") and before.count(" ") == 1:
             name, _, partial = before[1:].partition(" ")
-            items = [(w, w) for w in COMMAND_ARGUMENTS.get(name, ()) if w.startswith(partial)]
+            items = [(self.match_row(w, partial, prefix=True), w) for w in COMMAND_ARGUMENTS.get(name, ()) if w.startswith(partial)]
         elif self.code and self.controller.workdir is not None:
             token = before.rsplit(" ", 1)[-1]
             if token.startswith("@"):
-                items = [(f"@{p}", f"@{p} ") for p in mentions.match_files(self.controller.workdir, token[1:])]
+                found = mentions.match_files(self.controller.workdir, token[1:])
+                items = [(self.match_row(f"@{p}", token), f"@{p} ") for p in found]
         # an exact match goes first, so Enter on "/mode" sends /mode instead of completing to /model
         items.sort(key=lambda item: item[1].strip() != typed)
         self.show_popup(items[:POPUP_ROWS * 3])
 
-    def show_popup(self, items: list[tuple[str, str]]) -> None:
+    def role(self, name: str) -> str:
+        """The colour of role `name` in the current look, or "" (mono, or no colour)."""
+        return role_colours(self.look).get(name, "")
+
+    def match_row(self, label: str, typed: str, *, prefix: bool = False) -> Text:
+        """`label` cleaned, with the letters `typed` matched in the accent (a prefix, or fuzzily)."""
+        text = Text(clean(label))
+        style = f"bold {self.role('accent')}".strip()
+        if prefix:
+            text.stylize(style, 0, min(len(typed), len(text)))
+        elif (hit := fuzzy.score(typed, text.plain)) is not None:
+            for i in hit[1]:
+                text.stylize(style, i, i + 1)
+        return text
+
+    def show_popup(self, items: list[tuple[Text, str]]) -> None:
         """Shows completions, or hides the list when there are none."""
         self.completions = [r for _, r in items]
         if not items:
             self.hide_popup()
             return
-        self.popup.set_options([Option(Text(clean(label))) for label, _ in items])
-        self.popup.highlighted = 0
+        self.popup.set_options([Option(label) for label, _ in items])
         self.popup.add_class("shown")
         self.popup.display = True
+        self.query_one("#complete-box").add_class("shown")
+        self.popup.highlighted = 0
+        self.show_preview()
 
     def hide_popup(self) -> None:
-        """Hides the completion list."""
+        """Hides the completion list and its preview."""
         self.popup.remove_class("shown")
         self.popup.display = False
+        self.query_one("#complete-box").remove_class("shown")
+        self.query_one("#preview").remove_class("shown")
+
+    @on(OptionList.OptionHighlighted, "#popup")
+    def popup_highlighted(self, event: OptionList.OptionHighlighted) -> None:
+        """Moving in the list updates the preview."""
+        self.show_preview()
+
+    def show_preview(self) -> None:
+        """The highlighted file's first lines, or a command's arguments, beside the list on a wide screen."""
+        preview = self.query_one("#preview", SafeStatic)
+        index = self.popup.highlighted
+        chosen = self.completions[index] if index is not None and index < len(self.completions) else ""
+        name = chosen.strip()[1:] if chosen.startswith("/") else ""
+        if self.size.width < PREVIEW_MIN_W or not (chosen.startswith("@") or COMMAND_ARGUMENTS.get(name)):
+            preview.remove_class("shown")
+            return
+        preview.add_class("shown")
+        if name:
+            preview.update(Text("usage: /" + name + " " + "|".join(COMMAND_ARGUMENTS[name]), style=self.role("faint")))
+        else:
+            self.run_worker(self.load_preview(chosen.strip()[1:]), group="preview", exclusive=True)
+
+    async def load_preview(self, rel: str) -> None:
+        """Reads the preview off the loop with a timeout, then shows it highlighted as code (no markup)."""
+        root = self.controller.workdir
+        if root is None:
+            return
+        try:
+            body = await asyncio.wait_for(asyncio.to_thread(mentions.preview, root, rel), PREVIEW_TIMEOUT_S)
+        except TimeoutError:
+            body = "(the preview took too long)"
+        preview = self.query_one("#preview", SafeStatic)
+        if body in (mentions.BINARY, mentions.NOT_PREVIEWABLE) or body.startswith("(the preview"):
+            preview.update(Text(body, style=self.role("faint")))
+            return
+        lexer = Syntax.guess_lexer(rel)
+        theme = self.look.palette.code
+        preview.update(Syntax(clean(body), lexer, theme=theme, background_color="default", word_wrap=False))
 
     def completion_target(self) -> tuple[str, int, int, int] | None:
         """`(replacement, row, start, end)` for the highlighted completion, or None."""

@@ -178,3 +178,29 @@ def test_status_line_shows_the_effort_next_to_the_model_and_nothing_when_unset()
     shown = status.to_rich(status.segments(info(effort="high"), LOOK), LOOK).plain
     assert shown.index("qwen3-coder-30b") < shown.index("effort high") < shown.index("25%")
     assert "effort" not in status.to_rich(status.segments(info(), LOOK), LOOK).plain
+
+
+def test_mention_preview_reads_only_inside_the_workdir(tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    (tmp_path / "secret.txt").write_text("host secret\n")
+    (work / "link.txt").symlink_to(tmp_path / "secret.txt")
+    (work / "ok.py").write_text("".join(f"line {n}\n" for n in range(30)))
+    assert mentions.preview(work, "link.txt") == mentions.NOT_PREVIEWABLE
+    assert mentions.preview(work, "../secret.txt") == mentions.NOT_PREVIEWABLE
+    shown = mentions.preview(work, "ok.py").splitlines()
+    assert len(shown) == mentions.PREVIEW_LINES and shown[0] == "line 0"
+
+
+def test_mention_preview_of_a_binary_file_says_so(tmp_path):
+    (tmp_path / "blob.bin").write_bytes(b"\x89PNG\x00\x01")
+    assert mentions.preview(tmp_path, "blob.bin") == mentions.BINARY
+
+
+def test_mention_completion_is_fuzzy_with_basename_hits_first(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "calc-notes.md").write_text("x")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "calc.py").write_text("x")
+    mentions._cache.clear()
+    assert mentions.match_files(tmp_path, "clc")[0] == "src/calc.py"
