@@ -256,3 +256,65 @@ def test_approval_panel_uses_the_ui_theme():
 
     asyncio.run(go())
     assert seen == [light.palette.accent] and light.theme == "light"
+
+
+LOOK = theme.load_look({"unicode": False}, stream=io.StringIO(), environ={})
+
+
+class RecordingSink:
+    """A sink that keeps every call, for the full-screen UI's contract."""
+
+    def __init__(self):
+        self.calls = []
+
+    def write(self, renderable):
+        self.calls.append(("write", renderable))
+
+    def tail(self, renderable):
+        self.calls.append(("tail", renderable))
+
+    def tool_started(self, cid, title, depth):
+        self.calls.append(("started", cid, title.plain, depth))
+
+    def tool_finished(self, cid, header, body, full):
+        self.calls.append(("finished", cid, header.plain, len(body), len(full)))
+
+    def thought(self, summary, body, shown):
+        self.calls.append(("thought", summary.plain, body.plain, shown))
+
+    def turn_started(self):
+        self.calls.append(("begin",))
+
+    def turn_ended(self):
+        self.calls.append(("end",))
+
+    def suspended(self):
+        import contextlib
+
+        return contextlib.nullcontext()
+
+
+def test_a_running_tool_call_reaches_the_sink_before_it_finishes():
+    sink = RecordingSink()
+    r = Renderer(io.StringIO(), LOOK, sink=sink)
+    r.begin_turn()
+    r.update({"sessionUpdate": "tool_call", "toolCallId": "c1", "title": "Run pytest\x1b[2J", "status": "in_progress"})
+    r.update({"sessionUpdate": "tool_call_update", "toolCallId": "c1", "status": "completed",
+              "content": [{"type": "content", "content": {"type": "text", "text": "\n".join(map(str, range(30)))}}]})
+    r.end_turn()
+    kinds = [c[0] for c in sink.calls]
+    assert kinds.index("started") < kinds.index("finished")
+    started = next(c for c in sink.calls if c[0] == "started")
+    assert started[1] == "c1" and "\x1b" not in started[2]
+    finished = next(c for c in sink.calls if c[0] == "finished")
+    assert finished[3] < finished[4]  # the folded body is shorter than the full one
+
+
+def test_the_sink_gets_the_streaming_tail_and_thinking_as_cleaned_text():
+    sink = RecordingSink()
+    r = Renderer(io.StringIO(), LOOK, sink=sink)
+    r.update({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "hmm \x1b]0;x\x07"}})
+    r.update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "open tail"}})
+    thought = next(c for c in sink.calls if c[0] == "thought")
+    assert "\x1b" not in thought[2] and thought[3] is False
+    assert any(c[0] == "tail" and c[1] is not None for c in sink.calls)

@@ -9,6 +9,11 @@ visible `text (url)`, never as OSC 8 hyperlinks, so the label cannot hide the ta
 Streaming: completed markdown blocks are committed to scrollback as they arrive; the unfinished
 tail and a spinner line live in a rich `Live` region (terminals only), so scrollback stays plain
 text a user can select and search. Only the fixed labels this module writes are trusted.
+
+Split: `Renderer` reads the updates, keeps the turn stats and builds rich renderables from
+cleaned text; a `Sink` only places them. `ConsoleSink` prints to the terminal (the line UI);
+the full-screen UI has its own sink that mounts the same renderables as widgets. Cleaning
+happens here, before any sink, so one set of display-safety tests covers both UIs.
 """
 
 from __future__ import annotations
@@ -20,7 +25,7 @@ import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TextIO
+from typing import Protocol, TextIO
 from collections.abc import Iterator
 
 from halkit import termsafe
@@ -156,13 +161,104 @@ def _hal_meta(update: Update) -> dict[str, object]:
     return hal if isinstance(hal, dict) else {}
 
 
-class Renderer:
-    """Turns ACP `session/update` objects into terminal output; keeps the latest todo list and turn stats."""
+class Sink(Protocol):
+    """Where the renderer's output goes; every renderable it receives is already safe to show."""
 
-    def __init__(self, out: TextIO | None = None, look: Look | None = None, console: Console | None = None) -> None:
+    def write(self, renderable: RenderableType) -> None:
+        """Adds one finished item to the transcript."""
+
+    def tail(self, renderable: RenderableType | None) -> None:
+        """Replaces the streaming tail (the unfinished markdown block); None clears it."""
+
+    def tool_started(self, cid: str, title: Text, depth: int) -> None:
+        """A tool call began; `title` is its cleaned one-line title."""
+
+    def tool_finished(self, cid: str, header: Text, body: list[RenderableType], full: list[RenderableType]) -> None:
+        """A tool call ended: its result row, the folded body and the body in full."""
+
+    def thought(self, summary: Text, body: Text, shown: bool) -> None:
+        """A reasoning block ended: the summary line and its text, open when `shown`."""
+
+    def turn_started(self) -> None:
+        """A turn began."""
+
+    def turn_ended(self) -> None:
+        """A turn ended."""
+
+    def suspended(self) -> contextlib.AbstractContextManager[None]:
+        """Pauses live drawing while something else owns the terminal."""
+
+
+class ConsoleSink:
+    """Prints to a rich console; the tail and a spinner line live in a `Live` region on a terminal."""
+
+    def __init__(self, console: Console, live_view: Callable[[], RenderableType], refresh_hz: int) -> None:
+        self.console = console
+        self.live_view = live_view
+        self.refresh_hz = refresh_hz
+        self._live: Live | None = None
+
+    def write(self, renderable: RenderableType) -> None:
+        """Prints one item to scrollback."""
+        self.console.print(renderable)
+
+    def tail(self, renderable: RenderableType | None) -> None:
+        """Nothing to do: the live region reads the tail when it redraws."""
+
+    def tool_started(self, cid: str, title: Text, depth: int) -> None:
+        """Nothing to print yet: the spinner line shows that work goes on."""
+
+    def tool_finished(self, cid: str, header: Text, body: list[RenderableType], full: list[RenderableType]) -> None:
+        """Prints the result row and the folded body."""
+        self.console.print(header)
+        for item in body:
+            self.console.print(item)
+
+    def thought(self, summary: Text, body: Text, shown: bool) -> None:
+        """Prints the reasoning when shown, then the summary line."""
+        if shown:
+            self.console.print(body)
+        self.console.print(summary)
+
+    def _start(self) -> None:
+        self._live = Live(get_renderable=self.live_view, console=self.console, refresh_per_second=self.refresh_hz, transient=True)
+        self._live.start()
+
+    def turn_started(self) -> None:
+        """Starts the live region on a terminal."""
+        if self.console.is_terminal and self._live is None:
+            self._start()
+
+    def turn_ended(self) -> None:
+        """Stops the live region."""
+        if self._live is not None:
+            self._live.stop()
+            self._live = None
+
+    @contextlib.contextmanager
+    def suspended(self) -> Iterator[None]:
+        """Hides the live region while something else (an approval prompt) draws, then restores it."""
+        live = self._live
+        if live is not None:
+            live.stop()
+            self._live = None
+        try:
+            yield
+        finally:
+            if live is not None and self.console.is_terminal:
+                self._start()
+
+
+class Renderer:
+    """Turns ACP `session/update` objects into safe renderables for a `Sink`; keeps the todo list and turn stats."""
+
+    def __init__(
+        self, out: TextIO | None = None, look: Look | None = None, console: Console | None = None, sink: Sink | None = None
+    ) -> None:
         self.out = out or sys.stdout
         self.look = look or load_look(stream=self.out)
         self.console = console or make_console(self.look, self.out)
+        self.sink: Sink = sink or ConsoleSink(self.console, self._live_view, self.look.refresh_hz)
         self.todo: list[Update] = []
         self.verbose = False
         self.show_todo = True
@@ -174,21 +270,24 @@ class Renderer:
         self._thought = ""
         self._cards: dict[str, Card] = {}
         self._subagents: dict[str, tuple[str, float]] = {}  # subagent id -> (name, start time)
-        self._live: Live | None = None
 
     # -- scrollback --------------------------------------------------------------------
 
+    def write(self, renderable: RenderableType = "") -> None:
+        """Adds a renderable this program built (a panel, a table) to the transcript."""
+        self.sink.write(renderable)
+
     def line(self, text: str, style: str = "") -> None:
         """Prints one already trusted or cleaned line."""
-        self.console.print(Text(text, style=style))
+        self.sink.write(Text(text, style=style))
 
     def info(self, text: str) -> None:
         """Prints cleaned text in the muted style (command output, notices)."""
-        self.console.print(Text(clean(text), style=self.look.palette.muted))
+        self.sink.write(Text(clean(text), style=self.look.palette.muted))
 
     def plain(self, text: str) -> None:
         """Prints cleaned text without styling."""
-        self.console.print(Text(clean(text)))
+        self.sink.write(Text(clean(text)))
 
     def _markdown(self, block: str) -> Markdown:
         return Markdown(clean(block), hyperlinks=False, code_theme=self.look.palette.code)
@@ -199,7 +298,8 @@ class Renderer:
         if final:
             block, self._buffer = text, ""
             if block.strip():
-                self.console.print(self._markdown(block.rstrip()))
+                self.sink.write(self._markdown(block.rstrip()))
+            self.sink.tail(None)
             return
         cut, fenced, pos = 0, False, 0
         for raw in text.splitlines(keepends=True):
@@ -211,7 +311,8 @@ class Renderer:
         if cut:
             block, self._buffer = text[:cut], text[cut:]
             if block.strip():
-                self.console.print(self._markdown(block.rstrip()))
+                self.sink.write(self._markdown(block.rstrip()))
+        self.sink.tail(self._markdown(self._buffer) if self._buffer.strip() else None)
 
     def _end_thought(self) -> None:
         if not self._thought:
@@ -219,12 +320,11 @@ class Renderer:
         tokens = estimate_tokens(len(self._thought))
         pal, g = self.look.palette, self.look.glyphs
         shown = self.look.show_thinking or self.verbose
-        if shown:
-            self.console.print(Text(clean(self._thought.strip()), style=f"dim {pal.muted}"))
-        else:
+        if not shown:
             self.last_thought = self._thought
         hint = "" if shown else " (Ctrl-O shows it)"
-        self.console.print(Text(f"{g.think} thought for ~{tokens} tokens{hint}", style=f"dim {pal.muted}"))
+        body = Text(clean(self._thought.strip()), style=f"dim {pal.muted}")
+        self.sink.thought(Text(f"{g.think} thought for ~{tokens} tokens{hint}", style=f"dim {pal.muted}"), body, shown)
         self._thought = ""
 
     # -- live region -------------------------------------------------------------------
@@ -252,36 +352,18 @@ class Renderer:
         self._buffer = ""
         self._cards.clear()
         self._subagents.clear()
-        if self.console.is_terminal and self._live is None:
-            self._live = Live(
-                get_renderable=self._live_view, console=self.console, refresh_per_second=self.look.refresh_hz, transient=True
-            )
-            self._live.start()
+        self.sink.turn_started()
 
     def end_turn(self) -> TurnStats:
         """Commits the unfinished tail, stops the live region and returns the turn stats."""
         self._end_thought()
         self._commit_blocks(final=True)
-        if self._live is not None:
-            self._live.stop()
-            self._live = None
+        self.sink.turn_ended()
         return self.stats
 
-    @contextlib.contextmanager
-    def suspended(self) -> Iterator[None]:
+    def suspended(self) -> contextlib.AbstractContextManager[None]:
         """Hides the live region while something else (an approval prompt) draws, then restores it."""
-        live = self._live
-        if live is not None:
-            live.stop()
-            self._live = None
-        try:
-            yield
-        finally:
-            if live is not None and self.console.is_terminal:
-                self._live = Live(
-                    get_renderable=self._live_view, console=self.console, refresh_per_second=self.look.refresh_hz, transient=True
-                )
-                self._live.start()
+        return self.sink.suspended()
 
     def toggle_verbose(self) -> bool:
         """Flips folded tool output on and off; turning it on shows the last folded output and thinking block in full."""
@@ -290,7 +372,7 @@ class Renderer:
             self.print_output(self.last_folded, force_full=True)
             self.last_folded = ""
         if self.verbose and self.last_thought:
-            self.console.print(Text(clean(self.last_thought.strip()), style=f"dim {self.look.palette.muted}"))
+            self.sink.write(Text(clean(self.last_thought.strip()), style=f"dim {self.look.palette.muted}"))
             self.last_thought = ""
         return self.verbose
 
@@ -298,7 +380,7 @@ class Renderer:
         """Flips the todo panel; turning it on prints the current list."""
         self.show_todo = not self.show_todo
         if self.show_todo and self.todo:
-            self.console.print(self.todo_panel())
+            self.sink.write(self.todo_panel())
         return self.show_todo
 
     # -- updates -----------------------------------------------------------------------
@@ -325,7 +407,7 @@ class Renderer:
             entries = update.get("entries")
             self.todo = [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
             if self.show_todo:
-                self.console.print(self.todo_panel())
+                self.sink.write(self.todo_panel())
         elif kind == "usage_update":
             used, size = update.get("used"), update.get("size")
             if isinstance(used, int) and isinstance(size, int):
@@ -349,7 +431,7 @@ class Renderer:
         span = f" ~{before} -> ~{after} tokens" if isinstance(before, int) and isinstance(after, int) else ""
         what = clean(str(update.get("method", "")))
         why = clean(str(update.get("reason", "auto")))
-        self.console.print(Text(f"{self.look.glyphs.think} compacted context ({why}, {what}){span}", style=f"dim {self.look.palette.muted}"))
+        self.sink.write(Text(f"{self.look.glyphs.think} compacted context ({why}, {what}){span}", style=f"dim {self.look.palette.muted}"))
 
     def _subagent(self, update: Update) -> None:
         """Nests a child agent's start, tool calls and end under the parent's turn."""
@@ -363,16 +445,16 @@ class Renderer:
             row = Text(f"{g.tool} ", style=pal.muted)
             row.append(f"{name}", style="bold")
             row.append(f"  {clip(task)}" if task else "", style=pal.muted)
-            self.console.print(row)
+            self.sink.write(row)
         elif phase == "tool":
             tool = clip(clean(str(update.get("tool") or "tool")).replace("\n", " "))
-            self.console.print(Text(f"  {g.nest} {tool}", style=pal.muted))
+            self.sink.write(Text(f"  {g.nest} {tool}", style=pal.muted))
         elif phase == "done":
             _, started = self._subagents.pop(sid, (name, time.monotonic()))
             row = Text(f"  {g.nest} ", style=pal.muted)
             row.append(f"{name} done {g.ok}", style=pal.ok)
             row.append(f"  {time.monotonic() - started:.1f}s", style=pal.muted)
-            self.console.print(row)
+            self.sink.write(row)
 
     def _flush_for_card(self) -> None:
         self._commit_blocks(final=True)
@@ -385,10 +467,14 @@ class Renderer:
 
     def _tool_call(self, update: Update) -> None:
         cid = str(update.get("toolCallId", ""))
-        self._cards[cid] = Card(clip(str(update.get("title", "tool"))), time.monotonic(), self._depth(update))
+        card = Card(clip(str(update.get("title", "tool"))), time.monotonic(), self._depth(update))
+        self._cards[cid] = card
         self.stats.tools += 1
         if str(update.get("status", "")) in ("completed", "failed"):
             self._tool_update(update)
+            return
+        self._flush_for_card()
+        self.sink.tool_started(cid, Text(clip(clean(card.title).replace("\n", " "))), card.depth)
 
     def _tool_update(self, update: Update) -> None:
         status = str(update.get("status", ""))
@@ -409,6 +495,8 @@ class Renderer:
         content = update.get("content")
         items = [i for i in content if isinstance(i, dict)] if isinstance(content, list) else []
         diffs = [i for i in items if i.get("type") == "diff"]
+        body: list[RenderableType] = []
+        full: list[RenderableType] = []
         for item in diffs:
             path = clean(item.get("path", "?")).replace("\n", " ")
             rows = diff_rows(str(item.get("oldText") or ""), str(item.get("newText") or ""))
@@ -420,30 +508,35 @@ class Renderer:
             row.append(f"+{adds}", style=pal.ok)
             row.append(" ")
             row.append(f"-{dels}", style=pal.bad)
-        self.console.print(row)
-        for item in diffs:
-            rows = diff_rows(str(item.get("oldText") or ""), str(item.get("newText") or ""))
-            for line in diff_text(rows, self.look, self.look.diff_max_lines):
-                self.console.print(line)
+            body += diff_text(rows, self.look, self.look.diff_max_lines)
+            full += diff_text(rows, self.look, MAX_VERBOSE_LINES)
         texts = [
             str(i["content"]["text"])
             for i in items
             if i.get("type") == "content" and isinstance(i.get("content"), dict) and isinstance(i["content"].get("text"), str)
         ]
         if texts:
-            self.print_output("\n".join(texts))
+            joined = "\n".join(texts)
+            body += self._output_lines(joined, full=self.verbose, remember=True)
+            full += self._output_lines(joined, full=True, remember=False)
+        self.sink.tool_finished(cid, row, body, full)
+
+    def _output_lines(self, text: str, *, full: bool, remember: bool) -> list[Text]:
+        """Tool output as muted lines cut to the fold limit (or the verbose cap when `full`)."""
+        lines = clean(text).rstrip("\n").splitlines()
+        limit = MAX_VERBOSE_LINES if full else self.look.tool_output_lines
+        pal = self.look.palette
+        out = [Text(f"    {clip(ln)}", style=pal.muted) for ln in lines[:limit]]
+        if len(lines) > limit:
+            if remember:
+                self.last_folded = text
+            out.append(Text(f"    ... {len(lines) - limit} more lines (Ctrl-O shows all)", style=pal.muted))
+        return out
 
     def print_output(self, text: str, *, force_full: bool = False) -> None:
         """Prints tool output cleaned of control characters, cut to the line limit unless `force_full`."""
-        lines = clean(text).rstrip("\n").splitlines()
-        full = force_full or self.verbose
-        limit = MAX_VERBOSE_LINES if full else self.look.tool_output_lines
-        pal = self.look.palette
-        for ln in lines[:limit]:
-            self.console.print(Text(f"    {clip(ln)}", style=pal.muted))
-        if len(lines) > limit:
-            self.last_folded = text
-            self.console.print(Text(f"    ... {len(lines) - limit} more lines (Ctrl-O shows all)", style=pal.muted))
+        for line in self._output_lines(text, full=force_full or self.verbose, remember=True):
+            self.sink.write(line)
 
     # -- todo --------------------------------------------------------------------------
 

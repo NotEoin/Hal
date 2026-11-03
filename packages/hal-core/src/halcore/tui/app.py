@@ -399,15 +399,15 @@ async def _run_tui(
         bridge.run(make_asker(bridge, read_approval, out, look=look, console=renderer.console, suspend=suspend, read_note=read_note, on_note=queued.append))
     )
     if session.backend == "none":
-        renderer.console.print(Text(unboxed.BANNER, style=f"bold {look.palette.bad}"))
-    renderer.console.print(welcome(state, session, look))
+        renderer.write(Text(unboxed.BANNER, style=f"bold {look.palette.bad}"))
+    renderer.write(welcome(state, session, look))
     try:
         while True:
             state.status.notice = ""
             try:
                 line = (await read(PROMPT)).strip()
             except (EOFError, KeyboardInterrupt):
-                renderer.console.print()
+                renderer.write()
                 return 0
             if not line:
                 continue
@@ -415,7 +415,7 @@ async def _run_tui(
             if line.startswith("/"):
                 result = await dispatch(line, state, state.user_commands)
                 if result.renderable is not None:
-                    renderer.console.print(result.renderable)
+                    renderer.write(result.renderable)
                 if result.message:
                     renderer.plain(result.message)
                 if result.quit:
@@ -472,7 +472,7 @@ async def approve_plan(state: TuiState, read, out: TextIO) -> str | None:  # noq
 
     Only the human's own typed answer leaves plan mode, never agent text (the answer is read from the terminal).
     """
-    state.renderer.console.print(state.renderer.todo_panel())
+    state.renderer.write(state.renderer.todo_panel())
     state.renderer.line(PLAN_PROMPT.strip(), "bold")  # the editor draws only its glyph, so the question is printed here
     answer = (await read("")).strip().lower()
     chosen = PLAN_ANSWERS.get(answer)
