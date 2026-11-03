@@ -221,6 +221,9 @@ First release of the monorepo (uv workspace on branch `next`).
   placeholder instead of a box drawn over them.
 - The Ctrl+P palette lines its descriptions up in one column.
 - The side panel's plan uses the same marks and colours as the plan in the transcript.
+- Typing in `hal code` and `hal chat` stays fast in a long session: the message box, status line
+  and side panel no longer redraw the whole screen for text that did not change. Measured with a
+  scripted agent: a turn after 150 others took about 0.5 s before and 0.25 s after.
 
 ### Security
 

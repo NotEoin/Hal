@@ -80,8 +80,17 @@ class SafeStatic(Static):
         super().__init__(safe_text(content), markup=False, **kwargs)  # type: ignore[arg-type]  # Static's own keywords
 
     def update(self, content: RenderableType | str = "", *, layout: bool = True) -> None:
-        """Replaces the content; a `str` is cleaned first."""
-        super().update(safe_text(content), layout=layout)
+        """Replaces the content; a `str` is cleaned first. The same `Text` again is a no-op."""
+        new = safe_text(content)
+        old = self.content
+        if isinstance(new, Text) and isinstance(old, Text) and new == old and _text_look(new) == _text_look(old):
+            return  # the status and side panel resend unchanged text often; each update lays the screen out again
+        super().update(new, layout=layout)
+
+
+def _text_look(text: Text) -> tuple[object, ...]:
+    """What `Text.__eq__` leaves out (it compares only the characters and spans)."""
+    return (text.style, text.justify, text.overflow, text.no_wrap, text.end)
 
 
 # --- slider ----------------------------------------------------------------------------------

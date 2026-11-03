@@ -473,6 +473,8 @@ class ChangesList(Widget):
     def show(self, text: Text, paths: list[str]) -> None:
         """New rows: `text` drawn as given (already cleaned), `paths[n]` the file of row `n`."""
         text.no_wrap, text.overflow = True, "ellipsis"  # one row per path keeps clicks mapped by index
+        if text == self._text and list(paths) == self.paths:
+            return  # the status refresh resends the same rows often; a layout costs more as the transcript grows
         self._text, self.paths = text, list(paths)
         self.refresh(layout=True)
 

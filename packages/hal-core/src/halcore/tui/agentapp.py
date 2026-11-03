@@ -229,6 +229,7 @@ class AttachmentChips(Widget):
         super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
         self.owner = owner
         self.spans: list[tuple[int, int, str, int]] = []  # (start, end, kind, index) of each `x`
+        self.drawn: list[tuple[str, str, int]] = []  # the chips last drawn
 
     def chips(self) -> list[tuple[str, str, int]]:
         """`(label, kind, index)` for each paste chip and attachment; labels are fixed words and counts."""
@@ -244,8 +245,12 @@ class AttachmentChips(Widget):
         return out
 
     def sync(self) -> None:
-        """Shows the row only when there is a chip."""
-        self.set_class(bool(self.chips()), "shown")
+        """Shows the row only when there is a chip; redraws only when the chips changed."""
+        chips = self.chips()
+        if chips == self.drawn:
+            return  # every keystroke calls this, and a refresh costs more the longer the transcript
+        self.drawn = chips
+        self.set_class(bool(chips), "shown")
         self.refresh()
 
     def render(self) -> RenderableType:

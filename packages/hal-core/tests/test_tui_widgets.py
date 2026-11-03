@@ -337,3 +337,17 @@ def test_row_tail_keeps_empty_result_and_fold_slots_at_their_width():
     running = widgets.row_tail(None, roles, "3s", None, None).plain
     done = widgets.row_tail(None, roles, "3s", True, False).plain
     assert running.index("3s") == done.index("3s") and len(running) == len(done) == len("3s  FAIL  >")
+
+
+def test_safe_static_skips_an_update_with_the_same_text():
+    # regression: the status line and side panel resent unchanged text, each a full layout
+    from unittest import mock
+
+    from textual.widgets import Static
+
+    widget = SafeStatic(Text("CONTEXT  40%"))
+    with mock.patch.object(Static, "update") as update:
+        widget.update(Text("CONTEXT  40%"))
+        widget.update(Text("CONTEXT  40%", style="bold"))
+        widget.update("CONTEXT  41%")
+    assert update.call_count == 2

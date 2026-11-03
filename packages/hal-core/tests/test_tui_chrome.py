@@ -115,3 +115,17 @@ def test_model_label_is_the_same_in_bar_and_status():
     assert status.model_label(info) == "default"
     assert "default" in status.to_rich(status.segments(info, look_of(False)), look_of(False)).plain
     assert "no model" not in status.to_rich(status.segments(info, look_of(False)), look_of(False)).plain
+
+
+def test_changes_list_skips_the_layout_when_the_rows_are_the_same():
+    # regression: every status refresh relaid the screen, which grew slower with the transcript
+    from unittest import mock
+
+    from rich.text import Text
+
+    rows = chrome.ChangesList()
+    with mock.patch.object(rows, "refresh") as refresh:
+        rows.show(Text("  M a.py"), ["a.py"])
+        rows.show(Text("  M a.py"), ["a.py"])
+        rows.show(Text("  M b.py"), ["b.py"])
+    assert refresh.call_count == 2 and rows.paths == ["b.py"]

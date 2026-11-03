@@ -315,6 +315,22 @@ def test_side_panel_plan_uses_the_same_marks_as_the_plan_block(tmp_path):
     assert len(block) == 3 and [row.rstrip() for row in side] == [row.rstrip() for row in block]
 
 
+def test_typing_does_not_redraw_unchanged_attachment_chips(tmp_path):
+    # regression: each keystroke refreshed the chip row, a cost that grew with the transcript
+    from unittest import mock
+
+    from halcore.tui.agentapp import AttachmentChips
+
+    async def script(pilot, app, agent):
+        chips = app.query_one(AttachmentChips)
+        with mock.patch.object(chips, "refresh") as refresh:
+            await type_text(pilot, "hello there")
+            await settle(pilot)
+        return refresh.call_count
+
+    assert drive(tmp_path, script) == 0
+
+
 def test_streaming_text_lands_as_cleaned_markdown_and_markup_stays_literal(tmp_path):
     hostile = "[@click=app.quit]press[/] \x1b[2J" + chr(0x202E) + " done\n\n"
 
