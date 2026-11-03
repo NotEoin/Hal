@@ -764,3 +764,13 @@ def test_a_one_line_paste_is_inserted_once(tmp_path):
         return app.query_one(Composer).text
 
     assert drive(tmp_path, script) == "https://example.invalid/a"
+
+
+@pytest.mark.parametrize(("mode", "title"), [("code", "Hal code"), ("chat", "Hal chat")])
+def test_window_title_names_the_surface(tmp_path, mode, title):
+    """Regression: the terminal title read "AgentApp", the class name."""
+
+    async def script(pilot, app, agent):
+        return app.title
+
+    assert drive(tmp_path, script, mode=mode) == title

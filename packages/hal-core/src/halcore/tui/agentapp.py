@@ -530,6 +530,7 @@ class AgentApp(App[int]):
         self.look = look
         self.unicode = look.unicode
         self.code = self.state.surface == "code"
+        self.title = "Hal code" if self.code else "Hal chat"  # the terminal tab, not the class name
         self.ui = TextualUi(self)
         self.sink = TextualSink(self)
         self.inbox: asyncio.Queue[object] = asyncio.Queue()
