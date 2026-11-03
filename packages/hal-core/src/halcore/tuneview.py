@@ -7,6 +7,7 @@ so both say the same thing. Nothing here imports a terminal library. `open_state
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 
 from halhub.policy.load import load_policy
@@ -22,6 +23,16 @@ MIB_PER_GIB = 1024
 # a cache that takes more than this share of the VRAM budget leaves little slack for long prompts;
 # a judgement, not a measured limit
 TIGHT_FRACTION = 0.85
+TOKENS = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kKmM]?)\s*$")
+
+
+def parse_tokens(text: str) -> int:
+    """`32768`, `32k` or `1.5m` as a token count; raises `ValueError` for anything else."""
+    found = TOKENS.match(text)
+    if not found:
+        raise ValueError(f"not a number of tokens: {text!r} (try 32768 or 32k)")
+    factor = {"": 1, "k": 1024, "m": 1024 * 1024}[found.group(2).lower()]
+    return int(float(found.group(1)) * factor)
 
 
 def gib(mib: int) -> str:

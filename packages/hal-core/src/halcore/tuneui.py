@@ -20,7 +20,6 @@ a prompt_toolkit pipe input, so nothing here needs a real terminal.
 from __future__ import annotations
 
 import logging
-import re
 import sys
 from collections.abc import Callable, Sequence
 from typing import Protocol, TextIO
@@ -44,8 +43,8 @@ from rich.text import Text
 
 from . import modelplan, tunepresets, tunestate
 from .tuneview import (  # noqa: F401 - re-exported: the screen's helpers moved to `tuneview`
-    MIB_PER_GIB, TIGHT_FRACTION, fit_line, fit_text, fit_word, gib, guard_line, hardware_lines, model_label,
-    open_state, role_line, short,
+    MIB_PER_GIB, TIGHT_FRACTION, TOKENS, fit_line, fit_text, fit_word, gib, guard_line, hardware_lines, model_label,
+    open_state, parse_tokens, role_line, short,
 )
 from .tui.mentions import fuzzy
 from .tui.theme import PT_COLORS, Look, load_look, make_console
@@ -93,16 +92,6 @@ COMMANDS = {
 ALIASES = {"m": "model", "c": "context", "k": "kv", "e": "effort", "t": "temp", "a": "auto", "s": "source",
            "d": "diff", "w": "write", "q": "quit", "r": "role", "?": "help", "exit": "quit", "b": "menu"}
 DEFAULT_ROLE = "chat"
-TOKENS = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kKmM]?)\s*$")
-
-
-def parse_tokens(text: str) -> int:
-    """`32768`, `32k` or `1.5m` as a token count; raises `ValueError` for anything else."""
-    found = TOKENS.match(text)
-    if not found:
-        raise ValueError(f"not a number of tokens: {text!r} (try 32768 or 32k)")
-    factor = {"": 1, "k": 1024, "m": 1024 * 1024}[found.group(2).lower()]
-    return int(float(found.group(1)) * factor)
 
 
 # --- drawing ---------------------------------------------------------------------------------
