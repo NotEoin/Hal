@@ -13,7 +13,8 @@ User docs: [hal-code.md](../user/hal-code.md), [tui.md](../user/tui.md) and
 | `halcore/tui/render.py` | `Renderer` (updates to safe renderables) and `ConsoleSink` (scrollback) |
 | `halcore/tui/slash.py` | Slash commands; a bare listing command returns a `PickRequest` |
 | `halcore/tui/approval.py` | Approval panel text, `answer_to_option`, the line UI's asker |
-| `halcore/tui/theme.py` | `[ui]` settings, glyphs, colour tokens and the Textual themes |
+| `halcore/tui/tokens.py` | Design tokens: colour roles per theme, glyph sets (Unicode and ASCII), spacing; no Textual or rich import |
+| `halcore/tui/theme.py` | `[ui]` settings and the `Glyphs`, `Palette`, prompt_toolkit colours and Textual themes built from `tokens.py` |
 | `halcore/tui/widgets.py` | Shared Textual widgets: `SafeStatic`, `Slider` (with `ValueEntry` to type a value), `Segmented`, `FitGauge`, `ToolCard`, `DiffView`, `ThinkingFold` |
 | `halcore/tui/screens.py` | Shared modals: `PickerModal`, `ConfirmModal`, `ChoiceModal`, `HelpScreen`, and `ask()` |
 | `halcore/tui/approvalmodal.py` | The approval gate of the full screen (`ApprovalModal`) and `ModalAsker`, its bridge sender |

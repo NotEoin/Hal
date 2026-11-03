@@ -7,7 +7,7 @@ ASCII default, see docs/design/06-core-cli.md REQ-CLI-24). The console is built 
 emoji and highlighting off, so a string printed through it is never parsed as markup: model text
 cannot restyle the screen (REQ-SEC-25).
 
-One set of colour tokens drives every surface: `PALETTES` (rich styles for the line UI),
+One set of colour tokens (`tokens.py`) drives every surface: `PALETTES` (rich styles for the line UI),
 `PT_COLORS` (prompt_toolkit) and `textual_themes()` (the full-screen UI), so a theme change looks
 the same everywhere. `Look.theme` names the theme; nothing guesses it from a colour value.
 `textual_themes` imports Textual only when called, so the headless paths never load it.
@@ -27,10 +27,12 @@ from halkit import config as kitconfig
 from rich import box as richbox
 from rich.console import Console
 
+from . import tokens
+
 if TYPE_CHECKING:
     from textual.theme import Theme
 
-ACCENT = "#e5484d"  # HAL red
+ACCENT = tokens.ACCENT
 THEMES = ("dark", "light", "mono")
 NOTIFY_MODES = ("off", "bell", "osc9")
 INTERFACES = ("auto", "full", "line")
@@ -81,19 +83,8 @@ class Glyphs:
     todo: Mapping[str, str]
 
 
-# fmt: off
-UNICODE = Glyphs(
-    box=richbox.ROUNDED, prompt="\u276f", tool="\u25cf", ok="\u2713", fail="\u2717", running="\u25cb",
-    nest="\u2514", bullet="\u2022", think="\u2237", bar_full="\u2588", bar_empty="\u2591", sep="\u00b7",
-    spinner="dots", todo={"pending": "\u2610", "in_progress": "\u25d0", "completed": "\u2611"},
-)  # fmt: skip
-# fmt: on
-
-ASCII = Glyphs(
-    box=richbox.ASCII, prompt=">", tool="*", ok="ok", fail="FAIL", running="...", nest="`-", bullet="-",
-    think="~", bar_full="#", bar_empty="-", sep="|", spinner="line",
-    todo={"pending": "[ ]", "in_progress": "[~]", "completed": "[x]"},
-)  # fmt: skip
+UNICODE = Glyphs(box=richbox.ROUNDED, spinner=tokens.UNICODE_SPINNER, todo=tokens.UNICODE_TODO, **tokens.UNICODE_GLYPHS)
+ASCII = Glyphs(box=richbox.ASCII, spinner=tokens.ASCII_SPINNER, todo=tokens.ASCII_TODO, **tokens.ASCII_GLYPHS)
 
 
 @dataclass(frozen=True)
@@ -108,19 +99,19 @@ class Palette:
 
 
 PALETTES = {
-    "dark": Palette(ACCENT, "grey58", "green", "red", "monokai"),
-    "light": Palette(ACCENT, "grey42", "dark_green", "red3", "default"),
+    **{
+        name: Palette(tokens.ROLES[name]["accent"], st["muted"], st["ok"], st["bad"], st["code"])
+        for name, st in tokens.RICH_STYLES.items()
+    },
     "mono": Palette("bold", "dim", "", "", "ansi_dark"),
 }
 PT_COLORS = {  # the same tokens as prompt_toolkit styles
-    "dark": {"accent": ACCENT, "muted": "#8a8a8a", "ok": "#5faf5f", "bad": ACCENT},
-    "light": {"accent": ACCENT, "muted": "#6c6c6c", "ok": "#2e7d32", "bad": "#c62828"},
+    **{name: {k: r[k] for k in ("accent", "muted", "ok", "bad")} for name, r in tokens.ROLES.items()},
     "mono": {"accent": "bold", "muted": "", "ok": "", "bad": ""},
 }
-WARNING = {"dark": "#d4a72c", "light": "#9a6700"}  # amber for "tight" and "uses RAM"
+WARNING = {name: r["warn"] for name, r in tokens.ROLES.items()}  # amber for "tight" and "uses RAM"
 SURFACES = {  # background, surface, panel and foreground of the full-screen UI
-    "dark": ("#121212", "#1c1c1c", "#262626", "#e4e4e4"),
-    "light": ("#fafafa", "#f0f0f0", "#e4e4e4", "#1c1c1c"),
+    name: (r["bg"], r["surface"], r["panel"], r["fg"]) for name, r in tokens.ROLES.items()
 }
 TEXTUAL_NAMES = {"dark": "hal-dark", "light": "hal-light", "mono": "hal-mono"}
 

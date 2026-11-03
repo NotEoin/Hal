@@ -45,15 +45,16 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Input, Static
 
+from . import tokens
 from .render import clean
 
 VALUE_WIDTH = 9  # columns kept for the value text right of a slider track
 PAGE_CELLS = 10  # PgUp / PgDn move the knob this many cells
 MIN_TRACK = 4
 TIMER_S = 1.0  # a running tool card redraws its elapsed time this often
-ASCII_TRACK = ("-", "=", "O")
-UNICODE_TRACK = (chr(0x2500), chr(0x2501), chr(0x25CF))  # light line, heavy line, black circle
-UNICODE_BAR = (chr(0x2588), chr(0x2591))  # full block, light shade
+ASCII_TRACK = tokens.TRACK_ASCII
+UNICODE_TRACK = tokens.TRACK_UNICODE
+UNICODE_BAR = tokens.GAUGE_UNICODE
 SPINNER = ("|", "/", "-", "\\")
 
 
@@ -450,7 +451,7 @@ class FitGauge(Widget):
         filled = 0 if self.budget <= 0 else min(width, round(width * self.used / self.budget))
         if self.status == "does-not-fit" and self.budget:
             filled = width
-        full, empty = UNICODE_BAR if getattr(self.app, "unicode", False) else ("#", "-")
+        full, empty = UNICODE_BAR if getattr(self.app, "unicode", False) else tokens.GAUGE_ASCII
         bar = Text("[")
         bar.append(full * filled, style=self.colour())
         bar.append(empty * (width - filled), style="dim")
