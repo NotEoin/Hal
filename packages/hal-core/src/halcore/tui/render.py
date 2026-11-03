@@ -46,6 +46,7 @@ TAB_WIDTH = 4
 HUNK_RE = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)")
 FENCE = "```"
 Update = dict[str, object]
+clock = time.monotonic  # one name to read time through, so snapshot tests can freeze it
 
 
 def clean(text: object) -> str:
@@ -73,7 +74,7 @@ def estimate_tokens(chars: int) -> int:
 class TurnStats:
     """What one turn did, for the spinner line and the end-of-turn summary."""
 
-    started: float = field(default_factory=time.monotonic)
+    started: float = field(default_factory=lambda: clock())
     out_chars: int = 0
     thought_chars: int = 0
     files: set[str] = field(default_factory=set)
@@ -88,7 +89,7 @@ class TurnStats:
     @property
     def elapsed(self) -> float:
         """Seconds since the turn began."""
-        return time.monotonic() - self.started
+        return clock() - self.started
 
     @property
     def tokens(self) -> int:
@@ -440,7 +441,7 @@ class Renderer:
         sid, name = str(update.get("subagentId", "")), clean(str(update.get("agent") or "agent"))
         phase = update.get("phase")
         if phase == "start":
-            self._subagents[sid] = (name, time.monotonic())
+            self._subagents[sid] = (name, clock())
             task = clean(str(update.get("task") or "")).replace("\n", " ")
             row = Text(f"{g.tool} ", style=pal.muted)
             row.append(f"{name}", style="bold")
@@ -450,10 +451,10 @@ class Renderer:
             tool = clip(clean(str(update.get("tool") or "tool")).replace("\n", " "))
             self.sink.write(Text(f"  {g.nest} {tool}", style=pal.muted))
         elif phase == "done":
-            _, started = self._subagents.pop(sid, (name, time.monotonic()))
+            _, started = self._subagents.pop(sid, (name, clock()))
             row = Text(f"  {g.nest} ", style=pal.muted)
             row.append(f"{name} done {g.ok}", style=pal.ok)
-            row.append(f"  {time.monotonic() - started:.1f}s", style=pal.muted)
+            row.append(f"  {clock() - started:.1f}s", style=pal.muted)
             self.sink.write(row)
 
     def _flush_for_card(self) -> None:
@@ -467,7 +468,7 @@ class Renderer:
 
     def _tool_call(self, update: Update) -> None:
         cid = str(update.get("toolCallId", ""))
-        card = Card(clip(str(update.get("title", "tool"))), time.monotonic(), self._depth(update))
+        card = Card(clip(str(update.get("title", "tool"))), clock(), self._depth(update))
         self._cards[cid] = card
         self.stats.tools += 1
         if str(update.get("status", "")) in ("completed", "failed"):
@@ -481,7 +482,7 @@ class Renderer:
         if status not in ("completed", "failed"):
             return
         cid = str(update.get("toolCallId", ""))
-        card = self._cards.pop(cid, None) or Card(clip(str(update.get("title", "tool"))), time.monotonic(), 0)
+        card = self._cards.pop(cid, None) or Card(clip(str(update.get("title", "tool"))), clock(), 0)
         title = str(update.get("title") or card.title)
         self._flush_for_card()
         pal, g = self.look.palette, self.look.glyphs
@@ -491,7 +492,7 @@ class Renderer:
         row.append(f"{g.tool} ", style=pal.muted)
         row.append(clip(clean(title).replace("\n", " ")), style="bold")
         row.append(f"  {g.ok if ok else g.fail}", style=pal.ok if ok else pal.bad)
-        row.append(f"  {time.monotonic() - card.started:.1f}s", style=pal.muted)
+        row.append(f"  {clock() - card.started:.1f}s", style=pal.muted)
         content = update.get("content")
         items = [i for i in content if isinstance(i, dict)] if isinstance(content, list) else []
         diffs = [i for i in items if i.get("type") == "diff"]

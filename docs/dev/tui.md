@@ -79,3 +79,21 @@ Run apps with `App.run_test(size=(100, 30))` inside `asyncio.run`, no network, n
 `pilot.mouse_up` drag a slider (the hover may leave the widget: the slider captures the mouse);
 offsets must stay inside the screen. Modals are tested by pushing them on a bare `App` and
 collecting the dismiss result. Verified against Textual 8.2.8.
+
+## Snapshot tests
+
+`packages/hal-core/tests/test_tui_snapshots.py` renders each screen at 80x24 and 120x36, dark and
+light, and compares it with a golden in `packages/hal-core/tests/data/tui_snapshots`. A golden is
+an ASCII fingerprint (`tuisnap.py`): the screen text with non-ASCII written as `\uXXXX`, then one
+colour-role letter per cell, run-length coded. Textual's SVG export is not used as the golden: it
+is 40 to 100 KB per screen, changes on every Textual upgrade and is not ASCII. Each snapshot is
+also checked, golden or not, for widgets inside the screen, one-row widgets one row high and no
+label broken across two rows (`assert_unbroken`). `render.clock` is frozen so timings are stable.
+
+```sh
+HAL_SNAPSHOT_UPDATE=1 .venv/bin/python -m pytest -q packages/hal-core/tests/test_tui_snapshots.py  # rewrite goldens
+HAL_SNAPSHOT_DIR=~/snap/chromium/common/halshots .venv/bin/python -m pytest -q packages/hal-core/tests/test_tui_snapshots.py  # failures also write .svg there
+```
+
+Read the `.snap` diff of a visual change in review. A golden made with another Textual version
+fails with "regenerate them".
