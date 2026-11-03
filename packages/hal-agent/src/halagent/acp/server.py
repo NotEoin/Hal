@@ -488,11 +488,14 @@ class AcpServer:
                 }
             )
             return
-        text = "\n".join(
+        texts = [
             str(b.get("text", ""))
             for b in params.get("prompt") or []
             if isinstance(b, dict) and b.get("type") == "text"
-        )
+        ]
+        text = "\n".join(texts)
+        # with several blocks the last is the user's request; the earlier ones are channel instructions
+        request = texts[-1] if len(texts) > 1 else None
         images = [
             {"mimeType": str(b.get("mimeType")), "data": str(b.get("data"))}
             for b in params.get("prompt") or []
@@ -525,14 +528,18 @@ class AcpServer:
                 }
             )
             return
-        worker = threading.Thread(target=self._run_prompt, args=(rid, sid, agent, text, images), daemon=True)
+        worker = threading.Thread(
+            target=self._run_prompt, args=(rid, sid, agent, text, images, request), daemon=True
+        )
         self._running[sid] = worker
         self._workers.append(worker)
         worker.start()
 
-    def _run_prompt(self, rid: object, sid: str, agent: Agent, text: str, images: list[dict]) -> None:
+    def _run_prompt(
+        self, rid: object, sid: str, agent: Agent, text: str, images: list[dict], request: str | None = None
+    ) -> None:
         try:
-            result: RunResult = agent.run(text, images)
+            result: RunResult = agent.run(text, images, request=request)
         except ProviderError as exc:
             data = {"hal": {"stopReason": "error", "message": str(exc)}}
             self._send(

@@ -201,6 +201,7 @@ class Agent:
         self.backend: ToolBackend | None = None
         self._mcp_tools: dict[str, dict] = {}  # offered host tools: name -> MCP-style tool
         self._hidden: dict[str, ToolSpec] = {}  # listed but kept behind `hal_find_tools`
+        self._request: str | None = None  # this turn's own words, set by `run`
         self._profile_text = ""
         if settings.broker:
             self.backend = BrokerBackend(settings.broker)
@@ -528,8 +529,13 @@ class Agent:
             out += f"\n{note}"
         return out + "".join(f"\n{n}" for n in fixed.notes)
 
-    def run(self, prompt: str, images: list[dict] | None = None) -> RunResult:
-        """Runs one user prompt (with optional `{mimeType, data}` images) until it ends or a limit hits."""
+    def run(self, prompt: str, images: list[dict] | None = None, request: str | None = None) -> RunResult:
+        """Runs one user prompt (with optional `{mimeType, data}` images) until it ends or a limit hits.
+
+        `request` is the user's own words when `prompt` also carries channel instructions (an ACP
+        prompt's earlier text blocks); tool search and the session title use it, the model sees all.
+        """
+        self._request = request.strip() if request and request.strip() else None
         if images is None and "@" in prompt:
             images = extract_images(prompt, self.toolset.workspace.root)
         if images and not self.accepts_images:
@@ -544,7 +550,7 @@ class Agent:
         else:
             result = self._run(prompt, images or [])
         if self.turn == 1:
-            self._retitle(prompt, result.text)
+            self._retitle(self._request or prompt, result.text)
         if self.session:
             stats = {"model_requests": result.turns, "tool_calls": result.tool_calls, **self.counters}
             self.session.write({"type": "turn_end", "turn": self.turn, "stop_reason": result.stopped,
@@ -557,10 +563,11 @@ class Agent:
         self.cancel.clear()
         self.turn += 1
         self.note.task = prompt
+        request = self._request or prompt
         if self.assistant and self.backend:
-            self._select_for_turn(prompt)
+            self._select_for_turn(request)
         if self.turn == 1 and self.session:
-            self.session.write({"type": "title", "title": title_from_prompt(prompt)})
+            self.session.write({"type": "title", "title": title_from_prompt(request)})
         self._add({"role": "user", "content": prompt, **({"images": images} if images else {})})
         self._constrain()
         budget = self._budget()

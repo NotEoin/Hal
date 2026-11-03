@@ -46,6 +46,19 @@ def test_assistant_offers_the_tools_the_broker_found_for_the_message(server, tmp
     assert set(_tool_names(server.requests[0])) == {"mail_send", "hal_find_tools"}
 
 
+def test_tools_are_found_for_the_request_not_the_channel_instructions(server, tmp_path):
+    """Regression: hal-voice's persona block led the first prompt, so its 700 characters were the search."""
+    with FakeBroker(tmp_path / "b.sock") as broker:
+        broker.add_tool("hal_find_tools", json.dumps({"tools": []}))
+        server.script("Fine.")
+        agent = _agent(server, tmp_path, broker)
+        prompt = "[voice channel instructions]\nspeak briefly\n\nsend mail to bob"
+        agent.run(prompt, request="send mail to bob")
+        agent.close()
+    assert broker.calls[0] == ("hal_find_tools", {"query": "send mail to bob", "limit": 8})
+    assert "voice channel instructions" in server.requests[0]["body"]["messages"][-1]["content"]
+
+
 def test_assistant_budgets_are_rounds_plus_one_retry(server, tmp_path):
     agent = _agent(server, tmp_path, max_tool_rounds=5)
     assert (agent.settings.max_turns, agent.settings.max_tool_calls) == (6, 10)

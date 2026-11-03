@@ -36,6 +36,9 @@ How `packages/hal-agent` is put together and how to change it. The requirements 
 - `session/load` takes records from the request (`_meta.hal.records`) or the local store, and
   fails with -32602 when it has neither.
 - `hal-agent --acp` and `acp.serve()` share one code path; a test compares their output.
+- A `session/prompt` with several text blocks is joined for the model, but the last block is the
+  request: tool search and the session title use it alone, so a client's channel instructions
+  (hal-voice's persona) never become the search query or the title.
 
 ## State exposed to the TUI
 
