@@ -47,6 +47,7 @@ from textual.widgets import Input, Static
 
 from . import tokens
 from .render import ToolRow, clean, thought_time
+from .theme import Glyphs
 
 VALUE_WIDTH = 9  # columns kept for the value text right of a slider track
 PAGE_CELLS = 10  # PgUp / PgDn move the knob this many cells
@@ -505,6 +506,28 @@ def _roles(app: object) -> dict[str, str]:
     return tokens.ROLES[look.theme]
 
 
+def row_tail(glyphs: Glyphs | None, roles: dict[str, str], time_text: str, ok: bool | None, fold: bool | None) -> Text:
+    """`0.8s  ok  >`: the right end of a tool, group or subagent row.
+
+    The result and fold slots keep their width when empty (a running call, a row without a
+    body), so the time column lines up down the whole turn.
+    """
+    ok_mark, fail_mark = (glyphs.ok, glyphs.fail) if glyphs is not None else ("ok", "FAIL")
+    closed, opened = (glyphs.fold_closed, glyphs.fold_open) if glyphs is not None else (">", "v")
+    result_w = max(Text(ok_mark).cell_len, Text(fail_mark).cell_len)
+    fold_w = max(Text(closed).cell_len, Text(opened).cell_len)
+    tail = Text(time_text, style=roles.get("faint", "dim"), no_wrap=True)
+    tail.append("  ")
+    if ok is None:
+        tail.append(" " * result_w)
+    else:
+        mark = ok_mark if ok else fail_mark
+        tail.append(mark.rjust(result_w), style=roles.get("ok", "") if ok else roles.get("bad", "bold"))
+    tail.append("  ")
+    tail.append((" " * fold_w) if fold is None else (opened if fold else closed).ljust(fold_w), style=roles.get("faint", "dim"))
+    return tail
+
+
 class ToolHeader(Widget):
     """The one row of a tool call: mark, verb, target, diffstat, then time, result and fold glyph at the right."""
 
@@ -529,7 +552,6 @@ class ToolHeader(Widget):
         ellipsis = glyphs.ellipsis if glyphs is not None else "..."
         row = card.row
         text = Text("  " * card.depth, no_wrap=True, overflow="crop")
-        right = Text(no_wrap=True)
         if row is None:
             if look is not None and look.animations:
                 mark = look.glyphs.spinner_frames[card.tick % len(look.glyphs.spinner_frames)]
@@ -537,20 +559,14 @@ class ToolHeader(Widget):
                 mark = glyphs.running if glyphs is not None else "..."
             text.append(f"{mark} ", style=accent)
             verb, target = card.verb_target()
-            right.append(f"running {clock() - card.started:.0f}s", style=faint)
+            right = row_tail(glyphs, roles, f"running {clock() - card.started:.0f}s", None, None)
             adds = dels = 0
         else:
             tool = glyphs.tool if glyphs is not None else "*"
             text.append(f"{tool} ", style=faint if row.ok else f"bold {roles.get('bad', 'bold')}")
             verb, target = row.verb, row.target
             adds, dels = row.adds, row.dels
-            right.append(f"{row.seconds:.1f}s", style=faint)
-            mark_ok = glyphs.ok if glyphs is not None else "ok"
-            mark_fail = glyphs.fail if glyphs is not None else "FAIL"
-            right.append(f"  {mark_ok if row.ok else mark_fail}", style=roles.get("ok", "") if row.ok else roles.get("bad", "bold"))
-            if card.has_body:
-                fold = (glyphs.fold_open if card.open else glyphs.fold_closed) if glyphs is not None else ("v" if card.open else ">")
-                right.append(f"  {fold}", style=faint)
+            right = row_tail(glyphs, roles, f"{row.seconds:.1f}s", row.ok, card.open if card.has_body else None)
         text.append(verb.ljust(VERB_WIDTH), style=f"bold {roles.get('fg', '')}".strip())
         stat = Text()
         if adds or dels:

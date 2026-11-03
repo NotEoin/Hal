@@ -34,7 +34,7 @@ from textual.widget import Widget
 from . import motion, tokens
 from .render import ToolRow, clean
 from .theme import Look
-from .widgets import SPINNER_HZ, TIMER_S, SafeStatic, ThinkingFold, ToolCard, toast
+from .widgets import SPINNER_HZ, TIMER_S, SafeStatic, ThinkingFold, ToolCard, row_tail, toast
 
 if TYPE_CHECKING:
     from .agentapp import AgentApp
@@ -492,10 +492,7 @@ class ToolGroup(Widget):
         text = Text(no_wrap=True, overflow="crop")
         text.append(f"{g.tool if g else '*'} ", style=faint)
         text.append(f"ran {len(self.cards)} tools", style=f"bold {roles.get('fg', '')}".strip())
-        right = Text(f"{sum(r.seconds for r in self.rows):.1f}s", style=faint)
-        right.append(f"  {g.ok if g else 'ok'}", style=roles.get("ok", ""))
-        fold = (g.fold_open if self.open else g.fold_closed) if g else ("v" if self.open else ">")
-        right.append(f"  {fold}", style=faint)
+        right = row_tail(g, roles, f"{sum(r.seconds for r in self.rows):.1f}s", True, self.open)
         width = self.size.width or 80
         summary = sep.join(group_summary(self.rows))
         room = width - text.cell_len - right.cell_len - 4
@@ -666,7 +663,7 @@ class SubagentTree(Widget):
         head = Text(no_wrap=True, overflow="ellipsis")
         head.append(f"{mark} ", style=mark_style)
         head.append(self.agent, style="bold")
-        right = Text(time_text, style=faint)
+        right = row_tail(g, roles, time_text, None, None)  # the head mark already shows the result
         room = width - head.cell_len - right.cell_len - 4
         if self.job and room > 0:
             ellipsis = g.ellipsis if g else "..."

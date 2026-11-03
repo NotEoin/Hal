@@ -311,3 +311,29 @@ def test_long_tool_target_is_clipped_not_wrapped():
 
     height, row = run(app, script)
     assert height == 1 and "..." in row and "0.1s" in row
+
+
+def test_tool_rows_line_up_their_time_column_with_or_without_a_body_or_a_failure():
+    # regression: a row without a body, or with FAIL instead of ok, drew its time further right
+    from halcore.tui.render import ToolRow
+
+    cards = [ToolCard(f"c{i}", Text("Read a.py"), id=f"card{i}") for i in range(3)]
+    app = Host(*cards)
+
+    async def script(pilot):
+        cards[0].finish(Text(""), [Text("a")], [Text("a")], ToolRow("Read", "a.py", True, 0.3))
+        cards[1].finish(Text(""), [], [], ToolRow("Read", "b.py", True, 0.3))
+        cards[2].finish(Text(""), [], [], ToolRow("Run", "pytest", False, 0.3))
+        await pilot.pause()
+        return [str(card.query_one(".header").render()) for card in cards]
+
+    rows = run(app, script)
+    assert len({row.index("0.3s") for row in rows}) == 1
+    assert len({len(row.rstrip("\n")) for row in rows}) == 1
+
+
+def test_row_tail_keeps_empty_result_and_fold_slots_at_their_width():
+    roles = {}
+    running = widgets.row_tail(None, roles, "3s", None, None).plain
+    done = widgets.row_tail(None, roles, "3s", True, False).plain
+    assert running.index("3s") == done.index("3s") and len(running) == len(done) == len("3s  FAIL  >")

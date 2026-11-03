@@ -212,6 +212,8 @@ First release of the monorepo (uv workspace on branch `next`).
 - `hal tune`: Save and exit with nothing changed exits, Quit without saving asks first when there
   are changes, and an effort can be set back to `default`. `hal setup` says to press Esc to skip
   the tune screen.
+- In `hal code` and `hal chat`, the times on tool rows, folded groups and subagents line up in
+  one column, whether or not a row has a body or failed.
 
 ### Security
 
