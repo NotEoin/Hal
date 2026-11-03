@@ -188,6 +188,21 @@ def test_forwarder_slowloris_times_out(make):
     sock.close()
 
 
+def test_a_refused_request_is_answered_after_its_body_is_read(make):
+    """Regression: a 403 sent before the body was read broke the client's pipe (BrokenPipeError in CI)."""
+    fwd = make()
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(str(fwd.listen_path))
+    sock.sendall(b"POST /tokenize HTTP/1.1\r\nContent-Length: 2\r\n\r\n")
+    sock.settimeout(0.3)
+    with pytest.raises(TimeoutError):
+        sock.recv(1)  # the forwarder waits for the body before it refuses
+    sock.settimeout(5)
+    sock.sendall(b"{}")
+    assert sock.recv(64).startswith(b"HTTP/1.1 403") and SEEN == []
+    sock.close()
+
+
 def test_forwarder_clamps_max_tokens(make):
     fwd = make(limits=ForwarderLimits(max_output_tokens=100))
     for sent, expected in (({}, 100), ({"max_tokens": 5000}, 100), ({"max_tokens": 7}, 7)):

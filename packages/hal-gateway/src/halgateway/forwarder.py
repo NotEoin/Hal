@@ -62,6 +62,7 @@ UPSTREAM_READ_TIMEOUT_S = 7200.0  # a swap can take minutes (05 REQ-GW-47)
 SOCKET_MODE = 0o600
 REJECTED_CODES = (b"session_unknown", b"session_expired")
 REJECTED_BODY_BYTES = 4096
+DRAIN_MAX_BYTES = 65536  # a refusal drains a body up to this size, so the client reads the status
 
 
 @dataclass(frozen=True)
@@ -169,6 +170,20 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     do_POST = do_GET  # noqa: N815 - same dispatch
     do_PUT = do_DELETE = do_PATCH = do_HEAD = do_OPTIONS = do_GET  # noqa: N815 - every method is judged by the allowlist
 
+    def discard_body(self) -> None:
+        """Reads and drops a declared body of at most `DRAIN_MAX_BYTES` before an early refusal.
+
+        Closing with the body unread breaks the pipe of a client that is still sending, so it gets an
+        error instead of the 403, 413 or 429. A larger body is left unread: the connection closes anyway.
+        """
+        length = self.headers.get("Content-Length", "")
+        if not length.isdigit() or int(length) > DRAIN_MAX_BYTES:
+            return
+        try:
+            self.rfile.read(int(length))
+        except OSError:  # TimeoutError too: the refusal is sent either way
+            log.debug("forwarder could not drain a refused body", exc_info=True)
+
     def reply(self, status: int, code: str, message: str, extra: list[tuple[str, str]] | None = None) -> None:
         """Sends a small JSON error and closes the connection."""
         body = json.dumps({"error": {"message": message, "type": code, "code": code}}).encode("ascii")
@@ -262,10 +277,12 @@ class SessionForwarder:
         path = h.path.split("?", 1)[0]
         if (h.command, path) not in ALLOWED:
             self._emit("rejected", limit="path", path=path)
+            h.discard_body()
             h.reply(403, "forbidden", f"{h.command} {path} is not available to a session")
             return
         if not self._slots.acquire(blocking=False):
             self._emit("rejected", limit="max_concurrent")
+            h.discard_body()
             h.reply(
                 429,
                 "rate_limited",
@@ -290,6 +307,7 @@ class SessionForwarder:
             return None
         if int(length) > self.limits.max_request_bytes:
             self._emit("rejected", limit="max_request_bytes")
+            h.discard_body()
             h.reply(
                 413, "payload_too_large", f"request body is larger than {self.limits.max_request_bytes} bytes"
             )
