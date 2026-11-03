@@ -72,9 +72,13 @@ def test_export_redacts_secrets_and_hides_tool_output_by_default(store, tmp_path
 class LoadClient:
     def __init__(self):
         self.loaded = []
+        self.models = []
 
     async def load_session(self, sid, cwd, records):
         self.loaded.append((sid, len(records)))
+
+    async def set_model(self, sid, model):
+        self.models.append(model)
 
 
 def state_for(store, project, sid):
@@ -88,6 +92,7 @@ def test_resume_command_loads_the_stored_records_and_switches_session(store, tmp
     state = state_for(store, tmp_path, "222222222222")
     msg = asyncio.run(slash.dispatch("/resume 111111111111", state, {})).message
     assert state.sid == "111111111111" and state.client.loaded == [("111111111111", 3)] and "resumed" in msg
+    assert state.client.models == [state.model] and state.model  # the stored session's model is selected again
 
 
 def test_resume_command_without_an_id_lists_this_projects_sessions(store, tmp_path):
