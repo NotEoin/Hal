@@ -15,8 +15,11 @@ from typing import TYPE_CHECKING
 from rich.console import RenderableType
 from rich.table import Table
 from rich.text import Text
+from textual import events
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
+from textual.widget import Widget
 
 from . import tokens
 from .render import ToolRow, clean
@@ -198,6 +201,88 @@ class UserMessage(SafeStatic):
             app.run_worker(actions(self), group="message")
 
 
+FOLD_MIN = 3  # consecutive finished tool calls that fold into one "ran N tools" row
+GROUP_TARGETS = 3  # targets named per verb in the summary before "+N"
+
+
+def group_summary(rows: list[ToolRow]) -> list[str]:
+    """One part per verb (`read calc.py, test_calc.py`, `grep add(`): verbs lowercased, paths as basenames."""
+    by_verb: dict[str, list[str]] = {}
+    for row in rows:
+        head, _, rest = row.target.partition(" ")
+        if "/" in head:
+            head = head.rstrip("/").rsplit("/", 1)[-1]
+        target = f"{head} {rest}".strip()
+        by_verb.setdefault(row.verb.lower(), [])
+        if target and target not in by_verb[row.verb.lower()]:
+            by_verb[row.verb.lower()].append(target)
+    parts = []
+    for verb, targets in by_verb.items():
+        shown = ", ".join(targets[:GROUP_TARGETS]) + (f" +{len(targets) - GROUP_TARGETS}" if len(targets) > GROUP_TARGETS else "")
+        parts.append(f"{verb} {shown}".strip())
+    return parts
+
+
+class ToolGroup(Widget):
+    """One row standing for 3 or more consecutive finished tool calls; a click shows or hides them.
+
+    Only calls that succeeded and changed no file fold: an edit keeps its preview on screen and a
+    failure stays open. A group forms only once its run has ended, so running calls are visible.
+    """
+
+    DEFAULT_CSS = """
+    ToolGroup { height: 1; }
+    ToolGroup:hover { background: $hal-surface; }
+    """
+    can_focus = True
+    BINDINGS = [Binding("enter", "toggle", "expand", show=False)]
+
+    def __init__(self, cards: list[ToolCard], **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
+        self.cards = cards
+        self.open = False
+
+    @property
+    def rows(self) -> list[ToolRow]:
+        """The folded calls' parts."""
+        return [c.row for c in self.cards if c.row is not None]
+
+    def render(self) -> RenderableType:
+        """`* ran 3 tools  read a.py, b.py | grep x      0.3s  ok  >`."""
+        look = getattr(self.app, "look", None)
+        g = look.glyphs if look is not None else None
+        roles = tokens.ROLES.get(look.theme, {}) if look is not None and look.color else {}
+        faint, muted = roles.get("faint", "dim"), roles.get("muted", "dim")
+        sep = f" {g.sep if g else '|'} "
+        text = Text(no_wrap=True, overflow="crop")
+        text.append(f"{g.tool if g else '*'} ", style=faint)
+        text.append(f"ran {len(self.cards)} tools", style=f"bold {roles.get('fg', '')}".strip())
+        right = Text(f"{sum(r.seconds for r in self.rows):.1f}s", style=faint)
+        right.append(f"  {g.ok if g else 'ok'}", style=roles.get("ok", ""))
+        fold = (g.fold_open if self.open else g.fold_closed) if g else ("v" if self.open else ">")
+        right.append(f"  {fold}", style=faint)
+        width = self.size.width or 80
+        summary = sep.join(group_summary(self.rows))
+        room = width - text.cell_len - right.cell_len - 4
+        ellipsis = g.ellipsis if g else "..."
+        if room > 0:
+            text.append("  " + (summary if len(summary) <= room else summary[: max(0, room - len(ellipsis))] + ellipsis), style=muted)
+        text.append(" " * max(2, width - text.cell_len - right.cell_len))
+        text.append_text(right)
+        return text
+
+    def action_toggle(self) -> None:
+        """Shows or hides the folded calls."""
+        self.open = not self.open
+        for card in self.cards:
+            card.display = self.open
+        self.refresh()
+
+    def on_click(self, event: events.Click) -> None:
+        """A click toggles the folded calls."""
+        self.action_toggle()
+
+
 class TextualSink:
     """The `render.Sink` of the full-screen UI: mounts what the renderer built into the transcript."""
 
@@ -206,6 +291,7 @@ class TextualSink:
         self.cards: dict[str, ToolCard] = {}
         self.rows: dict[str, ToolRow] = {}  # parts of a finished call, from `tool_row`, until `tool_finished`
         self.pending: list[Callable[[], None]] = []  # output before the app has mounted
+        self.run: list[ToolCard] = []  # finished calls in a row that may fold into a `ToolGroup`
 
     def _run(self, action: Callable[[], None]) -> None:
         # updates arrive on the ACP reader task; `call_later` runs them on the app's own loop, in order,
@@ -226,13 +312,35 @@ class TextualSink:
             action()
         self.pending.clear()
 
+    def fold(self) -> None:
+        """Ends the current run of tool calls; 3 or more become one `ToolGroup` row (runs on the app's loop)."""
+        run, self.run = self.run, []
+        cards = [c for c in run if c.is_attached]
+        if len(cards) < FOLD_MIN or len({id(c.parent) for c in cards}) != 1:
+            return
+        group = ToolGroup(cards)
+        cards[0].parent.mount(group, before=cards[0])  # type: ignore[union-attr]  # attached: has a parent
+        for card in cards:
+            card.display = False
+
     def write(self, renderable: RenderableType) -> None:
         """One finished item."""
-        self._run(lambda: self.app.transcript.add(SafeStatic(renderable)))
+
+        def add() -> None:
+            self.fold()
+            self.app.transcript.add(SafeStatic(renderable))
+
+        self._run(add)
 
     def tail(self, renderable: RenderableType | None) -> None:
         """The streaming markdown block."""
-        self._run(lambda: self.app.transcript.tail.update(renderable if renderable is not None else ""))
+
+        def show() -> None:
+            if renderable is not None:
+                self.fold()
+            self.app.transcript.tail.update(renderable if renderable is not None else "")
+
+        self._run(show)
 
     def tool_started(self, cid: str, title: Text, depth: int) -> None:
         """A card with a spinner and its own timer."""
@@ -260,19 +368,28 @@ class TextualSink:
                 card.call_after_refresh(card.finish, header, body, full, row)
             else:
                 card.finish(header, body, full, row)
+            if row is not None and row.ok and not row.diff and row.depth == 0:
+                self.run.append(card)
+            else:
+                self.fold()  # an edit or a failure ends the run and stays on screen
             self.app.status_soon()
 
         self._run(finish)
 
     def thought(self, summary: Text, body: Text, shown: bool) -> None:
         """A fold that opens in place."""
-        self._run(lambda: self.app.transcript.add(ThinkingFold(summary, body, shown)))
+        def add() -> None:
+            self.fold()
+            self.app.transcript.add(ThinkingFold(summary, body, shown))
+
+        self._run(add)
 
     def turn_started(self) -> None:
         """Nothing: `TextualUi.turn_started` shows the working line."""
 
     def turn_ended(self) -> None:
-        """Running cards that never finished stop their timers."""
+        """Running cards that never finished stop their timers; the last run of calls folds."""
+        self._run(self.fold)
         if not self.app.is_running:
             self.cards.clear()
             return

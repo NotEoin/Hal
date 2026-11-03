@@ -1021,3 +1021,50 @@ def test_click_on_an_edit_path_only_expands_that_diff(tmp_path):
         return card.open, app.screen is screen, len(agent.prompts) == prompts, app.inbox.empty()
 
     assert drive(tmp_path, script, turns=[[edit_update(), chunk("done")]]) == (True, True, True, True)
+
+
+def read_update(cid, path, status="completed"):
+    return {"sessionUpdate": "tool_call", "toolCallId": cid, "title": f"Read {path}", "status": status,
+            "content": [{"type": "content", "content": {"type": "text", "text": "x"}}]}  # fmt: skip
+
+
+def run_tools(tmp_path, updates):
+    from halcore.tui.transcript import ToolGroup
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "go")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: "done" in transcript_text(app) and not app.busy)
+        await settle(pilot)
+        groups = list(app.query(ToolGroup))
+        cards = list(app.query(ToolCard))
+        return ([str(g.render()) for g in groups], [g.region.height for g in groups],
+                [(c.row.verb if c.row else "", c.display, c.open) for c in cards])  # fmt: skip
+
+    return drive(tmp_path, script, turns=[[*updates, chunk("done")]])
+
+
+def test_three_reads_fold_into_one_ran_tools_row(tmp_path):
+    shown, heights, cards = run_tools(tmp_path, [read_update(f"r{i}", f"src/f{i}.py") for i in range(3)])
+    assert len(shown) == 1 and "ran 3 tools" in shown[0] and "read f0.py, f1.py, f2.py" in shown[0]
+    assert heights == [1] and [d for _, d, _ in cards] == [False, False, False]
+
+
+def test_two_reads_do_not_fold(tmp_path):
+    shown, _, cards = run_tools(tmp_path, [read_update(f"r{i}", f"src/f{i}.py") for i in range(2)])
+    assert shown == [] and all(d for _, d, _ in cards)
+
+
+def test_edit_rows_are_never_folded(tmp_path):
+    updates = [read_update("r0", "a.py"), read_update("r1", "b.py"), edit_update("e1", 2), read_update("r2", "c.py")]
+    shown, _, cards = run_tools(tmp_path, updates)
+    assert shown == [] and all(d for _, d, _ in cards)
+
+
+def test_a_failed_tool_stays_open_and_ends_the_group(tmp_path):
+    updates = [*(read_update(f"r{i}", f"f{i}.py") for i in range(3)), read_update("bad", "x.py", "failed"),
+               read_update("r9", "z.py")]  # fmt: skip
+    shown, _, cards = run_tools(tmp_path, updates)
+    assert len(shown) == 1 and "ran 3 tools" in shown[0]
+    failed = [c for c in cards if c[1] and c[2]]
+    assert len(failed) == 1 and cards[-1][1]  # the failure is open; the read after it stays a row

@@ -141,7 +141,8 @@ First release of the monorepo (uv workspace on branch `next`).
   below" line is a faint row instead of a filled bar.
 - Tool calls in the full screen are one-line rows (verb, target, diffstat, time, result) whose
   output stays closed until clicked; a failed call opens by itself. Edits show a preview of up
-  to six changed lines that expands to the full diff.
+  to six changed lines that expands to the full diff. Three or more consecutive read-only calls
+  fold into one "ran N tools" row.
 - `hal chat` offers only the commands that work in a chat: `/help`, Tab and Esc Esc leave out the
   project-copy commands (`/rewind`, `/diff`, `/accept`, `/export`, `/ide`, `/init`), and `!`, `#`
   and `@` are sent as plain text.

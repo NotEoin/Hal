@@ -63,7 +63,7 @@ from .render import TurnStats, clean
 from .slash import KEY_HELP, PickItem, PickRequest, Result, TuiState, command_descriptions, commands_for
 from .status import context_bar, model_label, percent, segments
 from .theme import Look, textual_themes
-from .transcript import TextualSink, Transcript, UserMessage
+from .transcript import TextualSink, ToolGroup, Transcript, UserMessage
 from .widgets import SafeStatic, ThinkingFold, ToolCard, toast
 
 log = logging.getLogger(__name__)
@@ -874,7 +874,11 @@ class AgentApp(App[int]):
         """Ctrl+O: expands every tool card and thinking block when any is folded, else folds them all."""
         cards = [c for c in self.query(ToolCard) if c.expandable]
         folds = list(self.query(ThinkingFold))
-        expand = any(not c.expanded for c in cards) or any(not f.open for f in folds)
+        groups = list(self.query(ToolGroup))
+        expand = any(not c.expanded for c in cards) or any(not f.open for f in [*folds, *groups])
+        for group in groups:
+            if group.open != expand:
+                group.action_toggle()
         for card in cards:
             if card.expanded != expand:
                 card.action_toggle()

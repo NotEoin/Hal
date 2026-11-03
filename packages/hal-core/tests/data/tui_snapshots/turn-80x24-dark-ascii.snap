@@ -5,7 +5,7 @@
  | |   [~] Fix add()           |                                                
  | |   [ ] Run pytest          |                                                
  | +---------------------------+                                                
- | * Read   src/calc.py                                            0.0s  ok  >  
+ | * ran 3 tools  read calc.py, test_calc.py | grep add(           0.0s  ok  >  
  | * Edit   src/calc.py  +1 -1                                     0.0s  ok  >  
  |      1   def add(a, b):                                                    \u2583 
  |      2 -     return a - b                                                    
@@ -30,7 +30,7 @@
 02 _1 p1 _1 x1 _3 f3 _1 f3 _1 f5 _11 x1 _48
 03 _1 p1 _1 x1 _3 f1 _1 f1 _1 f3 _1 f6 _10 x1 _48
 04 _1 p1 _1 x29 _48
-05 _1 p1 _1 i1 _1 F4 _3 m11 _44 i4 _2 o2 _2 i1 _2
+05 _1 p1 _1 i1 _1 F3 _1 F1 _1 F5 _2 m4 _1 m8 _1 m12 _1 m1 _1 m4 _1 m4 _11 i4 _2 o2 _2 i1 _2
 06 _1 p1 _1 i1 _1 F4 _3 m11 _2 o2 _1 a2 _37 i4 _2 o2 _2 i1 _2
 07 _1 p1 _6 x1 _3 x3 _1 x6 _1 x3 _52 p1 _1
 08 _1 p1 _6 x1 _1 x1 _5 x6 _1 x1 _1 x1 _1 x1 _52
