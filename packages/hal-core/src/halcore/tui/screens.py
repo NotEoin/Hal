@@ -25,7 +25,8 @@ from textual.widgets import Button, Input, LoadingIndicator, OptionList, TabbedC
 from textual import events
 from textual.widgets.option_list import Option
 
-from .mentions import fuzzy
+from . import fuzzy
+from .chrome import role_colours
 from .render import clean
 from .slash import Breakdown, PickItem
 from .status import context_bar, short_tokens
@@ -110,19 +111,25 @@ class PickerModal(ModalScreen[str | None]):
         self.query("#loading").remove()
         self.refill()
 
-    def row(self, item: PickItem) -> Text:
-        """One option line: a mark for the current value, the label, then the note dimmed."""
+    def row(self, item: PickItem, query: str = "") -> Text:
+        """One option line: a mark for the current value, the label with the letters `query` matched, then the note dimmed."""
         text = Text("* " if item.value == self.current and item.value else "  ")
-        text.append(clean(item.label), style="dim" if item.disabled else "")
+        label = clean(item.label)
+        text.append(label, style="dim" if item.disabled else "")
+        hit = fuzzy.score(query, f"{label} {clean(item.note)}") if query else None
+        accent = role_colours(getattr(self.app, "look", None)).get("accent", "")
+        for i in hit[1] if hit else ():
+            if i < len(label):
+                text.stylize(f"bold {accent}".strip(), 2 + i, 3 + i)
         if item.note:
             text.append(f"  {clean(item.note)}", style="dim italic")
         return text
 
     def refill(self, query: str = "") -> None:
-        """Shows the items that match `query`, the current one highlighted."""
+        """Shows the items that match `query`, best match first, the current one highlighted."""
         options = self.query_one("#options", OptionList)
-        self.shown = [i for i in self.items if fuzzy(query, f"{i.label} {i.note}")]
-        options.set_options([Option(self.row(i), disabled=i.disabled) for i in self.shown])
+        self.shown = fuzzy.rank(query, self.items, key=lambda i: f"{clean(i.label)} {clean(i.note)}")
+        options.set_options([Option(self.row(i, query), disabled=i.disabled) for i in self.shown])
         here = next((n for n, i in enumerate(self.shown) if i.value == self.current and not i.disabled), None)
         if here is None:
             here = next((n for n, i in enumerate(self.shown) if not i.disabled), None)

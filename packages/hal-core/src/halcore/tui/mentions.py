@@ -14,6 +14,8 @@ from pathlib import Path
 
 from halkit import fsafe
 
+from .fuzzy import rank, score
+
 SKIP_DIRS = frozenset({".git", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache", ".ruff_cache", "dist", "build"})
 MAX_INDEX = 5000  # enough for a mid-sized repo, small enough to walk in a few milliseconds
 INDEX_TTL_S = 10.0
@@ -45,23 +47,12 @@ def index_files(root: Path, *, limit: int = MAX_INDEX) -> list[str]:
 
 def fuzzy(query: str, text: str) -> bool:
     """True when every character of `query` appears in `text` in order, ignoring case."""
-    pos = 0
-    low = text.lower()
-    for ch in query.lower():
-        pos = low.find(ch, pos)
-        if pos < 0:
-            return False
-        pos += 1
-    return True
+    return score(query, text) is not None
 
 
 def match_files(root: Path, query: str, *, count: int = 40) -> list[str]:
-    """Paths whose name contains `query`, basename matches first."""
-    q = query.lower()
-    files = index_files(root)
-    first = [f for f in files if os.path.basename(f).lower().startswith(q)]
-    rest = [f for f in files if q in f.lower() and f not in first]
-    return (first + rest)[:count]
+    """Paths that fuzzy-match `query`, best first (basename and word-start hits rank higher)."""
+    return rank(query, index_files(root), limit=count)
 
 
 def attach_mentions(text: str, root: Path | None, max_bytes: int) -> tuple[list[Block], list[str]]:

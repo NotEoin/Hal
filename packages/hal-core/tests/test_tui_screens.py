@@ -46,6 +46,21 @@ def test_picker_filters_marks_current_and_returns_clicked_row():
     assert run(screens.PickerModal("Model", ITEMS, "gemma3:12b"), script) == "llama3:8b"
 
 
+def test_picker_ranks_the_best_fuzzy_match_first_and_bolds_its_letters():
+    items = [PickItem("disk/gxexm.gguf", "x"), PickItem("local/qwen3:8b", "q"), PickItem("local/gemma3:12b", "g")]
+    seen = {}
+
+    async def script(pilot, screen):
+        await pilot.press(*"gem")
+        seen["shown"] = [i.value for i in screen.shown]
+        first = screen.query_one(OptionList)._options[0].prompt
+        seen["bold"] = "".join(first.plain[s.start : s.end] for s in first.spans if "bold" in str(s.style))
+        await pilot.press("escape")
+
+    run(screens.PickerModal("Model", items), script)
+    assert seen["shown"] == ["g", "x"] and seen["bold"] == "gem"
+
+
 def test_picker_enter_chooses_the_current_row_by_default():
     async def script(pilot, screen):
         await pilot.press("enter")
