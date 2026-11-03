@@ -27,7 +27,10 @@ log = logging.getLogger(__name__)
 GPU_LIGHT_TIMEOUT_S = 5  # `gpu-light status` reads a file or one socket call; longer means stuck
 GPU_CHOICE_TTL_S = 10.0  # one classifier verdict per tool call must not fork gpu-light each time
 LOGPROBS_TOP = 5  # alternatives per token; Guardian's yes/no mass sits in the top few
-CPU_OPTIONS: dict[str, object] = {"num_gpu": 0}  # Ollama option: offload no layers to the GPU
+CPU_KEEP_ALIVE = "30m"  # RAM only, so holding the model costs no VRAM and spares a ~7 s reload per gap
+CPU_NUM_CTX = 4096  # a classification is under 1,500 tokens; Ollama's default context wastes GBs of RAM
+# Ollama options: offload no layers to the GPU; `keep_alive` the gateway sends as its top-level field
+CPU_OPTIONS: dict[str, object] = {"num_gpu": 0, "num_ctx": CPU_NUM_CTX, "keep_alive": CPU_KEEP_ALIVE}
 
 _choice: tuple[float, dict[str, object]] = (0.0, {})
 

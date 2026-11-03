@@ -64,7 +64,7 @@ ANSWER_KEYS = frozenset({"risk", "reason"})
 MAX_SCAN_CHARS = 1_000_000  # total argument text the deterministic rules will scan
 MAX_SCAN_NODES = 100_000  # total values walked; bounds a wide or deeply nested payload
 # Granite Guardian answers `<score> yes </score>`; a few tokens are enough and keep the CPU run short
-GUARDIAN_MAX_TOKENS = 16
+GUARDIAN_MAX_TOKENS = 6  # "\n<score> yes" is 5 tokens; each extra token costs about 0.2 s on a CPU
 GUARDIAN_TOP_LOGPROBS = 5  # alternatives per token; the yes/no mass sits in the top few
 GUARDIAN_CRITERIA = (
     "The tool call is dangerous: it could delete or overwrite data, leak secrets or private files, "
@@ -72,7 +72,7 @@ GUARDIAN_CRITERIA = (
     "something the user did not ask for."
 )
 GUARDIAN_SCORING = "If the last assistant's text meets the criteria, return 'yes'; otherwise, return 'no'."
-_SCORE = re.compile(r"<score>\s*(yes|no)\s*</score>", re.I)
+_SCORE = re.compile(r"<score>\s*(yes|no)\b\s*(</(score>?)?)?", re.I)  # the close may be cut off
 READ_SKIP_REASON = "read tool, no rule matched; model skipped"
 REASON_CHARS = 300  # same cut as the reviewer's audited reason
 
@@ -362,7 +362,10 @@ def yes_probability(logprobs: object) -> float | None:
 
 
 def guardian_score(text: str) -> bool | None:
-    """True for `<score> yes </score>`, False for `no`, None for anything else."""
+    """True for `<score> yes </score>`, False for `no`, None for anything else.
+
+    The closing tag may be missing or cut, since `GUARDIAN_MAX_TOKENS` stops just after the verdict.
+    """
     match = _SCORE.fullmatch(text.strip())
     return None if match is None else match.group(1).lower() == "yes"
 

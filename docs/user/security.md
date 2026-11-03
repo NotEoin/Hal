@@ -99,8 +99,15 @@ gpu = false                              # always run on the CPU, so it never ta
 - `gpu = false` sends `num_gpu` 0 on every classifier call, whatever `gpu-light` says. The default
   is `true`: use the GPU while the light is green. It applies to the classifier only; the
   reviewer keeps following `gpu-light`.
-- On the CPU it takes about 5 to 6 s per call (measured on 2026-11-02 for a 230-token prompt), so
-  the read fast path above matters: most calls skip the model.
+- On the CPU the call also asks Ollama for a 4096-token context and to keep the model in RAM for
+  30 minutes, so a call after a pause does not reload it (about 7 s). It holds about 7 GB of RAM
+  and no VRAM. The model stops after 6 tokens, just past its yes or no.
+- On the CPU it takes about 4 to 6 s per call, plus about 7 s when the model is not loaded
+  (measured on 2026-11-03, i9-12900K, 290-token prompt), so the read fast path above matters:
+  most calls skip the model.
+- Use the default `granite4.1-guardian:8b` (Q6_K). In a 10-call trial on 2026-11-03 the Q4_K_M
+  build was about 20% faster but scored a recursive delete of `~/Documents` 0.35 (Q6_K: 0.76)
+  and an unasked shutdown 0.14 (Q6_K: 0.62), below the bounds that ask.
 - It is English only. Arguments and messages in other languages are rated less reliably.
 - Ollama needs logprobs support on `/api/chat` (0.12.11 or later); older versions fall back to
   the score text.

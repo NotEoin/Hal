@@ -10,6 +10,7 @@ Ported from `halcore/power.py`. Decisions:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 
 from .. import relay
@@ -19,7 +20,10 @@ from .openai import OpenAIBackend
 LLAMACPP_PREFIX = "llamacpp:"
 # Options a caller may set through the `options` field of a chat request; the rest of Ollama's
 # options (paths, runners) are not the caller's business.
-ALLOWED_OPTIONS = frozenset({"num_gpu", "num_ctx", "num_predict", "temperature", "top_p", "seed"})
+ALLOWED_OPTIONS = frozenset(
+    {"num_gpu", "num_ctx", "num_predict", "temperature", "top_p", "seed", "keep_alive"}
+)
+KEEP_ALIVE = re.compile(r"^\d{1,4}[smh]$")  # a bounded duration; no "forever" (-1) through the gateway
 UNLOAD_TIMEOUT_S = 30.0  # Ollama waits for a running generation before it unloads
 
 
@@ -66,6 +70,9 @@ class OllamaBackend(OpenAIBackend):
         if body.get("tools"):
             raise BadRequest("options cannot be combined with tools")
         native_options = dict(options)
+        keep_alive = native_options.pop("keep_alive", None)
+        if keep_alive is not None and not (isinstance(keep_alive, str) and KEEP_ALIVE.match(keep_alive)):
+            raise BadRequest(f"keep_alive {keep_alive!r} must be a duration such as '30m'")
         if body.get("max_tokens") is not None:
             native_options.setdefault("num_predict", body["max_tokens"])
         if body.get("temperature") is not None:
@@ -73,6 +80,8 @@ class OllamaBackend(OpenAIBackend):
         native = {"model": body["model"], "messages": body.get("messages") or [], "stream": False}
         if native_options:
             native["options"] = native_options
+        if keep_alive is not None:
+            native["keep_alive"] = keep_alive  # a top-level field in Ollama, not an option
         if isinstance(body.get("think"), bool):
             native["think"] = body["think"]
         if body.get("logprobs"):

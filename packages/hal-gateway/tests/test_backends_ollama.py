@@ -255,9 +255,22 @@ def test_think_false_reaches_the_native_chat_route(gateway):
     assert FakeOllama.seen[-1][2]["think"] is False
 
 
+def test_keep_alive_option_is_sent_as_ollamas_top_level_field(gateway):
+    body = {"model": "coder", "messages": [{"role": "user", "content": "x"}]}
+    call(gateway, "POST", "/v1/chat/completions", {**body, "options": {"num_gpu": 0, "keep_alive": "30m"}})
+    sent = FakeOllama.seen[-1][2]
+    assert sent["keep_alive"] == "30m" and sent["options"] == {"num_gpu": 0}
+
+
 @pytest.mark.parametrize(
     "extra",
-    [{"options": {"model_path": "/etc"}}, {"options": [1]}, {"options": {"num_gpu": 0}, "tools": [{}]}],
+    [
+        {"options": {"model_path": "/etc"}},
+        {"options": [1]},
+        {"options": {"num_gpu": 0}, "tools": [{}]},
+        {"options": {"keep_alive": "forever"}},
+        {"options": {"keep_alive": -1}},
+    ],
 )
 def test_chat_options_that_are_not_allowed_are_400(gateway, extra):
     body = {"model": "coder", "messages": [{"role": "user", "content": "x"}], **extra}

@@ -15,6 +15,7 @@ from hubkit import ScriptedApprover, SpyRunner, answer
 from halhub.audit import tail
 from halhub.classifier import (
     GUARDIAN_CRITERIA,
+    GUARDIAN_MAX_TOKENS,
     PARANOIA_LEVELS,
     RISKS,
     TABLE,
@@ -177,7 +178,7 @@ def test_guardian_asks_for_logprobs_with_few_tokens_and_the_granite_message_layo
     chat = Chat(("<score> no </score>", yes_logprobs(0.01)))
     guardian(chat).classify(req({"text": "hi\x1b[31m"}))
     _, msgs, kwargs = chat.calls[0]
-    assert kwargs["logprobs"] is True and kwargs["max_tokens"] == 16
+    assert kwargs["logprobs"] is True and kwargs["max_tokens"] == GUARDIAN_MAX_TOKENS <= 6
     assert [m["role"] for m in msgs] == ["user", "assistant", "user"]
     assert msgs[0]["content"] == "say hi"
     assert (
@@ -194,7 +195,15 @@ def test_guardian_sums_every_spelling_of_yes_in_the_top_alternatives():
     assert yes_probability(logprobs) == pytest.approx(0.4, abs=1e-3)
 
 
-@pytest.mark.parametrize(("text", "risk"), [("<score> yes </score>", "high"), ("<score> no </score>", "low")])
+@pytest.mark.parametrize(
+    ("text", "risk"),
+    [
+        ("<score> yes </score>", "high"),
+        ("<score> no </score>", "low"),
+        ("\n<score> yes </", "high"),  # cut by the short token budget
+        ("\n<score> no", "low"),
+    ],
+)
 def test_guardian_without_logprobs_uses_the_score_text(text, risk):
     for reply_ in (text, (text, [])):
         c = guardian(Chat(reply_)).classify(req())

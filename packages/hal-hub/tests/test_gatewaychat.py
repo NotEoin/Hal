@@ -69,7 +69,7 @@ def test_gpu_options_use_the_gpu_while_the_light_is_green(monkeypatch, tmp_path)
 
 def test_gpu_options_fall_back_to_cpu_while_the_light_is_red(monkeypatch, tmp_path):
     _fake_gpu_light(monkeypatch, tmp_path, "red")
-    assert gatewaychat.gpu_options() == {"num_gpu": 0}
+    assert gatewaychat.gpu_options() == gatewaychat.CPU_OPTIONS
 
 
 def test_gateway_chat_asks_for_cpu_when_the_gpu_is_busy(home, monkeypatch, tmp_path):
@@ -77,7 +77,7 @@ def test_gateway_chat_asks_for_cpu_when_the_gpu_is_busy(home, monkeypatch, tmp_p
     with FakeModelServer(home.runtime / "gateway.sock") as server:
         server.script("ok")
         gatewaychat.gateway_chat("hal-fast", [], temperature=0, max_tokens=5, timeout_s=5)
-    assert server.requests[0]["body"]["options"] == {"num_gpu": 0}
+    assert server.requests[0]["body"]["options"] == gatewaychat.CPU_OPTIONS
 
 
 def test_gateway_chat_returns_text_and_logprobs_when_asked(home):
@@ -101,7 +101,7 @@ def test_gateway_chat_forces_cpu_options_with_gpu_false_even_when_the_light_is_g
     with FakeModelServer(home.runtime / "gateway.sock") as server:
         server.script("ok")
         gatewaychat.gateway_chat("m", [], temperature=0, max_tokens=5, timeout_s=5, gpu=False)
-    assert server.requests[0]["body"]["options"] == {"num_gpu": 0}
+    assert server.requests[0]["body"]["options"] == gatewaychat.CPU_OPTIONS
 
 
 def test_hub_kwargs_classifier_chat_runs_on_the_cpu_when_policy_gpu_is_false(home, monkeypatch, tmp_path):
@@ -112,4 +112,11 @@ def test_hub_kwargs_classifier_chat_runs_on_the_cpu_when_policy_gpu_is_false(hom
     with FakeModelServer(home.runtime / "gateway.sock") as server:
         server.script("ok")
         chat("m", [], temperature=0, max_tokens=5, timeout_s=5)
-    assert server.requests[0]["body"]["options"] == {"num_gpu": 0}
+    assert server.requests[0]["body"]["options"] == gatewaychat.CPU_OPTIONS
+
+
+def test_cpu_options_keep_the_model_in_ram_with_a_small_context():
+    """Regression: each CPU classification after a 5-minute gap reloaded the model (about 7 s)."""
+    assert gatewaychat.CPU_OPTIONS["num_gpu"] == 0
+    assert gatewaychat.CPU_OPTIONS["keep_alive"] == gatewaychat.CPU_KEEP_ALIVE
+    assert gatewaychat.CPU_OPTIONS["num_ctx"] == gatewaychat.CPU_NUM_CTX
