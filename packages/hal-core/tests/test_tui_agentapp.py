@@ -283,6 +283,17 @@ def test_slash_popup_rows_show_descriptions_and_argument_usage(tmp_path):
     assert usage.strip().startswith("usage: /effort") and "high" in usage
 
 
+def test_slash_popup_rows_take_one_line_each_at_80_columns(tmp_path):
+    # regression: long descriptions such as /model's wrapped a row onto a second line
+    async def script(pilot, app, agent):
+        await type_text(pilot, "/m")
+        await settle(pilot)
+        return app.popup.virtual_size.height, app.popup.option_count
+
+    rows, count = drive(tmp_path, script, size=(80, 24))
+    assert count >= 2 and rows == count
+
+
 def test_streaming_text_lands_as_cleaned_markdown_and_markup_stays_literal(tmp_path):
     hostile = "[@click=app.quit]press[/] \x1b[2J" + chr(0x202E) + " done\n\n"
 

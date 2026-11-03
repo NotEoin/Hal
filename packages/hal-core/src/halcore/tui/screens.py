@@ -184,10 +184,10 @@ class HistorySearch(PickerModal):
     DEFAULT_CSS = MODAL_CSS + """
     HistorySearch { align: center bottom; }
     HistorySearch .modal-box { margin-bottom: 3; }
-    HistorySearch OptionList { height: auto; max-height: 12; border: none; }
+    HistorySearch OptionList { height: auto; max-height: 12; border: none; text-wrap: nowrap; text-overflow: ellipsis; }
     HistorySearch #history-input { height: 1; }
     HistorySearch #history-input SafeStatic { width: 2; }
-    HistorySearch Input { border: none; height: 1; padding: 0; width: 1fr; }
+    HistorySearch Input, HistorySearch Input:focus { border: none; height: 1; padding: 0; width: 1fr; }
     """
     BINDINGS = [Binding("escape", "cancel", "cancel"), Binding("ctrl+r", "next", "next match", show=False)]
 
@@ -222,10 +222,10 @@ class CommandPalette(PickerModal):
     DEFAULT_CSS = MODAL_CSS + """
     CommandPalette { align: center top; }
     CommandPalette .modal-box { margin-top: 2; }
-    CommandPalette OptionList { height: auto; max-height: 14; border: none; }
+    CommandPalette OptionList { height: auto; max-height: 14; border: none; text-wrap: nowrap; text-overflow: ellipsis; }
     CommandPalette #palette-input { height: 1; }
     CommandPalette #palette-input SafeStatic { width: 2; }
-    CommandPalette Input { border: none; height: 1; padding: 0; width: 1fr; }
+    CommandPalette Input, CommandPalette Input:focus { border: none; height: 1; padding: 0; width: 1fr; }
     """
     KIND_W = 9  # "command" and "setting" plus a gap
 

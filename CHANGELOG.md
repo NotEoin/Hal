@@ -216,6 +216,9 @@ First release of the monorepo (uv workspace on branch `next`).
   one column, whether or not a row has a body or failed.
 - The approval panel shows its whole hint line at 60x20; the stacked buttons used to push the
   end of it out of the box.
+- The Ctrl+P palette, the Ctrl+R history search and the `/` and `@` completions keep each row on
+  one line, clipped with an ellipsis, and the palette and history search lines show their
+  placeholder instead of a box drawn over them.
 
 ### Security
 

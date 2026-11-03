@@ -457,7 +457,8 @@ class AgentApp(App[int]):
     #working.busy { display: block; }
     #complete-box { height: auto; max-height: 14; display: none; border: round $hal-panel; margin: 0 1; }
     #complete-box.shown { display: block; }
-    #popup { height: auto; max-height: 12; width: 1fr; display: none; border: none; padding: 0; }
+    #popup { height: auto; max-height: 12; width: 1fr; display: none; border: none; padding: 0;
+             text-wrap: nowrap; text-overflow: ellipsis; }
     #popup.shown { display: block; }
     #preview { width: 1fr; height: auto; max-height: 12; display: none; padding: 0 1; border-left: solid $hal-panel; }
     #preview.shown { display: block; }

@@ -174,3 +174,45 @@ def test_plan_card_keeps_the_heavy_attention_border():
 
     run(screens.ChoiceModal("Run this plan?", "1. step", [screens.Choice("Keep planning", "keep")], "keep", attention=True), script)
     assert seen == ["heavy"]
+
+
+def overlay_layout(screen, size=(80, 24)):
+    """The focused filter's height and border, and the list's height against its option count."""
+    shown = {}
+
+    async def script(pilot, modal):
+        for _ in range(5):
+            await pilot.pause()
+        field = modal.query_one("#filter")
+        options = modal.query_one("#options")
+        shown.update(focused=field.has_focus, height=field.region.height, border=field.styles.border_top[0])
+        shown.update(rows=options.virtual_size.height, count=options.option_count)
+        await pilot.press("escape")
+
+    run(screen, script, size=size)
+    return shown
+
+
+def test_palette_rows_are_one_line_and_its_search_line_has_no_box():
+    # regression: the focused Input drew Textual's tall border over the one-row search line,
+    # hiding the placeholder, and long notes wrapped rows onto two lines
+    from halcore.tui import palette
+    from halcore.tui.screens import CommandPalette
+
+    note = "start a fresh conversation in the same box with a long description " * 2
+
+    async def load():
+        return [palette.PaletteItem("command", f"/c{i}", note, "send", f"/c{i}") for i in range(5)]
+
+    shown = overlay_layout(CommandPalette(load))
+    assert shown["focused"] and shown["height"] == 1 and shown["border"] in ("", "none")
+    assert shown["rows"] == shown["count"] == 5
+
+
+def test_history_search_line_has_no_box_and_long_messages_take_one_row():
+    from halcore.tui.screens import HistorySearch
+
+    items = [PickItem("fix the add test and then " * 6, str(i)) for i in range(3)]
+    shown = overlay_layout(HistorySearch(items))
+    assert shown["focused"] and shown["height"] == 1 and shown["border"] in ("", "none")
+    assert shown["rows"] == shown["count"] == 3
