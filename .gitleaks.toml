@@ -5,7 +5,7 @@ title = "Hal gitleaks config"
 useDefault = true
 
 [[allowlists]]
-description = "Example session token in the 05-gateway design spec: a made-up value with an elided tail"
+description = "Made-up example values: the session token in the 05-gateway design spec (elided tail) and the 12-digit approval key in the TUI tests and docs"
 targetRules = ["generic-api-key"]
 regexTarget = "line"
-regexes = ['''hal-sess-3f9a1c2e\.Zt0\.\.\.''']
+regexes = ['''hal-sess-3f9a1c2e\.Zt0\.\.\.''', '''3f9a0c12d4e8''']
