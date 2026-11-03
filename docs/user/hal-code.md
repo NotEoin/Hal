@@ -47,8 +47,13 @@ transcript only opens that row's diff: nothing the model wrote can open a file. 
 calls in a row that succeeded and changed nothing fold into one `ran 3 tools  read a.py, b.py`
 row once the run ends; a click shows them. Edits and failures never fold. Ctrl+O opens or closes them all.
 A code block in a reply shows its language and `copy` on the row above it; a click on that row
-copies the code only, and a long line scrolls sideways instead of wrapping. A click on one
-of your messages offers Copy and, in `hal code`, Rewind files to before it. The side panel
+copies the code only, and a long line scrolls sideways instead of wrapping. Hovering one of
+your messages shows `copy edit again` at the right end of its first row, plus `rewind` in
+`hal code` once the message has a checkpoint; a reply block shows `copy` (its markdown). `edit`
+puts the message back in the box to change and send; `again` sends the same text as a new turn.
+Neither removes the earlier turn from the agent's history: it is not a regenerate. `rewind`
+puts back the files from before that message (the conversation stays). A click elsewhere on a
+message, or Tab to it and Enter, offers the same actions in a dialog. The side panel
 (Ctrl+B; open from 110 columns and closed below, following resizes until you press Ctrl+B)
 has the todo list, the changes of the copy with Diff, Accept and Export buttons, and the
 context use. With a UTF-8 terminal the marks are Unicode;

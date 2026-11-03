@@ -49,6 +49,10 @@ drops those rows so a turn fits a small terminal.
 unknown status read as `pending`) when the sink has it; `TextualSink.plan` keeps one `PlanBlock`
 per turn and updates it in place, the bar easing on the motion ticker. `ConsoleSink` has no
 `plan`, so the line UI writes the `Todo` panel as before.
+`HoverActions` draws its fixed action words over the right end of a block's first row while
+hovered (in `render_line`, so hovering never reflows the text) and maps a click to a word by its
+column. `UserMessage` sends `copy`, `edit`, `again` and `rewind` to `AgentApp.message_action`;
+`AssistantBlock` (each prose block written as rich `Markdown`) copies its markdown source.
 Child agent updates (`hal_subagent`) go to `Sink.subagent(sid, phase, name, task, tool,
 elapsed)` when the sink has it; `TextualSink` keeps one `SubagentTree` per id, updated in place,
 and stops the trees still running when the turn ends. Without it the renderer writes today's rows.

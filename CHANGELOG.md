@@ -151,6 +151,9 @@ First release of the monorepo (uv workspace on branch `next`).
   `1 of 3`, updated in place, instead of a new `Todo` panel on every change.
 - Subagents in the full screen are one live row each (spinner, task, time) with their last
   three tool calls nested below, instead of a new line per update.
+- Hover actions in the full screen: `copy edit again` (and `rewind` with a checkpoint) on your
+  messages, `copy` on reply blocks. `again` sends the same text as a new turn; it is not a
+  regenerate, and the earlier turn stays in the history. The message dialog gains Edit and Send again.
 - Reasoning in the full screen folds to one faint `thought for 4s` row (time from the first to
   the last thought chunk); opening it adds the token estimate.
 - `hal chat` offers only the commands that work in a chat: `/help`, Tab and Esc Esc leave out the

@@ -17,6 +17,9 @@ from typing import TYPE_CHECKING
 from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
 from rich.console import RenderableType
+from rich.markdown import Markdown
+from rich.segment import Segment
+from rich.style import Style
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
@@ -24,6 +27,7 @@ from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import ScrollableContainer, Vertical, VerticalScroll
+from textual.strip import Strip
 from textual.widget import Widget
 
 from . import motion, tokens
@@ -174,13 +178,98 @@ class Transcript(VerticalScroll):
         self.scroll_end(animate=False)
 
 
-class UserMessage(SafeStatic):
-    """A message the human sent: the prompt mark, then the text with a hanging indent; a click offers actions."""
+HOVER_GAP = 2  # cells between two hover action words
+HOVER_MARGIN = 1  # cells kept free right of the last action word
+
+
+class HoverActions:
+    """Mixin for a `SafeStatic`: fixed action words drawn over the right end of its first row while hovered.
+
+    The words are this program's own strings, never model text; a click on one runs it through
+    `run_hover_action`. Drawn over the row (not beside it) so hovering never reflows the text.
+    """
+
+    hover_x = -1  # the pointer's column, for the word under it
+
+    def hover_actions(self) -> list[str]:
+        """The action words this block offers."""
+        return ["copy"]
+
+    def run_hover_action(self, name: str) -> None:
+        """Runs action `name`."""
+
+    def hover_spans(self, width: int) -> list[tuple[str, int, int]]:
+        """Each action word with its start and end column on the first row; empty when the row is too narrow."""
+        words = self.hover_actions()
+        total = sum(len(w) for w in words) + HOVER_GAP * (len(words) - 1) + HOVER_MARGIN
+        x, spans = width - total, []
+        if not words or x <= 0:
+            return []
+        for word in words:
+            spans.append((word, x, x + len(word)))
+            x += len(word) + HOVER_GAP
+        return spans
+
+    def action_at(self, x: int, y: int) -> str | None:
+        """The action word at column `x` of row `y`, if any."""
+        if y != 0:
+            return None
+        width = self.content_size.width  # type: ignore[attr-defined]  # a Widget
+        return next((word for word, a, b in self.hover_spans(width) if a <= x < b), None)
+
+    def watch_mouse_hover(self, hovered: bool) -> None:
+        """The words show and hide with the pointer."""
+        self.refresh()  # type: ignore[attr-defined]  # a Widget
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        """The word under the pointer lights up."""
+        if event.y == 0 and event.x != self.hover_x:
+            self.hover_x = event.x
+            self.refresh()  # type: ignore[attr-defined]  # a Widget
+        elif event.y != 0 and self.hover_x != -1:
+            self.hover_x = -1
+            self.refresh()  # type: ignore[attr-defined]  # a Widget
+
+    def render_line(self, y: int) -> Strip:
+        """The widget's own row, with the action words over its right end on row 0 while hovered."""
+        strip: Strip = super().render_line(y)  # type: ignore[misc]  # a Widget
+        if y != 0 or not self.mouse_hover:  # type: ignore[attr-defined]  # a Widget
+            return strip
+        width = self.content_size.width  # type: ignore[attr-defined]  # a Widget
+        spans = self.hover_spans(width)
+        if not spans:
+            return strip
+        bg = next((seg.style.bgcolor for seg in strip if seg.style and seg.style.bgcolor), None)
+        strip = strip.extend_cell_length(width, Style(bgcolor=bg))  # the cached row is only as wide as its text
+        start = spans[0][1]
+        look = getattr(self.app, "look", None)  # type: ignore[attr-defined]  # a Widget
+        roles = tokens.ROLES.get(look.theme, {}) if look is not None and look.color else {}
+        faint = Style(color=roles.get("faint"), dim=not roles, bgcolor=bg)
+        lit = Style(color=roles.get("accent"), bold=not roles, underline=True, bgcolor=bg)
+        segments, pos = [], start
+        for word, a, b in spans:
+            if a > pos:
+                segments.append(Segment(" " * (a - pos), faint))
+            segments.append(Segment(word, lit if a <= self.hover_x < b else faint))
+            pos = b
+        segments.append(Segment(" " * (width - pos), faint))
+        return Strip.join([strip.crop(0, start), Strip(segments)])
+
+
+class UserMessage(HoverActions, SafeStatic):
+    """A message the human sent, behind the turn's rail: prompt mark, then the text bold (hanging indent).
+
+    Hovering shows `copy edit again` (and `rewind` in code when the message has a checkpoint);
+    a click elsewhere on it, or Enter, offers the same actions in a dialog.
+    """
 
     DEFAULT_CSS = """
     UserMessage { height: auto; }
     UserMessage:hover { background: $hal-surface; }
+    UserMessage:focus { background: $hal-surface; }
     """
+    can_focus = True
+    BINDINGS = [Binding("enter", "actions", "actions", show=False)]
 
     def __init__(self, text: str, look: Look) -> None:
         self.text = text
@@ -207,12 +296,54 @@ class UserMessage(SafeStatic):
             self.queued = queued
             self.update(self.shown())
 
-    async def on_click(self) -> None:
-        """Offers the message actions."""
-        app = self.app
-        actions = getattr(app, "message_actions", None)
+    def hover_actions(self) -> list[str]:
+        """`copy edit again`, and `rewind` in code once the message has a checkpoint."""
+        words = ["copy", "edit", "again"]
+        if getattr(self.app, "code", False) and self.checkpoint is not None:
+            words.append("rewind")
+        return words
+
+    def run_hover_action(self, name: str) -> None:
+        """Hands the action to the app (`AgentApp.message_action`)."""
+        act = getattr(self.app, "message_action", None)
+        if act is not None:
+            act(self, name)
+
+    def action_actions(self) -> None:
+        """Enter: the message actions in a dialog."""
+        actions = getattr(self.app, "message_actions", None)
         if actions is not None:
-            app.run_worker(actions(self), group="message")
+            self.app.run_worker(actions(self), group="message")
+
+    async def on_click(self, event: events.Click) -> None:
+        """A click on an action word runs it; elsewhere it offers the actions in a dialog."""
+        name = self.action_at(event.x, event.y)
+        if name is not None:
+            event.stop()
+            self.run_hover_action(name)
+        else:
+            self.action_actions()
+
+
+class AssistantBlock(HoverActions, SafeStatic):
+    """One committed block of the assistant's prose; hovering offers `copy` of its markdown source."""
+
+    def __init__(self, renderable: Markdown, **kwargs: object) -> None:
+        super().__init__(renderable, **kwargs)
+        self.source = renderable.markup  # cleaned by the renderer
+
+    def run_hover_action(self, name: str) -> None:
+        """`copy`: the block's markdown source to the clipboard."""
+        if name == "copy":
+            self.app.copy_to_clipboard(self.source)
+            toast(self.app, "copied", timeout=COPY_TOAST_S)
+
+    def on_click(self, event: events.Click) -> None:
+        """A click on `copy` copies the block."""
+        name = self.action_at(event.x, event.y)
+        if name is not None:
+            event.stop()
+            self.run_hover_action(name)
 
 
 COPY_TOAST_S = 2.0
@@ -591,7 +722,8 @@ class TextualSink:
 
         def add() -> None:
             self.fold()
-            self.app.transcript.add(SafeStatic(renderable), "prose")
+            block = AssistantBlock(renderable) if isinstance(renderable, Markdown) else SafeStatic(renderable)
+            self.app.transcript.add(block, "prose")
 
         self._run(add)
 

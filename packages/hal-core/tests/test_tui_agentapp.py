@@ -1227,6 +1227,101 @@ def test_subagent_tree_updates_in_place(tmp_path):
     assert lines[1:] == ["  +2 more", "  |- Read   src/f2.py", "  |- Read   src/f3.py", "  `- Read   src/f4.py"]
 
 
+def row_zero(widget):
+    return "".join(seg.text for seg in widget.render_line(0))
+
+
+async def click_word(pilot, widget, word):
+    start = next(a for w, a, _ in widget.hover_spans(widget.content_size.width) if w == word)
+    await pilot.hover(widget, offset=(start, 0))
+    await pilot.click(widget, offset=(start, 0))
+
+
+@pytest.mark.parametrize(("mode", "words"), [("code", ["copy", "edit", "again", "rewind"]), ("chat", ["copy", "edit", "again"])])
+def test_hover_actions_offer_copy_edit_again_and_rewind_only_with_a_checkpoint(tmp_path, mode, words):
+    async def script(pilot, app, agent):
+        await type_text(pilot, "change things")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: not app.busy and "hi" in transcript_text(app))
+        message = app.transcript.query_one(UserMessage)
+        before = row_zero(message)
+        await pilot.hover(message, offset=(0, 0))
+        await settle(pilot)
+        return before, row_zero(message), message.hover_actions()
+
+    before, hovered, offered = drive(tmp_path, script, mode=mode)
+    assert offered == words and "copy" not in before
+    assert hovered.rstrip().endswith("  ".join(words)) and "change things" in hovered
+
+
+def test_hover_actions_hide_rewind_until_the_message_has_a_checkpoint(tmp_path):
+    async def script(pilot, app, agent):
+        message = UserMessage("x", app.look)
+        await app.transcript.mount(message)
+        return message.hover_actions()
+
+    assert drive(tmp_path, script) == ["copy", "edit", "again"]
+
+
+def test_again_sends_the_same_text_as_a_new_turn(tmp_path):
+    async def script(pilot, app, agent):
+        await type_text(pilot, "say hi")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: not app.busy and "hi" in transcript_text(app))
+        await click_word(pilot, app.transcript.query_one(UserMessage), "again")
+        assert await until(pilot, lambda: len(agent.prompts) == 2 and not app.busy)
+        return agent.prompts, len(app.transcript.query(UserMessage))
+
+    prompts, messages = drive(tmp_path, script)
+    assert prompts[0] == prompts[1] and messages == 2
+
+
+def test_edit_loads_the_message_into_the_composer_without_sending(tmp_path):
+    async def script(pilot, app, agent):
+        await type_text(pilot, "say hi")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: not app.busy and "hi" in transcript_text(app))
+        await click_word(pilot, app.transcript.query_one(UserMessage), "edit")
+        await settle(pilot)
+        composer = app.query_one(Composer)
+        return composer.text, composer.has_focus, len(agent.prompts), isinstance(app.screen, screens.ChoiceModal)
+
+    assert drive(tmp_path, script) == ("say hi", True, 1, False)
+
+
+def test_enter_on_a_focused_message_offers_the_actions_dialog(tmp_path):
+    async def script(pilot, app, agent):
+        await type_text(pilot, "say hi")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: not app.busy and "hi" in transcript_text(app))
+        app.transcript.query_one(UserMessage).focus()
+        await pilot.press("enter")
+        assert await until(pilot, lambda: isinstance(app.screen, screens.ChoiceModal))
+        return sorted(b.id for b in app.screen.query(Button))
+
+    assert drive(tmp_path, script, mode="chat") == ["choice-again", "choice-cancel", "choice-copy", "choice-edit"]
+
+
+def test_assistant_block_copy_copies_its_markdown_source(tmp_path):
+    from halcore.tui.transcript import AssistantBlock
+
+    copied = []
+
+    async def script(pilot, app, agent):
+        app.copy_to_clipboard = copied.append
+        await type_text(pilot, "go")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: not app.busy and app.query(AssistantBlock))
+        await settle(pilot)
+        block = app.query(AssistantBlock).first()
+        await click_word(pilot, block, "copy")
+        await settle(pilot)
+        return block.hover_actions()
+
+    words = drive(tmp_path, script, turns=[[chunk("Some **bold** text.\n\n")]])
+    assert words == ["copy"] and copied == ["Some **bold** text."]
+
+
 def test_tool_group_summary_comes_from_the_sink_rows_not_unfinished_cards():
     # regression: a group of calls that never started rendered "ran 3 tools" with no targets
     # when it was drawn before the cards' deferred `finish` set their rows (flaky snapshot)

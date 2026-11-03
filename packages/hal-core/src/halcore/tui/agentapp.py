@@ -1000,15 +1000,27 @@ class AgentApp(App[int]):
         event.stop()
 
     async def message_actions(self, message: UserMessage) -> None:
-        """Copy, or (in code, with a checkpoint) Rewind to before the message."""
-        choices = [screens.Choice("Cancel", "cancel"), screens.Choice("Copy", "copy")]
+        """Copy, Edit, Send again, or (in code, with a checkpoint) Rewind to before the message."""
+        choices = [screens.Choice("Cancel", "cancel"), screens.Choice("Copy", "copy"), screens.Choice("Edit", "edit"),
+                   screens.Choice("Send again", "again")]  # fmt: skip
         if self.code and message.checkpoint is not None:
             choices.append(screens.Choice("Rewind files to before this", "rewind", "warning"))
         choice = await screens.ask(self, screens.ChoiceModal("Message", Text(clean(message.text)), choices, "cancel"))
-        if choice == "copy":
+        if choice in ("copy", "edit", "again", "rewind"):
+            self.message_action(message, choice)
+
+    def message_action(self, message: UserMessage, name: str) -> None:
+        """Runs one message action: `edit` and `again` leave the earlier turn in the agent's history."""
+        if name == "copy":
             self.copy_to_clipboard(message.text)
             toast(self, "copied", timeout=TOAST_SHORT_S)
-        elif choice == "rewind":
+        elif name == "edit":
+            composer = self.query_one(Composer)
+            composer.load(message.text)
+            composer.focus()
+        elif name == "again":
+            self.send(message.text)
+        elif name == "rewind" and self.code and message.checkpoint is not None:
             self.send(f"/rewind {message.checkpoint}")
 
     def action_quit_or_delete(self) -> None:
