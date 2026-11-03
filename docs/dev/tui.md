@@ -55,6 +55,12 @@ column. `UserMessage` sends `copy`, `edit`, `again` and `rewind` to `AgentApp.me
 `AssistantBlock` (each prose block written as rich `Markdown`) copies its markdown source.
 In `hal chat` a hover block also notes `stamp_now()` at mount and draws it after the actions;
 the stamp is text, never matched as an action.
+The side panel (`#side`, a `VerticalScroll` of headed sections) starts hidden at every width.
+`SideHandle` (chrome.py) sits between the transcript and the panel, in the column the
+transcript's right padding used to take: a click posts `Toggled`, a drag (mouse capture) posts
+`Dragged(x)`, and the app sets the width through `tokens.side_width` (`SIDE_MIN..SIDE_MAX`, at
+most `SIDE_SHARE` of the screen). The CHANGES list comes from `StatusInfo.changed`, filled with
+`isolated.changes` off the loop by `refresh_status`; paths are cleaned before they are shown.
 Child agent updates (`hal_subagent`) go to `Sink.subagent(sid, phase, name, task, tool,
 elapsed)` when the sink has it; `TextualSink` keeps one `SubagentTree` per id, updated in place,
 and stops the trees still running when the turn ends. Without it the renderer writes today's rows.

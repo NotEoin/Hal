@@ -681,23 +681,75 @@ def test_accept_buttons_and_high_risk_box_stay_on_screen_at_80_by_24_and_60_by_2
         assert drive(tmp_path, script, size=size) == [], size
 
 
-def test_side_panel_closes_when_the_terminal_narrows_until_ctrl_b_sets_it(tmp_path):
-    # regression: a panel opened on a wide terminal stayed open after a resize to 60 columns
+@pytest.mark.parametrize("size", [(80, 24), (130, 36), (200, 50)])
+def test_side_panel_is_hidden_at_every_width_until_ctrl_b(tmp_path, size):
     async def script(pilot, app, agent):
         side = app.query_one("#side")
         states = [side.display]
-        await pilot.resize_terminal(60, 20)
+        await pilot.resize_terminal(size[0] + 20, size[1])
         await settle(pilot)
         states.append(side.display)
         await pilot.press("ctrl+b")
-        await pilot.resize_terminal(130, 36)
-        await settle(pilot)
-        await pilot.resize_terminal(70, 24)
         await settle(pilot)
         states.append(side.display)
+        await pilot.resize_terminal(*size)
+        await settle(pilot)
+        states.append(side.display)
+        await pilot.press("ctrl+b")
+        await settle(pilot)
+        return [*states, side.display]
+
+    assert drive(tmp_path, script, size=size) == [False, False, True, True, False]
+
+
+def test_click_on_the_side_handle_toggles_the_panel(tmp_path):
+    from halcore.tui.chrome import SideHandle
+
+    async def script(pilot, app, agent):
+        states = []
+        for _ in range(2):
+            await pilot.click(SideHandle, offset=(0, 3))
+            await settle(pilot)
+            states.append((app.query_one("#side").display, app.query_one(SideHandle).open))
         return states
 
-    assert drive(tmp_path, script, size=(130, 36)) == [True, False, True]
+    assert drive(tmp_path, script, size=(120, 36)) == [(True, True), (False, False)]
+
+
+def test_dragging_the_handle_resizes_the_side_panel_within_limits(tmp_path):
+    from halcore.tui import tokens
+    from halcore.tui.chrome import SideHandle
+
+    async def drag_to(pilot, app, x):
+        handle = app.query_one(SideHandle)
+        await pilot.mouse_down(handle, offset=(0, 3))
+        await pilot.hover(None, offset=(x, 5))
+        await pilot.mouse_up(None, offset=(x, 5))
+        await settle(pilot)
+        return app.query_one("#side").outer_size.width
+
+    async def script(pilot, app, agent):
+        await pilot.press("ctrl+b")
+        await settle(pilot)
+        widths = [await drag_to(pilot, app, x) for x in (120 - 1 - 45, 5, 118)]
+        return widths, app.query_one("#side").display
+
+    widths, shown = drive(tmp_path, script, size=(120, 36))
+    assert widths == [45, tokens.SIDE_MAX, tokens.SIDE_MIN] and shown
+
+
+def test_side_panel_lists_changed_paths_cleaned(tmp_path):
+    async def script(pilot, app, agent):
+        info = app.controller.live_info()
+        info.changes, info.changed = 2, [("M", "src/calc.py"), ("A", "evil\x1b[31m\u202e.py")]
+        app.refresh_side(info)
+        app.show_side(True)
+        await settle(pilot)
+        return plain(app.query_one("#side-changes")), plain(app.query_one("#changes")), plain(app.query_one("#side-plan"))
+
+    head, paths, plan = drive(tmp_path, script)
+    assert head.strip() == "CHANGES  2" and plan.strip() == "PLAN"
+    assert "M src/calc.py" in paths and "\x1b" not in paths and "\u202e" not in paths
 
 
 def test_notify_setting_picks_osc9_bell_or_nothing():

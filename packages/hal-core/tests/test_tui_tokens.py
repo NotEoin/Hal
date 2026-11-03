@@ -64,3 +64,8 @@ def test_spark_of_all_zero_is_flat():
 
 def test_spinner_frame_wraps_around():
     assert tokens.spinner_frame(("a", "b"), 3) == "b"
+
+
+@pytest.mark.parametrize(("requested", "screen", "width"), [(34, 120, 34), (10, 120, 26), (90, 200, 60), (55, 80, 40), (34, 40, 20)])
+def test_side_width_is_clamped_to_its_limits_and_half_the_screen(requested, screen, width):
+    assert tokens.side_width(requested, screen) == width

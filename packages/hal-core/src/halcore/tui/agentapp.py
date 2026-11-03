@@ -9,8 +9,9 @@ Layout: a one-row top bar (the HAL eye, project, then clickable model, mode, eff
 gauge), the transcript (tool
 calls appear as cards with their own timer while they run), a "working" line during a turn, the
 composer (Enter sends, Alt+Enter or Ctrl+J adds a line, `/` and `@` open completions), the status
-bar and the key hints. Ctrl+B shows a side panel with the todo list, the changes of the copy and
-the context use. `hal chat` leaves out what needs a project copy.
+bar and the key hints. Ctrl+B (or a click on the handle right of the transcript) shows a side
+panel, hidden on start at every width, with PLAN, CHANGES of the copy and CONTEXT sections; a drag
+on the handle resizes it. `hal chat` leaves out what needs a project copy.
 
 Design decisions:
 
@@ -48,20 +49,20 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Button, Checkbox, OptionList, TabbedContent, TabPane, TextArea
+from textual.widgets import Button, Checkbox, OptionList, TextArea
 from textual.widgets.option_list import Option
 
 from . import mentions, motion, screens, tokens
 from . import fallback
 from .approvalmodal import ModalAsker
-from .chrome import HalEye, StatusLine, TopBar, TopInfo
+from .chrome import HalEye, SideHandle, StatusLine, TopBar, TopInfo
 from .controller import (
     PLAN_CHOICES, Controller, Sender, checkpoint_label, history_path, refresh_status, stop_words, turn_facts,
 )
 from .prompt import COMMAND_ARGUMENTS, PASTE_COLLAPSE_LINES, private_history
-from .render import TurnStats, clean
+from .render import TurnStats, clean, clip
 from .slash import KEY_HELP, PickItem, PickRequest, Result, TuiState, command_descriptions, commands_for
-from .status import context_bar, model_label, percent, segments
+from .status import StatusInfo, context_bar, model_label, percent, segments
 from .theme import Look, textual_themes
 from .transcript import TextualSink, ToolGroup, Transcript, UserMessage
 from .widgets import SafeStatic, ThinkingFold, ToolCard, toast
@@ -77,12 +78,12 @@ POPUP_ROWS = 8
 COMPACT_WIDTH = 90  # below this width or `COMPACT_HEIGHT` rows, blocks in a turn lose their blank row
 COMPACT_HEIGHT = 30
 SPARK_SAMPLES = 24  # seconds of tok/s kept for the sparkline
-CONTEXT_BAR_CELLS = 24  # the side panel is 38 columns; the bar leaves room for the percentage
+CONTEXT_BAR_CELLS = 14  # fits the narrowest side panel (`tokens.SIDE_MIN`) with the token counts
+SIDE_PATHS_SHOWN = 12  # changed paths listed in the side panel before "+N more"
 HISTORY_ROW_CHARS = 120  # one row of the Ctrl+R list; the full message is what goes back in the box
 TOAST_SHORT_S = 2.0  # a confirmation of something the user just did
 TOAST_WAIT_S = 3.0  # "listing...": long enough to see while the picker loads
 TOAST_LONG_S = 6.0  # a warning the user should have time to read
-WIDE = 110  # at this width or more the side panel opens by default
 QUIT = object()  # the inbox item that ends `read_message`
 
 
@@ -422,8 +423,15 @@ class AgentApp(App[int]):
     #compose.ascii { border-top: ascii $hal-panel; }
     #topbar TopBar { margin-left: 2; }
     #main { height: 1fr; }
-    #side { width: 38; border-left: solid $panel; display: none; }
+    #side { width: 34; display: none; padding: 0 1; }
     #side.shown { display: block; }
+    #side .side-head { color: $hal-muted; }
+    #side .side-gap { margin-top: 1; }
+    #changes-actions { height: 1; }
+    #changes-actions Button { height: 1; width: auto; min-width: 0; border: none; padding: 0 0 0 1; margin: 0;
+                              background: $background; color: $hal-muted; text-style: none; }
+    #changes-actions Button:hover { color: $primary; }
+    #changes-actions Button:focus { background: $hal-surface; }
     #below { height: 1; padding: 0 1; color: $hal-faint; display: none; }
     #below:hover { color: $primary; }
     #working { height: 1; padding: 0 1; color: $primary; display: none; }
@@ -432,8 +440,6 @@ class AgentApp(App[int]):
     #popup.shown { display: block; }
     #unsandboxed { height: 1; background: $error; color: $text; text-style: bold; padding: 0 1; display: none; }
     #unsandboxed.shown { display: block; }
-    #changes-actions { height: 1; }
-    #changes-actions Button { height: 1; border: none; min-width: 8; margin-right: 1; }
     """
     BINDINGS = [
         Binding("ctrl+c", "interrupt", "Stop / clear", priority=True),
@@ -469,7 +475,7 @@ class AgentApp(App[int]):
         self.busy = False
         self.window_focused = True
         self.last_ctrl_c = 0.0
-        self.side_pinned = False  # True once Ctrl+B chose the side panel's state
+        self.side_width = tokens.SIDE_WIDTH  # a drag on the handle changes it for the session
         self.history_store = private_history(history_path())
         self.transcript = Transcript(id="transcript")
         self.popup = OptionList(markup=False, id="popup")
@@ -510,18 +516,19 @@ class AgentApp(App[int]):
         yield SafeStatic(Text("UNSANDBOXED: this session runs without a box"), id="unsandboxed")
         with Horizontal(id="main"):
             yield self.transcript
-            with Vertical(id="side"), TabbedContent(id="side-tabs"):
-                with TabPane("Todo", id="side-todo"):
-                    yield SafeStatic("", id="todo")
+            yield SideHandle(id="side-handle")
+            with VerticalScroll(id="side"):
+                yield SafeStatic("", id="side-plan", classes="side-head")
+                yield SafeStatic("", id="todo")
                 if self.code:
-                    with TabPane("Changes", id="side-changes"), Vertical():
-                        yield SafeStatic("", id="changes")
-                        with Horizontal(id="changes-actions"):
-                            yield Button("Diff", id="act-diff")
-                            yield Button("Accept...", id="act-accept")
-                            yield Button("Export", id="act-export")
-                with TabPane("Context", id="side-context"):
-                    yield SafeStatic("", id="context")
+                    yield SafeStatic("", id="side-changes", classes="side-head side-gap")
+                    yield SafeStatic("", id="changes")
+                    with Horizontal(id="changes-actions"):
+                        yield Button("diff", id="act-diff")
+                        yield Button("accept...", id="act-accept")
+                        yield Button("export", id="act-export")
+                yield SafeStatic("", id="side-context", classes="side-head side-gap")
+                yield SafeStatic("", id="context")
         yield self.transcript.below
         yield SafeStatic("", id="working")
         yield self.popup
@@ -546,10 +553,10 @@ class AgentApp(App[int]):
         )  # fmt: skip
 
     async def on_mount(self) -> None:
-        """Theme, the side panel on wide terminals, then the controller loop."""
+        """Theme and the (hidden) side panel, then the controller loop."""
         self.mounted = True
         self.motion = motion.Ticker(self.set_interval, enabled=self.look.animations)
-        self.query_one("#side").set_class(self.size.width >= WIDE, "shown")
+        self.query_one("#side").styles.width = tokens.side_width(self.side_width, self.size.width)
         if self.controller.session.backend == "none":
             self.query_one("#unsandboxed").add_class("shown")
         self.sink.flush()
@@ -812,18 +819,32 @@ class AgentApp(App[int]):
         self.query_one(StatusLine).show(parts, self.tok_samples, self.busy)
         self.query_one(TopBar).show(self.top_info())
         self.query_one(AttachmentChips).sync()
+        self.refresh_side(info)
+
+    def refresh_side(self, info: StatusInfo) -> None:
+        """The side panel's sections: PLAN, CHANGES (code only) and CONTEXT, each a heading and its content."""
+        todo = self.state.renderer.todo
+        done = sum(1 for e in todo if e.get("status") == "completed")
+        self.query_one("#side-plan", SafeStatic).update(Text(f"PLAN  {done} of {len(todo)}" if todo else "PLAN"))
         self.query_one("#todo", SafeStatic).update(Text(self.state.renderer.todo_text()))
+        self.query_one("#side-context", SafeStatic).update(Text(f"CONTEXT  {percent(info.used, info.size)}%" if info.size else "CONTEXT"))
         if info.size:
             bar = context_bar(info.used, info.size, self.look.glyphs, CONTEXT_BAR_CELLS)
-            context = Text(f"{bar} {percent(info.used, info.size)}%\n{info.used} of {info.size} tokens\n\n/compact frees room")
+            context = Text(f"  {bar}  {info.used} of {info.size}\n  /compact frees room")
         else:
-            context = Text("context size not reported yet", style="dim")
+            context = Text("  context size not reported yet", style="dim")
         self.query_one("#context", SafeStatic).update(context)
         if self.code:
             n = info.changes
-            self.query_one("#changes", SafeStatic).update(
-                Text(f"{n} changed path{'s' if n != 1 else ''} in the copy" if n else "no changes in the copy yet", style="" if n else "dim")
-            )
+            self.query_one("#side-changes", SafeStatic).update(Text(f"CHANGES  {n}" if n else "CHANGES"))
+            paths = Text("\n".join(f"  {clean(status)} {clip(clean(path))}" for status, path in info.changed[:SIDE_PATHS_SHOWN]))
+            if len(info.changed) > SIDE_PATHS_SHOWN:
+                paths.append(f"\n  +{len(info.changed) - SIDE_PATHS_SHOWN} more")
+            if not n:
+                paths = Text("  no changes in the copy yet", style="dim")
+            elif not info.changed:
+                paths = Text(f"  {n} changed path{'s' if n != 1 else ''} in the copy")
+            self.query_one("#changes", SafeStatic).update(paths)
 
     # -- actions ---------------------------------------------------------------------------------
 
@@ -891,15 +912,29 @@ class AgentApp(App[int]):
                 fold.action_toggle()
 
     def action_toggle_side(self) -> None:
-        """Ctrl+B: the side panel; from then on a resize leaves it as the user set it."""
-        self.side_pinned = True
-        self.query_one("#side").toggle_class("shown")
+        """Ctrl+B or a click on the handle: shows or hides the side panel (hidden on start at every width)."""
+        self.show_side(not self.query_one("#side").has_class("shown"))
+
+    def show_side(self, shown: bool) -> None:
+        """Shows or hides the side panel; the handle draws its rule while it is open."""
+        self.query_one("#side").set_class(shown, "shown")
+        self.query_one(SideHandle).set_open(shown)
 
     def action_todo(self) -> None:
-        """Ctrl+T: the todo tab of the side panel."""
-        self.side_pinned = True
-        self.query_one("#side").add_class("shown")
-        self.query_one("#side-tabs", TabbedContent).active = "side-todo"
+        """Ctrl+T: the side panel, scrolled to PLAN."""
+        self.show_side(True)
+        self.query_one("#side", VerticalScroll).scroll_home(animate=False)
+
+    def on_side_handle_toggled(self, event: SideHandle.Toggled) -> None:
+        """A click on the handle toggles the side panel."""
+        self.action_toggle_side()
+
+    def on_side_handle_dragged(self, event: SideHandle.Dragged) -> None:
+        """A drag on the open panel's handle resizes it, clamped; the width holds for the session."""
+        if not self.query_one("#side").has_class("shown"):
+            return
+        self.side_width = tokens.side_width(self.size.width - event.x - 1, self.size.width)
+        self.query_one("#side").styles.width = self.side_width
 
     def action_clear_view(self) -> None:
         """Ctrl+L: clears the transcript view; the session keeps its history."""
@@ -1067,11 +1102,10 @@ class AgentApp(App[int]):
         self.inbox.put_nowait(QUIT)
 
     def on_resize(self, event: events.Resize) -> None:
-        """A new terminal size: the side panel follows `WIDE` until Ctrl+B (the top bar fits itself)."""
+        """A new terminal size: compact rhythm on small screens; the side panel keeps its share limit (the top bar fits itself)."""
         self.transcript.set_class(event.size.width < COMPACT_WIDTH or event.size.height < COMPACT_HEIGHT, "compact")
         if self.mounted:
-            if not self.side_pinned:
-                self.query_one("#side").set_class(event.size.width >= WIDE, "shown")
+            self.query_one("#side").styles.width = tokens.side_width(self.side_width, event.size.width)
 
     def notify_turn(self) -> None:
         """The end-of-turn signal `[ui].notify` asks for: nothing, the bell, or an OSC 9 notification."""

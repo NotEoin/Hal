@@ -1,4 +1,4 @@
-"""The chrome around the transcript of `hal code` and `hal chat`: the HAL eye and the top bar.
+"""The chrome around the transcript of `hal code` and `hal chat`: the HAL eye, the top bar, the side handle.
 
 The top bar is one row with no boxes: eye, surface, project, model, mode, effort, then the context
 gauge at the right edge. It is one widget that renders one `Text` and maps clicks by column span,
@@ -376,3 +376,70 @@ class StatusLine(Widget):
         left.append(" " * max(1, width - left.cell_len - right.cell_len))
         left.append_text(right)
         return left
+
+
+class SideHandle(Widget):
+    """The 1-column handle between the transcript and the side panel: a click toggles it, a drag resizes it.
+
+    Closed, it is blank until hovered; open, it is the panel's left rule. A drag (mouse capture,
+    like `Slider`) posts the pointer's screen column; the app turns that into a clamped width.
+    """
+
+    DEFAULT_CSS = """
+    SideHandle { width: 1; height: 1fr; color: $hal-panel; }
+    SideHandle:hover { color: $primary; }
+    """
+
+    class Toggled(Message):
+        """The handle was clicked without a drag."""
+
+    class Dragged(Message):
+        """The handle was dragged to screen column `x`."""
+
+        def __init__(self, x: int) -> None:
+            super().__init__()
+            self.x = x
+
+    def __init__(self, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
+        self.open = False
+        self._down = False
+        self._moved = False
+        self._x = 0  # the pointer's screen column at the last press or move
+
+    def set_open(self, open_: bool) -> None:
+        """Draws the rule while the panel is open."""
+        self.open = open_
+        self.refresh()
+
+    def render(self) -> RenderableType:
+        """The `handle` glyph down the whole height, or blank while closed and not hovered."""
+        look = getattr(self.app, "look", None)
+        glyph = look.glyphs.handle if look is not None else ASCII.handle
+        shown = self.open or self.mouse_hover
+        return Text("\n".join([glyph if shown else " "] * max(1, self.size.height)))
+
+    def watch_mouse_hover(self, hovered: bool) -> None:
+        """Closed, the handle shows only under the pointer."""
+        self.refresh()
+
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        """Starts a click or a drag."""
+        self._down, self._moved, self._x = True, False, event.screen_x
+        self.capture_mouse()
+        event.stop()
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        """While held, every move is a drag."""
+        if self._down and event.screen_x != self._x:
+            self._moved, self._x = True, event.screen_x
+            self.post_message(self.Dragged(event.screen_x))
+
+    def on_mouse_up(self, event: events.MouseUp) -> None:
+        """Ends the press: without a drag it was a click."""
+        if self._down:
+            self._down = False
+            self.capture_mouse(False)
+            if not self._moved:
+                self.post_message(self.Toggled())
+            event.stop()

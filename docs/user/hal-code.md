@@ -9,13 +9,13 @@ check a real session with a 12B to 32B model before relying on the speed figures
 
 ```text
  o  hal code  ~/proj  copy    qwen3-coder-30b v | default v | effort default v                         ####------ 38%
- > fix the failing test in @tests/test_parse.py                          | Todo  Changes  Context
- Looking at the test first.                                              | 1 changed path in the copy
-   * Read tests/test_parse.py  ok  0.0s                                  | [Diff] [Accept...] [Export]
+ > fix the failing test in @tests/test_parse.py                          | PLAN  1 of 2
+ Looking at the test first.                                              |   [x] Read the test
+   * Read tests/test_parse.py  ok  0.0s                                  |   [>] Fix parse()
    * Edit src/parse.py  ok  0.1s  src/parse.py +2 -1                     |
-          41   if not text:                                              |
-          42 -     return None                                           |
-          42 +     raise ValueError("empty input")                       |
+          41   if not text:                                              | CHANGES  1
+          42 -     return None                                           |   M src/parse.py
+          42 +     raise ValueError("empty input")                       |   diff  accept...  export
    | Run pytest -q  running 3s                                           |
  / working 12s | ~210 tok | 36 tok/s | Esc stops
  -------------------------------------------------------------------------------------------------------------
@@ -54,10 +54,12 @@ your messages shows `copy edit again` at the right end of its first row, plus `r
 puts the message back in the box to change and send; `again` sends the same text as a new turn.
 Neither removes the earlier turn from the agent's history: it is not a regenerate. `rewind`
 puts back the files from before that message (the conversation stays). A click elsewhere on a
-message, or Tab to it and Enter, offers the same actions in a dialog. The side panel
-(Ctrl+B; open from 110 columns and closed below, following resizes until you press Ctrl+B)
-has the todo list, the changes of the copy with Diff, Accept and Export buttons, and the
-context use. With a UTF-8 terminal the marks are Unicode;
+message, or Tab to it and Enter, offers the same actions in a dialog. The side panel is
+hidden on start at every width. Ctrl+B, or a click on the handle at the right edge of the
+transcript (it shows when you hover it), opens and closes it; drag the handle to resize it
+(26 to 60 columns, at most half the screen; the width holds for the session). It has no tabs:
+PLAN (the todo list), CHANGES (`hal code` only: the changed paths of the copy, with `diff`,
+`accept...` and `export`) and CONTEXT (the use bar and token counts). With a UTF-8 terminal the marks are Unicode;
 set `[ui].unicode = false` to force ASCII.
 
 ## Input
@@ -84,7 +86,7 @@ the kind, not the file: an attachment holds only its data.
 | Ctrl+C | Clear the message; else stop the turn and deny an open approval; else press twice within 2 s to quit |
 | Ctrl+D, Ctrl+Q | Quit (Ctrl+D on an empty message); asks first when the copy has unaccepted changes |
 | Ctrl+O | Expand every tool card and thinking block when any is folded, else fold them all |
-| Ctrl+B, Ctrl+T | Show or hide the side panel; open it on the todo list |
+| Ctrl+B, Ctrl+T | Show or hide the side panel; open it scrolled to PLAN |
 | Ctrl+P | Every command in a filterable list |
 | Ctrl+L | Clear the transcript view (the session keeps its history) |
 | PgUp, PgDn | Scroll the transcript; while you read further up, a `N new below` line counts new output, and a click on it (or scrolling to the bottom) follows the output again |
@@ -217,7 +219,7 @@ Run in default mode and Run in auto-edit. In the line UI `d` or `a` leaves plan 
 
 ### Accepting and leaving
 
-`/accept` (or Accept... in the side panel) shows the diff report and the exact patch that will be
+`/accept` (or `accept...` in the side panel) shows the diff report and the exact patch that will be
 applied, scrollable, with Cancel focused. A checkbox to apply high-risk changes too appears only
 when the report flags some. Apply writes exactly the patch you saw: if the copy changed in the
 meantime, nothing is applied.

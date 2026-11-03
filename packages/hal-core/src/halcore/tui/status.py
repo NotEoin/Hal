@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from halkit import fsafe
@@ -48,6 +48,7 @@ class StatusInfo:
     jobs: int = 0
     branch: str = ""
     changes: int = 0
+    changed: list[tuple[str, str]] = field(default_factory=list)  # (A/M/D/T, path) per changed path, computed on the host
     unsandboxed: bool = False
     backend: str = ""  # the box runtime (`runsc`, `runc`, `docker`) or `none`
     notice: str = ""  # a short transient message, for example "verbose on"

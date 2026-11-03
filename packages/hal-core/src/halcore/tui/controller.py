@@ -245,7 +245,8 @@ async def refresh_status(state: TuiState, session: object) -> None:
     iso = getattr(session, "iso", None)
     if iso is not None:
         try:
-            info.changes = len(await asyncio.to_thread(isolated.changes, iso))
+            found = await asyncio.to_thread(isolated.changes, iso)
+            info.changes, info.changed = len(found), [(c.status, c.path) for c in found]
         except (SandboxError, OSError) as exc:
             log.warning("change count unavailable: %s", exc)
     try:

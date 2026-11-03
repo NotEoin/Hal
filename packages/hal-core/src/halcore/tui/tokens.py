@@ -116,3 +116,13 @@ TRACK_UNICODE = ("\u2500", "\u2501", "\u25cf")  # light line, heavy line, black 
 TRACK_ASCII = ("-", "=", "O")
 GAUGE_UNICODE = ("\u2588", "\u2591")  # full block, light shade
 GAUGE_ASCII = ("#", "-")
+
+SIDE_WIDTH = 34  # side panel default width in cells
+SIDE_MIN = 26  # narrowest the side panel drags to: a changed path and its mark still fit
+SIDE_MAX = 60  # widest the side panel drags to; never more than `SIDE_SHARE` of the screen either
+SIDE_SHARE = 0.5  # the side panel's largest share of the screen width
+
+
+def side_width(requested: int, screen: int) -> int:
+    """`requested` clamped to `SIDE_MIN..SIDE_MAX` and to `SIDE_SHARE` of a `screen` cells wide terminal."""
+    return max(min(SIDE_MIN, int(screen * SIDE_SHARE)), min(requested, SIDE_MAX, int(screen * SIDE_SHARE)))

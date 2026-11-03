@@ -155,6 +155,9 @@ First release of the monorepo (uv workspace on branch `next`).
   messages, `copy` on reply blocks. `again` sends the same text as a new turn; it is not a
   regenerate, and the earlier turn stays in the history. The message dialog gains Edit and Send again.
 - `hal chat` shows the local time a message or reply appeared when you hover it.
+- The full-screen side panel starts hidden at every width (it no longer opens from 110 columns
+  or follows resizes). A handle right of the transcript toggles it on click and resizes it on
+  drag. Tabs gave way to PLAN, CHANGES (with the changed paths) and CONTEXT sections.
 - Reasoning in the full screen folds to one faint `thought for 4s` row (time from the first to
   the last thought chunk); opening it adds the token estimate.
 - `hal chat` offers only the commands that work in a chat: `/help`, Tab and Esc Esc leave out the

@@ -83,7 +83,7 @@ class Transcript(VerticalScroll):
     """The conversation, one `TurnView` per message; follows new output while the view is at the bottom."""
 
     DEFAULT_CSS = """
-    Transcript { height: 1fr; padding: 0 1 0 1; }
+    Transcript { height: 1fr; padding: 0 0 0 1; }  /* the side handle is the right-hand column */
     Transcript > .notice { color: $hal-muted; }
     Transcript.compact TurnView > .gap { margin-top: 0; }  /* here: a TurnView rule is scoped under TurnView */
     """
