@@ -112,6 +112,8 @@ def run_screen(hw: hardware.Hardware | None = None) -> int:
     app = tuneapp.TuneApp(state, look)
     try:
         status = app.run(mouse=look.mouse)
+        if app.return_code and not app.mounted:  # Textual caught it, printed it and returned
+            raise fallback.StartFailed(fallback.reason_of(app))
     except Exception as exc:  # noqa: BLE001 - a start failure falls back to the line screen; later ones re-raise
         if app.mounted:
             raise
@@ -119,6 +121,8 @@ def run_screen(hw: hardware.Hardware | None = None) -> int:
         from . import tuneui  # noqa: PLC0415 - prompt_toolkit loads only for the line screen
 
         return tuneui.run_line_screen(state, look)
+    if app.return_code:
+        return EXIT_ERROR
     for line in app.written:
         print(line)
     if app.left_unsaved:

@@ -47,6 +47,7 @@ from textual.widgets.option_list import Option
 
 from .. import __version__
 from . import mentions, screens
+from . import fallback
 from .approvalmodal import ModalAsker
 from .controller import PLAN_CHOICES, Controller, Sender, history_path, refresh_status, stop_words, turn_facts
 from .prompt import COMMAND_ARGUMENTS, PASTE_COLLAPSE_LINES, private_history
@@ -1067,4 +1068,9 @@ async def run_full(controller: Controller, look: Look) -> tuple[int, AgentApp]:
         raise
     finally:
         root.handlers = saved
+    # Textual catches an error inside the app, prints it on exit and returns None with `return_code` 1
+    if app.return_code and not app.mounted:
+        raise fallback.StartFailed(fallback.reason_of(app))
+    if app.return_code:
+        return app.return_code, app
     return (status if isinstance(status, int) else app.exit_status), app

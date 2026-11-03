@@ -5,7 +5,8 @@ set and not `dumb`, and the `textual` package. `[ui].interface = "line"` (or `HA
 asks for the line UI, `full` asks for the full screen wherever it can run. When the app fails
 before it has drawn anything, the caller prints one notice and runs the line UI on the same
 session (`StartFailed`); a failure after the first draw is a normal crash, never a silent
-restart. Nothing here imports Textual at module load, so headless paths stay light.
+restart. Textual does not raise an error that happens inside the app: it prints it on exit and
+sets `return_code`, so the callers check that code as well as catching exceptions. Nothing here imports Textual at module load, so headless paths stay light.
 """
 
 from __future__ import annotations
@@ -45,6 +46,12 @@ def _isatty(stream: TextIO) -> bool:
         return stream.isatty()
     except (AttributeError, ValueError):  # a closed or fake stream
         return False
+
+
+def reason_of(app: object) -> str:
+    """Why a Textual app stopped: the error it caught, or a fixed phrase when it kept none."""
+    error = getattr(app, "_exception", None)  # Textual keeps the error it caught here (checked on 8.2)
+    return (str(error) or type(error).__name__) if error is not None else "the app stopped before its first draw"
 
 
 def notice(reason: str) -> str:

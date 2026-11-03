@@ -252,6 +252,7 @@ async def _run_full(controller: Controller, look: Look) -> int | None:
             raise
         sys.stderr.write(fallback.notice(str(exc) or type(exc).__name__) + "\n")
         return None
+    sys.stderr.write(controller.failure)
     sys.stdout.write(exit_summary(controller))
     return status
 

@@ -416,6 +416,7 @@ class Controller:
         self._ide: IdeServer | None = None
         self._approvals: asyncio.Future[None] | None = None
         self._defaults: asyncio.Future[None] | None = None
+        self.failure = ""  # why `run` ended with an error, for the full screen to print after it closes
 
     async def start(self) -> str:
         """Opens or resumes the ACP session and fills the state; returns an error message, or ""."""
@@ -558,7 +559,9 @@ class Controller:
                     return 0
                 ui.status_changed()
         except AgentCrashed as exc:
-            sys.stderr.write(f"the agent failed: {exc}; the transcript is kept, `hal sessions` can resume it\n")
+            # the full screen drops stderr while it runs; `app._run_full` prints `failure` after it closes
+            self.failure = f"the agent failed: {exc}; the transcript is kept, `hal sessions` can resume it\n"
+            sys.stderr.write(self.failure)
             return 1
         finally:
             await self.close()

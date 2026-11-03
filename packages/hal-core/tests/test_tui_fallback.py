@@ -160,3 +160,149 @@ def test_line_interface_or_a_pipe_never_starts_the_full_screen():
     line = load_look({"interface": "line"}, stream=io.StringIO(), environ={})
     auto = load_look({"interface": "auto"}, stream=io.StringIO(), environ={})
     assert not app.wants_full_screen(line, Tty()) and not app.wants_full_screen(auto, io.StringIO())
+
+
+def headless(cls, monkeypatch, method):
+    """Makes `cls.<method>` run without a terminal, the way Textual runs inside a real one otherwise."""
+    original = getattr(cls, method)
+
+    def run(self, **kw):
+        kw.pop("mouse", None)
+        return original(self, headless=True, **kw)
+
+    monkeypatch.setattr(cls, method, run)
+
+
+def test_tune_falls_back_when_textual_catches_an_error_before_the_first_draw(monkeypatch, capsys):
+    # regression: Textual returns None instead of raising, so the line screen never opened and the exit was 0
+    from test_tune import CARD_24GB, SHOW, TAGS
+
+    from halcore import tune, tuneapp, tuneui
+    from halkit import hardware
+    from halkit.testing import TempHalHome
+    from halkit.testing.ollama import FakeOllama
+
+    def broken(self):
+        raise RuntimeError("compose failed")
+
+    opened = []
+    monkeypatch.setattr(fallback, "can_run_textual", lambda *a, **k: (True, ""))
+    headless(tuneapp.TuneApp, monkeypatch, "run")
+    monkeypatch.setattr(tuneapp.TuneApp, "compose", broken)
+    monkeypatch.setattr(tuneui, "run_line_screen", lambda state, look: opened.append(state) or 0)
+    with TempHalHome() as home, FakeOllama(TAGS, SHOW) as server:
+        home.config.write_text(f'[models.sources.local]\nkind = "ollama"\nurl = "{server.url}"\n')
+        assert tune.run_screen(hardware.from_dict(CARD_24GB)) == 0
+    assert len(opened) == 1
+    assert "full-screen UI unavailable: compose failed; using the line UI" in capsys.readouterr().err
+
+
+def test_tune_exits_with_an_error_when_textual_catches_one_after_the_first_draw(monkeypatch):
+    from test_tune import CARD_24GB, SHOW, TAGS
+
+    from halcore import tune, tuneapp
+    from halkit import hardware
+    from halkit.testing import TempHalHome
+    from halkit.testing.ollama import FakeOllama
+
+    def broken(self):
+        self.mounted = True
+        raise RuntimeError("bug after mount")
+
+    monkeypatch.setattr(fallback, "can_run_textual", lambda *a, **k: (True, ""))
+    headless(tuneapp.TuneApp, monkeypatch, "run")
+    monkeypatch.setattr(tuneapp.TuneApp, "on_mount", broken)
+    with TempHalHome() as home, FakeOllama(TAGS, SHOW) as server:
+        home.config.write_text(f'[models.sources.local]\nkind = "ollama"\nurl = "{server.url}"\n')
+        assert tune.run_screen(hardware.from_dict(CARD_24GB)) == tune.EXIT_ERROR
+
+
+def test_code_falls_back_when_textual_catches_an_error_before_the_first_draw(tmp_path, monkeypatch, capsys):
+    from halcore.tui import agentapp, app
+
+    controller, look, asyncio = started_controller(tmp_path, monkeypatch)
+
+    def broken(self):
+        raise RuntimeError("compose failed")
+
+    headless(agentapp.AgentApp, monkeypatch, "run_async")
+    monkeypatch.setattr(agentapp.AgentApp, "compose", broken)
+
+    async def go():
+        await controller.start()
+        status = await app._run_full(controller, look)
+        await controller.client.close()
+        return status
+
+    assert asyncio.run(go()) is None
+    assert "full-screen UI unavailable: compose failed; using the line UI" in capsys.readouterr().err
+
+
+def test_code_exit_status_is_an_error_when_textual_catches_one_after_the_first_draw(tmp_path, monkeypatch):
+    from halcore.tui import agentapp, app
+
+    controller, look, asyncio = started_controller(tmp_path, monkeypatch)
+    original = agentapp.AgentApp.on_mount
+
+    async def broken(self):
+        await original(self)
+        raise RuntimeError("bug after mount")
+
+    headless(agentapp.AgentApp, monkeypatch, "run_async")
+    monkeypatch.setattr(agentapp.AgentApp, "on_mount", broken)
+
+    async def go():
+        await controller.start()
+        status = await app._run_full(controller, look)
+        await controller.client.close()
+        return status
+
+    assert asyncio.run(go()) == 1
+
+
+def test_an_agent_crash_in_the_full_screen_is_printed_after_it_closes(tmp_path, monkeypatch, capsys):
+    # regression: the full screen swallowed the "the agent failed" line, so hal code just closed
+    from halcore.tui import agentapp, app
+
+    controller, look, asyncio = started_controller(tmp_path, monkeypatch)
+
+    async def crashed(controller_, look_):
+        controller_.failure = "the agent failed: gone\n"
+        return 1, None
+
+    monkeypatch.setattr(agentapp, "run_full", crashed)
+
+    async def go():
+        await controller.start()
+        status = await app._run_full(controller, look)
+        await controller.client.close()
+        return status
+
+    assert asyncio.run(go()) == 1
+    assert "the agent failed: gone" in capsys.readouterr().err
+
+
+def test_controller_keeps_the_agent_crash_message_for_the_full_screen(tmp_path, monkeypatch):
+    from halcore.acp.transport import AgentCrashed
+
+    controller, look, asyncio = started_controller(tmp_path, monkeypatch)
+
+    class CrashingUi:
+        def approval_sender(self, bridge, on_note):
+            async def send(message):
+                pass
+
+            return send
+
+        def confirm(self, question):
+            return False
+
+        async def read_message(self):
+            raise AgentCrashed("gone")
+
+    async def go():
+        await controller.start()
+        return await controller.run(CrashingUi())
+
+    assert asyncio.run(go()) == 1
+    assert controller.failure.startswith("the agent failed: gone")
