@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 
 import pytest
@@ -69,3 +70,22 @@ def test_gc_dry_run_reports_what_it_would_remove(monkeypatch, capsys):
 def test_forget_reports_nothing_for_an_unknown_project(tmp_path, capsys):
     assert cli.sandbox_main(["forget", str(tmp_path)]) == 0
     assert "nothing to forget" in capsys.readouterr().out
+
+
+def test_doctor_warns_when_the_agent_code_is_newer_than_the_image(monkeypatch, tmp_path):
+    """Regression: agent fixes never reached the box; the image held the old wheels and doctor said ok."""
+    source = tmp_path / "packages" / "hal-agent" / "src" / "halagent" / "loop.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("x = 1\n")
+    os.utime(source, (2_000_000_000, 2_000_000_000))  # 2033-05-18
+    monkeypatch.setattr(images, "find_repo_root", lambda: tmp_path)
+    newer = images.newer_sources("2026-11-03T01:00:00Z")
+    assert newer == [source]
+    check = doctor.freshness_check([{"tag": "hal-sandbox:full-abc", "built": "2026-11-03T01:00:00Z"}])
+    assert check.status == doctor.WARN and "hal box image build" in check.detail and "loop.py" in check.detail
+
+
+def test_doctor_says_nothing_about_freshness_for_an_installed_hal(monkeypatch):
+    monkeypatch.setattr(images, "find_repo_root", lambda: (_ for _ in ()).throw(SandboxError("no checkout")))
+    assert images.newer_sources("2026-11-03T01:00:00Z") == []
+    assert doctor.freshness_check([{"tag": "t", "built": "2026-11-03T01:00:00Z"}]) is None

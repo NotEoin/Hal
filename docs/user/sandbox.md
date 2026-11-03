@@ -62,7 +62,9 @@ hal box forget [DIR]        # drop saved per-project choices
 hal box -- crush --version  # extra arguments after -- reach the CLI unchanged
 ```
 
-A box image missing: the error names `hal box image build`. `hal box deps` installs project
+A box image missing: the error names `hal box image build`. The image bundles Hal's own agent
+code, so after you update a Hal checkout `hal doctor` warns (`image freshness`) until you build
+it again. `hal box deps` installs project
 dependencies in the egress-limited prep box after you approve each lockfile.
 
 ## Status

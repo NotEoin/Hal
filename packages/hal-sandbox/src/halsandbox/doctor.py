@@ -70,6 +70,9 @@ def run_checks(*, refresh: bool = False) -> list[Check]:
                 f"{mb} MB" + (f" (budget {budget})" if over else ""),
             )
         )
+    fresh = freshness_check(rows)
+    if fresh is not None:
+        out.append(fresh)
     built = [h["name"] for h in boximages.harnesses() if h["built"]]
     out.append(
         Check(
@@ -97,3 +100,19 @@ def list_boxes(docker: str = "docker") -> list[dict[str, str]]:
 def as_dicts(checks: list[Check]) -> list[dict[str, str]]:
     """Checks as plain dicts for `--json`."""
     return [asdict(c) for c in checks]
+
+
+def freshness_check(rows: list[dict]) -> Check | None:
+    """Warns when agent code changed after the newest image was built; None when nothing to compare."""
+    if not rows:
+        return None
+    newest = rows[0]
+    changed = images.newer_sources(str(newest.get("built", "")))
+    if not changed:
+        return None
+    return Check(
+        "image freshness",
+        WARN,
+        f"{len(changed)} agent source file(s) changed since {newest['tag']} was built "
+        f"(newest: {changed[0].name}), so the box runs older code; run `hal box image build`",
+    )

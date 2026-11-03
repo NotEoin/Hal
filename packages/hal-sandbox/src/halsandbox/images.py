@@ -149,6 +149,21 @@ def build_wheels(repo_root: Path, dest: Path, *, uv: str = "uv") -> None:
             raise SandboxError(f"{wheel.name} has version {wheel_version}, hal-sandbox is {__version__}")
 
 
+def newer_sources(built: str) -> list[Path]:
+    """Source files baked into the image that changed after `built` (ISO UTC), newest first.
+
+    Only a checkout can tell: an installed Hal has no sources to compare, so it gets `[]`.
+    """
+    try:
+        root = find_repo_root()
+        since = datetime.strptime(built, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC).timestamp()
+    except (SandboxError, ValueError):
+        return []
+    dirs = [root / "packages" / pkg / "src" for pkg in WHEEL_PACKAGES] + [BOXSIDE_DIR]
+    files = [f for d in dirs if d.is_dir() for f in d.rglob("*.py")]
+    return sorted((f for f in files if f.stat().st_mtime > since), key=lambda f: -f.stat().st_mtime)
+
+
 def stage_bin(dest: Path) -> None:
     """Copies the three box-side scripts, keeping their module names, with the isolated-python shebang."""
     dest.mkdir(parents=True, exist_ok=True)
