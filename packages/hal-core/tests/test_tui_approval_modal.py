@@ -368,3 +368,18 @@ def test_space_does_not_press_an_allow_button():
         await pilot.press("n")
 
     assert run_modal(REQUEST, script) == ("n", "")
+
+
+def test_y_right_after_scrolling_to_the_end_still_selects_allow():
+    long = {**REQUEST, "display": "\n".join(f"arg{i}: value" for i in range(60))}
+
+    async def script(pilot, modal):
+        await armed(pilot, modal)
+        await pilot.press("end")
+        for _ in range(3):
+            await pilot.pause()
+        await pilot.press("y")
+        assert modal.focused.id == "allow-once"
+        await pilot.press("enter")
+
+    assert run_modal(long, script) == ("y", "")

@@ -14,7 +14,7 @@ Rules, each one tested in `test_tui_approval_modal.py`:
 4. Allow stays off until the arguments have been scrolled to the end, or fit (REQ-CLI-26).
 5. Allowing takes two deliberate actions: `y` or `a` only moves focus to that button, then Enter
    presses it; with the mouse it is a full click on the button. Typing cannot do it: a `y` or `a`
-   that follows another key within `TYPING_GAP_S` is ignored, and any other key while an allow
+   that follows another printable key within `TYPING_GAP_S` is ignored, and any other key while an allow
    button has focus sends focus back to Deny, so "try it" and Enter typed into the modal deny.
 6. "Allow these exact arguments this session" is there only when the request offers `session`,
    and a forged `a` still goes through `answer_to_option`, which denies it.
@@ -209,7 +209,8 @@ class ApprovalModal(ModalScreen[tuple[str, str]]):
             event.stop()
             return
         gap = event.time - self.last_key_at
-        self.last_key_at = event.time
+        if event.is_printable:  # scroll and focus keys are not typing: End then `y` is a deliberate choice
+            self.last_key_at = event.time
         if event.key in ("y", "a") and gap < TYPING_GAP_S:
             event.prevent_default()
             event.stop()
