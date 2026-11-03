@@ -30,8 +30,9 @@ to change it. On a narrow terminal the chips shorten (a shorter model name, then
 chip, which the status bar still shows, then no `model:` prefixes) so all of them stay clickable. Each tool call is a card: it shows a spinner and its own timer while it runs, then
 its result, and a click (or Enter on it) shows the folded output or diff in full. A click on one
 of your messages offers Copy and, in `hal code`, Rewind files to before it. The side panel
-(Ctrl+B; open by default from 110 columns) has the todo list, the changes of the copy with Diff,
-Accept and Export buttons, and the context use. With a UTF-8 terminal the marks are Unicode;
+(Ctrl+B; open from 110 columns and closed below, following resizes until you press Ctrl+B)
+has the todo list, the changes of the copy with Diff, Accept and Export buttons, and the
+context use. With a UTF-8 terminal the marks are Unicode;
 set `[ui].unicode = false` to force ASCII.
 
 ## Input

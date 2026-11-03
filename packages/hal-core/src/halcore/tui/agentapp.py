@@ -521,6 +521,7 @@ class AgentApp(App[int]):
         self.busy = False
         self.window_focused = True
         self.last_ctrl_c = 0.0
+        self.side_pinned = False  # True once Ctrl+B chose the side panel's state
         self.history_store = private_history(history_path())
         self.transcript = Transcript(id="transcript")
         self.popup = OptionList(markup=False, id="popup")
@@ -619,8 +620,7 @@ class AgentApp(App[int]):
         for theme in textual_themes():
             self.register_theme(theme)
         self.theme = self.look.textual_theme
-        if self.size.width >= WIDE:
-            self.query_one("#side").add_class("shown")
+        self.query_one("#side").set_class(self.size.width >= WIDE, "shown")
         if self.controller.session.backend == "none":
             self.query_one("#unsandboxed").add_class("shown")
         self.sink.flush()
@@ -898,11 +898,13 @@ class AgentApp(App[int]):
                 fold.action_toggle()
 
     def action_toggle_side(self) -> None:
-        """Ctrl+B: the side panel."""
+        """Ctrl+B: the side panel; from then on a resize leaves it as the user set it."""
+        self.side_pinned = True
         self.query_one("#side").toggle_class("shown")
 
     def action_todo(self) -> None:
         """Ctrl+T: the todo tab of the side panel."""
+        self.side_pinned = True
         self.query_one("#side").add_class("shown")
         self.query_one("#side-tabs", TabbedContent).active = "side-todo"
 
@@ -1045,9 +1047,11 @@ class AgentApp(App[int]):
         self.inbox.put_nowait(QUIT)
 
     def on_resize(self, event: events.Resize) -> None:
-        """A new terminal size: the chips are fitted again."""
+        """A new terminal size: the chips are fitted again, and the side panel follows `WIDE` until Ctrl+B."""
         if self.mounted:
             self.fit_header()
+            if not self.side_pinned:
+                self.query_one("#side").set_class(event.size.width >= WIDE, "shown")
 
     def on_app_focus(self, event: events.AppFocus) -> None:
         """The terminal window has focus."""

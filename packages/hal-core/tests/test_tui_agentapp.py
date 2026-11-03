@@ -657,3 +657,22 @@ def test_accept_buttons_and_high_risk_box_stay_on_screen_at_80_by_24_and_60_by_2
             return [w.id for w in widgets if w.region.bottom > size[1] or w.region.right > size[0] or not w.region.height]
 
         assert drive(tmp_path, script, size=size) == [], size
+
+
+def test_side_panel_closes_when_the_terminal_narrows_until_ctrl_b_sets_it(tmp_path):
+    # regression: a panel opened on a wide terminal stayed open after a resize to 60 columns
+    async def script(pilot, app, agent):
+        side = app.query_one("#side")
+        states = [side.display]
+        await pilot.resize_terminal(60, 20)
+        await settle(pilot)
+        states.append(side.display)
+        await pilot.press("ctrl+b")
+        await pilot.resize_terminal(130, 36)
+        await settle(pilot)
+        await pilot.resize_terminal(70, 24)
+        await settle(pilot)
+        states.append(side.display)
+        return states
+
+    assert drive(tmp_path, script, size=(130, 36)) == [True, False, True]
