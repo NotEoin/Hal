@@ -124,6 +124,9 @@ First release of the monorepo (uv workspace on branch `next`).
 - Unicode glyphs are lighter: the prompt is a single angle quote (U+203A), reasoning lines start
   with U+2234 and the context bar uses parallelograms (U+25B0, U+25B1); the line UI shows them
   too. Every glyph has an ASCII fallback (`[ui].unicode = false` or a non-UTF-8 terminal).
+- The full screen runs one animation clock, capped at 30 frames a second, only while something
+  moves; an idle session runs no timer (it used to wake 4 times a second). Spinners are braille
+  dots, and `[ui].animations = false` turns every motion off.
 - `hal chat` offers only the commands that work in a chat: `/help`, Tab and Esc Esc leave out the
   project-copy commands (`/rewind`, `/diff`, `/accept`, `/export`, `/ide`, `/init`), and `!`, `#`
   and `@` are sent as plain text.

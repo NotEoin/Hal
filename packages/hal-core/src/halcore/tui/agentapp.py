@@ -50,7 +50,7 @@ from textual.widgets import Button, Checkbox, Footer, OptionList, TabbedContent,
 from textual.widgets.option_list import Option
 
 from .. import __version__
-from . import mentions, screens, tokens
+from . import mentions, motion, screens, tokens
 from . import fallback
 from .approvalmodal import ModalAsker
 from .controller import (
@@ -66,7 +66,6 @@ from .widgets import SafeStatic, ThinkingFold, ToolCard, toast
 log = logging.getLogger(__name__)
 
 QUIT_WINDOW_S = 2.0  # a second Ctrl+C within this many seconds quits
-WORKING_HZ = 4  # redraws per second of the "working" line
 STATUS_EVERY_S = 2.0  # how often the slow status fields refresh while a turn runs
 NOTIFY_MIN_S = 10.0  # a turn this long rings the bell when the window is not focused
 NOTIFY_LONG_S = 60.0  # a turn this long notifies even when the terminal never reports focus (as the line UI)
@@ -78,7 +77,6 @@ TOAST_SHORT_S = 2.0  # a confirmation of something the user just did
 TOAST_WAIT_S = 3.0  # "listing...": long enough to see while the picker loads
 TOAST_LONG_S = 6.0  # a warning the user should have time to read
 WIDE = 110  # at this width or more the side panel opens by default
-SPIN = ("|", "/", "-", "\\")
 CHIPS = ("model", "mode", "effort", "lockdown")
 CHIP_CHROME = 3  # a chip's one-cell padding on each side plus its one-cell left margin
 TITLE_MIN = 16  # "Hal 0.1.0  code" and the start of the project path
@@ -551,6 +549,8 @@ class AgentApp(App[int]):
         self.popup = OptionList(markup=False, id="popup")
         self._tick = 0
         self._status_due = 0.0
+        self.motion: motion.Ticker | None = None  # created on mount: it needs the app's timers
+        self._working: list[motion.Handle] = []
         self.exit_status = 0
         self.state.review_accept = self.ui.review_accept
         if not look.animations:
@@ -651,12 +651,12 @@ class AgentApp(App[int]):
     async def on_mount(self) -> None:
         """Theme, the side panel on wide terminals, then the controller loop."""
         self.mounted = True
+        self.motion = motion.Ticker(self.set_interval, enabled=self.look.animations)
         self.query_one("#side").set_class(self.size.width >= WIDE, "shown")
         if self.controller.session.backend == "none":
             self.query_one("#unsandboxed").add_class("shown")
         self.sink.flush()
         self.refresh_status()
-        self.set_interval(1 / WORKING_HZ, self.tick)
         self.query_one(Composer).focus()
         self.run_worker(self.loop(), group="controller", exit_on_error=False)
 
@@ -795,8 +795,14 @@ class AgentApp(App[int]):
         """Shows or hides the working line."""
         self.busy = busy
         self.query_one("#working").set_class(busy, "busy")
+        for handle in self._working:
+            handle.cancel()
+        self._working = []
         if busy:
             self.link_checkpoint()
+            if self.motion is not None:
+                self._working = [self.motion.subscribe(self.spin, motion.SPINNER_HZ), self.motion.every(1.0, self.tick)]
+            self.tick()
         self.refresh_status()
 
     def link_checkpoint(self) -> None:
@@ -818,22 +824,34 @@ class AgentApp(App[int]):
                 self.waiting_messages.remove(message)
                 return
 
-    def tick(self) -> None:
-        """The working line's spinner and numbers; the slow status fields every `STATUS_EVERY_S`."""
-        if not self.busy:
-            return
+    def spin(self, now: float) -> bool:
+        """One spinner frame of the working line (motion on only)."""
         self._tick += 1
-        stats = self.controller.renderer.stats
-        sep = f" {self.look.glyphs.sep} "
-        text = Text(f"{SPIN[self._tick % len(SPIN)]} working {stats.elapsed:.0f}s", style="bold")
-        text.append(f"{sep}~{stats.tokens} tok{sep}{stats.tok_s:.0f} tok/s{sep}Esc stops", style="dim")
-        if self.queued_count:
-            text.append(f"{sep}{self.queued_count} queued", style="bold")
-        self.query_one("#working", SafeStatic).update(text)
+        self.draw_working()
+        return self.busy
+
+    def tick(self, now: float = 0.0) -> bool:
+        """The working line's numbers each second; the slow status fields every `STATUS_EVERY_S`."""
+        if not self.busy:
+            return False
+        self.draw_working()
         self.refresh_status()
         if time.monotonic() >= self._status_due:
             self._status_due = time.monotonic() + STATUS_EVERY_S
             self.status_soon()
+        return True
+
+    def draw_working(self) -> None:
+        """Spinner, elapsed time, tokens, speed and the queue of the working line."""
+        g = self.look.glyphs
+        stats = self.controller.renderer.stats
+        sep = f" {g.sep} "
+        spin = tokens.spinner_frame(g.spinner_frames, self._tick) if self.look.animations else g.running
+        text = Text(f"{spin} working {stats.elapsed:.0f}s", style="bold")
+        text.append(f"{sep}~{stats.tokens} tok{sep}{stats.tok_s:.0f} tok/s{sep}Esc stops", style="dim")
+        if self.queued_count:
+            text.append(f"{sep}{self.queued_count} queued", style="bold")
+        self.query_one("#working", SafeStatic).update(text)
 
     def status_soon(self) -> None:
         """Refreshes the slow status fields (branch, changes, jobs) off the event loop."""

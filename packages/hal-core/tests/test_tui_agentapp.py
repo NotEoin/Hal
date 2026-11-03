@@ -774,3 +774,21 @@ def test_window_title_names_the_surface(tmp_path, mode, title):
         return app.title
 
     assert drive(tmp_path, script, mode=mode) == title
+
+
+def test_no_timer_runs_while_idle(tmp_path):
+    running = {"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Run sleep 1", "status": "in_progress"}
+    done = {"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed"}
+
+    async def script(pilot, app, agent):
+        idle_before = (app.motion.running, app.motion.active)
+        await type_text(pilot, "go")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: app.motion.active >= 1)
+        during = app.motion.running
+        assert await until(pilot, lambda: not app.busy and "hi" in transcript_text(app))
+        await settle(pilot)
+        return idle_before, during, (app.motion.running, app.motion.active)
+
+    before, during, after = drive(tmp_path, script, turns=[[running, 0.3, done, chunk("hi")]])
+    assert before == (False, 0) and during and after == (False, 0)

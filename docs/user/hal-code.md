@@ -226,7 +226,7 @@ prints `full-screen UI unavailable: REASON; using the line UI`) or when you ask 
 | `markdown_refresh_hz` | `8` | Redraws per second of the streaming tail |
 | `mention_max_bytes` | `32768` | Largest `@file` that is attached |
 | `interface` | `"auto"` | `auto`, `full` or `line`: the full-screen UI where the terminal can run it, or force one (`HAL_TUI` overrides) |
-| `animations` | `true` | Short fades and slides in the full-screen UI |
+| `animations` | `true` | Motion in the full-screen UI (spinners, the HAL eye, gauges easing); `false` draws static glyphs and runs no animation timer. Elapsed times still count up |
 | `mouse` | `true` | Clicks and drags in the full-screen UI; `false` leaves the mouse to the terminal |
 
 ## When it does not work

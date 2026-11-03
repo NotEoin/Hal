@@ -52,10 +52,11 @@ VALUE_WIDTH = 9  # columns kept for the value text right of a slider track
 PAGE_CELLS = 10  # PgUp / PgDn move the knob this many cells
 MIN_TRACK = 4
 TIMER_S = 1.0  # a running tool card redraws its elapsed time this often
+SPINNER_HZ = 10  # braille frames per second (`motion.SPINNER_HZ`)
+clock = time.monotonic  # one name to read time through, so snapshot tests can freeze it
 ASCII_TRACK = tokens.TRACK_ASCII
 UNICODE_TRACK = tokens.TRACK_UNICODE
 UNICODE_BAR = tokens.GAUGE_UNICODE
-SPINNER = ("|", "/", "-", "\\")
 
 
 def safe_text(content: RenderableType | str, style: str = "") -> RenderableType:
@@ -510,37 +511,58 @@ class ToolCard(Vertical):
     def __init__(self, cid: str, title: Text, depth: int = 0, **kwargs: object) -> None:
         super().__init__(classes="running", **kwargs)  # type: ignore[arg-type]  # Widget's own keywords
         self.cid, self.title, self.depth = cid, title, depth
-        self.started = time.monotonic()
+        self.started = clock()
         self.finished = False
         self.body: DiffView | None = None
         self._tick = 0
+        self._handles: list[object] = []
 
     def compose(self):  # noqa: ANN201 - Textual's ComposeResult
         """The header row."""
         yield SafeStatic(self._running_header(), classes="header")
 
     def on_mount(self) -> None:
-        """Starts the elapsed-time redraw."""
-        self._timer = self.set_interval(TIMER_S, self._redraw)
+        """Joins the app's motion clock: elapsed time each second, spinner frames when motion is on."""
+        ticker = getattr(self.app, "motion", None)
+        if ticker is not None and not self.finished:
+            self._handles = [ticker.every(TIMER_S, self._redraw), ticker.subscribe(self._spin, SPINNER_HZ)]
+
+    def on_unmount(self) -> None:
+        """Leaves the motion clock."""
+        self._stop()
+
+    def _stop(self) -> None:
+        for handle in self._handles:
+            handle.cancel()  # type: ignore[attr-defined]  # a `motion.Handle`
+        self._handles = []
 
     def _running_header(self) -> Text:
-        spin = SPINNER[self._tick % len(SPINNER)]
+        look = getattr(self.app, "look", None) if self.is_attached else None
+        if look is not None and look.animations:
+            spin = look.glyphs.spinner_frames[self._tick % len(look.glyphs.spinner_frames)]
+        else:
+            spin = look.glyphs.running if look is not None else "..."
         row = Text("  " * self.depth)
         row.append(f"{spin} ", style="bold")
         row.append_text(self.title)
-        row.append(f"  running {time.monotonic() - self.started:.0f}s", style="dim")
+        row.append(f"  running {clock() - self.started:.0f}s", style="dim")
         return row
 
-    def _redraw(self) -> None:
-        if not self.finished:
-            self._tick += 1
-            self.query_one(".header", SafeStatic).update(self._running_header())
+    def _spin(self, now: float) -> bool:
+        self._tick += 1
+        return self._redraw(now)
+
+    def _redraw(self, now: float = 0.0) -> bool:
+        if self.finished or not self.is_attached:
+            return False
+        self.query_one(".header", SafeStatic).update(self._running_header())
+        return True
 
     def finish(self, header: Text, folded: Sequence[RenderableType], full: Sequence[RenderableType]) -> None:
         """Shows the result row and the folded body."""
         self.finished = True
         self.remove_class("running")
-        self._timer.stop()
+        self._stop()
         self.query_one(".header", SafeStatic).update(header)
         if folded or full:
             self.body = DiffView(folded, full)
