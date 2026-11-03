@@ -9,30 +9,30 @@ copy of your project. Background: [the sandbox guide](../user/sandbox.md).
    network (apt, pip, npm or the goose release, all pinned).
 
    ```sh
-   hal box image build                # the base image, about 870 MB
-   hal box image build crush          # one CLI image on top of it
-   hal box harnesses              # which CLIs are built, with their pinned versions
+   hal box image build        # the base image, about 870 MB
+   hal box image build crush  # one CLI image on top of it
+   hal box harnesses          # which CLIs are built, with their pinned versions
    ```
 
 2. Run the CLI in the project folder. Everything after `--` reaches the CLI unchanged.
 
    ```sh
-   hal box -- crush --version         # a quick check that the box starts
-   hal box --dir ~/src/app -- crush   # the interactive CLI on a copy of ~/src/app
+   hal box -- crush --version        # a quick check that the box starts
+   hal box --dir ~/src/app -- crush  # the interactive CLI on a copy of ~/src/app
    ```
 
 3. Keep the CLI's own prompts with `--ask`; without it the CLI auto-approves work inside the box.
    Calls that leave the box still ask on your host (`hal approvals`).
 
    ```sh
-   hal box --ask -- qwen              # the CLI asks before each edit or command
+   hal box --ask -- qwen  # the CLI asks before each edit or command
    ```
 
 4. Take the changes out, or throw them away. The exit line names the session.
 
    ```sh
-   hal code accept SID                # shows the diff and risk flags, then applies it
-   hal code reject SID                # deletes the copy
+   hal code accept SID  # shows the diff and risk flags, then applies it
+   hal code reject SID  # deletes the copy
    ```
 
 ## When it fails

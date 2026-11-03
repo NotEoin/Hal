@@ -53,13 +53,13 @@ isolated copy of the project, with no network. The CLI talks to the model throug
 `--direct` mounts the real project (lockdown `relaxed` or lower). Docker is the only backend.
 
 ```sh
-hal box image build                # the base image; then `hal box image build crush`
-hal box harnesses              # which CLIs are built
-hal box doctor                 # lockdown, backend, runtime and image sizes (exit 1 on a failed check)
-hal box ls                     # running boxes
-hal box gc [--dry-run]             # remove orphaned boxes and empty session dirs
-hal box forget [DIR]               # drop saved per-project choices
-hal box -- crush --version         # extra arguments after -- reach the CLI unchanged
+hal box image build         # the base image; then `hal box image build crush`
+hal box harnesses           # which CLIs are built
+hal box doctor              # lockdown, backend, runtime and image sizes (exit 1 on a failed check)
+hal box ls                  # running boxes
+hal box gc [--dry-run]      # remove orphaned boxes and empty session dirs
+hal box forget [DIR]        # drop saved per-project choices
+hal box -- crush --version  # extra arguments after -- reach the CLI unchanged
 ```
 
 A box image missing: the error names `hal box image build`. `hal box deps` installs project

@@ -9,20 +9,20 @@ lockdown `relaxed` or lower and the docker backend.
 1. Check that the project has a lockfile (uv, npm or cargo). A project without one is not offered.
 
    ```sh
-   ls uv.lock package-lock.json Cargo.lock   # at least one must exist
+   ls uv.lock package-lock.json Cargo.lock  # at least one must exist
    ```
 
 2. Run the prep. It asks once per lockfile; no terminal means no approval.
 
    ```sh
-   hal box deps --dir .               # asks: Install dependencies from uv.lock (uv) in the prep box? [y/N]
+   hal box deps --dir .  # asks: Install dependencies from uv.lock (uv) in the prep box? [y/N]
    ```
 
 3. Start the agent. The next `hal code` or `hal box` sees the installed dependencies; the prep
    is offered again only when a lockfile changes.
 
    ```sh
-   hal code .                         # the box has the dependencies, still no network
+   hal code .  # the box has the dependencies, still no network
    ```
 
 ## When it fails
