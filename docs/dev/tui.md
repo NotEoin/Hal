@@ -14,11 +14,11 @@ User docs: [hal-code.md](../user/hal-code.md), [tui.md](../user/tui.md) and
 | `halcore/tui/slash.py` | Slash commands; a bare listing command returns a `PickRequest` |
 | `halcore/tui/approval.py` | Approval panel text, `answer_to_option`, the line UI's asker |
 | `halcore/tui/theme.py` | `[ui]` settings, glyphs, colour tokens and the Textual themes |
-| `halcore/tui/widgets.py` | Shared Textual widgets: `SafeStatic`, `Slider`, `Segmented`, `FitGauge`, `ToolCard`, `DiffView`, `ThinkingFold` |
+| `halcore/tui/widgets.py` | Shared Textual widgets: `SafeStatic`, `Slider` (with `ValueEntry` to type a value), `Segmented`, `FitGauge`, `ToolCard`, `DiffView`, `ThinkingFold` |
 | `halcore/tui/screens.py` | Shared modals: `PickerModal`, `ConfirmModal`, `ChoiceModal`, `HelpScreen`, and `ask()` |
 | `halcore/tui/approvalmodal.py` | The approval gate of the full screen (`ApprovalModal`) and `ModalAsker`, its bridge sender |
 | `halcore/tui/agentapp.py` | The full-screen `hal code` and `hal chat`: `AgentApp`, `TextualUi`, `TextualSink`, `Composer` |
-| `halcore/tui/fallback.py` | `can_run_textual` and the notice printed before the line UI takes over |
+| `halcore/tui/fallback.py` | `can_run_textual`, `StartFailed`, `reason_of` and the notice printed before the line UI takes over |
 | `halcore/tuneapp.py` | The full-screen `hal tune` (`TuneApp`, `QuickStart`, `SourceModal`) |
 | `halcore/tuneview.py` | What both tune screens show, as plain text |
 
@@ -55,7 +55,22 @@ output (terminal controls stripped, bidirectional and zero-width characters show
 `position_of`. A log track suits context lengths (halfway from 8K to 128K is 32K); a linear one
 suits temperature. Key steps move one `step` on a linear track and one cell on a log track.
 `Slider.Changed.final` is true on mouse release and on key steps, so costly listeners (a config
-draft) act once, cheap ones (a gauge) on every move.
+draft) act once, cheap ones (a gauge) on every move. The wheel steps a slider only while it has
+focus, so a scroll over a page of sliders never edits one.
+
+## Start failures
+
+Textual does not raise an error that happens inside an app: it prints the traceback when it
+exits and returns None with `App.return_code` set to 1. `agentapp.run_full` and
+`tune.run_screen` check that code: before the app's `on_mount` (`mounted` is False) it is a
+`StartFailed` and the line UI opens on the same session; after it, the exit status is 1.
+
+## Small terminals
+
+Every screen is checked at 80x24 and 60x20 in the Pilot tests. The header chips shorten in steps
+(`AgentApp.fit_header`), `Segmented` drops the padding around its labels when its width is short,
+dialogs size their scrolling part in `vh` or by measuring the rest of the box (`ApprovalModal.fit`),
+and the approval buttons stack as one-line buttons when they do not fit side by side.
 
 ## Writing Pilot tests
 
