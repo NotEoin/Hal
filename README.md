@@ -24,6 +24,20 @@ asks you before anything that matters.
 - **No telemetry.** Nothing leaves your machine unless you add a cloud model or a tool that goes
   online.
 
+## Screenshots
+
+`hal code` in a dark terminal at 120x36. These screens come from a scripted session, so the
+model name and the project are placeholders.
+
+| | |
+| --- | --- |
+| ![A finished turn: plan, tool rows, an inline diff and a code block](media/hal-code-turn.png) | ![The Ctrl+P palette over commands, sessions, files, models and settings](media/hal-code-palette.png) |
+| A turn: the plan, folded tool rows, an inline diff and a code block with `copy` | Ctrl+P: one search over commands, sessions, files, models and settings |
+| ![An approval dialog for a shell command that leaves the box](media/hal-code-approval.png) | ![The context popover with its Compact button](media/hal-code-context.png) |
+| An approval: every argument shown, Deny focused, allowing takes two steps | A click on the context gauge: what fills the window, and Compact |
+
+The [terminal UI tour](docs/user/hal-code.md) covers every key and menu.
+
 ## Requirements
 
 | | |
