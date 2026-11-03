@@ -205,3 +205,33 @@ def test_per_layer_widths_set_the_kv_size_of_a_gemma4_style_model():
     model = model12b(layers=30, sliding_window=1024, kv_full_width=10240, kv_window_width=102400)
     per_tok, fixed, _, estimated = tuning._kv_per_token(model, "f16", 1)  # noqa: SLF001 - the formula under test
     assert (per_tok, fixed, estimated) == (10240 * 2.0, 102400 * 2.0 * 1024, False)
+
+
+def test_fit_layers_all_layers_matches_fit_context_gpu_status():
+    card = hw(gpu(24564))
+    whole = tuning.fit_context(model12b(), card, kv_type="q8_0", context=32768)
+    layers = tuning.fit_layers(model12b(), card, kv_type="q8_0", context=32768, gpu_layers=tuning.ALL_LAYERS)
+    assert whole.status == layers.status == "gpu" and layers.gpu_layers == tuning.ALL_LAYERS
+    assert (layers.weights_mib, layers.kv_mib) == (whole.weights_mib, whole.kv_mib)
+
+
+def test_fit_layers_zero_layers_is_cpu():
+    plan = tuning.fit_layers(model12b(), hw(gpu(24564)), kv_type="q8_0", context=8192, gpu_layers=0)
+    assert plan.status == "cpu" and plan.gpu_layers == 0
+
+
+def test_fit_layers_some_layers_is_hybrid():
+    plan = tuning.fit_layers(model12b(), hw(gpu(24564)), kv_type="q8_0", context=8192, gpu_layers=10)
+    assert plan.status == "hybrid" and plan.gpu_layers == 10
+
+
+def test_fit_layers_over_budget_is_does_not_fit():
+    plan = tuning.fit_layers(
+        model12b(), hw(gpu(4096)), kv_type="f16", context=32768, gpu_layers=tuning.ALL_LAYERS
+    )
+    assert plan.status == "does-not-fit" and "VRAM is" in plan.reasoning[-1]
+
+
+def test_fit_layers_needs_a_known_layer_count():
+    with pytest.raises(ValueError, match="layer count is unknown"):
+        tuning.fit_layers(model12b(layers=None), hw(gpu(24564)), kv_type="f16", context=8192, gpu_layers=4)

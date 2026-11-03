@@ -12,10 +12,16 @@ Design decisions:
   is then `tuning.fit_context` at exactly that context, and the role is written with `auto = false`.
 - Source changes are kept as edits to the config text and applied with the roles, so the diff
   and the write see one change set.
+- GPU layers set by hand (`Draft.gpu_layers`, None = decided by tuning) also make the draft
+  manual; the plan is then `tuning.fit_layers` at the draft's context. A count equal to the
+  model's layers means all of them, written as `-1` like a tuned plan.
+- `snapshot` and `restore` copy every draft and the source edits, so the screen can undo any
+  change, including a preset.
 """
 
 from __future__ import annotations
 
+import copy
 import difflib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
@@ -45,6 +51,21 @@ class Draft:
     temperature: float = modelconf.UNSET_TEMPERATURE
     family: str = ""
     manual: bool = False
+    gpu_layers: int | None = None  # None = decided by tuning; else 0 to the model's layer count
+
+
+@dataclass(frozen=True)
+class Snapshot:
+    """A copy of everything an edit can change, for undo."""
+
+    drafts: dict[str, Draft]
+    sources: dict[str, modelconf.Source]
+    found: dict[str, discovery.Discovery]
+    source_edits: list[Callable[[str], str]]
+    added: frozenset[str]
+    removed: frozenset[str]
+    hw: Hardware
+    preset: tunepresets.Preset | None
 
 
 @dataclass(frozen=True)
@@ -67,8 +88,9 @@ class Fit:
 
 
 def _draft_of(role: modelconf.Role) -> Draft:
+    layers = role.gpu_layers if not role.auto and role.gpu_layers >= 0 else None
     return Draft(role.source, role.model, 0 if role.auto else role.context, role.kv_type, role.effort,
-                 role.temperature, role.family, manual=not role.auto)
+                 role.temperature, role.family, manual=not role.auto, gpu_layers=layers)
 
 
 class TuneSession:
@@ -119,6 +141,10 @@ class TuneSession:
         d, model = self.drafts.get(role), self.model_of(role)
         if d is None or model is None:
             return None
+        if d.manual and d.gpu_layers is not None and d.context > 0 and self.sized(model):
+            kv = d.kv_type if d.kv_type in tuning.KV_TYPES else self._auto_kv(model)
+            return tuning.fit_layers(model, self.hw, kv_type=kv, context=d.context, gpu_layers=d.gpu_layers,
+                                     headroom_override_mib=int(self.limits["headroom_mib"]))  # type: ignore[call-overload]
         if d.manual and d.context > 0:
             if not model.size_bytes or model.kind in ("anthropic", "openai-cloud"):
                 return None
@@ -126,6 +152,24 @@ class TuneSession:
             return tuning.fit_context(model, self.hw, kv_type=kv, context=d.context,
                                       headroom_override_mib=int(self.limits["headroom_mib"]))  # type: ignore[call-overload]
         return modelplan._plan(model, self.hw, self._role_cfg(role), self.limits)  # noqa: SLF001 - same package
+
+    @staticmethod
+    def sized(model: ModelInfo) -> bool:
+        """True when Hal can size the model (a local model with a known weight size)."""
+        return bool(model.size_bytes) and model.kind not in ("anthropic", "openai-cloud")
+
+    def layers_of(self, role: str) -> tuple[int, str]:
+        """`(layer count, reason)`: the count when layers can be set by hand, else 0 and why not."""
+        d, model = self.drafts.get(role), self.model_of(role)
+        if d is None or model is None:
+            return 0, "choose a model first"
+        if not self.sized(model):
+            return 0, "the server decides the offload of this model"
+        if not model.layers:
+            return 0, "the layer count of this model is unknown"
+        if not self.hw.gpus:
+            return 0, "no GPU in this plan: every layer runs on the CPU"
+        return int(model.layers), ""
 
     def _auto_kv(self, model: ModelInfo) -> str:
         plan = modelplan._plan(model, self.hw, None, self.limits)  # noqa: SLF001 - same package
@@ -150,6 +194,10 @@ class TuneSession:
     def try_context(self, role: str, tokens: int) -> Fit:
         """The fit `role` would have with `tokens` of context; the draft is not changed."""
         return self._try(role, lambda: self.set_context(role, tokens))
+
+    def try_layers(self, role: str, layers: int | None) -> Fit:
+        """The fit `role` would have with this many GPU layers; the draft is not changed."""
+        return self._try(role, lambda: self.set_gpu_layers(role, layers))
 
     def try_kv(self, role: str, kv_type: str) -> Fit:
         """The fit `role` would have with this KV type; the draft is not changed."""
@@ -195,7 +243,44 @@ class TuneSession:
             raise ValueError(f"KV type must be one of {', '.join(KV_OPTIONS)}")
         d.kv_type = "" if kv_type == "auto" else kv_type
         if kv_type == "auto":
-            d.manual, d.context = False, 0
+            d.manual, d.context, d.gpu_layers = False, 0, None
+
+    def set_gpu_layers(self, role: str, layers: int | None) -> None:
+        """Puts `layers` layers on the GPU by hand; None returns the layers to tuning.
+
+        Raises `ValueError` when the count is out of range or cannot be set for this model.
+        """
+        d, model = self._need(role)
+        if layers is None:
+            d.gpu_layers = None
+            d.manual = d.context > 0
+            return
+        total, reason = self.layers_of(role)
+        if not total:
+            raise ValueError(reason)
+        if not 0 <= layers <= total:
+            raise ValueError(f"{model.name} has {total} layers; choose 0 to {total}")
+        if d.context <= 0:
+            current = self.fit(role)
+            d.context = current.context if current.context >= tuning.MIN_CONTEXT else tuning.MIN_CONTEXT
+        if d.kv_type in ("", "auto"):
+            d.kv_type = self._auto_kv(model)
+        d.gpu_layers, d.manual = layers, True
+
+    def snapshot(self) -> Snapshot:
+        """A copy of the drafts, sources and source edits, for `restore`."""
+        return Snapshot(
+            copy.deepcopy(self.drafts), dict(self.sources), dict(self.found), list(self._source_edits),
+            frozenset(self._added), frozenset(self._removed), self.hw, self.preset,
+        )  # fmt: skip
+
+    def restore(self, snap: Snapshot) -> None:
+        """Puts back everything `snapshot` copied."""
+        self.drafts = copy.deepcopy(snap.drafts)
+        self.sources, self.found = dict(snap.sources), dict(snap.found)
+        self._source_edits = list(snap.source_edits)
+        self._added, self._removed = set(snap.added), set(snap.removed)
+        self.hw, self.preset = snap.hw, snap.preset
 
     def set_effort(self, role: str, level: str) -> None:
         """Sets the default effort (`""` = the model's default); refused when the model cannot use the level."""
@@ -253,7 +338,7 @@ class TuneSession:
                 self.choose(name, rp.model)
                 notes.append(f"{name}: chose {rp.model.name}")
             elif d is not None:
-                d.context, d.kv_type, d.manual = 0, "", False
+                d.context, d.kv_type, d.manual, d.gpu_layers = 0, "", False, None
                 notes.append(f"{name}: tuned for this hardware")
         return notes
 
@@ -270,7 +355,7 @@ class TuneSession:
         for role in [r for r in modelconf.ROLES if r not in OPTIONAL_ROLES or r in self.drafts]:
             if self.fit(role).status in (keep, "server"):
                 d = self.drafts[role]
-                d.context, d.kv_type, d.manual = 0, "", False
+                d.context, d.kv_type, d.manual, d.gpu_layers = 0, "", False, None
                 notes.append(f"{role}: {d.model} fits {preset.label}")
                 continue
             rp = modelplan.choose(role, self.found, self.sources, self.hw, self.limits, {})

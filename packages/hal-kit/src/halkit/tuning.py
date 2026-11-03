@@ -365,3 +365,64 @@ def fit_context(
     return Plan(
         model.name, status, context, kv_type, n_gpu, split, weights, kv, budget, estimated, tuple(why)
     )
+
+
+def fit_layers(
+    model: ModelInfo,
+    hw: Hardware,
+    *,
+    kv_type: str,
+    context: int,
+    gpu_layers: int,
+    headroom_override_mib: int = 0,
+) -> Plan:
+    """Where `model` runs with `context` tokens of cache and exactly `gpu_layers` layers on the GPU.
+
+    The check behind a GPU layer count set by hand. `gpu_layers` is `ALL_LAYERS` or a count from 0
+    to the model's layers. A layer holds its share of the weights and of the cache. The status is
+    `gpu` with every layer on the GPU, `hybrid` with some, `cpu` with none, and `does-not-fit` when
+    the layers asked for overrun the VRAM budget or the rest overruns RAM. Raises `ValueError` for
+    an unknown layer count, weight size or cache type, or a context below `MIN_CONTEXT`.
+    """
+    if context < MIN_CONTEXT:
+        raise ValueError(f"a context below {MIN_CONTEXT} tokens cannot hold a useful chat")
+    if not model.layers:
+        raise ValueError(f"{model.name}: the layer count is unknown, so GPU layers cannot be set by hand")
+    weights = _weights_mib(model)
+    per_tok, fixed, layers, estimated = _kv_per_token(model, kv_type, weights)
+    layers = int(model.layers)
+    kv = _kv_mib(context, per_tok, fixed)
+    gpus = [g for g in hw.gpus if usable_mib(g, headroom_override_mib) > 0]
+    budget = sum(usable_mib(g, headroom_override_mib) for g in gpus)
+    ram = max(
+        hw.ram_free_mib - max(RAM_HEADROOM_MIN_MIB, math.ceil(hw.ram_total_mib * RAM_HEADROOM_FRACTION)), 0
+    )
+    on_gpu = layers if gpu_layers < 0 or gpu_layers >= layers else gpu_layers
+    if not gpus:
+        on_gpu = NO_GPU_LAYERS
+    per_layer = (weights + kv) / layers
+    in_vram, in_ram = math.ceil(on_gpu * per_layer), math.ceil((layers - on_gpu) * per_layer)
+    total = weights + kv
+    why = [
+        f"weights {weights} MiB + KV {kv} MiB for {context} tokens = {total} MiB, {per_layer:.0f} MiB a layer"
+    ]
+    if not gpus:
+        why.append("no usable GPU: every layer runs on the CPU")
+    else:
+        why.append(f"{on_gpu} of {layers} layers on the GPU use {in_vram} of {budget} MiB of VRAM")
+    if on_gpu == layers:
+        status = "gpu"
+    else:
+        status = "hybrid" if on_gpu else "cpu"
+        why.append(f"the other {layers - on_gpu} layers use {in_ram} MiB of RAM ({ram} MiB usable)")
+    if in_vram > budget:
+        status = "does-not-fit"
+        why.append(f"VRAM is {in_vram - budget} MiB short: put fewer layers on the GPU")
+    elif in_ram > ram:
+        status = "does-not-fit"
+        why.append(f"RAM is {in_ram - ram} MiB short: put more layers on the GPU or use a smaller model")
+    shown_layers = ALL_LAYERS if on_gpu == layers else on_gpu
+    split = _split(gpus, headroom_override_mib) if status in ("gpu", "hybrid") else ()
+    return Plan(
+        model.name, status, context, kv_type, shown_layers, split, weights, kv, budget, estimated, tuple(why)
+    )

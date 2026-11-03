@@ -230,3 +230,46 @@ def test_effort_can_be_cleared_back_to_the_model_default(home, server):
     state.set_effort("chat", "medium")
     state.set_effort("chat", "default")
     assert state.drafts["chat"].effort == ""
+
+
+def test_gpu_layers_set_by_hand_make_the_draft_manual_and_are_written(home, server):
+    s = session(home, server)
+    s.choose("chat", s.find("local", "qwen3:8b"))
+    total, reason = s.layers_of("chat")
+    assert total == 36 and reason == ""
+    s.set_gpu_layers("chat", 20)
+    fit = s.fit("chat")
+    assert s.drafts["chat"].manual and fit.status == "hybrid" and fit.gpu_layers == 20
+    s.write()
+    chat = tomllib.loads(home.config.read_text())["models"]["roles"]["chat"]
+    assert (chat["gpu_layers"], chat["auto"]) == (20, False)
+    again = tuneui.open_state(hw=hardware.from_dict(CARD_24GB))
+    assert again.drafts["chat"].gpu_layers == 20 and again.fit("chat").gpu_layers == 20
+
+
+def test_try_layers_does_not_change_the_draft_and_all_layers_is_gpu(home, server):
+    s = session(home, server)
+    s.choose("chat", s.find("local", "qwen3:8b"))
+    before = dataclasses.replace(s.drafts["chat"])
+    assert s.try_layers("chat", 36).status == "gpu" and s.try_layers("chat", 0).status == "cpu"
+    assert s.drafts["chat"] == before
+
+
+def test_gpu_layers_are_refused_out_of_range_or_without_a_gpu(home, server):
+    s = session(home, server)
+    s.choose("chat", s.find("local", "qwen3:8b"))
+    with pytest.raises(ValueError, match="36 layers"):
+        s.set_gpu_layers("chat", 99)
+    cpu = session(home, server, hw=CPU_ONLY)
+    cpu.choose("chat", cpu.find("local", "qwen3:8b"))
+    assert "no GPU" in cpu.layers_of("chat")[1]
+
+
+def test_snapshot_and_restore_undo_any_change(home, server):
+    s = session(home, server)
+    snap = s.snapshot()
+    s.choose("chat", s.find("local", "qwen3:8b"))
+    s.set_context("chat", 16384)
+    assert s.has_changes()
+    s.restore(snap)
+    assert not s.has_changes() and "chat" not in s.drafts

@@ -91,6 +91,22 @@ VRAM budget gives `gpu`; otherwise layers move to RAM as in the hybrid case; wit
 `cpu`; and `does-not-fit` when RAM is short too. The screen calls it for every context size it lists, so
 the fit shown is the same arithmetic as the automatic plan.
 
+## Chosen GPU layers
+
+`tuning.fit_layers(model, hw, kv_type=..., context=..., gpu_layers=N)` checks a layer count set
+by hand. A layer holds `(weights + kv) / layers` MiB; `N` layers on the GPU must fit the VRAM
+budget and the rest must fit usable RAM, else the status is `does-not-fit` with the shortfall.
+`N` equal to the layer count (or `ALL_LAYERS`) is `gpu`, 0 is `cpu`, anything between `hybrid`.
+It needs a known layer count and raises `ValueError` without one.
+
+`tunestate.Draft.gpu_layers` holds the count (None means tuning decides). Setting it makes the
+draft manual and fills in the current context and KV type when they were automatic, so the plan
+is `fit_layers` at that context; `TuneSession.layers_of` says when layers cannot be set (no model,
+a server-sized model, an unknown layer count, a plan with no GPU). The write path is unchanged:
+`role_plans` passes the plan to `modelplan.apply`, which writes `gpu_layers` and `auto = false`.
+`TuneSession.snapshot` and `restore` copy every draft and the source edits, which is what undo
+in the tune screen uses.
+
 ## Presets
 
 `halcore.tunepresets.PRESETS` lists the Quick setup budgets. `TuneSession.apply_preset` swaps the
