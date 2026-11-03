@@ -110,9 +110,7 @@ def test_path_in_an_active_workspace_is_denied(home, tmp_path):
 def test_symlink_escape_via_host_tool_atk_13(home, tmp_path):
     policy = policy_for(home, tmp_path)
     evil = str(home / "src/x/evil")
-    assert (
-        decision(READ, {"path": evil}, home, policy, (home / "src/x",)).rule == "path:workspace"
-    )
+    assert decision(READ, {"path": evil}, home, policy, (home / "src/x",)).rule == "path:workspace"
     assert decision(READ, {"path": evil}, home, policy).rule == "path:hard-deny"
 
 
