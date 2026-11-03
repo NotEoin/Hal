@@ -572,6 +572,21 @@ def test_approval_request_opens_the_modal_and_ctrl_c_denies(tmp_path):
     assert bridge.answers == [("hal-1", "deny")]
 
 
+def test_quitting_with_an_approval_open_leaves_no_failed_task(tmp_path):
+    # regression: the asker's cleanup ran after the widgets were gone and raised NoMatches for HalEye
+    from test_tui_approval_modal import REQUEST, FakeBridge
+
+    async def script(pilot, app, agent):
+        send = app.ui.approval_sender(FakeBridge({"hal-1": REQUEST}), lambda note: None)
+        await send({"id": "hal-1"})
+        assert await until(pilot, lambda: isinstance(app.screen, ApprovalModal))
+        return list(app.ui.asker.tasks)
+
+    tasks = drive(tmp_path, script)
+    assert tasks and all(t.done() for t in tasks)
+    assert [t.exception() for t in tasks if not t.cancelled()] == [None] * sum(not t.cancelled() for t in tasks)
+
+
 def test_layout_fits_80_by_24_without_horizontal_scroll(tmp_path):
     async def script(pilot, app, agent):
         composer = app.query_one(Composer)

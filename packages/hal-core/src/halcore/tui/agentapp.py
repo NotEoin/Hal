@@ -828,6 +828,8 @@ class AgentApp(App[int]):
 
     def approval_changed(self) -> None:
         """An approval opened or closed: the eye, the turn rail and the status line follow."""
+        if not self.query(HalEye):
+            return  # the asker's cleanup can run during shutdown, after the widgets are removed
         self.transcript.set_waiting(self.ui.asker is not None and self.ui.asker.current is not None)
         self.update_eye()
         self.refresh_status()
