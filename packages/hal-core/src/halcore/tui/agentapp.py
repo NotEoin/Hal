@@ -686,6 +686,7 @@ class AgentApp(App[int]):
         row, col = composer.cursor_location
         before = composer.document.get_line(row)[:col]
         items: list[tuple[str, str]] = []  # (label, replacement of the current token)
+        typed = before.rsplit(" ", 1)[-1]
         if row == 0 and before.startswith("/") and " " not in before:
             for name, desc in command_descriptions(self.state.user_commands, self.state.surface).items():
                 if name.startswith(before[1:]):
@@ -697,6 +698,8 @@ class AgentApp(App[int]):
             token = before.rsplit(" ", 1)[-1]
             if token.startswith("@"):
                 items = [(f"@{p}", f"@{p} ") for p in mentions.match_files(self.controller.workdir, token[1:])]
+        # an exact match goes first, so Enter on "/mode" sends /mode instead of completing to /model
+        items.sort(key=lambda item: item[1].strip() != typed)
         self.show_popup(items[:POPUP_ROWS * 3])
 
     def show_popup(self, items: list[tuple[str, str]]) -> None:

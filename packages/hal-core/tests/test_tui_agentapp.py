@@ -706,3 +706,17 @@ def test_a_very_long_turn_notifies_even_when_the_terminal_never_reports_focus():
         stats = TurnStats(started=time.monotonic() - elapsed)
         ui.turn_ended(stats, "end_turn")
     assert signalled == [True]
+
+
+def test_enter_on_a_command_that_is_also_a_prefix_runs_it(tmp_path):
+    # regression: "/mode" listed /model first, so Enter completed it to "/model " instead of sending it
+    async def script(pilot, app, agent):
+        await type_text(pilot, "/mode")
+        await settle(pilot)
+        first = app.popup._options[0].prompt.plain.split()[0]
+        await pilot.press("enter")
+        opened = await until(pilot, lambda: isinstance(app.screen, screens.PickerModal))
+        return first, opened, app.screen.title_text if opened else app.query_one(Composer).text
+
+    first, opened, shown = drive(tmp_path, script)
+    assert first == "/mode" and opened, shown
