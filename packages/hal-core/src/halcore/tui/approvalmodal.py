@@ -13,7 +13,9 @@ Rules, each one tested in `test_tui_approval_modal.py`:
    it opened are dropped: a keystroke in flight from the composer cannot allow (REQ-CLI-27).
 4. Allow stays off until the arguments have been scrolled to the end, or fit (REQ-CLI-26).
 5. Allowing takes two deliberate actions: `y` or `a` only moves focus to that button, then Enter
-   or Space presses it; with the mouse it is a full click on the button.
+   presses it; with the mouse it is a full click on the button. Typing cannot do it: a `y` or `a`
+   that follows another key within `TYPING_GAP_S` is ignored, and any other key while an allow
+   button has focus sends focus back to Deny, so "try it" and Enter typed into the modal deny.
 6. "Allow these exact arguments this session" is there only when the request offers `session`,
    and a forged `a` still goes through `answer_to_option`, which denies it.
 7. Esc, Ctrl+C or the request vanishing (`gone`) close the modal as a deny or with no answer.
@@ -47,6 +49,8 @@ ALLOW_IDS = ("allow-once", "allow-session")
 LETTER_OF = {"deny": "n", "deny-note": "e", "allow-once": "y", "allow-session": "a"}
 RISK_CLASS = {"low": "risk-low", "medium": "risk-medium", "high": "risk-high", "critical": "risk-high"}
 GONE = "gone"  # the dismiss value when the request was answered elsewhere
+TYPING_GAP_S = 0.5  # keys closer together than this are a person typing a sentence, not choosing
+KEEP_ALLOW_FOCUS = frozenset({"enter", "tab", "shift+tab", "y", "a", "escape", "ctrl+c"})
 ARGS_MAX_ROWS = 12  # the arguments view's tallest size, border included (its CSS `max-height`)
 ARGS_MIN_ROWS = 3  # one line of arguments between its borders
 BOX_HEIGHT = 0.9  # `.modal-box { max-height: 90% }` in `screens.MODAL_CSS`
@@ -97,6 +101,7 @@ class ApprovalModal(ModalScreen[tuple[str, str]]):
         self.armed = False
         self.seen = False
         self.opened_at = 0.0
+        self.last_key_at = 0.0
 
     def compose(self) -> ComposeResult:
         """Title, request facts, the arguments, the gate line, the buttons and the note line."""
@@ -198,11 +203,20 @@ class ApprovalModal(ModalScreen[tuple[str, str]]):
         self.call_after_refresh(self.check_seen)
 
     def on_key(self, event: events.Key) -> None:
-        """Drops keys sent before the modal opened; scroll keys count toward reading."""
+        """Drops keys sent before the modal opened and `y` / `a` inside typing; scroll keys count toward reading."""
         if event.time < self.opened_at:
             event.prevent_default()
             event.stop()
             return
+        gap = event.time - self.last_key_at
+        self.last_key_at = event.time
+        if event.key in ("y", "a") and gap < TYPING_GAP_S:
+            event.prevent_default()
+            event.stop()
+            self.query_one("#deny", Button).focus()
+            return
+        if isinstance(self.focused, Button) and self.focused.id in ALLOW_IDS and event.key not in KEEP_ALLOW_FOCUS:
+            self.query_one("#deny", Button).focus()
         if event.key in ("down", "pagedown", "end", "space") and not self.seen:
             self.call_after_refresh(self.check_seen)
 

@@ -98,6 +98,7 @@ def test_allow_disabled_until_arguments_scrolled_to_end():
         modal.check_seen()
         await pilot.pause()
         assert not modal.query_one("#allow-once", Button).disabled
+        await asyncio.sleep(approvalmodal.TYPING_GAP_S)
         await pilot.press("y")
         assert modal.focused.id == "allow-once"
         await pilot.press("enter")
@@ -334,3 +335,36 @@ def test_arguments_that_fit_only_before_the_view_shrinks_still_need_scrolling():
         await pilot.press("n")
 
     assert run_modal(eight, script, size=(60, 20)) == ("n", "")
+
+
+def test_typing_a_sentence_with_y_and_enter_into_the_modal_denies():
+    # regression: "try it" then Enter typed into the open modal moved focus to Allow once and pressed it
+    async def script(pilot, modal):
+        await armed(pilot, modal)
+        await pilot.press(*"try it", "enter")
+
+    assert run_modal(REQUEST, script) == ("n", "")
+
+
+def test_any_other_key_after_y_sends_focus_back_to_deny():
+    async def script(pilot, modal):
+        await armed(pilot, modal)
+        await pilot.press("y")
+        assert modal.focused.id == "allow-once"
+        await asyncio.sleep(approvalmodal.TYPING_GAP_S)
+        await pilot.press("o")
+        assert modal.focused.id == "deny"
+        await pilot.press("enter")
+
+    assert run_modal(REQUEST, script) == ("n", "")
+
+
+def test_space_does_not_press_an_allow_button():
+    async def script(pilot, modal):
+        await armed(pilot, modal)
+        await pilot.press("y", "space")
+        assert modal.focused.id == "deny"
+        await asyncio.sleep(approvalmodal.TYPING_GAP_S)
+        await pilot.press("n")
+
+    assert run_modal(REQUEST, script) == ("n", "")

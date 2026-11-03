@@ -105,8 +105,10 @@ In the full screen a broker approval opens a dialog over everything else:
 ```
 
 - Deny has the focus, so Enter alone denies; Esc and Ctrl+C deny too.
-- Allowing takes two steps: `y` or `a` moves the focus to that button, then Enter or Space
-  presses it; with the mouse it is a full click on the button.
+- Allowing takes two steps: `y` or `a` moves the focus to that button, then Enter presses it;
+  with the mouse it is a full click on the button. Typing cannot allow: a `y` or `a` in the
+  middle of typing is ignored, and any other key sends the focus back to Deny, so a sentence and
+  Enter typed into the dialog by mistake deny.
 - The allow buttons stay off for a moment after the dialog opens, so a key you were typing in
   the message box cannot allow anything, and they stay off until you have scrolled to the end
   of the arguments (PgDn, End or the wheel).
