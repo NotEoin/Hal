@@ -148,3 +148,29 @@ def test_a_long_picker_list_stays_inside_small_screens():
 
         assert run(screens.PickerModal("Model", many), script, size=size) is None
         assert bottoms[0] <= size[1], size
+
+
+def test_dialog_buttons_are_flat_one_row_and_the_focused_one_is_filled():
+    choices = [screens.Choice("Keep editing", "keep"), screens.Choice("Discard and quit", "discard", "error")]
+    seen = {}
+
+    async def script(pilot, screen):
+        buttons = list(screen.query(Button))
+        seen["heights"] = [b.region.height for b in buttons]
+        seen["focused"] = buttons[0].styles.background != buttons[1].styles.background
+        seen["border"] = screen.query_one(".modal-box").styles.border_top[0]
+        await pilot.press("escape")
+
+    run(screens.ChoiceModal("Unsaved changes", "2 roles changed", choices, "keep"), script)
+    assert seen == {"heights": [1, 1], "focused": True, "border": "round"}
+
+
+def test_plan_card_keeps_the_heavy_attention_border():
+    seen = []
+
+    async def script(pilot, screen):
+        seen.append(screen.query_one(".modal-box").styles.border_top[0])
+        await pilot.press("escape")
+
+    run(screens.ChoiceModal("Run this plan?", "1. step", [screens.Choice("Keep planning", "keep")], "keep", attention=True), script)
+    assert seen == ["heavy"]

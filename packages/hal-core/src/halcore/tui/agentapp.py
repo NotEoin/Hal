@@ -357,7 +357,7 @@ class TextualUi:
             screens.ChoiceModal("Run this plan?", body, [
                 screens.Choice("Keep planning", "keep", "primary"), screens.Choice("Run in default mode", "default"),
                 screens.Choice("Run in auto-edit", "auto-edit"),
-            ], "keep"),
+            ], "keep", attention=True),
         )  # fmt: skip
         return choice if choice in PLAN_CHOICES else None
 

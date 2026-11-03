@@ -142,6 +142,12 @@ Every screen is checked at 80x24 and 60x20 in the Pilot tests. The top bar fits 
 dialogs size their scrolling part in `vh` or by measuring the rest of the box (`ApprovalModal.fit`),
 and the approval buttons stack as one-line buttons when they do not fit side by side.
 
+Dialogs share `screens.MODAL_CSS`: a `round $panel` box on a `$background 70%` backdrop, and flat
+one-row buttons (no border, one column of line padding a side, so `BUTTON_CHROME_COLS` is 3) with
+the focused one filled in the accent. Only the approval box and the plan card
+(`ChoiceModal(attention=True)`) keep the heavy accent border. The CSS uses Textual's own `$panel`
+and `$text-disabled`, not `$hal-*`, because the modal tests run on a plain `App`.
+
 ## Writing Pilot tests
 
 Run apps with `App.run_test(size=(100, 30))` inside `asyncio.run`, no network, no GPU, and

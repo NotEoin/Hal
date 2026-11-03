@@ -34,14 +34,23 @@ from .theme import Glyphs
 from .widgets import SafeStatic, Segment, Segmented
 
 T = TypeVar("T")
+# `$panel` is the theme's panel role: the `$hal-*` names exist only in Hal's themes, and tests run modals on a plain App
 MODAL_CSS = """
+ModalScreen { background: $background 70%; }
 .modal-box {
     width: 80%; max-width: 100; height: auto; max-height: 90%;
-    border: round $primary; background: $surface; padding: 0 1;
+    border: round $panel; background: $surface; padding: 0 1;
 }
 .modal-title { text-style: bold; color: $primary; height: 1; }
 .modal-buttons { height: auto; align-horizontal: right; margin-top: 1; }
-.modal-buttons Button { margin-left: 1; min-width: 10; }
+.modal-box .modal-buttons Button, .modal-box .modal-buttons Button.-primary, .modal-box .modal-buttons Button.-error,
+.modal-box .modal-buttons Button.-warning, .modal-box .modal-buttons Button.-success {
+    height: 1; min-width: 0; padding: 0; line-pad: 1; margin: 0 0 0 1; border: none; background: transparent;
+    color: $foreground; text-style: none;
+}
+.modal-box .modal-buttons Button:hover { background: $boost; }
+.modal-box .modal-buttons Button:focus { background: $primary; color: $background; text-style: bold; }
+.modal-box .modal-buttons Button:disabled { color: $text-disabled; }
 .muted { color: $text-muted; }
 """
 
@@ -267,20 +276,27 @@ class ChoiceModal(ModalScreen[str]):
     """A question with buttons; focus starts on `safe`, and Esc answers `cancel` (`safe` when not given).
 
     The two differ when the focused default acts, as "Keep for later" on leaving does: Esc then
-    stays put instead of leaving.
+    stays put instead of leaving. `attention` draws the heavy accent border the plan card keeps.
     """
 
-    DEFAULT_CSS = MODAL_CSS + "ChoiceModal { align: center middle; } ChoiceModal .modal-box { width: auto; min-width: 50; }"
+    DEFAULT_CSS = MODAL_CSS + """
+    ChoiceModal { align: center middle; }
+    ChoiceModal .modal-box { width: auto; min-width: 50; }
+    ChoiceModal .modal-box.attention { border: heavy $primary; }
+    """
     BINDINGS = [Binding("escape", "safe", "cancel")]
 
-    def __init__(self, title: str, body: Text | str, choices: Sequence[Choice], safe: str, *, cancel: str = "") -> None:
+    def __init__(
+        self, title: str, body: Text | str, choices: Sequence[Choice], safe: str, *, cancel: str = "", attention: bool = False,
+    ) -> None:  # fmt: skip
         super().__init__()
         self.title_text, self.body, self.choices, self.safe = title, body, list(choices), safe
         self.cancel = cancel or safe
+        self.attention = attention
 
     def compose(self) -> ComposeResult:
         """Title, body and the buttons."""
-        with Vertical(classes="modal-box"):
+        with Vertical(classes="modal-box attention" if self.attention else "modal-box"):
             yield SafeStatic(Text(self.title_text), classes="modal-title")
             with VerticalScroll(id="body"):
                 yield SafeStatic(self.body)

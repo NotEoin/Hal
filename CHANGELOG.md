@@ -133,6 +133,8 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Changed
 
+- Full-screen dialogs have a thin grey border over a dimmed screen and flat one-row buttons, the
+  focused one filled in red; the approval box and the plan card keep their heavy red border.
 - The full-screen welcome is the HAL eye with the model, box and workspace beside it, the recent
   sessions of the project (a click resumes one) and a tip of the day, in place of the boxed header.
 - The light theme's accent is a darker HAL red (`#c9373c`) and its greys are darker, so every text
