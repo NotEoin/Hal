@@ -14,6 +14,7 @@ import time
 from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING
 
+from halkit import timeutil
 from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
 from rich.console import RenderableType
@@ -185,7 +186,7 @@ STAMP_FORMAT = "%H:%M"  # the local time a chat block was shown, on hover
 
 def stamp_now() -> str:
     """The local `HH:MM` now, for a block's hover timestamp."""
-    return time.strftime(STAMP_FORMAT, time.localtime())
+    return timeutil.utc_now().astimezone().strftime(STAMP_FORMAT)  # display only, so local time
 
 
 class HoverActions:

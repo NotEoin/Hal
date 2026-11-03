@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import re
 import time
 import types
 
@@ -1748,3 +1749,10 @@ def test_palette_animations_setting_switches_motion_for_the_session(tmp_path):
         return app.motion.enabled, app.animation_level
 
     assert drive(tmp_path, script) == (True, "full")
+
+
+def test_chat_hover_stamp_is_local_hours_and_minutes():
+    # regression: the stamp used `time.strftime`, which the repo's timestamp style check rejects
+    from halcore.tui import transcript
+
+    assert re.fullmatch(r"\d\d:\d\d", transcript.stamp_now())
