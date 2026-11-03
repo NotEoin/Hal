@@ -165,14 +165,19 @@ class Choice:
 
 
 class ChoiceModal(ModalScreen[str]):
-    """A question with buttons; focus starts on `safe`, and Esc answers `safe`."""
+    """A question with buttons; focus starts on `safe`, and Esc answers `cancel` (`safe` when not given).
+
+    The two differ when the focused default acts, as "Keep for later" on leaving does: Esc then
+    stays put instead of leaving.
+    """
 
     DEFAULT_CSS = MODAL_CSS + "ChoiceModal { align: center middle; } ChoiceModal .modal-box { width: auto; min-width: 50; }"
     BINDINGS = [Binding("escape", "safe", "cancel")]
 
-    def __init__(self, title: str, body: Text | str, choices: Sequence[Choice], safe: str) -> None:
+    def __init__(self, title: str, body: Text | str, choices: Sequence[Choice], safe: str, *, cancel: str = "") -> None:
         super().__init__()
         self.title_text, self.body, self.choices, self.safe = title, body, list(choices), safe
+        self.cancel = cancel or safe
 
     def compose(self) -> ComposeResult:
         """Title, body and the buttons."""
@@ -194,8 +199,8 @@ class ChoiceModal(ModalScreen[str]):
         self.dismiss(str(event.button.id).removeprefix("choice-"))
 
     def action_safe(self) -> None:
-        """Esc: the safe answer."""
-        self.dismiss(self.safe)
+        """Esc: the cancel answer."""
+        self.dismiss(self.cancel)
 
 
 class ConfirmModal(ChoiceModal):

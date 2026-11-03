@@ -185,8 +185,8 @@ when the report flags some. Apply writes exactly the patch you saw: if the copy 
 meantime, nothing is applied.
 
 Leaving `hal code` with unaccepted changes asks first: Keep for later (focused; `hal code accept
-SID` applies them later), Review and accept, Discard the copy (asks again), or Cancel. Without
-changes it leaves at once.
+SID` applies them later), Review and accept, Discard the copy (asks again), or Cancel. Esc and
+Ctrl+C mean Cancel: you stay in the session. Without changes it leaves at once.
 
 ## The line UI
 

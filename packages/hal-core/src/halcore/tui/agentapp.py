@@ -998,8 +998,8 @@ class AgentApp(App[int]):
             choice = await screens.ask(self, screens.ChoiceModal("Leave hal code?", body, [
                 screens.Choice("Keep for later", "keep", "primary"), screens.Choice("Review and accept...", "review"),
                 screens.Choice("Discard the copy...", "discard", "error"), screens.Choice("Cancel", "cancel"),
-            ], "keep"))  # fmt: skip
-            if choice == "cancel":
+            ], "keep", cancel="cancel"))  # fmt: skip
+            if choice in ("cancel", None):  # Esc, or Ctrl+C closing the dialog: stay
                 return
             if choice == "review":
                 self.send("/accept")

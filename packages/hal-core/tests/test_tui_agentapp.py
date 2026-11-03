@@ -559,3 +559,20 @@ def test_header_chips_stay_on_screen_with_a_long_model_label(tmp_path):
         assert {"chip-model", "chip-mode", "chip-effort"} <= {c for c, _ in chips} and title >= 10, (size, chips)
         if size[0] >= 140:
             assert "chip-lockdown" in {c for c, _ in chips}
+
+
+def test_esc_or_ctrl_c_on_the_leave_question_stays_in_the_session(tmp_path):
+    # regression: Esc answered "Keep for later" and Ctrl+C fell through, so both quit hal code
+    session, project = isolated_session(tmp_path)
+
+    async def script(pilot, app, agent):
+        results = []
+        for key in ("escape", "ctrl+c"):
+            await pilot.press("ctrl+d")
+            assert await until(pilot, lambda: isinstance(app.screen, screens.ChoiceModal))
+            await pilot.press(key)
+            await settle(pilot)
+            results.append(app.is_running and not isinstance(app.screen, screens.ChoiceModal))
+        return results
+
+    assert drive(tmp_path, script, session=session, project=project) == [True, True]
