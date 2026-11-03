@@ -1093,3 +1093,41 @@ def test_blocks_of_a_new_kind_get_one_blank_row_and_tool_rows_none(tmp_path):
 def test_a_small_screen_drops_the_blank_rows_between_blocks(tmp_path):
     rows, compact = block_gaps(tmp_path, (80, 24))
     assert compact and all(m == 0 for _, m in rows)
+
+
+def code_scene(tmp_path, text, extra=None):
+    from halcore.tui.transcript import CodeBlock, CodeHeader
+
+    copied = []
+
+    async def script(pilot, app, agent):
+        app.copy_to_clipboard = copied.append
+        await type_text(pilot, "go")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: app.query(CodeBlock) and not app.busy)
+        await settle(pilot)
+        block = app.query_one(CodeBlock)
+        header = str(block.query_one(CodeHeader).render())
+        await pilot.click(CodeHeader)
+        await settle(pilot)
+        return block.label, header, transcript_text(app)
+
+    label, header, text_shown = drive(tmp_path, script, turns=[[chunk(text)]])
+    return label, header, text_shown, copied
+
+
+def test_code_block_copy_copies_the_source_only(tmp_path):
+    label, header, shown, copied = code_scene(tmp_path, "Fix:\n\n```python\ndef add(a, b):\n    return a + b\n```\n\nDone.\n")
+    assert label == "python" and header.startswith("python") and header.rstrip().endswith("copy")
+    assert copied == ["def add(a, b):\n    return a + b"]
+    assert "Fix:" in shown and "Done." in shown and "```" not in shown
+
+
+def test_code_block_language_label_is_sanitised(tmp_path):
+    label, _, _, _ = code_scene(tmp_path, "```py\u202ethon<script>[b]x[/b] extra\nprint(1)\n```\n")
+    assert label.isascii() and "[" not in label and "<" not in label and len(label) <= 16
+
+
+def test_hostile_code_language_cannot_add_markup(tmp_path):
+    label, header, _, copied = code_scene(tmp_path, "```[@click=app.quit]\nboom\n```\n")
+    assert "[" not in header and "=" not in header and copied == ["boom"]

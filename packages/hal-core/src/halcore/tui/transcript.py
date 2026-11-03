@@ -9,22 +9,26 @@ arrive on the ACP reader task and run on the app's loop through `App.call_later`
 from __future__ import annotations
 
 import contextlib
+import re
 from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING
 
+from pygments.lexers import get_lexer_by_name
+from pygments.util import ClassNotFound
 from rich.console import RenderableType
+from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import ScrollableContainer, Vertical, VerticalScroll
 from textual.widget import Widget
 
 from . import tokens
 from .render import ToolRow, clean
 from .theme import Look
-from .widgets import SafeStatic, ThinkingFold, ToolCard
+from .widgets import SafeStatic, ThinkingFold, ToolCard, toast
 
 if TYPE_CHECKING:
     from .agentapp import AgentApp
@@ -210,6 +214,82 @@ class UserMessage(SafeStatic):
             app.run_worker(actions(self), group="message")
 
 
+COPY_TOAST_S = 2.0
+LANG_MAX = 16  # cells of a code block's language label
+LANG_CHARS = re.compile(r"[^A-Za-z0-9+#._-]")  # a label keeps only what language names use
+
+
+def language_label(lang: str) -> str:
+    """A fence's language word made safe to show: cleaned, only `[A-Za-z0-9+#._-]`, at most `LANG_MAX` cells."""
+    return LANG_CHARS.sub("", clean(lang).split(" ", 1)[0] if lang.strip() else "")[:LANG_MAX]
+
+
+def lexer_for(label: str) -> str:
+    """The label when pygments has a lexer by that name, else `text` (pygments comes with rich)."""
+    if not label:
+        return "text"
+    try:
+        get_lexer_by_name(label)
+    except ClassNotFound:
+        return "text"
+    return label
+
+
+class CodeHeader(Widget):
+    """The row above a code block: the language label left, `copy` right; a click copies the source."""
+
+    DEFAULT_CSS = """
+    CodeHeader { height: 1; color: $hal-faint; }
+    CodeHeader:hover { color: $primary; }
+    """
+
+    def __init__(self, label: str, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
+        self.label = label
+
+    def render(self) -> RenderableType:
+        """`python ...... copy`."""
+        width = self.size.width or 40
+        text = Text(self.label, no_wrap=True)
+        text.append(" " * max(1, width - len(self.label) - len("copy")))
+        text.append("copy")
+        return text
+
+
+class CodeBlock(Vertical):
+    """A fenced code block: label and copy row, then the code on the surface colour; it scrolls sideways, never wraps."""
+
+    DEFAULT_CSS = """
+    CodeBlock { height: auto; padding-left: 2; }
+    CodeBlock > .code-body { height: auto; overflow-x: auto; overflow-y: hidden; background: $hal-surface;
+                             scrollbar-size-horizontal: 1; }
+    CodeBlock > .code-body > SafeStatic { width: auto; }
+    """
+
+    def __init__(self, lang: str, source: str, look: Look, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
+        self.label = language_label(lang)
+        self.source = source  # already cleaned by the renderer; copied as it is
+        self.look = look
+
+    def compose(self) -> ComposeResult:
+        """The header row and the highlighted code."""
+        yield CodeHeader(self.label, classes="code-header")
+        roles = tokens.ROLES.get(self.look.theme, {}) if self.look.color else {}
+        syntax = Syntax(clean(self.source), lexer_for(self.label), theme=self.look.palette.code,
+                        background_color=roles.get("surface"), word_wrap=False)  # fmt: skip
+        with ScrollableContainer(classes="code-body"):
+            yield SafeStatic(syntax)
+
+    def on_click(self, event: events.Click) -> None:
+        """A click on the header copies the source."""
+        if isinstance(event.widget, CodeHeader):
+            event.stop()
+            self.app.copy_to_clipboard(self.source)
+            lines = self.source.count("\n") + 1
+            toast(self.app, f"copied {lines} line{'s' if lines != 1 else ''}", timeout=COPY_TOAST_S)
+
+
 FOLD_MIN = 3  # consecutive finished tool calls that fold into one "ran N tools" row
 GROUP_TARGETS = 3  # targets named per verb in the summary before "+N"
 
@@ -358,6 +438,15 @@ class TextualSink:
         def add() -> None:
             self.fold()
             self.app.transcript.add(SafeStatic(line, classes="turn-end"), "end")
+
+        self._run(add)
+
+    def code(self, lang: str, source: str) -> None:
+        """A fenced code block, apart from the prose around it."""
+
+        def add() -> None:
+            self.fold()
+            self.app.transcript.add(CodeBlock(lang, source, self.app.look), "code")
 
         self._run(add)
 

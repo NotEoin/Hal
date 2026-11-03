@@ -381,3 +381,30 @@ def test_line_approval_panel_shows_key_prefix_and_leaves_the_box_label():
                "key": "sha256:3f9a0c12d4e8" + "0" * 52}
     text = approval.render_approval(request)
     assert "leaves the box" in text and "key 3f9a0c12d4e8" in text and "3f9a0c12d4e80" not in text
+
+
+def test_split_fences_cuts_prose_and_code_in_order():
+    from halcore.tui.render import Part, split_fences
+
+    parts = split_fences("Fix:\n```python\nx = 1\n```\nDone.")
+    assert parts == [Part("prose", "Fix:"), Part("code", "x = 1", "python"), Part("prose", "Done.")]
+
+
+def test_split_fences_keeps_an_unclosed_fence_in_the_tail():
+    r = Renderer(io.StringIO(), LOOK, sink=RecordingSink())
+    r.begin_turn()
+    r.update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "a\n\n```py\nx = 1\n\ny = 2\n"}})
+    assert "```py" in r._buffer and "y = 2" in r._buffer
+
+
+def test_console_sink_output_is_unchanged_for_code():
+    from halcore.tui.render import ConsoleSink
+
+    text = "Fix:\n\n```python\ndef add(a, b):\n    return a + b\n```\n\nDone.\n"
+    out = io.StringIO()
+    r = Renderer(out, LOOK)
+    assert isinstance(r.sink, ConsoleSink) and not hasattr(r.sink, "code")
+    r.begin_turn()
+    r.update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}})
+    r.end_turn()
+    assert "def add(a, b):" in out.getvalue() and out.getvalue().count("Fix:") == 1

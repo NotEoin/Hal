@@ -57,7 +57,7 @@ def css_variables(theme: str) -> dict[str, str]:
 
 # Rich style names of the line UI (a terminal's own palette reads better there than hex values).
 RICH_STYLES: dict[str, dict[str, str]] = {
-    "dark": {"muted": "grey58", "ok": "green", "bad": "red", "code": "monokai"},
+    "dark": {"muted": "grey58", "ok": "green", "bad": "red", "code": "github-dark"},
     "light": {"muted": "grey42", "ok": "dark_green", "bad": "red3", "code": "default"},
 }
 

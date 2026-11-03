@@ -45,7 +45,9 @@ six changed lines under the row, with a line before and after each, and `> N mor
 there is more; a click on the row or on that line shows the whole diff. A click on a path in the
 transcript only opens that row's diff: nothing the model wrote can open a file. Three or more
 calls in a row that succeeded and changed nothing fold into one `ran 3 tools  read a.py, b.py`
-row once the run ends; a click shows them. Edits and failures never fold. Ctrl+O opens or closes them all. A click on one
+row once the run ends; a click shows them. Edits and failures never fold. Ctrl+O opens or closes them all.
+A code block in a reply shows its language and `copy` on the row above it; a click on that row
+copies the code only, and a long line scrolls sideways instead of wrapping. A click on one
 of your messages offers Copy and, in `hal code`, Rewind files to before it. The side panel
 (Ctrl+B; open from 110 columns and closed below, following resizes until you press Ctrl+B)
 has the todo list, the changes of the copy with Diff, Accept and Export buttons, and the

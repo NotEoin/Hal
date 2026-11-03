@@ -45,6 +45,10 @@ Textual 8.2.8), `ascii` in the ASCII look.
 `Transcript.add`; a block whose kind differs from the one before it gets the `gap` class (one
 blank row above). The app sets `compact` on the transcript below 90 columns or 30 rows, which
 drops those rows so a turn fits a small terminal.
+`Renderer` cuts each committed block with `split_fences` and, when the sink has `code`, sends
+fenced code there and the prose around it through `write`. `ConsoleSink` has no `code`, so the
+line UI prints one markdown block as before. `CodeBlock` shows only a sanitised language label
+(`[A-Za-z0-9+#._-]`, 16 cells) and copies the cleaned source, never the label.
 
 Updates from the agent arrive on the ACP reader task. `TextualSink` hands each one to
 `App.call_later`, so widgets are mounted on the app's loop, in order, with the app's context.

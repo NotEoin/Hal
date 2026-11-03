@@ -144,6 +144,9 @@ First release of the monorepo (uv workspace on branch `next`).
   output stays closed until clicked; a failed call opens by itself. Edits show a preview of up
   to six changed lines that expands to the full diff. Three or more consecutive read-only calls
   fold into one "ran N tools" row.
+- Code blocks in the full screen show their language and a `copy` row (a click copies the code
+  only) and scroll sideways instead of wrapping. The dark code theme is `github-dark` instead of
+  `monokai`, in the line UI too.
 - `hal chat` offers only the commands that work in a chat: `/help`, Tab and Esc Esc leave out the
   project-copy commands (`/rewind`, `/diff`, `/accept`, `/export`, `/ide`, `/init`), and `!`, `#`
   and `@` are sent as plain text.

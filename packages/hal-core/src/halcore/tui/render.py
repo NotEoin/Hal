@@ -205,6 +205,42 @@ def diff_preview(rows: list[tuple[str, int, int, str]], look: Look, limit: int =
     return out, len(lines) - len(keep)
 
 
+@dataclass(frozen=True)
+class Part:
+    """A piece of a committed markdown block: `prose`, or `code` with its fence's language word."""
+
+    kind: str
+    text: str
+    lang: str = ""
+
+
+def split_fences(block: str) -> list[Part]:
+    """`block` cut into prose and fenced code parts, in order; an unclosed fence runs to the end."""
+    parts: list[Part] = []
+    prose: list[str] = []
+    code: list[str] | None = None
+    lang = ""
+    for line in block.splitlines(keepends=True):
+        stripped = line.lstrip()
+        if stripped.startswith(FENCE):
+            if code is None:
+                if "".join(prose).strip():
+                    parts.append(Part("prose", "".join(prose).strip("\n")))
+                prose, code, lang = [], [], stripped[len(FENCE) :].strip()
+            else:
+                parts.append(Part("code", "".join(code).rstrip("\n"), lang))
+                code = None
+        elif code is not None:
+            code.append(line)
+        else:
+            prose.append(line)
+    if code is not None:
+        parts.append(Part("code", "".join(code).rstrip("\n"), lang))
+    if "".join(prose).strip():
+        parts.append(Part("prose", "".join(prose).strip("\n")))
+    return parts
+
+
 def _hal_meta(update: Update) -> dict[str, object]:
     """The `_meta.hal` object of an update, empty when absent or malformed."""
     meta = update.get("_meta")
@@ -215,8 +251,10 @@ def _hal_meta(update: Update) -> dict[str, object]:
 class Sink(Protocol):
     """Where the renderer's output goes; every renderable it receives is already safe to show.
 
-    A sink may also have `tool_row(cid, row)`: the renderer then passes a finished call's parts
-    (a `ToolRow`) just before `tool_finished`. It is optional, so older sinks keep working.
+    Optional methods (older sinks keep working without them): `tool_row(cid, row)` receives a
+    finished call's parts (a `ToolRow`) just before `tool_finished`; `code(lang, source)` receives
+    each fenced code block (cleaned) apart from the prose around it, which then arrives through
+    `write`. `ConsoleSink` has neither, so the line UI prints exactly what it printed before.
     """
 
     def write(self, renderable: RenderableType) -> None:
@@ -347,13 +385,25 @@ class Renderer:
     def _markdown(self, block: str) -> Markdown:
         return Markdown(clean(block), hyperlinks=False, code_theme=self.look.palette.code)
 
+    def _emit(self, block: str) -> None:
+        """Sends one committed block: to a sink with `code`, prose and code blocks apart; else as one markdown."""
+        code = getattr(self.sink, "code", None)
+        if code is None:
+            self.sink.write(self._markdown(block))
+            return
+        for part in split_fences(block):
+            if part.kind == "code":
+                code(clean(part.lang), clean(part.text))
+            else:
+                self.sink.write(self._markdown(part.text))
+
     def _commit_blocks(self, final: bool = False) -> None:
         """Moves complete markdown blocks from the buffer to scrollback, keeping an open fence in the tail."""
         text = self._buffer
         if final:
             block, self._buffer = text, ""
             if block.strip():
-                self.sink.write(self._markdown(block.rstrip()))
+                self._emit(block.rstrip())
             self.sink.tail(None)
             return
         cut, fenced, pos = 0, False, 0
@@ -366,7 +416,7 @@ class Renderer:
         if cut:
             block, self._buffer = text[:cut], text[cut:]
             if block.strip():
-                self.sink.write(self._markdown(block.rstrip()))
+                self._emit(block.rstrip())
         self.sink.tail(self._markdown(self._buffer) if self._buffer.strip() else None)
 
     def _end_thought(self) -> None:
