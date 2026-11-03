@@ -27,7 +27,11 @@ The top bar is one row. The red dot at its left is the HAL eye: dim while Hal is
 slowly while a turn runs, blinking amber while an approval waits (the status line says "approval
 waiting" too; in the ASCII look the dot is `o`, `O` or `!`). Then come the surface, the project and
 `copy` when edits go to an isolated copy, then the model, the mode (`hal code` only) and the effort:
-a click on one opens its picker. The context gauge at the right edge runs `/context`. On a narrow
+a click on one opens its picker (for effort, a row of the levels the model supports: Left/Right and
+Enter, or a click; Esc closes). The mouse wheel over effort steps the level while no turn runs and
+sends it once the wheel stops; the wheel over the model or the mode does nothing, so a stray scroll
+never swaps the model or makes edits pass without asking. There is no temperature control: the
+session cannot set one. The context gauge at the right edge runs `/context`. On a narrow
 terminal the project becomes its folder name, the model name is cut with an ellipsis and the gauge
 gets shorter, so model, mode, effort and the gauge always stay clickable. Lockdown and paranoia
 are in the status line (change them on the host with `hal config set`). The status line at the

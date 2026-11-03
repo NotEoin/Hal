@@ -23,7 +23,7 @@ from halcore.tui.chrome import ChangesList
 from halcore.tui.controller import Controller
 from halcore.tui.render import Renderer
 from halcore.tui.theme import load_look
-from halcore.tui.widgets import SafeStatic, ToolCard
+from halcore.tui.widgets import SafeStatic, Segmented, ToolCard
 
 SID = "0123456789ab"
 LOOK = load_look({"unicode": False, "animations": False, "notify": "off"}, stream=io.StringIO(), environ={})
@@ -649,7 +649,7 @@ def test_typing_after_clicking_a_chip_or_a_card_goes_into_the_message_box(tmp_pa
     async def script(pilot, app, agent):
         composer = app.query_one(Composer)
         await click_top(pilot, app, "effort")
-        if isinstance(app.screen, screens.PickerModal):
+        if isinstance(app.screen, screens.PickerModal | screens.EffortPopover):
             await pilot.press("escape")
         await settle(pilot)
         await type_text(pilot, "hi")
@@ -794,6 +794,102 @@ def test_click_below_the_listed_paths_opens_nothing(tmp_path):
 
     paths, opened = drive(tmp_path, script, session=DiffSession())
     assert "+2 more" in paths and not opened
+
+
+def thinking_model(controller):
+    controller.state.model = "qwen3:8b"
+
+
+def record_sends(app):
+    sent = []
+    app.send = sent.append
+    return sent
+
+
+def test_effort_popover_lists_only_supported_levels(tmp_path):
+    async def script(pilot, app, agent):
+        sent = record_sends(app)
+        await click_top(pilot, app, "effort")
+        await settle(pilot)
+        popover = app.screen
+        levels = [seg.value for seg in popover.query_one(Segmented).segments]
+        await pilot.press("right", "enter")
+        await settle(pilot)
+        return isinstance(popover, screens.EffortPopover), levels, sent, app.query_one(Composer).has_focus
+
+    shown, levels, sent, focused = drive(tmp_path, script, setup=thinking_model)
+    assert shown and levels == ["default", "off", "low", "medium", "high", "max"]
+    assert sent == ["/effort off"] and focused
+
+
+def test_effort_popover_without_levels_says_why_and_sends_nothing(tmp_path):
+    async def script(pilot, app, agent):
+        sent = record_sends(app)
+        await click_top(pilot, app, "effort")
+        await settle(pilot)
+        text = " ".join(plain(w) for w in app.screen.query(SafeStatic))
+        await pilot.press("enter")
+        await settle(pilot)
+        return text, bool(app.screen.query(Segmented)), sent
+
+    text, has_levels, sent = drive(tmp_path, script)
+    assert "not available" in text and not has_levels and sent == []
+
+
+def wheel(app, key, step):
+    from halcore.tui.chrome import TopBar
+
+    bar = app.query_one(TopBar)
+    bar.post_message(TopBar.Wheeled(bar, key, step))
+
+
+def test_wheel_on_effort_commits_once_after_settling(tmp_path, monkeypatch):
+    monkeypatch.setattr(agentapp, "EFFORT_SETTLE_S", 0.4)
+
+    async def script(pilot, app, agent):
+        from halcore.tui.chrome import TopBar
+
+        sent = record_sends(app)
+        for _ in range(3):
+            wheel(app, "effort", 1)
+        await settle(pilot)
+        pending = list(sent), app.query_one(TopBar).info.effort
+        await asyncio.sleep(0.6)
+        await settle(pilot)
+        return pending, sent, app.query_one(TopBar).info.effort
+
+    pending, sent, after = drive(tmp_path, script, setup=thinking_model)
+    assert pending == ([], "medium") and sent == ["/effort medium"] and after == "default"
+
+
+def test_wheel_on_effort_is_ignored_during_a_turn(tmp_path, monkeypatch):
+    monkeypatch.setattr(agentapp, "EFFORT_SETTLE_S", 0.05)
+
+    async def script(pilot, app, agent):
+        sent = record_sends(app)
+        app.busy = True
+        wheel(app, "effort", 1)
+        await asyncio.sleep(0.2)
+        await settle(pilot)
+        return sent, app.wheel_effort
+
+    assert drive(tmp_path, script, setup=thinking_model) == ([], "")
+
+
+def test_wheel_on_model_and_mode_changes_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(agentapp, "EFFORT_SETTLE_S", 0.05)
+
+    async def script(pilot, app, agent):
+        sent = record_sends(app)
+        for key in ("model", "mode", "gauge"):
+            wheel(app, key, 1)
+            wheel(app, key, -1)
+        await asyncio.sleep(0.2)
+        await settle(pilot)
+        return sent, app.state.status.mode
+
+    sent, mode = drive(tmp_path, script, setup=thinking_model)
+    assert sent == [] and mode == "default"
 
 
 def test_notify_setting_picks_osc9_bell_or_nothing():

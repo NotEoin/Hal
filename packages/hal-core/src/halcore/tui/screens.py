@@ -1,4 +1,5 @@
-"""Shared modal screens of the full-screen UIs: a filterable picker, a confirm, a choice, help and a diff view.
+"""Shared modal screens of the full-screen UIs: a filterable picker, a confirm, a choice, help, a diff view and
+the effort popover.
 
 Every modal answers Esc with its safe result (no choice, No, the focused safe button), puts focus
 on the safe answer when it opens, and draws text from callers as `Text` (via `SafeStatic` or
@@ -21,12 +22,13 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, LoadingIndicator, OptionList, TabbedContent, TabPane
+from textual import events
 from textual.widgets.option_list import Option
 
 from .mentions import fuzzy
 from .render import clean
 from .slash import PickItem
-from .widgets import SafeStatic
+from .widgets import SafeStatic, Segment, Segmented
 
 T = TypeVar("T")
 MODAL_CSS = """
@@ -272,4 +274,56 @@ class DiffScreen(ModalScreen[None]):
 
     def action_close(self) -> None:
         """Closes the view."""
+        self.dismiss(None)
+
+
+class EffortPopover(ModalScreen[str | None]):
+    """The effort levels the model supports, as a segmented row anchored at `(x, y)`; answers the chosen level.
+
+    Left/Right move, Enter or a click chooses, Esc or a click outside answers None. Without levels
+    it shows the reason instead. Levels are discrete, so there is no slider, and there is no
+    temperature control: the session has no setter for it.
+    """
+
+    DEFAULT_CSS = MODAL_CSS + """
+    EffortPopover { align: left top; background: $background 30%; }
+    EffortPopover .modal-box { width: auto; min-width: 24; max-width: 60; }
+    """
+    BINDINGS = [Binding("escape", "close", "close"), Binding("enter", "choose", "choose")]
+
+    def __init__(self, levels: Sequence[str], current: str, reason: str, x: int, y: int) -> None:
+        super().__init__()
+        self.levels, self.current, self.reason, self.at = list(levels), current or "default", reason, (x, y)
+
+    def compose(self) -> ComposeResult:
+        """A title, then the levels or the reason they are missing."""
+        with Vertical(classes="modal-box"):
+            yield SafeStatic(Text("effort"), classes="modal-title")
+            if self.levels:
+                options = [Segment(level, level) for level in ("default", *self.levels)]
+                yield Segmented(options, self.current, id="effort-levels")
+            else:
+                yield SafeStatic(Text(f"not available: {clean(self.reason)}"), classes="muted")
+
+    def on_mount(self) -> None:
+        """Opens under the effort item, with the focus on the levels."""
+        self.query_one(".modal-box").styles.offset = self.at
+        for seg in self.query(Segmented):
+            seg.focus()
+
+    def on_click(self, event: events.Click) -> None:
+        """A click on a level chooses it; a click outside the box closes."""
+        if isinstance(event.widget, Segmented):
+            if any(start <= event.x < end for start, end, _ in event.widget.spans()):
+                self.action_choose()
+        elif event.widget is self:
+            self.dismiss(None)
+
+    def action_choose(self) -> None:
+        """Answers the selected level, or None when it is the current one."""
+        chosen = next((seg.selected for seg in self.query(Segmented)), self.current)
+        self.dismiss(chosen if chosen != self.current else None)
+
+    def action_close(self) -> None:
+        """Closes without a change."""
         self.dismiss(None)

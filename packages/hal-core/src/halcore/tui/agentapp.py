@@ -48,6 +48,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
+from textual.timer import Timer
 from textual.widget import Widget
 from textual.widgets import Button, Checkbox, OptionList, TextArea
 from textual.widgets.option_list import Option
@@ -61,7 +62,7 @@ from .controller import (
 )
 from .prompt import COMMAND_ARGUMENTS, PASTE_COLLAPSE_LINES, private_history
 from .render import TurnStats, clean, clip, patch_text, split_patch
-from .slash import KEY_HELP, PickItem, PickRequest, Result, TuiState, command_descriptions, commands_for
+from .slash import KEY_HELP, PickItem, effort_levels, effort_support, PickRequest, Result, TuiState, command_descriptions, commands_for
 from .status import StatusInfo, context_bar, model_label, percent, segments
 from .theme import Look, textual_themes
 from .transcript import TextualSink, ToolGroup, Transcript, UserMessage
@@ -80,6 +81,7 @@ COMPACT_HEIGHT = 30
 SPARK_SAMPLES = 24  # seconds of tok/s kept for the sparkline
 CONTEXT_BAR_CELLS = 14  # fits the narrowest side panel (`tokens.SIDE_MIN`) with the token counts
 SIDE_PATHS_SHOWN = 12  # changed paths listed in the side panel before "+N more"
+EFFORT_SETTLE_S = 0.6  # wheel notches closer together than this are one change: one /effort, not one per notch
 HISTORY_ROW_CHARS = 120  # one row of the Ctrl+R list; the full message is what goes back in the box
 TOAST_SHORT_S = 2.0  # a confirmation of something the user just did
 TOAST_WAIT_S = 3.0  # "listing...": long enough to see while the picker loads
@@ -476,6 +478,8 @@ class AgentApp(App[int]):
         self.window_focused = True
         self.last_ctrl_c = 0.0
         self.side_width = tokens.SIDE_WIDTH  # a drag on the handle changes it for the session
+        self.wheel_effort = ""  # the level the wheel points at until it settles
+        self.wheel_timer: Timer | None = None
         self.history_store = private_history(history_path())
         self.transcript = Transcript(id="transcript")
         self.popup = OptionList(markup=False, id="popup")
@@ -548,7 +552,7 @@ class AgentApp(App[int]):
         where = "~" + where[len(home):] if where.startswith(home) else where
         return TopInfo(
             surface=self.state.surface, project=where, copy=getattr(session, "iso", None) is not None,
-            model=model_label(info), mode=info.mode if self.code else None, effort=clean(info.effort) or "default",
+            model=model_label(info), mode=info.mode if self.code else None, effort=self.wheel_effort or clean(info.effort) or "default",
             used=info.used, size=info.size,
         )  # fmt: skip
 
@@ -1032,12 +1036,52 @@ class AgentApp(App[int]):
     @on(TopBar.Clicked)
     def top_clicked(self, event: TopBar.Clicked) -> None:
         """Model and mode open their pickers, effort its levels, the gauge the context breakdown."""
-        commands = {"model": "/model", "mode": "/mode", "effort": "/effort", "gauge": "/context"}
-        if event.key in commands and not (event.key == "mode" and not self.code):
+        commands = {"model": "/model", "mode": "/mode", "gauge": "/context"}
+        if event.key == "effort":
+            self.run_worker(self.effort_popover(), group="pick")
+        elif event.key in commands and not (event.key == "mode" and not self.code):
             self.send(commands[event.key])
         elif event.key == "copy":
             toast(self, "Edits go to an isolated copy; /accept applies them to your project.", timeout=TOAST_LONG_S)
         self.query_one(Composer).focus()  # the next thing typed is a message, not another click
+
+    async def effort_popover(self) -> None:
+        """The effort levels under the effort item; a choice runs `/effort LEVEL` like typing it."""
+        levels, reason = await effort_levels(self.state)
+        bar = self.query_one(TopBar)
+        x = bar.region.x + bar.spans.get("effort", (0, 0))[0]
+        chosen = await screens.ask(self, screens.EffortPopover(levels, self.state.effort, reason, x, bar.region.bottom))
+        if chosen:
+            self.send(f"/effort {chosen}")
+        self.query_one(Composer).focus()
+
+    @on(TopBar.Wheeled)
+    def top_wheeled(self, event: TopBar.Wheeled) -> None:
+        """The wheel steps effort while idle, committed once it settles; model and mode never react.
+
+        A wheel on the model would switch (maybe load) a model and on the mode could make edits
+        pass without asking, so an accidental scroll there must change nothing.
+        """
+        if event.key != "effort" or self.busy:
+            return
+        levels, _ = effort_support(self.state)
+        if not levels:
+            return
+        options = ("default", *levels)
+        here = self.wheel_effort or self.state.effort or "default"
+        at = options.index(here) if here in options else 0
+        self.wheel_effort = options[max(0, min(len(options) - 1, at + event.step))]
+        self.query_one(TopBar).show(self.top_info())
+        if self.wheel_timer is not None:
+            self.wheel_timer.stop()
+        self.wheel_timer = self.set_timer(EFFORT_SETTLE_S, self.commit_wheel)
+
+    def commit_wheel(self) -> None:
+        """Sends the level the wheel settled on, unless it is the current one or a turn started."""
+        level, self.wheel_effort, self.wheel_timer = self.wheel_effort, "", None
+        if level and level != (self.state.effort or "default") and not self.busy:
+            self.send(f"/effort {level}")
+        self.query_one(TopBar).show(self.top_info())
 
     def on_click(self, event: events.Click) -> None:
         """A click on the "new below" line jumps to the newest output."""

@@ -306,6 +306,12 @@ def effort_support(state: TuiState) -> tuple[tuple[str, ...], str]:
     return effort.levels_for(effort.capability(here.family if here else "", here.name if here else state.model))
 
 
+async def effort_levels(state: TuiState) -> tuple[tuple[str, ...], str]:
+    """`effort_support` after the model catalog is listed (cached), so the model's family is known."""
+    await _catalog(state)
+    return effort_support(state)
+
+
 async def _switch(state: TuiState, name: str) -> str:
     """Switches the session to the gateway model `name`; returns a note about effort, or "". Raises `AcpError`."""
     await state.client.set_model(state.sid, name)

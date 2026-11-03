@@ -61,6 +61,11 @@ transcript's right padding used to take: a click posts `Toggled`, a drag (mouse 
 `Dragged(x)`, and the app sets the width through `tokens.side_width` (`SIDE_MIN..SIDE_MAX`, at
 most `SIDE_SHARE` of the screen). The CHANGES list comes from `StatusInfo.changed`, filled with
 `isolated.changes` off the loop by `refresh_status`; paths are cleaned before they are shown.
+A click on effort in the top bar opens `screens.EffortPopover` (a `Segmented` of `default` plus
+the levels `slash.effort_levels` returns) at the item's column; its answer runs `/effort LEVEL`.
+`TopBar.Wheeled` is handled for effort only, and only while idle: each notch moves
+`wheel_effort` (drawn in the bar at once) and restarts an `EFFORT_SETTLE_S` one-shot timer that
+sends one `/effort`. Model and mode ignore the wheel on purpose (spec section 6).
 `ChangesList` (chrome.py) draws one unwrapped row per path and maps a click to its row by index,
 so a path's text cannot pick what opens. `show_change` reads `session.diff(None)` in a thread,
 cuts it with the pure `split_patch` (by `diff --git` headers, keyed by the new-side path) and
