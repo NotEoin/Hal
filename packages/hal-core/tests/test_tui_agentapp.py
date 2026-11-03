@@ -596,3 +596,26 @@ def test_a_recalled_message_with_a_paste_chip_sends_the_pasted_text_again(tmp_pa
 
     recalled, sent, stored = drive(tmp_path, script)
     assert recalled.startswith("[pasted 3 lines") and sent == "1\n2\n3" and stored == "1\n2\n3"
+
+
+def test_ctrl_o_expands_everything_when_one_card_is_open_then_folds_everything(tmp_path):
+    # regression: Ctrl+O flipped each card, so an opened card folded while the others opened
+    from rich.text import Text
+
+    async def script(pilot, app, agent):
+        cards = [ToolCard(f"c{i}", Text(f"tool {i}")) for i in range(2)]
+        for card in cards:
+            app.transcript.add(card)
+        await settle(pilot)
+        for card in cards:
+            card.finish(Text("done"), [Text("one")], [Text("one"), Text("two")])
+        await settle(pilot)
+        cards[0].action_toggle()
+        states = []
+        for _ in range(2):
+            await pilot.press("ctrl+o")
+            await settle(pilot)
+            states.append([c.body.expanded for c in cards])
+        return states
+
+    assert drive(tmp_path, script) == [[True, True], [False, False]]

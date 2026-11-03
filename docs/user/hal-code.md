@@ -51,7 +51,7 @@ set `[ui].unicode = false` to force ASCII.
 | Esc | Close the completion list; else stop the running turn |
 | Ctrl+C | Clear the message; else stop the turn and deny an open approval; else press twice within 2 s to quit |
 | Ctrl+D | Quit (on an empty message); asks first when the copy has unaccepted changes |
-| Ctrl+O | Expand or fold every tool card and thinking block |
+| Ctrl+O | Expand every tool card and thinking block when any is folded, else fold them all |
 | Ctrl+B, Ctrl+T | Show or hide the side panel; open it on the todo list |
 | Ctrl+P | Every command in a filterable list |
 | Ctrl+L | Clear the transcript view (the session keeps its history) |

@@ -876,11 +876,16 @@ class AgentApp(App[int]):
         self.refresh_status()
 
     def action_expand_all(self) -> None:
-        """Ctrl+O: expands or folds every tool card and thinking block."""
-        for card in self.query(ToolCard):
-            card.action_toggle()
-        for fold in self.query(ThinkingFold):
-            fold.action_toggle()
+        """Ctrl+O: expands every tool card and thinking block when any is folded, else folds them all."""
+        cards = [c for c in self.query(ToolCard) if c.body is not None and c.body.foldable]
+        folds = list(self.query(ThinkingFold))
+        expand = any(not c.body.expanded for c in cards) or any(not f.open for f in folds)  # type: ignore[union-attr]  # filtered above
+        for card in cards:
+            if card.body.expanded != expand:  # type: ignore[union-attr]  # filtered above
+                card.action_toggle()
+        for fold in folds:
+            if fold.open != expand:
+                fold.action_toggle()
 
     def action_toggle_side(self) -> None:
         """Ctrl+B: the side panel."""
