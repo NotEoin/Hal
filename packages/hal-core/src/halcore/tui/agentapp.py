@@ -227,6 +227,13 @@ class Composer(TextArea):
         self.sent = history
         self.sent_at = len(history)
         self.pastes: dict[str, str] = {}
+        self.recall: dict[str, dict[str, str]] = {}  # a sent text with chips -> the pastes behind them
+
+    def load(self, text: str) -> None:
+        """Puts an earlier message in the box, with the pasted text behind any chips it has."""
+        self.load_text(text)
+        self.pastes = dict(self.recall.get(text, {}))
+        self.move_cursor(self.document.end)
 
     async def _on_key(self, event: events.Key) -> None:
         """Enter sends (or takes the highlighted completion); the newline keys add a line."""
@@ -285,8 +292,7 @@ class Composer(TextArea):
             self.owner.popup.action_cursor_up()
         elif self.cursor_location[0] == 0 and not select and self.sent:
             self.sent_at = max(0, self.sent_at - 1)
-            self.load_text(self.sent[self.sent_at])
-            self.move_cursor(self.document.end)
+            self.load(self.sent[self.sent_at])
         else:
             super().action_cursor_up(select)
 
@@ -296,13 +302,14 @@ class Composer(TextArea):
             self.owner.popup.action_cursor_down()
         elif self.cursor_location[0] == self.document.line_count - 1 and not select and self.sent_at < len(self.sent):
             self.sent_at += 1
-            self.load_text(self.sent[self.sent_at] if self.sent_at < len(self.sent) else "")
-            self.move_cursor(self.document.end)
+            self.load(self.sent[self.sent_at] if self.sent_at < len(self.sent) else "")
         else:
             super().action_cursor_down(select)
 
     def expand(self, text: str) -> str:
-        """`text` with every chip replaced by the pasted text; the chips are cleared."""
+        """`text` with every chip replaced by the pasted text; the chips are cleared (and kept for recall)."""
+        if self.pastes:
+            self.recall[text] = dict(self.pastes)
         for chip, data in self.pastes.items():
             text = text.replace(chip, data)
         self.pastes.clear()
@@ -633,7 +640,7 @@ class AgentApp(App[int]):
         composer.clear()
         composer.sent.append(raw)
         composer.sent_at = len(composer.sent)
-        self.history_store.store_string(raw)
+        self.history_store.store_string(text)  # the file keeps the real text: chips mean nothing next session
         self.hide_popup()
         line = text.strip()
         if line in ("/help", "?"):
@@ -944,9 +951,7 @@ class AgentApp(App[int]):
         """Puts the chosen message in the composer."""
         chosen = await screens.ask(self, screens.PickerModal("History", items))
         if chosen:
-            composer = self.query_one(Composer)
-            composer.load_text(chosen)
-            composer.move_cursor(composer.document.end)
+            self.query_one(Composer).load(chosen)
 
     async def open_pick(self, pick: PickRequest) -> None:
         """A picker for a bare listing command; the choice runs the same command with the value."""

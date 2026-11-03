@@ -576,3 +576,23 @@ def test_esc_or_ctrl_c_on_the_leave_question_stays_in_the_session(tmp_path):
         return results
 
     assert drive(tmp_path, script, session=session, project=project) == [True, True]
+
+
+def test_a_recalled_message_with_a_paste_chip_sends_the_pasted_text_again(tmp_path):
+    # regression: Up brought back the chip without its text, so the agent got "[pasted 3 lines #1]"
+    async def script(pilot, app, agent):
+        composer = app.query_one(Composer)
+        composer.post_message(events.Paste("1\n2\n3"))
+        await settle(pilot)
+        await pilot.press("enter")
+        assert await until(pilot, lambda: len(agent.prompts) == 1 and not app.busy)
+        await settle(pilot)
+        await pilot.press("up")
+        recalled = composer.text
+        await pilot.press("enter")
+        assert await until(pilot, lambda: len(agent.prompts) == 2)
+        stored = list(app.history_store.load_history_strings())
+        return recalled, agent.prompts[1][0]["text"], stored[0]
+
+    recalled, sent, stored = drive(tmp_path, script)
+    assert recalled.startswith("[pasted 3 lines") and sent == "1\n2\n3" and stored == "1\n2\n3"
