@@ -19,6 +19,7 @@ from halcore.acp.records import RecordStore
 from halcore.tui import agentapp, screens
 from halcore.tui.agentapp import AgentApp, Composer, UserMessage
 from halcore.tui.approvalmodal import ApprovalModal
+from halcore.tui.chrome import ChangesList
 from halcore.tui.controller import Controller
 from halcore.tui.render import Renderer
 from halcore.tui.theme import load_look
@@ -750,6 +751,49 @@ def test_side_panel_lists_changed_paths_cleaned(tmp_path):
     head, paths, plan = drive(tmp_path, script)
     assert head.strip() == "CHANGES  2" and plan.strip() == "PLAN"
     assert "M src/calc.py" in paths and "\x1b" not in paths and "\u202e" not in paths
+
+
+class DiffSession(FakeSession):
+    def diff(self, since=None):
+        return (
+            "diff --git a/src/calc.py b/src/calc.py\n@@ -1 +1 @@\n-return a - b\n+return a + b\x1b[31m\n"
+            "diff --git a/notes.md b/notes.md\n+other file\n"
+        )
+
+
+def test_changes_path_opens_a_read_only_diff(tmp_path):
+    async def script(pilot, app, agent):
+        info = app.controller.live_info()
+        info.changes, info.changed = 2, [("M", "notes.md"), ("M", "src/calc.py")]
+        app.refresh_side(info)
+        app.show_side(True)
+        await settle(pilot)
+        await pilot.click(ChangesList, offset=(4, 1))
+        await settle(pilot)
+        screen = app.screen
+        shown = isinstance(screen, screens.DiffScreen) and plain(screen.query_one("#diff-body"))
+        await pilot.press("escape")
+        await settle(pilot)
+        return shown, isinstance(app.screen, screens.DiffScreen)
+
+    shown, still_open = drive(tmp_path, script, session=DiffSession())
+    assert shown and "+return a + b" in shown and "other file" not in shown and "\x1b" not in shown
+    assert not still_open
+
+
+def test_click_below_the_listed_paths_opens_nothing(tmp_path):
+    async def script(pilot, app, agent):
+        info = app.controller.live_info()
+        info.changes, info.changed = 14, [("M", f"f{n}.py") for n in range(14)]
+        app.refresh_side(info)
+        app.show_side(True)
+        await settle(pilot)
+        await pilot.click(ChangesList, offset=(4, agentapp.SIDE_PATHS_SHOWN))
+        await settle(pilot)
+        return plain(app.query_one("#changes")), isinstance(app.screen, screens.DiffScreen)
+
+    paths, opened = drive(tmp_path, script, session=DiffSession())
+    assert "+2 more" in paths and not opened
 
 
 def test_notify_setting_picks_osc9_bell_or_nothing():

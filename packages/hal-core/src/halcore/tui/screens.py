@@ -1,4 +1,4 @@
-"""Shared modal screens of the full-screen UIs: a filterable picker, a confirm, a choice and help.
+"""Shared modal screens of the full-screen UIs: a filterable picker, a confirm, a choice, help and a diff view.
 
 Every modal answers Esc with its safe result (no choice, No, the focused safe button), puts focus
 on the safe answer when it opens, and draws text from callers as `Text` (via `SafeStatic` or
@@ -249,4 +249,27 @@ class HelpScreen(ModalScreen[None]):
 
     def action_close(self) -> None:
         """Closes help."""
+        self.dismiss(None)
+
+
+class DiffScreen(ModalScreen[None]):
+    """A read-only view of one file's diff; the caller passes cleaned, coloured `Text`. Esc closes it."""
+
+    DEFAULT_CSS = MODAL_CSS + "DiffScreen { align: center middle; } DiffScreen VerticalScroll { height: auto; max-height: 30; }"
+    BINDINGS = [Binding("escape", "close", "close"), Binding("q", "close", show=False)]
+
+    def __init__(self, path: str, body: Text) -> None:
+        super().__init__()
+        self.path, self.body = path, body
+
+    def compose(self) -> ComposeResult:
+        """The path, the hunks in a scroll and the key hint."""
+        with Vertical(classes="modal-box"):
+            yield SafeStatic(Text(self.path), classes="modal-title")
+            with VerticalScroll():
+                yield SafeStatic(self.body, id="diff-body")
+            yield SafeStatic(Text("read only; Esc closes, /accept applies the copy", style="dim"), classes="muted")
+
+    def action_close(self) -> None:
+        """Closes the view."""
         self.dismiss(None)

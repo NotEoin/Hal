@@ -481,3 +481,41 @@ def test_thought_time_reads_in_seconds_then_minutes(seconds, shown):
     from halcore.tui.render import thought_time
 
     assert thought_time(seconds) == shown
+
+
+PATCH = (
+    "diff --git a/src/calc.py b/src/calc.py\n"
+    "index 1..2 100644\n"
+    "--- a/src/calc.py\n"
+    "+++ b/src/calc.py\n"
+    "@@ -1 +1 @@\n"
+    "-return a - b\n"
+    "+return a + b\n"
+    'diff --git "a/odd b/name.py" "b/odd b/name.py"\n'
+    "new file mode 100644\n"
+    "+print(1)\n"
+)
+
+
+def test_split_patch_cuts_one_patch_per_file_keyed_by_the_new_path():
+    from halcore.tui.render import split_patch
+
+    parts = split_patch(PATCH)
+    assert list(parts) == ["src/calc.py", "odd b/name.py"]
+    assert parts["src/calc.py"].endswith("+return a + b") and "print" not in parts["src/calc.py"]
+    assert parts["odd b/name.py"].endswith("+print(1)")
+
+
+def test_split_patch_of_an_empty_patch_is_empty():
+    from halcore.tui.render import split_patch
+
+    assert split_patch("") == {}
+
+
+def test_patch_text_colours_lines_and_cleans_hostile_text():
+    from halcore.tui.render import patch_text
+
+    text = patch_text("@@ -1 +1 @@\n-old\n+new\x1b]0;title\x07\u202e", LOOK, limit=2)
+    assert "\x1b" not in text.plain and "\u202e" not in text.plain
+    assert text.plain.splitlines()[:2] == ["@@ -1 +1 @@", "-old"]
+    assert "1 more lines" in text.plain

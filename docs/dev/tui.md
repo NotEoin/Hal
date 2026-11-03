@@ -61,6 +61,10 @@ transcript's right padding used to take: a click posts `Toggled`, a drag (mouse 
 `Dragged(x)`, and the app sets the width through `tokens.side_width` (`SIDE_MIN..SIDE_MAX`, at
 most `SIDE_SHARE` of the screen). The CHANGES list comes from `StatusInfo.changed`, filled with
 `isolated.changes` off the loop by `refresh_status`; paths are cleaned before they are shown.
+`ChangesList` (chrome.py) draws one unwrapped row per path and maps a click to its row by index,
+so a path's text cannot pick what opens. `show_change` reads `session.diff(None)` in a thread,
+cuts it with the pure `split_patch` (by `diff --git` headers, keyed by the new-side path) and
+shows that part as `patch_text` (cleaned, `ok`/`bad` lines) in the read-only `DiffScreen`.
 Child agent updates (`hal_subagent`) go to `Sink.subagent(sid, phase, name, task, tool,
 elapsed)` when the sink has it; `TextualSink` keeps one `SubagentTree` per id, updated in place,
 and stops the trees still running when the turn ends. Without it the renderer writes today's rows.

@@ -59,7 +59,7 @@ hidden on start at every width. Ctrl+B, or a click on the handle at the right ed
 transcript (it shows when you hover it), opens and closes it; drag the handle to resize it
 (26 to 60 columns, at most half the screen; the width holds for the session). It has no tabs:
 PLAN (the todo list), CHANGES (`hal code` only: the changed paths of the copy, with `diff`,
-`accept...` and `export`) and CONTEXT (the use bar and token counts). With a UTF-8 terminal the marks are Unicode;
+`accept...` and `export`; click a path to read that file's diff, Esc closes it) and CONTEXT (the use bar and token counts). With a UTF-8 terminal the marks are Unicode;
 set `[ui].unicode = false` to force ASCII.
 
 ## Input

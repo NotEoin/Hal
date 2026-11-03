@@ -1,4 +1,5 @@
-"""The chrome around the transcript of `hal code` and `hal chat`: the HAL eye, the top bar, the side handle.
+"""The chrome around the transcript of `hal code` and `hal chat`: the HAL eye, the top bar, the side handle
+and the clickable list of changed paths.
 
 The top bar is one row with no boxes: eye, surface, project, model, mode, effort, then the context
 gauge at the right edge. It is one widget that renders one `Text` and maps clicks by column span,
@@ -442,4 +443,54 @@ class SideHandle(Widget):
             self.capture_mouse(False)
             if not self._moved:
                 self.post_message(self.Toggled())
+            event.stop()
+
+
+class ChangesList(Widget):
+    """The side panel's changed paths, one per row; a click on a row asks to open that file's diff.
+
+    The paths are computed on the host from the isolated copy, never taken from model text, and
+    a click maps to a row by index, so a path's text cannot choose what opens.
+    """
+
+    DEFAULT_CSS = """
+    ChangesList { height: auto; }
+    ChangesList:hover { color: $text; }
+    """
+
+    class Open(Message):
+        """The row for `path` was clicked."""
+
+        def __init__(self, path: str) -> None:
+            super().__init__()
+            self.path = path
+
+    def __init__(self, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
+        self.paths: list[str] = []
+        self._text = Text()
+
+    def show(self, text: Text, paths: list[str]) -> None:
+        """New rows: `text` drawn as given (already cleaned), `paths[n]` the file of row `n`."""
+        text.no_wrap, text.overflow = True, "ellipsis"  # one row per path keeps clicks mapped by index
+        self._text, self.paths = text, list(paths)
+        self.refresh(layout=True)
+
+    @property
+    def content(self) -> Text:
+        """The rows on screen."""
+        return self._text
+
+    def render(self) -> RenderableType:
+        """The rows as given."""
+        return self._text
+
+    def get_content_height(self, container: object, viewport: object, width: int) -> int:
+        """One row per line of the text."""
+        return max(1, len(self._text.plain.split("\n")))
+
+    def on_click(self, event: events.Click) -> None:
+        """A click on a path row opens that path; the `+N more` row and blank space do nothing."""
+        if 0 <= event.y < len(self.paths):
+            self.post_message(self.Open(self.paths[event.y]))
             event.stop()

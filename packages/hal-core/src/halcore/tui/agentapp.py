@@ -55,12 +55,12 @@ from textual.widgets.option_list import Option
 from . import mentions, motion, screens, tokens
 from . import fallback
 from .approvalmodal import ModalAsker
-from .chrome import HalEye, SideHandle, StatusLine, TopBar, TopInfo
+from .chrome import ChangesList, HalEye, SideHandle, StatusLine, TopBar, TopInfo
 from .controller import (
     PLAN_CHOICES, Controller, Sender, checkpoint_label, history_path, refresh_status, stop_words, turn_facts,
 )
 from .prompt import COMMAND_ARGUMENTS, PASTE_COLLAPSE_LINES, private_history
-from .render import TurnStats, clean, clip
+from .render import TurnStats, clean, clip, patch_text, split_patch
 from .slash import KEY_HELP, PickItem, PickRequest, Result, TuiState, command_descriptions, commands_for
 from .status import StatusInfo, context_bar, model_label, percent, segments
 from .theme import Look, textual_themes
@@ -522,7 +522,7 @@ class AgentApp(App[int]):
                 yield SafeStatic("", id="todo")
                 if self.code:
                     yield SafeStatic("", id="side-changes", classes="side-head side-gap")
-                    yield SafeStatic("", id="changes")
+                    yield ChangesList(id="changes")
                     with Horizontal(id="changes-actions"):
                         yield Button("diff", id="act-diff")
                         yield Button("accept...", id="act-accept")
@@ -837,14 +837,15 @@ class AgentApp(App[int]):
         if self.code:
             n = info.changes
             self.query_one("#side-changes", SafeStatic).update(Text(f"CHANGES  {n}" if n else "CHANGES"))
-            paths = Text("\n".join(f"  {clean(status)} {clip(clean(path))}" for status, path in info.changed[:SIDE_PATHS_SHOWN]))
+            listed = info.changed[:SIDE_PATHS_SHOWN]
+            paths = Text("\n".join(f"  {clean(status)} {clip(clean(path))}" for status, path in listed))
             if len(info.changed) > SIDE_PATHS_SHOWN:
                 paths.append(f"\n  +{len(info.changed) - SIDE_PATHS_SHOWN} more")
             if not n:
                 paths = Text("  no changes in the copy yet", style="dim")
             elif not info.changed:
                 paths = Text(f"  {n} changed path{'s' if n != 1 else ''} in the copy")
-            self.query_one("#changes", SafeStatic).update(paths)
+            self.query_one(ChangesList).show(paths, [path for _, path in listed] if n else [])
 
     # -- actions ---------------------------------------------------------------------------------
 
@@ -935,6 +936,24 @@ class AgentApp(App[int]):
             return
         self.side_width = tokens.side_width(self.size.width - event.x - 1, self.size.width)
         self.query_one("#side").styles.width = self.side_width
+
+    def on_changes_list_open(self, event: ChangesList.Open) -> None:
+        """A click on a changed path opens its read-only diff."""
+        self.run_worker(self.show_change(event.path), group="pick")
+
+    async def show_change(self, path: str) -> None:
+        """One changed file's hunks, cut on the host from the copy's whole patch, in a read-only dialog."""
+        try:
+            patch = await asyncio.to_thread(self.state.session.diff, None)  # type: ignore[union-attr]  # CHANGES exists only in code, which has a session
+        except (SandboxError, OSError) as exc:
+            toast(self, str(exc), title="diff not available", severity="error")
+            return
+        part = split_patch(patch).get(path)
+        if not part:
+            toast(self, "this path has no diff in the copy any more", title="diff not available")
+            return
+        await screens.ask(self, screens.DiffScreen(clip(clean(path)), patch_text(part, self.look)))
+        self.query_one(Composer).focus()
 
     def action_clear_view(self) -> None:
         """Ctrl+L: clears the transcript view; the session keeps its history."""

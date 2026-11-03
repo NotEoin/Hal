@@ -205,6 +205,47 @@ def diff_preview(rows: list[tuple[str, int, int, str]], look: Look, limit: int =
     return out, len(lines) - len(keep)
 
 
+GIT_HEADER = "diff --git "
+MAX_PATCH_LINES = 2000  # one file's view in the diff dialog; `/diff` and `/export` hold the rest
+
+
+def patch_path(header: str) -> str:
+    """The new-side path of a `diff --git a/X b/Y` header; git quotes a path with odd characters."""
+    rest = header[len(GIT_HEADER) :]
+    if rest.endswith('"') and ' "b/' in rest:
+        return rest[rest.rindex(' "b/') + 4 : -1]
+    # the last " b/" splits correctly for any path that does not itself contain " b/"
+    return rest[rest.rindex(" b/") + 3 :] if " b/" in rest else rest
+
+
+def split_patch(patch: str) -> dict[str, str]:
+    """A whole-copy patch cut into one patch per file, keyed by its new-side path, in patch order."""
+    files: dict[str, list[str]] = {}
+    current: list[str] | None = None
+    for line in patch.splitlines():
+        if line.startswith(GIT_HEADER):
+            current = files.setdefault(patch_path(line), [])
+        if current is not None:
+            current.append(line)
+    return {path: "\n".join(lines) for path, lines in files.items()}
+
+
+def patch_text(patch: str, look: Look, limit: int = MAX_PATCH_LINES) -> Text:
+    """One file's patch as cleaned `Text`: added lines `ok`, removed lines `bad`, headers and hunks `muted`."""
+    pal = look.palette
+    lines = patch.splitlines()
+    out = Text()
+    for n, line in enumerate(lines[:limit]):
+        if line.startswith(("+++", "---", GIT_HEADER, "index ", "@@")):
+            style = pal.muted
+        else:
+            style = {"+": pal.ok, "-": pal.bad}.get(line[:1], "")
+        out.append(("\n" if n else "") + clean(line), style=style)
+    if len(lines) > limit:
+        out.append(f"\n... {len(lines) - limit} more lines (use /diff)", style=pal.muted)
+    return out
+
+
 @dataclass(frozen=True)
 class Part:
     """A piece of a committed markdown block: `prose`, or `code` with its fence's language word."""
