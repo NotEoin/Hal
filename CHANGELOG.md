@@ -14,13 +14,15 @@ First release of the monorepo (uv workspace on branch `next`).
   paste chips and history, pickers for `/model`, `/resume`, `/rewind`, `/mode`, `/effort` and
   `/theme`, a side panel (todo, changes, context), a plan card, an accept dialog with the exact
   patch, an exit dialog for unaccepted changes, and an approval dialog with Deny focused, a short
-  arm delay, a scroll gate and a two-step allow. Ctrl-C needs a second press to quit an idle
-  session. The line UI stays as the fallback (`[ui].interface = "line"`, `HAL_TUI=line`, no
+  arm delay, a scroll gate and a two-step allow that typing cannot trigger. Ctrl-C needs a second
+  press to quit an idle session. Every control stays on screen down to 60x20, and `[ui].notify =
+  "osc9"` sends a desktop notification after a long turn. The line UI stays as the fallback (`[ui].interface = "line"`, `HAL_TUI=line`, no
   terminal, or a failed start).
 
 - `hal tune` opens a full-screen app on a capable terminal: a preset row, sliders for context,
   GPU layers and temperature with a memory bar that moves while you drag, buttons for KV cache
-  and effort, a source form, a review tab, Ctrl+Z undo and a Quick start on first run. GPU layers
+  and effort, a source form, a review tab, Ctrl+Z undo and a Quick start on first run. A click on
+  a slider's number (or Enter) types an exact value. GPU layers
   can now be set by hand (`halkit.tuning.fit_layers`). The menu screen stays as the fallback
   (`[ui].interface = "line"` or `HAL_TUI=line`, or when the full screen cannot start).
 
