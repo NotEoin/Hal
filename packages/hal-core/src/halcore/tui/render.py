@@ -214,6 +214,14 @@ class Part:
     lang: str = ""
 
 
+def thought_time(seconds: float) -> str:
+    """How long a model thought: `<1s`, `4s`, `1m 05s`."""
+    if seconds < 1:
+        return "<1s"
+    minutes, secs = divmod(round(seconds), 60)
+    return f"{minutes}m {secs:02d}s" if minutes else f"{secs}s"
+
+
 def split_fences(block: str) -> list[Part]:
     """`block` cut into prose and fenced code parts, in order; an unclosed fence runs to the end."""
     parts: list[Part] = []
@@ -254,7 +262,9 @@ class Sink(Protocol):
     Optional methods (older sinks keep working without them): `tool_row(cid, row)` receives a
     finished call's parts (a `ToolRow`) just before `tool_finished`; `code(lang, source)` receives
     each fenced code block (cleaned) apart from the prose around it, which then arrives through
-    `write`. `ConsoleSink` has neither, so the line UI prints exactly what it printed before.
+    `write`; `thought_timed(seconds, tokens, body, shown)` replaces `thought` with how long the
+    model thought (first to last thought chunk) and its token estimate. `ConsoleSink` has none of
+    them, so the line UI prints exactly what it printed before.
     """
 
     def write(self, renderable: RenderableType) -> None:
@@ -361,6 +371,7 @@ class Renderer:
         self.status_provider: Callable[[], Text | None] | None = None
         self._buffer = ""
         self._thought = ""
+        self._thought_span = (0.0, 0.0)  # clock at the first and the last chunk of the current thought
         self._cards: dict[str, Card] = {}
         self._subagents: dict[str, tuple[str, float]] = {}  # subagent id -> (name, start time)
 
@@ -429,6 +440,12 @@ class Renderer:
             self.last_thought = self._thought
         hint = "" if shown else " (Ctrl-O shows it)"
         body = Text(clean(self._thought.strip()), style=f"dim {pal.muted}")
+        timed = getattr(self.sink, "thought_timed", None)
+        if timed is not None:
+            first, last = self._thought_span
+            timed(last - first, tokens, body, shown)
+            self._thought = ""
+            return
         self.sink.thought(Text(f"{g.think} thought for ~{tokens} tokens{hint}", style=f"dim {pal.muted}"), body, shown)
         self._thought = ""
 
@@ -494,6 +511,8 @@ class Renderer:
         """Renders one update."""
         kind = update.get("sessionUpdate")
         if kind == "agent_thought_chunk":
+            now = clock()
+            self._thought_span = (now if not self._thought else self._thought_span[0], now)
             self._thought += _text(update)
             self.stats.thought_chars += len(_text(update))
             return

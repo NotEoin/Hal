@@ -489,6 +489,15 @@ class TextualSink:
 
         self._run(add)
 
+    def thought_timed(self, seconds: float, tokens: int, body: Text, shown: bool) -> None:
+        """A `thought for 4s` fold that opens in place."""
+
+        def add() -> None:
+            self.fold()
+            self.app.transcript.add(ThinkingFold(None, body, shown, seconds, tokens), "thought")
+
+        self._run(add)
+
     def turn_started(self) -> None:
         """Nothing: `TextualUi.turn_started` shows the working line."""
 

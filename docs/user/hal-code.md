@@ -100,7 +100,8 @@ When you leave, the full screen prints one line: the session id and the command 
   grows at the bottom, with a working line (time, tokens, tok/s, "Esc stops"). Tokens are
   estimated at 4 characters each until the server reports usage.
 - Code blocks are syntax highlighted. Links print as `text (url)`, never as hidden hyperlinks.
-- Reasoning from thinking models is folded to one dim line, `thought for ~N tokens`; a click opens
+- Reasoning from thinking models is folded to one dim line: `thought for 4s` in the full screen
+  (the token estimate shows once it is open), `thought for ~N tokens` in the line UI. A click opens
   it in place, and `[ui].show_thinking = true` starts it open.
 - Each tool call is a card: title, then status and duration when it ends. Output is folded to
   `[ui].tool_output_lines` lines. Edits show a numbered, coloured unified diff, cut at

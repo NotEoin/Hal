@@ -2,6 +2,8 @@
 
 import io
 
+import pytest
+
 from halcore.tui import theme
 from halcore.tui.render import Renderer, clean, diff_rows
 
@@ -408,3 +410,29 @@ def test_console_sink_output_is_unchanged_for_code():
     r.update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}})
     r.end_turn()
     assert "def add(a, b):" in out.getvalue() and out.getvalue().count("Fix:") == 1
+
+
+def test_thought_duration_uses_the_renderer_clock(monkeypatch):
+    from halcore.tui import render
+
+    class TimedSink(RecordingSink):
+        def thought_timed(self, seconds, tokens, body, shown):
+            self.calls.append(("timed", seconds, tokens, body.plain, shown))
+
+    now = [10.0]
+    monkeypatch.setattr(render, "clock", lambda: now[0])
+    sink = TimedSink()
+    r = Renderer(io.StringIO(), LOOK, sink=sink)
+    for step in (0.0, 2.5, 1.5):
+        now[0] += step
+        r.update({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "hmm "}})
+    r.update(msg("answer\n\n"))
+    timed = [c for c in sink.calls if c[0] == "timed"]
+    assert timed == [("timed", 4.0, 3, "hmm hmm hmm", False)]
+
+
+@pytest.mark.parametrize(("seconds", "shown"), [(0.4, "<1s"), (4.4, "4s"), (65, "1m 05s")])
+def test_thought_time_reads_in_seconds_then_minutes(seconds, shown):
+    from halcore.tui.render import thought_time
+
+    assert thought_time(seconds) == shown

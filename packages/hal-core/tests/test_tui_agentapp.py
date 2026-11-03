@@ -1133,6 +1133,39 @@ def test_hostile_code_language_cannot_add_markup(tmp_path):
     assert "[" not in header and "=" not in header and copied == ["boom"]
 
 
+def test_thought_line_shows_seconds_and_opens(tmp_path, monkeypatch):
+    from halcore.tui import render
+    from halcore.tui.widgets import ThinkingFold
+
+    now = [100.0]
+    update = Renderer.update
+
+    def timed_update(self, item):
+        if item.get("sessionUpdate") == "agent_thought_chunk":
+            now[0] += 4.2  # two thought chunks 4.2s apart
+        return update(self, item)
+
+    monkeypatch.setattr(render, "clock", lambda: now[0])
+    monkeypatch.setattr(Renderer, "update", timed_update)
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "go")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: "done" in transcript_text(app) and not app.busy)
+        await settle(pilot)
+        fold = app.query_one(ThinkingFold)
+        closed = fold.query_one(".summary").render()
+        await pilot.click(ThinkingFold)
+        await settle(pilot)
+        opened = fold.query_one(".summary").render()
+        return str(closed), str(opened), fold.open, bool(fold.query(".body"))
+
+    thought = {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "think " * 20}}
+    closed, opened, is_open, has_body = drive(tmp_path, script, turns=[[thought, thought, chunk("done")]])
+    assert "thought for 4s" in closed and "tokens" not in closed
+    assert "thought for 4s" in opened and "~60 tokens" in opened and is_open and has_body
+
+
 def test_tool_group_summary_comes_from_the_sink_rows_not_unfinished_cards():
     # regression: a group of calls that never started rendered "ran 3 tools" with no targets
     # when it was drawn before the cards' deferred `finish` set their rows (flaky snapshot)

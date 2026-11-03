@@ -46,7 +46,7 @@ from textual.widget import Widget
 from textual.widgets import Input, Static
 
 from . import tokens
-from .render import ToolRow, clean
+from .render import ToolRow, clean, thought_time
 
 VALUE_WIDTH = 9  # columns kept for the value text right of a slider track
 PAGE_CELLS = 10  # PgUp / PgDn move the knob this many cells
@@ -700,22 +700,42 @@ class ToolCard(Vertical):
 
 
 class ThinkingFold(Vertical):
-    """`thought for ~N tokens`; a click or Enter shows the reasoning in place."""
+    """`thought for 4s >`, faint; a click or Enter shows the reasoning in place and its token estimate.
+
+    Without `seconds` (a sink fed only `thought`), the row is the renderer's own `summary` text.
+    """
 
     DEFAULT_CSS = """
-    ThinkingFold { height: auto; color: $text-muted; }
+    ThinkingFold { height: auto; color: $hal-faint; }
     ThinkingFold > .summary:hover { text-style: underline; }
+    ThinkingFold > .body { padding-left: 2; }
     """
     can_focus = True
     BINDINGS = [Binding("enter", "toggle", "expand", show=False)]
 
-    def __init__(self, summary: Text, body: Text, shown: bool, **kwargs: object) -> None:
+    def __init__(self, summary: Text | None, body: Text, shown: bool, seconds: float | None = None,
+                 tokens: int = 0, **kwargs: object) -> None:  # fmt: skip
         super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
         self.summary, self.body, self.open = summary, body, shown
+        self.seconds, self.tokens = seconds, tokens
+
+    def line(self) -> Text:
+        """The one-row summary: `think thought for 4s`, `~N tokens` when open, then the fold glyph."""
+        if self.seconds is None:
+            return self.summary or Text("")
+        look = getattr(self.app, "look", None)
+        g = look.glyphs if look is not None else None
+        roles = tokens.ROLES.get(look.theme, {}) if look is not None and look.color else {}
+        text = Text(f"{g.think if g else '~'} thought for {thought_time(self.seconds)}", style=roles.get("faint", "dim"))
+        if self.open:
+            text.append(f"  ~{self.tokens} tokens")
+        fold = (g.fold_open if self.open else g.fold_closed) if g else ("v" if self.open else ">")
+        text.append(f" {fold}")
+        return text
 
     def compose(self):  # noqa: ANN201 - Textual's ComposeResult
         """The summary, and the text when open."""
-        yield SafeStatic(self.summary, classes="summary")
+        yield SafeStatic(self.line(), classes="summary")
         if self.open:
             yield SafeStatic(self.body, classes="body")
 
@@ -726,6 +746,7 @@ class ThinkingFold(Vertical):
             self.mount(SafeStatic(self.body, classes="body"))
         else:
             self.query(".body").remove()
+        self.query_one(".summary", SafeStatic).update(self.line())
 
     def on_click(self, event: events.Click) -> None:
         """A click toggles the text."""

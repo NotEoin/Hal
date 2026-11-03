@@ -1,7 +1,7 @@
 # hal tui snapshot: screen=approval size=80x24 theme=dark look=ascii textual=8.2.8
 ## text
  !  code  work    gemma-3-27b-it v | default v | default v       ####------ 40% 
- | ~ thought for ~48 tokens (Ctrl-O shows it)                                   
+ | ~ thought for <1s >                                                          
  | +- Todo --------------------+                                                
  | |\u250f\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2513    
  | |\u2503 Approval needed: leaves the box                                      \u2503    
@@ -26,7 +26,7 @@
  box runsc | approval waiting                        ^P cmds  ^B panel  F1 help 
 ## roles
 00 _1 X1 _2 x4 _2 x4 _4 i14 _1 i1 _1 x1 _1 i7 _1 i1 _1 x1 _1 i7 _1 i1 _7 x10 _1 x3 _1
-01 _1 x1 _1 x1 _1 x7 _1 x3 _1 x3 _1 x6 _1 x7 _1 x5 _1 x3 _35
+01 _1 x1 _1 x1 _1 x7 _1 x3 _1 x3 _1 x1 _58
 02 _1 x1 _1 x2 _1 x4 _1 x21 _48
 03 _1 x1 _1 x73 _4
 03bg .4 S72 .4

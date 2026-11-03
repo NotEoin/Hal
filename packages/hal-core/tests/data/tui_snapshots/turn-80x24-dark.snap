@@ -1,7 +1,7 @@
 # hal tui snapshot: screen=turn size=80x24 theme=dark look=unicode textual=8.2.8
 ## text
  \u25cf  code  work    gemma-3-27b-it \u25be \u00b7 default \u25be \u00b7 default \u25be       \u25b0\u25b0\u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1\u25b1 40% 
- \u2502 \u2234 thought for ~48 tokens (Ctrl-O shows it)                                   
+ \u2502 \u2234 thought for <1s \u25b8                                                          
  \u2502 \u256d\u2500 Todo \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e                                                  
  \u2502 \u2502 \u2611 Read the failing test \u2502                                                  
  \u2502 \u2502   \u25d0 Fix add()           \u2502                                                  
@@ -26,7 +26,7 @@
  box runsc                                           ^P cmds  ^B panel  F1 help 
 ## roles
 00 _1 d1 _2 m4 _2 m4 _4 f14 _1 f1 _1 i1 _1 f7 _1 f1 _1 i1 _1 f7 _1 f1 _7 m10 _1 m3 _1
-01 _1 p1 _1 x1 _1 x7 _1 x3 _1 x3 _1 x6 _1 x7 _1 x5 _1 x3 _35
+01 _1 p1 _1 i1 _1 i7 _1 i3 _1 i3 _1 i1 _58
 02 _1 p1 _1 x2 _1 x4 _1 x19 _50
 03 _1 p1 _1 x1 _1 f1 _1 f4 _1 f3 _1 f7 _1 f4 _1 x1 _50
 04 _1 p1 _1 x1 _3 f1 _1 f3 _1 f5 _11 x1 _50
