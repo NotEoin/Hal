@@ -641,3 +641,19 @@ def test_typing_after_clicking_a_chip_or_a_card_goes_into_the_message_box(tmp_pa
         return after_chip, composer.text, composer.has_focus
 
     assert drive(tmp_path, script) == ("hi", "yo", True)
+
+
+def test_accept_buttons_and_high_risk_box_stay_on_screen_at_80_by_24_and_60_by_20(tmp_path):
+    # regression: a long patch pushed Apply, Cancel and the high-risk checkbox below the screen
+    from halcore.tui.agentapp import AcceptModal
+
+    patch = "\n".join(f"+line {i}" for i in range(80))
+    for size in ((80, 24), (60, 20)):
+
+        async def script(pilot, app, agent, size=size):
+            app.push_screen(AcceptModal("report\n" * 20, patch, True))
+            await settle(pilot)
+            widgets = list(app.screen.query("Button, Checkbox"))
+            return [w.id for w in widgets if w.region.bottom > size[1] or w.region.right > size[0] or not w.region.height]
+
+        assert drive(tmp_path, script, size=size) == [], size

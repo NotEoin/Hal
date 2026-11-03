@@ -327,9 +327,9 @@ class AcceptModal(ModalScreen[tuple[bool, bool]]):
 
     DEFAULT_CSS = screens.MODAL_CSS + """
     AcceptModal { align: center middle; }
-    AcceptModal .modal-box { width: 95%; max-width: 140; }
-    AcceptModal #patch { height: auto; max-height: 24; border: round $panel; }
-    AcceptModal #report { height: auto; max-height: 8; }
+    AcceptModal .modal-box { width: 95%; max-width: 140; height: 90%; }
+    AcceptModal #patch { height: 1fr; min-height: 3; border: round $panel; }
+    AcceptModal #report { height: auto; max-height: 25%; }
     """
     BINDINGS = [Binding("escape", "cancel", "cancel")]
 

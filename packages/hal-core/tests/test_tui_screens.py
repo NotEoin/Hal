@@ -119,3 +119,17 @@ def test_help_screen_lists_only_the_surface_commands():
         await pilot.press("escape")
 
     assert run(help_screen, script) is None
+
+
+def test_a_long_picker_list_stays_inside_small_screens():
+    # regression: a 20-row list pushed past the bottom of a 24-row screen
+    many = [PickItem(f"model {i}", str(i)) for i in range(40)]
+    for size in ((80, 24), (60, 20)):
+        bottoms = []
+
+        async def script(pilot, screen, bottoms=bottoms):
+            bottoms.append(screen.query_one(OptionList).region.bottom)
+            await pilot.press("escape")
+
+        assert run(screens.PickerModal("Model", many), script, size=size) is None
+        assert bottoms[0] <= size[1], size

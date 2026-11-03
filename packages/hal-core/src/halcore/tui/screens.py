@@ -62,7 +62,7 @@ class PickerModal(ModalScreen[str | None]):
 
     DEFAULT_CSS = MODAL_CSS + """
     PickerModal { align: center middle; }
-    PickerModal OptionList { height: auto; max-height: 20; border: none; }
+    PickerModal OptionList { height: auto; max-height: 50vh; border: none; }
     PickerModal Input { margin-bottom: 1; }
     """
     BINDINGS = [Binding("escape", "cancel", "cancel")]
