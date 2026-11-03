@@ -1,12 +1,12 @@
 # hal tui snapshot: screen=approval size=80x24 theme=light look=unicode textual=8.2.8
 ## text
  \u25cf  code  work    gemma-3-27b-it \u25be \u00b7 default \u25be \u00b7 default \u25be       \u25b0\u25b0\u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1\u25b1 40% 
+ \u2502 \u203a fix the add test                                                           
  \u2502 \u2234 thought for <1s \u25b8                                                          
- \u2502 \u256d\u2500 Todo \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e                                                  
- \u2502 \u2502\u250f\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2513    
- \u2502 \u2502\u2503 Approval needed: leaves the box                                      \u2503    
- \u2502 \u2502\u2503 shell.run [exec] from hal-tools   key 3f9a0c12d4e8                   \u2503    
- \u2502 \u2570\u2503 classifier: high - writes outside the workspace                      \u2503  \u2583 
+ \u2502 p\u250f\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2513    
+ \u2502  \u2503 Approval needed: leaves the box                                      \u2503    
+ \u2502  \u2503 shell.run [exec] from hal-tools   key 3f9a0c12d4e8                   \u2503    
+ \u2502  \u2503 classifier: high - writes outside the workspace                      \u2503  \u2587 
  \u2502 \u25cf\u2503 why: exec tier asks                                                  \u2503 \u25b8  
  \u2502 \u25cf\u2503 Arguments (every one, exactly as the tool receives them)             \u2503 \u25b8  
  \u2502  \u2503 \u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e \u2503    
@@ -26,15 +26,15 @@
  box runsc \u00b7 approval waiting                        ^P cmds  ^B panel  F1 help 
 ## roles
 00 _1 X1 _2 x4 _2 x4 _4 x14 _1 x1 _1 x1 _1 x7 _1 x1 _1 x1 _1 x7 _1 x1 _7 x10 _1 x3 _1
-01 _1 x1 _1 x1 _1 x7 _1 x3 _1 x3 _1 x1 _58
-02 _1 x1 _1 x2 _1 x4 _1 x19 _50
+01 _1 x1 _1 X1 _1 X3 _1 X3 _1 X3 _1 X4 _59
+02 _1 x1 _1 x1 _1 x7 _1 x3 _1 x3 _1 x1 _58
 03 _1 x1 _1 x73 _4
 03bg .4 S72 .4
-04 _1 x1 _1 x2 _1 X8 _1 X7 _1 X6 _1 X3 _1 X3 _38 x1 _4
+04 _1 x1 _2 x1 _1 X8 _1 X7 _1 X6 _1 X3 _1 X3 _38 x1 _4
 04bg .4 S72 .4
-05 _1 x1 _1 x2 _1 F9 _1 F6 _1 F4 _1 F9 _3 X3 _1 X12 _19 x1 _4
+05 _1 x1 _2 x1 _1 F9 _1 F6 _1 F4 _1 F9 _3 X3 _1 X12 _19 x1 _4
 05bg .4 S72 .4
-06 _1 x1 _1 x2 _1 X11 _1 X4 _1 X1 _1 X6 _1 X7 _1 X3 _1 X9 _22 x1 _2 x1 _1
+06 _1 x1 _2 x1 _1 X11 _1 X4 _1 X1 _1 X6 _1 X7 _1 X3 _1 X9 _22 x1 _2 x1 _1
 06bg .4 S72 .4
 07 _1 x1 _1 x2 _1 x4 _1 x4 _1 x4 _1 x4 _50 x1 _1 x1 _2
 07bg .4 S72 .2 X1 .1

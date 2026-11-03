@@ -25,7 +25,7 @@ from textual.binding import Binding
 from textual.containers import ScrollableContainer, Vertical, VerticalScroll
 from textual.widget import Widget
 
-from . import tokens
+from . import motion, tokens
 from .render import ToolRow, clean
 from .theme import Look
 from .widgets import SafeStatic, ThinkingFold, ToolCard, toast
@@ -368,6 +368,74 @@ class ToolGroup(Widget):
         self.action_toggle()
 
 
+PLAN_BAR_CELLS = 8  # width of the plan's progress bar (spec 5.7)
+
+
+class PlanBlock(Widget):
+    """The turn's todo list, updated in place: `plan  ###-----  1 of 3`, then one row per item.
+
+    Entries arrive cleaned and clipped from the renderer. Done items are faint with an `ok` mark,
+    the active one `fg` with an accent mark, pending ones muted. The bar eases to a new value.
+    """
+
+    DEFAULT_CSS = """
+    PlanBlock { height: auto; }
+    """
+
+    def __init__(self, entries: list[tuple[str, str]], **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
+        self.entries = entries
+        self.shown = self.fraction  # the bar's drawn fill; eases towards `fraction`
+        self._tween: motion.Handle | None = None
+
+    @property
+    def fraction(self) -> float:
+        """The share of items done, 0 for an empty list."""
+        done = sum(1 for status, _ in self.entries if status == "completed")
+        return done / len(self.entries) if self.entries else 0.0
+
+    def set_entries(self, entries: list[tuple[str, str]]) -> None:
+        """Shows a new list; the bar eases from its drawn fill to the new one."""
+        start, self.entries = self.shown, entries
+        if self._tween is not None:
+            self._tween.cancel()
+        ticker = getattr(self.app, "motion", None)
+        if ticker is None:
+            self._ease(self.fraction)
+        else:
+            self._tween = ticker.tween(start, self.fraction, motion.GAUGE_TWEEN_S, self._ease)
+        self.refresh(layout=True)
+
+    def _ease(self, value: float) -> None:
+        self.shown = value
+        self.refresh()
+
+    def render(self) -> RenderableType:
+        """The header row, then each item with its mark."""
+        look = getattr(self.app, "look", None)
+        g = look.glyphs if look is not None else None
+        roles = tokens.ROLES.get(look.theme, {}) if look is not None and look.color else {}
+        faint, muted, fg = roles.get("faint", "dim"), roles.get("muted", "dim"), roles.get("fg", "")
+        marks = g.plan if g is not None else tokens.ASCII_PLAN
+        done = sum(1 for status, _ in self.entries if status == "completed")
+        text = Text(no_wrap=True, overflow="ellipsis")
+        text.append("plan  ", style=muted)
+        full, empty = (g.bar_full, g.bar_empty) if g is not None else ("#", "-")
+        cells = round(self.shown * PLAN_BAR_CELLS)
+        text.append(full * cells, style=roles.get("accent", ""))
+        text.append(empty * (PLAN_BAR_CELLS - cells), style=roles.get("panel", "dim"))
+        text.append(f"  {done} of {len(self.entries)}", style=faint)
+        for status, item in self.entries:
+            mark, style, mark_style = {
+                "completed": (marks["completed"], faint, roles.get("ok", "")),
+                "in_progress": (marks["in_progress"], fg, roles.get("accent", "")),
+            }.get(status, (marks["pending"], muted, muted))
+            text.append("\n  ")
+            text.append(mark, style=mark_style)
+            text.append(f" {item}", style=style)
+        return text
+
+
 class TextualSink:
     """The `render.Sink` of the full-screen UI: mounts what the renderer built into the transcript."""
 
@@ -377,6 +445,7 @@ class TextualSink:
         self.rows: dict[str, ToolRow] = {}  # parts of a finished call, from `tool_row`, until `tool_finished`
         self.pending: list[Callable[[], None]] = []  # output before the app has mounted
         self.run: list[tuple[ToolCard, ToolRow]] = []  # finished calls in a row that may fold into a `ToolGroup`
+        self.plan_block: PlanBlock | None = None  # this turn's plan, updated in place
 
     def _run(self, action: Callable[[], None]) -> None:
         # updates arrive on the ACP reader task; `call_later` runs them on the app's own loop, in order,
@@ -498,8 +567,27 @@ class TextualSink:
 
         self._run(add)
 
+    def plan(self, entries: list[tuple[str, str]]) -> None:
+        """The turn's single `PlanBlock`: created on the first plan update of a turn, then updated in place."""
+
+        def show() -> None:
+            block = self.plan_block
+            if block is not None and block.is_attached:
+                block.set_entries(entries)
+                return
+            self.fold()
+            self.plan_block = PlanBlock(entries)
+            self.app.transcript.add(self.plan_block, "plan")
+
+        self._run(show)
+
     def turn_started(self) -> None:
-        """Nothing: `TextualUi.turn_started` shows the working line."""
+        """A new turn gets its own plan block; `TextualUi.turn_started` shows the working line."""
+
+        def reset() -> None:
+            self.plan_block = None
+
+        self._run(reset)
 
     def turn_ended(self) -> None:
         """Running cards that never finished stop their timers; the last run of calls folds."""

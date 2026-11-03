@@ -106,7 +106,8 @@ When you leave, the full screen prints one line: the session id and the command 
 - Each tool call is a card: title, then status and duration when it ends. Output is folded to
   `[ui].tool_output_lines` lines. Edits show a numbered, coloured unified diff, cut at
   `[ui].diff_max_lines`. Subagent calls are indented under their parent. The todo list is a
-  checklist (side panel, and inline in the line UI).
+  checklist: in the full screen one `plan` block per turn with a progress bar and `1 of 3`,
+  updated in place as items finish; in the line UI a `Todo` panel each time it changes.
 - The line after each turn shows files changed, `+/-` lines, tokens, time and tok/s, and the stop
   reason in words when the turn did not finish normally (`cancelled`, `stopped: hit the output
   limit`). `UNSANDBOXED` is added to it, to the status bar and to a red banner when the session

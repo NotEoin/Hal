@@ -431,6 +431,28 @@ def test_thought_duration_uses_the_renderer_clock(monkeypatch):
     assert timed == [("timed", 4.0, 3, "hmm hmm hmm", False)]
 
 
+def test_plan_goes_to_the_sink_as_cleaned_status_text_pairs():
+    class PlanSink(RecordingSink):
+        def plan(self, entries):
+            self.calls.append(("plan", entries))
+
+    sink = PlanSink()
+    r = Renderer(io.StringIO(), LOOK, sink=sink)
+    entries = [{"content": "read\x1b[31m it\nnow", "status": "completed"}, {"content": "fix", "status": "bogus"}]
+    r.update({"sessionUpdate": "plan", "entries": entries})
+    assert sink.calls == [("plan", [("completed", "read it now"), ("pending", "fix")])]
+    assert not [c for c in sink.calls if c[0] == "write"]
+
+
+def test_console_sink_output_is_unchanged_for_plan():
+    from halcore.tui.render import ConsoleSink
+
+    r, out = make()
+    assert isinstance(r.sink, ConsoleSink) and not hasattr(r.sink, "plan")
+    r.update({"sessionUpdate": "plan", "entries": [{"content": "ship", "status": "pending"}]})
+    assert "Todo" in out.getvalue() and "[ ] ship" in out.getvalue()
+
+
 @pytest.mark.parametrize(("seconds", "shown"), [(0.4, "<1s"), (4.4, "4s"), (65, "1m 05s")])
 def test_thought_time_reads_in_seconds_then_minutes(seconds, shown):
     from halcore.tui.render import thought_time

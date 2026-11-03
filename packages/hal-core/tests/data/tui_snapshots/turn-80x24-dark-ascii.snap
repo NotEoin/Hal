@@ -1,12 +1,12 @@
 # hal tui snapshot: screen=turn size=80x24 theme=dark look=ascii textual=8.2.8
 ## text
  o  code  work    gemma-3-27b-it v | default v | default v       ####------ 40% 
+ | > fix the add test                                                           
  | ~ thought for <1s >                                                          
- | +- Todo --------------------+                                                
- | | [x] Read the failing test |                                                
- | |   [~] Fix add()           |                                                
- | |   [ ] Run pytest          |                                                
- | +---------------------------+                                              \u2583 
+ | plan  ###-----  1 of 3                                                       
+ |   [x] Read the failing test                                                  
+ |   [>] Fix add()                                                              
+ |   [ ] Run pytest                                                           \u2587 
  | * ran 3 tools  read calc.py, test_calc.py | grep add(           0.0s  ok  >  
  | * Edit   src/calc.py  +1 -1                                     0.0s  ok  >  
  |      1   def add(a, b):                                                      
@@ -26,12 +26,12 @@
  box runsc                                           ^P cmds  ^B panel  F1 help 
 ## roles
 00 _1 d1 _2 m4 _2 m4 _4 f14 _1 f1 _1 i1 _1 f7 _1 f1 _1 i1 _1 f7 _1 f1 _7 m10 _1 m3 _1
-01 _1 p1 _1 i1 _1 i7 _1 i3 _1 i3 _1 i1 _58
-02 _1 p1 _1 x2 _1 x4 _1 x21 _48
-03 _1 p1 _1 x1 _1 f3 _1 f4 _1 f3 _1 f7 _1 f4 _1 x1 _48
-04 _1 p1 _1 x1 _3 f3 _1 f3 _1 f5 _11 x1 _48
-05 _1 p1 _1 x1 _3 f1 _1 f1 _1 f3 _1 f6 _10 x1 _48
-06 _1 p1 _1 x29 _46 p1 _1
+01 _1 p1 _1 A1 _1 F3 _1 F3 _1 F3 _1 F4 _59
+02 _1 p1 _1 i1 _1 i7 _1 i3 _1 i3 _1 i1 _58
+03 _1 p1 _1 m4 _2 a3 p5 _2 i1 _1 i2 _1 i1 _55
+04 _1 p1 _3 o3 _1 i4 _1 i3 _1 i7 _1 i4 _50
+05 _1 p1 _3 a3 _1 f3 _1 f5 _62
+06 _1 p1 _3 m1 _1 m1 _1 m3 _1 m6 _59 p1 _1
 07 _1 p1 _1 i1 _1 F3 _1 F1 _1 F5 _2 m4 _1 m8 _1 m12 _1 m1 _1 m4 _1 m4 _11 i4 _2 o2 _2 i1 _2
 07bg .78 P1 .1
 08 _1 p1 _1 i1 _1 F4 _3 m11 _2 o2 _1 a2 _37 i4 _2 o2 _2 i1 _2

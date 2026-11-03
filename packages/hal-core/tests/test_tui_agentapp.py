@@ -1166,6 +1166,46 @@ def test_thought_line_shows_seconds_and_opens(tmp_path, monkeypatch):
     assert "thought for 4s" in opened and "~60 tokens" in opened and is_open and has_body
 
 
+def plan_update(*statuses):
+    names = ("Read the failing test", "Fix add()", "Run pytest")
+    return {"sessionUpdate": "plan", "entries": [{"content": n, "status": st} for n, st in zip(names, statuses, strict=True)]}
+
+
+def test_plan_block_updates_in_place_with_progress(tmp_path):
+    from halcore.tui.transcript import PlanBlock
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "go")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: "done" in transcript_text(app) and not app.busy)
+        await settle(pilot)
+        return [str(b.render()) for b in app.query(PlanBlock)], "Todo" in transcript_text(app)
+
+    turn = [plan_update("in_progress", "pending", "pending"), chunk("working\n\n"),
+            plan_update("completed", "in_progress", "pending"), chunk("done")]  # fmt: skip
+    blocks, panel = drive(tmp_path, script, turns=[turn])
+    assert len(blocks) == 1 and not panel
+    lines = blocks[0].splitlines()
+    assert lines[0] == "plan  ###-----  1 of 3"
+    assert lines[1:] == ["  [x] Read the failing test", "  [>] Fix add()", "  [ ] Run pytest"]
+
+
+def test_each_turn_gets_its_own_plan_block(tmp_path):
+    from halcore.tui.transcript import PlanBlock
+
+    async def script(pilot, app, agent):
+        for word in ("one", "two"):
+            await type_text(pilot, word)
+            await pilot.press("enter")
+            assert await until(pilot, lambda: not app.busy and transcript_text(app).count("ok") >= 1)
+            await settle(pilot)
+        assert await until(pilot, lambda: len(app.query(PlanBlock)) == 2)
+        return [b.parent is not None for b in app.query(PlanBlock)]
+
+    turns = [[plan_update("pending", "pending", "pending"), chunk("ok")], [plan_update("completed", "completed", "completed"), chunk("ok")]]
+    assert drive(tmp_path, script, turns=turns) == [True, True]
+
+
 def test_tool_group_summary_comes_from_the_sink_rows_not_unfinished_cards():
     # regression: a group of calls that never started rendered "ran 3 tools" with no targets
     # when it was drawn before the cards' deferred `finish` set their rows (flaky snapshot)

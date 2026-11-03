@@ -263,8 +263,10 @@ class Sink(Protocol):
     finished call's parts (a `ToolRow`) just before `tool_finished`; `code(lang, source)` receives
     each fenced code block (cleaned) apart from the prose around it, which then arrives through
     `write`; `thought_timed(seconds, tokens, body, shown)` replaces `thought` with how long the
-    model thought (first to last thought chunk) and its token estimate. `ConsoleSink` has none of
-    them, so the line UI prints exactly what it printed before.
+    model thought (first to last thought chunk) and its token estimate; `plan(entries)` replaces
+    the written todo panel with the whole list as `(status, text)` pairs, text cleaned and clipped,
+    each time the list changes. `ConsoleSink` has none of them, so the line UI prints exactly what
+    it printed before.
     """
 
     def write(self, renderable: RenderableType) -> None:
@@ -502,7 +504,7 @@ class Renderer:
         """Flips the todo panel; turning it on prints the current list."""
         self.show_todo = not self.show_todo
         if self.show_todo and self.todo:
-            self.sink.write(self.todo_panel())
+            self._show_plan()
         return self.show_todo
 
     # -- updates -----------------------------------------------------------------------
@@ -531,7 +533,7 @@ class Renderer:
             entries = update.get("entries")
             self.todo = [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
             if self.show_todo:
-                self.sink.write(self.todo_panel())
+                self._show_plan()
         elif kind == "usage_update":
             used, size = update.get("used"), update.get("size")
             if isinstance(used, int) and isinstance(size, int):
@@ -675,6 +677,21 @@ class Renderer:
             self.sink.write(line)
 
     # -- todo --------------------------------------------------------------------------
+
+    def plan_entries(self) -> list[tuple[str, str]]:
+        """The todo list as `(status, text)` pairs; an unknown status reads as `pending`."""
+        known = self.look.glyphs.todo
+        return [
+            (str(e.get("status")) if str(e.get("status")) in known else "pending", clip(clean(str(e.get("content", ""))).replace("\n", " ")))
+            for e in self.todo
+        ]
+
+    def _show_plan(self) -> None:
+        plan = getattr(self.sink, "plan", None)
+        if plan is not None:
+            plan(self.plan_entries())
+        else:
+            self.sink.write(self.todo_panel())
 
     def todo_text(self) -> str:
         """The todo list as lines, or a note when there is none."""

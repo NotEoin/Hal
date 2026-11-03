@@ -147,6 +147,8 @@ First release of the monorepo (uv workspace on branch `next`).
 - Code blocks in the full screen show their language and a `copy` row (a click copies the code
   only) and scroll sideways instead of wrapping. The dark code theme is `github-dark` instead of
   `monokai`, in the line UI too.
+- The todo list in the full screen is one `plan` checklist per turn with a progress bar and
+  `1 of 3`, updated in place, instead of a new `Todo` panel on every change.
 - Reasoning in the full screen folds to one faint `thought for 4s` row (time from the first to
   the last thought chunk); opening it adds the token estimate.
 - `hal chat` offers only the commands that work in a chat: `/help`, Tab and Esc Esc leave out the

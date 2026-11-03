@@ -45,6 +45,10 @@ Textual 8.2.8), `ascii` in the ASCII look.
 `Transcript.add`; a block whose kind differs from the one before it gets the `gap` class (one
 blank row above). The app sets `compact` on the transcript below 90 columns or 30 rows, which
 drops those rows so a turn fits a small terminal.
+`Renderer` sends the todo list to `Sink.plan` as `(status, text)` pairs (cleaned, clipped, an
+unknown status read as `pending`) when the sink has it; `TextualSink.plan` keeps one `PlanBlock`
+per turn and updates it in place, the bar easing on the motion ticker. `ConsoleSink` has no
+`plan`, so the line UI writes the `Todo` panel as before.
 `Renderer` cuts each committed block with `split_fences` and, when the sink has `code`, sends
 fenced code there and the prose around it through `write`. `ConsoleSink` has no `code`, so the
 line UI prints one markdown block as before. `CodeBlock` shows only a sanitised language label
