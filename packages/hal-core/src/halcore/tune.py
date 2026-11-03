@@ -6,8 +6,9 @@ Without `--write` nothing is changed; the plan shows, per role, the model, the c
 the KV cache type and how many layers go on the GPU, with the numbers behind each choice.
 `--write` pins the chosen models, writes `[models.roles.*]` and the gateway wiring to the config
 (with a backup), and generates the llama.cpp mode `tuned` for GGUF roles. Nothing is downloaded.
-On a terminal, a bare `hal tune` (or `-i`) opens the interactive screen (`halcore.tuneui`)
-instead; off a terminal, or with any flag, it shows the `--auto` plan.
+On a terminal, a bare `hal tune` (or `-i`) opens the interactive screen instead: the full-screen
+app (`halcore.tuneapp`) where the terminal can run it, else the line screen (`halcore.tuneui`);
+off a terminal, or with any flag, it shows the `--auto` plan.
 
 Exit status: 0 done, 1 error, 2 usage, 3 nothing to tune (no source, or no usable model).
 """
@@ -16,14 +17,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import os
 import sys
 from pathlib import Path
 
+from halkit import config as kitconfig
 from halkit import hardware, modelconf, paths
 
 from . import modelplan
 
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_NOTHING = 0, 1, 2, 3
+log = logging.getLogger(__name__)
 ADD_SOURCE_HINT = "hal models add-source ollama http://127.0.0.1:11434"
 
 
@@ -76,6 +81,51 @@ def is_interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
+def run_screen(hw: hardware.Hardware | None = None) -> int:
+    """Opens the interactive screen: the full-screen app when the terminal can run it, else the line screen.
+
+    When the app fails before it has drawn anything, one notice is printed and the line screen
+    opens on the same state, so nothing the user did is lost.
+    """
+    from . import tunestate  # noqa: PLC0415 - the screens load only when one opens
+    from .tui import fallback
+    from .tui.theme import UI_TABLE, load_look
+
+    try:
+        look = load_look(kitconfig.load(UI_TABLE), stream=sys.stdout)
+    except kitconfig.ConfigError as exc:
+        log.warning("ignoring [ui] settings: %s", exc)
+        look = load_look(stream=sys.stdout)
+    ok, reason = fallback.can_run_textual(sys.stdin, sys.stdout, os.environ, look.interface)
+    if not ok:
+        from . import tuneui  # noqa: PLC0415 - prompt_toolkit loads only for the line screen
+
+        return tuneui.run_interactive(hw=hw)
+    print("Detecting hardware and listing models...")
+    try:
+        state = tunestate.open_state(hw=hw)
+    except (ValueError, OSError, *modelplan.plain_errors()) as exc:
+        print(f"hal tune: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    from . import tuneapp  # noqa: PLC0415 - Textual loads only for the full screen
+
+    app = tuneapp.TuneApp(state, look)
+    try:
+        status = app.run(mouse=look.mouse)
+    except Exception as exc:  # noqa: BLE001 - a start failure falls back to the line screen; later ones re-raise
+        if app.mounted:
+            raise
+        print(fallback.notice(str(exc) or type(exc).__name__), file=sys.stderr)
+        from . import tuneui  # noqa: PLC0415 - prompt_toolkit loads only for the line screen
+
+        return tuneui.run_line_screen(state, look)
+    for line in app.written:
+        print(line)
+    if app.left_unsaved:
+        print("Left without writing: the config is unchanged.")
+    return status if isinstance(status, int) else EXIT_OK
+
+
 def main(argv: list[str]) -> int:
     """Entry point of `hal tune`."""
     ap = argparse.ArgumentParser(prog="hal tune", description="Detect hardware and tune the model settings.")
@@ -88,14 +138,12 @@ def main(argv: list[str]) -> int:
     ap.add_argument("-i", "--interactive", action="store_true", help="open the interactive screen (the default on a terminal with no flags)")
     args = ap.parse_args(argv)
     if args.interactive or (not argv and is_interactive()):
-        from . import tuneui  # noqa: PLC0415 - prompt_toolkit loads only for the screen
-
         try:
             hw = hardware.from_dict(json.loads(Path(args.hardware).read_text(encoding="utf-8"))) if args.hardware else None
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             print(f"hal tune: {exc}", file=sys.stderr)
             return EXIT_ERROR
-        return tuneui.run_interactive(hw=hw)
+        return run_screen(hw)
     try:
         sources = modelconf.load_sources()
         roles = modelconf.load_roles()

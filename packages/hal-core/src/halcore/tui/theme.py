@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 ACCENT = "#e5484d"  # HAL red
 THEMES = ("dark", "light", "mono")
 NOTIFY_MODES = ("off", "bell", "osc9")
+INTERFACES = ("auto", "full", "line")
 DEFAULT_WIDTH = 100  # used when the output is not a terminal (tests, pipes)
 
 UI_TABLE = kitconfig.register(
@@ -49,6 +50,12 @@ UI_TABLE = kitconfig.register(
             kitconfig.Key("unicode", bool, True, doc="Use box drawing and glyphs when the terminal is UTF-8"),
             kitconfig.Key("theme", str, "dark", choices=THEMES, env="HAL_THEME", doc="Colour theme"),
             kitconfig.Key("notify", str, "bell", choices=NOTIFY_MODES, doc="Signal when a long turn ends unfocused"),
+            kitconfig.Key(
+                "interface", str, "auto", choices=INTERFACES, env="HAL_TUI",
+                doc="auto: full screen on a capable terminal; full or line to force one",
+            ),
+            kitconfig.Key("animations", bool, True, doc="Short fades and slides in the full-screen UI"),
+            kitconfig.Key("mouse", bool, True, doc="Mouse clicks and drags in the full-screen UI (Shift+drag selects text)"),
         ),
     )
 )
@@ -132,6 +139,9 @@ class Look:
     show_thinking: bool = False
     notify: str = "bell"
     mention_max_bytes: int = 32768
+    interface: str = "auto"
+    animations: bool = True
+    mouse: bool = True
 
     @property
     def unicode(self) -> bool:
@@ -170,6 +180,9 @@ def load_look(
         show_thinking=bool(ui.get("show_thinking", False)),
         notify=str(ui.get("notify", "bell")),
         mention_max_bytes=int(ui.get("mention_max_bytes", 32768)),  # type: ignore[call-overload]  # config validated the type
+        interface=str(ui.get("interface", "auto")),
+        animations=bool(ui.get("animations", True)),
+        mouse=bool(ui.get("mouse", True)),
     )
 
 

@@ -84,60 +84,62 @@ Exit status of `hal tune`: 0 done, 1 error, 2 usage, 3 nothing to tune (no sourc
 
 ## The tune screen
 
-`hal tune` on a terminal opens a menu screen in the style of `hal code`. Above the menu it
-shows your hardware (each GPU with free and total memory, RAM, CPU threads, WSL2 notes) and one
-line per role: model, context and how it fits.
+`hal tune` on a terminal opens a full-screen app you can drive with the mouse or the keys.
+Nothing is written until you save.
 
 ```text
-Hal tune
-GPU 0  RTX 4090  24000 / 24564 MiB free
-RAM  24576 / 32768 MiB free   CPU  16 threads
-
-chat   local/gemma3:12b (hal-chat)                 32K  9.4 GB  fits
-fast   local/qwen3:8b *                            32K  6.1 GB  fits
-code   local/hal-gpu                                    set in [hal] (not tuned)
-...
-guard  ollama/granite4.1-guardian:8b                    safety check, CPU
-What next?
-> 1. Quick setup (presets)
-  2. Adjust a role
-  3. Model sources (add or remove)
-  4. Review changes
-  5. Save and exit
-  6. Quit without saving
-up/down move | enter select | 1-9 jump | esc back | ': commands'
+RTX 4090  24000 / 24564 MiB free     RAM 24576 / 32768 MiB free   CPU 16 threads
+Plan for  [ This machine ] [ 8 GB ] [ 12 GB ] [ 16 GB ] [ 24 GB ] [ CPU only ]
+ Roles | Sources | Review 1
+ chat   local/gemma3:12b (hal-chat) *  | chat
+        32K  fits                      | Model        local/gemma3:12b (hal-chat)  (change)
+ fast   local/qwen3:8b                 | Context      =========O--------------     32K  [Auto]
+ code   llamacpp/hal-code              | KV cache     [ auto (q8_0) ] [ f16 ] [ q8_0 ] [ q4_0 ]
+        set in [hal] (not tuned)       | GPU layers   ======================O     48  [Auto]
+ ...                                   | Effort       [ default ] [ off ] [ low ] [ medium ] ...
+ guard  ollama/granite4.1-guardian:8b  | Temperature  ==========O-----------    auto  [Default]
+        (safety check, CPU)            | Memory       [##############-------] 9.4 / 22.1 GB  fits
+ ^s Save  ^z Undo  esc Quit  f1 Help  f2 Roles  f3 Sources  f4 Review
 ```
 
-A tag built from another model shows that model first and the tag in brackets, so
-`hal-chat:latest` reads `gemma3:12b (hal-chat)`. A role set straight in `[hal]` to a gateway
-`backend/model`, such as a llama.cpp router preset, is shown but not tuned here. The `guard` line
-is the tool-call safety classifier from `policy.toml` (see [security](security.md)); tune shows it
-and leaves it alone.
+- **Plan for** tunes every role against a VRAM budget: *This machine* (the card's total memory),
+  8, 12, 16 or 24 GB, or *CPU only*. A role keeps its model if it fits, otherwise it gets the
+  best model you have that does; when none fits, a note names a model to pull. The presets are
+  rows of a table in `halcore/tunepresets.py`.
+- **Roles** lists every role with its real model (a tag built from another model shows that model
+  first and the tag in brackets) and how it fits; `*` marks a change not saved yet. Moving in the
+  list opens that role on the right.
+- **Context**, **GPU layers** and **Temperature** are sliders: drag the knob, click the track,
+  use the wheel, or focus them and press Left/Right (PgUp/PgDn for big steps, Home/End for the
+  ends). The memory bar moves while you drag; the change lands when you let go. `Auto` (or `a`)
+  hands the value back to tuning; `Default` leaves the temperature to the model.
+- **GPU layers** puts that many layers on the GPU by hand. It is off, with the reason, when the
+  model's layer count is unknown, when the server sizes the model, or when the plan has no GPU.
+- **KV cache** and **Effort** are rows of buttons. `auto` shows what tuning picks now. Effort
+  levels the model cannot use are struck through; `default` clears the effort.
+- **Memory** is green when the role fits, amber when it is tight (over 85 percent of the budget)
+  or spills into RAM, red when it does not fit; the lines below it give the numbers.
+- **Sources** adds a source (the form keeps what you typed and shows any error in place) or
+  removes one; Remove is off, with the reason, while a role uses the source.
+- **Review** shows the diff of `config.toml`. **Save** (Ctrl+S) shows the diff again and asks,
+  with Cancel focused, before it writes. With nothing changed, Save just exits.
+- **Ctrl+Z** undoes the last change, a preset included. **Esc** quits at once when nothing
+  changed; otherwise it asks, with Keep editing focused (Discard and quit, or Save).
+- The first time (no role assigned) a **Quick start** screen shows what each preset would pick;
+  click a card or press Enter on it, choose Adjust by hand, or press Esc to leave.
 
-No typing is needed. Up and Down move the highlight, Enter chooses, the keys 1 to 9 jump to a
-row, Esc or `q` go back, and a click on a row chooses it (most terminals; if yours does not send
-mouse events, use the keys). `GB` here means 1024 MiB.
+The `code` role set straight in `[hal]` to a gateway `backend/model`, such as a llama.cpp router
+preset, is shown but not tuned. The `guard` row is the tool-call safety classifier from
+`policy.toml` (see [security](security.md)); tune shows it and leaves it alone. `GB` here means
+1024 MiB. It works with no GPU, at 80 by 24, with `NO_COLOR` and in ASCII mode.
 
-- **Quick setup** tunes every role against a VRAM budget, then shows the result as a diff for
-  review; nothing is written until you choose Save and exit. The presets are *This machine
-  (auto)* (the card's total memory), *8 GB*, *12 GB*, *16 GB* and *24 GB GPU*, and *CPU only*
-  (no GPU layers). A role keeps its model if it fits the preset, otherwise it gets the best
-  model you have that does. If none fits, the screen names the recommended model to pull (see
-  [Recommended models](#recommended-models)) or suggests adding a source. A preset stays in
-  force for the rest of the session; pick *This machine* to go back. The presets are rows of a
-  table in `halcore/tunepresets.py`.
-- **Adjust a role** opens a menu for one role: Model (a list you can filter by typing), Context
-  (8K to 128K or Custom, each with its size and `fits`, `tight` or `too big`), KV cache, Effort
-  (only for models that can think; `default` clears it), Temperature, and Auto-tune this role.
-- **Model sources** adds or removes a source.
-- **Review changes** shows the diff of `config.toml`; nothing is written yet.
-- **Save and exit** shows the diff and asks Yes or No before it writes. With nothing changed it
-  just exits.
-- A `*` marks a role changed and not saved. Esc on the main menu and **Quit without saving**
-  both ask before they drop changes; the highlight starts on No.
+### The line screen
 
-Press `:` on the main menu for the typed command line (Tab completes; `menu` goes back). A
-command may start with a role: `model code`.
+Without a capable terminal (`TERM=dumb`, `HAL_TUI=line`, `[ui].interface = "line"`), or when
+the full screen cannot start, `hal tune` opens the older menu screen instead: Up and Down move,
+Enter chooses, 1 to 9 jump to a row, Esc goes back, a click on a row chooses it. Press `:` on its
+main menu for the typed command line (Tab completes; `menu` goes back). A command may start with
+a role: `model code`.
 
 | Command | What it does |
 | --- | --- |
@@ -145,42 +147,11 @@ command may start with a role: `model code`.
 | `model` | Pick a model from your sources with the arrow keys; type to filter |
 | `context` | Pick a size (each shows its fit) or type a number: `48000`, `48k` |
 | `kv` | Pick `auto`, `f16`, `q8_0` or `q4_0`, with the fit of each |
-| `effort` | Pick a default effort; shown only for models that can think |
+| `effort` | Pick a default effort, or `default`; shown only for models that can think |
 | `temp` | Pick a temperature, or `default` |
 | `auto` | Tune the role for this hardware; `auto all` tunes every role |
 | `source` | Add or remove a model source |
 | `diff`, `write`, `quit`, `menu` | Show the changes, write them, leave, or go back to the menus |
-
-It works with no GPU, in an 80 by 24 terminal, with `NO_COLOR`, and in ASCII mode.
-
-
-## Recommended models
-
-New to local models? Pull the row for your card, then run `hal tune` and pick its preset.
-*This machine* uses the largest row your card covers. Vision and writer use the chat model.
-
-| Preset | chat, vision, writer | fast | code |
-| --- | --- | --- | --- |
-| CPU only | `gemma4:e4b-it-qat` | `qwen3.5:2b` | `qwen3.5:4b` |
-| 8 GB GPU | `gemma4:e4b-it-qat` | `qwen3.5:2b` | `qwen3.5:9b` |
-| 12 GB GPU | `gemma4:12b-it-qat` | `qwen3.5:4b` | `qwen3.5:9b` |
-| 16 GB GPU | `gemma4:12b-it-qat` | `qwen3.5:4b` | `gpt-oss:20b` |
-| 24 GB GPU | `gemma4:26b-a4b-it-qat` | `qwen3.5:4b` | `qwen3.8:27b` |
-
-Every preset also uses `embeddinggemma` for embed and `granite4.1-guardian:8b` for the safety
-check, which runs on the CPU and needs about 7 GB of free RAM ([Security](security.md)).
-
-```bash
-for m in gemma4:12b-it-qat qwen3.5:4b qwen3.5:9b embeddinggemma granite4.1-guardian:8b; do
-  ollama pull "$m"                                       # the 12 GB row; one model per pull
-done
-hal tune                                                 # Quick setup, then the 12 GB preset
-```
-
-How these were chosen: the 24 GB row is the set this project runs every day on an RTX 3090. The
-other rows are picked by weight size from the Ollama library (checked 2026-11-03), so that each
-model leaves room for context on its own card. They are not quality-tested; if a model calls
-tools badly, try the next row's chat model with a smaller context.
 
 ## Tuning
 

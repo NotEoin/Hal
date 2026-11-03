@@ -9,6 +9,12 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Added
 
+- `hal tune` opens a full-screen app on a capable terminal: a preset row, sliders for context,
+  GPU layers and temperature with a memory bar that moves while you drag, buttons for KV cache
+  and effort, a source form, a review tab, Ctrl+Z undo and a Quick start on first run. GPU layers
+  can now be set by hand (`halkit.tuning.fit_layers`). The menu screen stays as the fallback
+  (`[ui].interface = "line"` or `HAL_TUI=line`, or when the full screen cannot start).
+
 - `hal doctor` adds `platform`, `wsl systemd` and `wsl gpu` lines on WSL2, and `docs/howto/run-on-windows-with-wsl2.md` explains the setup.
 - `hal setup` opens the `hal tune` screen on a terminal when no chat model is assigned.
 - `hal code`: `/model` lists the models of your sources by source, switches the session and `/model save`

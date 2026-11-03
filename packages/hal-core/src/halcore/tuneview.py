@@ -7,14 +7,14 @@ so both say the same thing. Nothing here imports a terminal library. `open_state
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Mapping
 
 from halhub.policy.load import load_policy
 from halkit import config as halconfig
 from halkit import hardware as hwmod
 from halkit import modelconf, tuning
 
-from . import modelplan, tunestate
+from . import tunestate
 from .tui.status import context_bar
 from .tui.theme import Look
 
@@ -92,11 +92,22 @@ def model_label(state: tunestate.TuneSession, source: str, name: str) -> str:
     return f"{source}/{base} ({name.removesuffix(':latest')})"
 
 
-def role_line(state: tunestate.TuneSession, role: str, look: Look) -> tuple[str, str, str]:
-    """`(model, context, fit text)` of one role, for the summary and the role menu."""
+def hal_models() -> dict[str, str]:
+    """Role -> gateway model set straight in `[hal]` (`chat_model` and the like), read once."""
+    hal = halconfig.hal()
+    return {role: str(hal.get(f"{role}_model") or "") for role in modelconf.ROLES if hal.get(f"{role}_model")}
+
+
+def role_line(
+    state: tunestate.TuneSession, role: str, look: Look, direct: Mapping[str, str] | None = None
+) -> tuple[str, str, str]:
+    """`(model, context, fit text)` of one role, for the summary and the role menu.
+
+    `direct` is `hal_models()` read once by a screen that redraws often; without it `[hal]` is read here.
+    """
     d = state.drafts.get(role)
     if d is None or not d.model:
-        direct = str(halconfig.hal().get(f"{role}_model") or "")
+        direct = str((hal_models() if direct is None else direct).get(role) or "")
         if direct:
             # a gateway `backend/model` (such as a llama.cpp router preset) is set in `[hal]`, and
             # `[models.roles]` cannot describe it, so the screen shows it without tuning it
@@ -122,14 +133,4 @@ def guard_line() -> tuple[str, str]:
     return settings.model, f"safety check, {where}"
 
 
-def open_state(
-    *, hw: hwmod.Hardware | None = None, discover: Callable | None = None, say: Callable[[str], None] | None = None
-) -> tunestate.TuneSession:
-    """Detects the hardware, reads the config and lists every source's models."""
-    say = say or (lambda _: None)
-    say("Detecting hardware and listing models...")
-    sources, roles, limits = modelconf.load_sources(), modelconf.load_roles(), modelconf.limits()
-    hw = hw or hwmod.detect()
-    kwargs = {"discover": discover} if discover else {}
-    found = modelplan.survey(sources, **kwargs)
-    return tunestate.TuneSession(hw, sources, found, roles, limits, **kwargs)
+open_state = tunestate.open_state  # one place builds the session; kept here for the screens

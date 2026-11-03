@@ -671,3 +671,8 @@ def run_interactive(
         console.print(Text(f"hal tune: {exc}", style=look.palette.bad))
         return 1
     return TuneScreen(state, look, prompter or PtPrompter(look), console).run()
+
+
+def run_line_screen(state: tunestate.TuneSession, look: Look) -> int:
+    """The line screen on a session that is already open (the full screen could not start)."""
+    return TuneScreen(state, look, PtPrompter(look), make_console(look, sys.stdout)).run()

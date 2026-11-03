@@ -27,6 +27,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 
 from halkit import config, discovery, effort, modelconf, tomledit, tuning
+from halkit import hardware as hwmod
 from halkit.hardware import Hardware
 from halkit.modelinfo import ModelInfo
 
@@ -477,3 +478,15 @@ class TuneSession:
         self._removed.clear()
         return lines
 
+
+def open_state(
+    *, hw: hwmod.Hardware | None = None, discover: Callable | None = None, say: Callable[[str], None] | None = None
+) -> TuneSession:
+    """Detects the hardware, reads the config and lists every source's models."""
+    say = say or (lambda _: None)
+    say("Detecting hardware and listing models...")
+    sources, roles, limits = modelconf.load_sources(), modelconf.load_roles(), modelconf.limits()
+    hw = hw or hwmod.detect()
+    kwargs = {"discover": discover} if discover else {}
+    found = modelplan.survey(sources, **kwargs)
+    return TuneSession(hw, sources, found, roles, limits, **kwargs)

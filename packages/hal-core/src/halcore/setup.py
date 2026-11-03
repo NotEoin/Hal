@@ -309,12 +309,12 @@ def offer_tuning(*, dry_run: bool) -> bool:
     Returns True when it opened. Off a terminal, or with a chat model set, it does nothing: the
     models step has already printed the next command.
     """
-    from . import tune, tuneui  # noqa: PLC0415 - prompt_toolkit loads only when the screen opens
+    from . import tune  # noqa: PLC0415 - the screens load only when one opens
 
     if dry_run or not tune.is_interactive() or modelplan.assignment_status()[0]:
         return False
     print("No chat model is assigned yet. Opening the tune screen; press Esc to skip it.")
-    tuneui.run_interactive()
+    tune.run_screen()
     return True
 
 
