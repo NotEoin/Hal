@@ -219,6 +219,7 @@ First release of the monorepo (uv workspace on branch `next`).
 - The Ctrl+P palette, the Ctrl+R history search and the `/` and `@` completions keep each row on
   one line, clipped with an ellipsis, and the palette and history search lines show their
   placeholder instead of a box drawn over them.
+- The Ctrl+P palette lines its descriptions up in one column.
 
 ### Security
 

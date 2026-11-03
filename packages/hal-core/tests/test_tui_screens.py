@@ -216,3 +216,23 @@ def test_history_search_line_has_no_box_and_long_messages_take_one_row():
     shown = overlay_layout(HistorySearch(items))
     assert shown["focused"] and shown["height"] == 1 and shown["border"] in ("", "none")
     assert shown["rows"] == shown["count"] == 3
+
+
+def test_palette_notes_line_up_in_one_column():
+    from halcore.tui import palette
+    from halcore.tui.screens import CommandPalette
+
+    async def load():
+        return [palette.PaletteItem("command", label, "does a thing", "send", label) for label in ("/m", "/compact", "/fork")]
+
+    rows = []
+
+    async def script(pilot, modal):
+        for _ in range(5):
+            await pilot.pause()
+        options = modal.query_one("#options")
+        rows.extend(options.get_option_at_index(n).prompt.plain for n in range(options.option_count))
+        await pilot.press("escape")
+
+    run(CommandPalette(load), script)
+    assert len(rows) == 3 and len({row.index("does a thing") for row in rows}) == 1

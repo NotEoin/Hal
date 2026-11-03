@@ -80,6 +80,7 @@ class PickerModal(ModalScreen[str | None]):
     PickerModal Input { margin-bottom: 1; }
     """
     BINDINGS = [Binding("escape", "cancel", "cancel")]
+    label_w = 0  # labels are padded to this width so the notes line up; 0 leaves them unpadded
 
     def __init__(
         self, title: str, items: Sequence[PickItem] | Callable[[], Awaitable[Sequence[PickItem]]], current: str = "",
@@ -124,7 +125,7 @@ class PickerModal(ModalScreen[str | None]):
         """One option line: a mark for the current value, the label with the letters `query` matched, then the note dimmed."""
         text = Text("* " if item.value == self.current and item.value else "  ")
         label = clean(item.label)
-        text.append(label, style="dim" if item.disabled else "")
+        text.append(label.ljust(self.label_w), style="dim" if item.disabled else "")
         hit = fuzzy.score(query, f"{label} {clean(item.note)}") if query else None
         accent = role_colours(getattr(self.app, "look", None)).get("accent", "")
         for i in hit[1] if hit else ():
@@ -228,6 +229,7 @@ class CommandPalette(PickerModal):
     CommandPalette Input, CommandPalette Input:focus { border: none; height: 1; padding: 0; width: 1fr; }
     """
     KIND_W = 9  # "command" and "setting" plus a gap
+    LABEL_MAX_W = 24  # the note column starts no further right than this, so long labels do not push it off
 
     def __init__(self, load: Callable[[], Awaitable[Sequence[palette.PaletteItem]]], prompt: str = "> ") -> None:
         super().__init__("palette", self._load_entries)
@@ -259,6 +261,7 @@ class CommandPalette(PickerModal):
         """At most `PALETTE_ROWS` matches, best first."""
         options = self.query_one("#options", OptionList)
         self.shown = fuzzy.rank(query, self.items, key=lambda i: f"{clean(i.label)} {clean(i.note)}", limit=palette.PALETTE_ROWS)
+        self.label_w = min(self.LABEL_MAX_W, max((len(clean(i.label)) for i in self.shown if i.note), default=0))
         options.set_options([Option(self.row(i, query), disabled=i.disabled) for i in self.shown])
         options.highlighted = next((n for n, i in enumerate(self.shown) if not i.disabled), None)
 
