@@ -105,7 +105,8 @@ unless stated. Ids are stable: requirements added in the 2026-10-24 revision use
   (the key `p` in `packs.<p>.modules`), else the module is excluded as a registry problem. A
   module not listed there (path-scanned, or an entry point `packs.json` does not record) MUST
   run with pack equal to its module name whatever it declares, and a different declared value
-  MUST be reported in `Registry.problems`. The reason: `pack` feeds the approval key and the
+  MUST be reported in `Registry.problems`. One exception: an entry point whose distribution's
+  normalised name is `hal-<p>` MAY claim pack `p`, so a pack installed alone keeps its name. The reason: `pack` feeds the approval key and the
   `[packs.<p>]` policy rules (resolution C7), and a third-party pack must not claim another
   pack's rules and grants by declaring its name. Test: unit (`test_manifest.py`;
   `test_registry.py::test_pack_name_not_matching_packs_json_is_excluded`,
@@ -506,8 +507,9 @@ Depth 4 covers `hal-ecosystem/extensions/<repo>` and `hal-tools/packs/<pack>/<pa
 2. Parse each manifest. A `ManifestError` adds a problem and drops that candidate.
 3. Drop v1 manifests named `hub` found by path scanning, with a warning (REQ-HUB-12).
    Settle each module's pack (REQ-HUB-63): a module listed in `packs.json` whose declared
-   `pack` differs from the record's pack name is dropped as a problem; an unlisted module
-   gets its module name as pack, with a problem noted when it declared another.
+   `pack` differs from the record's pack name is dropped as a problem; an entry point from the
+   distribution `hal-<p>` keeps a declared pack `p`; any other unlisted module gets its module
+   name as pack, with a problem noted when it declared another.
 4. If two candidates share a name, raise `DuplicateModuleError` listing every
    `(name, manifest path, source)`; nothing loads. Fix: disable one in `[hub].ignore_paths`
    or uninstall it.

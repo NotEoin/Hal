@@ -9,7 +9,10 @@ each module's pack, refuse duplicate names, apply `[hub].disabled`, then check
   problems and leaves every module of that name out.
 - A module's pack is the installed-pack record's when the record lists it, and its module
   name otherwise, whatever the manifest declares (REQ-HUB-63): `pack` feeds the approval key
-  and the `[packs.<p>]` policy rules, so a third-party pack must not claim another's.
+  and the `[packs.<p>]` policy rules, so a third-party pack must not claim another's. One more
+  source may vouch: an entry point from the distribution `hal-<pack>` (RESOLUTIONS C7 names a
+  pack's distribution so) may claim `<pack>`. That lets a pack installed alone, without Hal's
+  record, keep its own name; another distribution still cannot borrow it.
 - One broken manifest drops only its own module (REQ-HUB-10). Problems are logged, never
   printed: stdout belongs to the CLI and the MCP stdio stream.
 - The built-in `hub` module (`halhub/builtin/hal-module.toml`) is always present and never
@@ -22,6 +25,7 @@ from __future__ import annotations
 import dataclasses
 import importlib.metadata
 import logging
+import re
 from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -219,6 +223,14 @@ def _parse(candidate: Candidate, config: HubConfig, problems: list[Problem]) -> 
     return _settle_pack(spec, candidate, problems)
 
 
+def _distribution_pack(distribution: str | None) -> str | None:
+    """`organiser` for the distribution `hal-organiser` (any case, `_` or `.`), else None."""
+    if not distribution:
+        return None
+    name = re.sub(r"[-_.]+", "-", distribution).lower()  # PEP 503 normalisation
+    return name.removeprefix("hal-") if name.startswith("hal-") else None
+
+
 def _settle_pack(spec: ModuleSpec, candidate: Candidate, problems: list[Problem]) -> ModuleSpec | None:
     """Applies REQ-HUB-63: the record's pack, else the module name."""
     declared = spec.declared_pack or spec.name
@@ -232,6 +244,8 @@ def _settle_pack(spec: ModuleSpec, candidate: Candidate, problems: list[Problem]
             )
             return None
         pack = candidate.pack
+    elif candidate.source == "entry_point" and _distribution_pack(candidate.distribution) == declared:
+        pack = declared
     else:
         pack = spec.name
         if declared != pack:

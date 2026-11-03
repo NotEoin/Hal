@@ -7,6 +7,7 @@ import sys
 import textwrap
 from importlib.metadata import EntryPoint
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -97,6 +98,31 @@ def test_path_scanned_module_uses_module_name_as_pack(tmp_path):
     registry = load(tmp_path)
     spec = registry.modules["calendar"].spec
     assert spec.pack == "calendar" and registry.tool("calendar_ping").pack == "calendar"
+    assert any("organiser" in p.message for p in registry.problems)
+
+
+def _pack_entry_point(tmp_path, monkeypatch, distribution: str, declared: str) -> list[EntryPoint]:
+    """An entry point from `distribution` whose package `halcalx` declares pack `declared`."""
+    site = tmp_path / "site"
+    module(site / "halcalx", "calendar", pack=declared)
+    monkeypatch.syspath_prepend(str(site))
+    ep = EntryPoint(name="calendar", value="halcalx", group=ENTRY_POINT_GROUP)
+    return [ep._for(SimpleNamespace(name=distribution))]
+
+
+def test_a_packs_own_distribution_may_claim_its_pack(tmp_path, monkeypatch):
+    """Regression: `uv tool install` of a pack warned on every module and filed it under its own name."""
+    eps = _pack_entry_point(tmp_path, monkeypatch, "hal_organiser", "organiser")
+    registry = load(use_entry_points=True, entry_points=lambda: eps)
+    spec = registry.modules["calendar"].spec
+    assert spec.pack == "organiser" and spec.tools[0].pack == "organiser"
+    assert not registry.problems
+
+
+def test_another_distribution_may_not_claim_a_pack(tmp_path, monkeypatch):
+    eps = _pack_entry_point(tmp_path, monkeypatch, "hal-life", "organiser")
+    registry = load(use_entry_points=True, entry_points=lambda: eps)
+    assert registry.modules["calendar"].spec.pack == "calendar"
     assert any("organiser" in p.message for p in registry.problems)
 
 
