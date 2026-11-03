@@ -1,77 +1,148 @@
 # Hal code: a tour of the terminal UI
 
-`hal code [DIR]` and `hal chat` open a full-screen terminal UI you can drive with the keys or the
-mouse. The agent always runs in a box; the UI talks to it over ACP. Where the full screen cannot
-run (no terminal, `TERM=dumb`, `[ui].interface = "line"`), the line UI opens instead: it prints
-into your scrollback and is described in [The line UI](#the-line-ui). Verified by the tests in
-`packages/hal-core/tests/test_tui*.py` with a scripted agent. Not yet run against a live model:
-check a real session with a 12B to 32B model before relying on the speed figures.
+`hal code [DIR]` and `hal chat` open a full-screen terminal UI. You can drive it with the keys or
+the mouse. The agent always runs in a box, and the UI talks to it over ACP. Where the full screen
+cannot run (no terminal, `TERM=dumb`, `[ui].interface = "line"`), the line UI opens instead. It
+prints into your scrollback; see [The line UI](#the-line-ui).
+
+How this page was checked: the screens below are copied from the snapshot goldens in
+`packages/hal-core/tests/data/tui_snapshots/`, and the behaviour is covered by
+`packages/hal-core/tests/test_tui*.py` with a scripted agent. A live `hal chat` was started on
+2026-11-03 to check that it opens. A full turn against a live model has not been checked: run one
+with a 12B to 32B model before you rely on the speed figures.
+
+A finished turn at 80x24, in the ASCII look (`turn-80x24-dark-ascii.snap`):
 
 ```text
- o  hal code  ~/proj  copy    qwen3-coder-30b v | default v | effort default v                         ####------ 38%
- > fix the failing test in @tests/test_parse.py                          | PLAN  1 of 2
- Looking at the test first.                                              |   [x] Read the test
-   * Read tests/test_parse.py  ok  0.0s                                  |   [>] Fix parse()
-   * Edit src/parse.py  ok  0.1s  src/parse.py +2 -1                     |
-          41   if not text:                                              | CHANGES  1
-          42 -     return None                                           |   M src/parse.py
-          42 +     raise ValueError("empty input")                       |   diff  accept...  export
-   | Run pytest -q  running 3s                                           |
- / working 12s | ~210 tok | 36 tok/s | Esc stops
- -------------------------------------------------------------------------------------------------------------
+ o  code  work    gemma-3-27b-it v | default v | default v       ####------ 40%
+ | > fix the add test
+ | ~ thought for <1s >
+ | plan  ###-----  1 of 3
+ |   [x] Read the failing test
+ |   [>] Fix add()
+ |   [ ] Run pytest
+ | * ran 3 tools  read calc.py, test_calc.py | grep add(         0.0s    ok  >
+ | * Edit   src/calc.py  +1 -1                                   0.0s    ok  >
+ |      1   def add(a, b):
+ |      2 -     return a - b
+ |      2 +     return a + b
+ | * Run    pytest -q                                            0.0s    ok  >
+ | Here is the fix:
+ |   python                                                               copy
+ |   def add(a, b):
+ |       return a + b
+ | The tests pass now.
+ | 1 file +1 -1 | ~70 tok | 0.0s
+ |
+
+--------------------------------------------------------------------------------
  > Message Hal   / commands  @ files  Enter sends  Alt+Enter new line
- box runsc | lockdown standard/balanced | main | 1 unaccepted | .:-=+*#= 36 tok/s      Esc stops  ^C stop  F1 help
+ box runsc                                           ^P cmds  ^B panel  F1 help
 ```
 
-The transcript opens with a welcome: the HAL eye (one row below 30 screen rows), the model, the
-box and the workspace, your most recent sessions of this project (three, or five on a tall screen;
-a click or Enter resumes one, and the title is the only preview a session keeps) and a tip that
-changes daily. It scrolls away like the rest. The line UI keeps its boxed header.
+With a UTF-8 terminal the marks are Unicode. Set `[ui].unicode = false` to force ASCII.
 
-The top bar is one row. The red dot at its left is the HAL eye: dim while Hal is idle, pulsing
-slowly while a turn runs, blinking amber while an approval waits (the status line says "approval
-waiting" too; in the ASCII look the dot is `o`, `O` or `!`). Then come the surface, the project and
-`copy` when edits go to an isolated copy, then the model, the mode (`hal code` only) and the effort:
-a click on one opens its picker (for effort, a row of the levels the model supports: Left/Right and
-Enter, or a click; Esc closes). The mouse wheel over effort steps the level while no turn runs and
-sends it once the wheel stops; the wheel over the model or the mode does nothing, so a stray scroll
-never swaps the model or makes edits pass without asking. There is no temperature control: the
-session cannot set one. A click on the context gauge at the right edge opens the same split `/context` prints (input side,
-model output kept, free, lockdown) with a Compact button that runs `/compact` (disabled while a
-turn runs). On a narrow
-terminal the project becomes its folder name, the model name is cut with an ellipsis and the gauge
-gets shorter, so model, mode, effort and the gauge always stay clickable. Lockdown and paranoia
-are in the status line (change them on the host with `hal config set`). The status line at the
-bottom shows the box, lockdown, branch and unaccepted changes, a sparkline of the last turn's
-tokens per second, and key hints at the right (`^P commands  ^B panel  F1 help`, or how to stop
-while a turn runs). F1 lists every key.
+## The welcome
 
-Each message starts a turn: your message after a `>` mark, then everything Hal did for it, held
-together by a thin rail on the left. The rail is red while the turn runs, amber while an approval
-waits, and grey once it is done; a message sent during a turn gets its own faint rail and a
-`queued` tag until its turn starts. Each tool call is one row: a spinner and the time while it runs, then the verb, its target,
-the `+N -N` of an edit, the time taken and the result at the right. A click on the row (or Enter
-on it) opens its output or diff, and a failed call opens by itself. An edit also shows its first
-six changed lines under the row, with a line before and after each, and `> N more lines` when
-there is more; a click on the row or on that line shows the whole diff. A click on a path in the
-transcript only opens that row's diff: nothing the model wrote can open a file. Three or more
-calls in a row that succeeded and changed nothing fold into one `ran 3 tools  read a.py, b.py`
-row once the run ends; a click shows them. Edits and failures never fold. Ctrl+O opens or closes them all.
-A code block in a reply shows its language and `copy` on the row above it; a click on that row
-copies the code only, and a long line scrolls sideways instead of wrapping. Hovering one of
-your messages shows `copy edit again` at the right end of its first row, plus `rewind` in
-`hal code` once the message has a checkpoint; a reply block shows `copy` (its markdown). In
-`hal chat` both also show the local time (`18:42`) they appeared on screen. `edit`
-puts the message back in the box to change and send; `again` sends the same text as a new turn.
-Neither removes the earlier turn from the agent's history: it is not a regenerate. `rewind`
-puts back the files from before that message (the conversation stays). A click elsewhere on a
-message, or Tab to it and Enter, offers the same actions in a dialog. The side panel is
-hidden on start at every width. Ctrl+B, or a click on the handle at the right edge of the
-transcript (it shows when you hover it), opens and closes it; drag the handle to resize it
-(26 to 60 columns, at most half the screen; the width holds for the session). It has no tabs:
-PLAN (the todo list), CHANGES (`hal code` only: the changed paths of the copy, with `diff`,
-`accept...` and `export`; click a path to read that file's diff, Esc closes it) and CONTEXT (the use bar and token counts). With a UTF-8 terminal the marks are Unicode;
-set `[ui].unicode = false` to force ASCII.
+The transcript opens with a welcome. It shows:
+
+- the HAL eye (one row below 30 screen rows);
+- the model, the box and the workspace;
+- your most recent sessions of this project: three, or five on a tall screen. A click or Enter
+  resumes one. The title is the only preview a session keeps;
+- a tip that changes daily.
+
+The welcome scrolls away like the rest of the transcript. The line UI keeps its boxed header.
+
+## The top bar
+
+The top bar is one row.
+
+- **The HAL eye** is the red dot at the left. It is dim while Hal is idle, pulses slowly while a
+  turn runs, and blinks amber while an approval waits. In the ASCII look it is `o`, `O` or `!`.
+- **The surface and the project**, then `copy` when edits go to an isolated copy.
+- **The model, the mode (`hal code` only) and the effort.** A click on one opens its picker. For
+  effort, the picker is a row of the levels the model supports: Left, Right and Enter, or a
+  click; Esc closes it.
+- **The mouse wheel over effort** steps the level while no turn runs, and sends it once the wheel
+  stops. The wheel over the model or the mode does nothing, so a stray scroll never swaps the
+  model or lets edits pass without asking. There is no temperature control: the session cannot
+  set one.
+- **The context gauge** at the right edge. A click opens the same split `/context` prints (input
+  side, model output kept, free, lockdown) with a Compact button that runs `/compact`. The button
+  is disabled while a turn runs.
+
+When the bar runs short of room it drops detail in steps: the project becomes its folder name,
+the `effort` label goes (as in the screen above), the model name is cut with an ellipsis and the
+gauge gets shorter. Model, mode, effort and the gauge always stay clickable.
+
+## The status line
+
+The status line at the bottom shows the box, lockdown, branch and unaccepted changes, and a
+sparkline of the last turn's tokens per second. Key hints sit at the right: `^P commands  ^B
+panel  F1 help`, or how to stop while a turn runs. F1 lists every key. Lockdown and paranoia are
+read only here; change them on the host with `hal config set`.
+
+## Turns
+
+Each message starts a turn: your message after a `>` mark, then everything Hal did for it. A thin
+rail on the left holds the turn together. The rail is red while the turn runs, amber while an
+approval waits, and grey once it is done. A message sent during a turn gets its own faint rail
+and a `queued` tag until its turn starts.
+
+### Tool rows
+
+- **Each tool call is one row.** While it runs it shows a spinner and the time. Then it shows the
+  verb, its target, the `+N -N` of an edit, the time taken and the result at the right.
+- **A click on the row, or Enter on it, opens its output or diff.** A failed call opens by
+  itself.
+- **An edit shows its first six changed lines** under the row, with one line before and after
+  each, and `> N more lines` when there is more. A click on the row or on that line shows the
+  whole diff.
+- **Three or more calls in a row that succeeded and changed nothing fold** into one row, such as
+  `ran 3 tools  read a.py, b.py`, once the run ends. A click shows them. Edits and failures never
+  fold. Ctrl+O opens or closes them all.
+- **A click on a path only opens that row's diff.** Nothing the model wrote can open a file.
+
+### Code blocks
+
+A code block in a reply shows its language and `copy` on the row above it. A click on that row
+copies the code only. A long line scrolls sideways instead of wrapping. Copying uses the
+terminal's clipboard escape (OSC 52), so it also works over SSH where the terminal allows it.
+
+### Message actions
+
+Hovering one of your messages shows `copy edit again` at the right end of its first row, plus
+`rewind` in `hal code` once the message has a checkpoint. A reply block shows `copy` (its
+markdown). In `hal chat` both also show the local time (`18:42`) they appeared on screen.
+
+| Action | What it does |
+| --- | --- |
+| `copy` | Copies the message, or the reply block's markdown |
+| `edit` | Puts the message back in the box to change and send |
+| `again` | Sends the same text as a new turn |
+| `rewind` | Puts back the files from before that message; the conversation stays |
+
+`edit` and `again` do not remove the earlier turn from the agent's history: neither is a
+regenerate. A click elsewhere on a message, or Tab to it and Enter, offers the same actions in a
+dialog.
+
+## The side panel
+
+The side panel is hidden on start at every width.
+
+- Ctrl+B, or a click on the handle at the right edge of the transcript, opens and closes it. The
+  handle shows when you hover it.
+- Drag the handle to resize the panel: 26 to 60 columns, and at most half the screen. The width
+  holds for the session.
+
+It has no tabs, only three sections:
+
+| Section | What it shows |
+| --- | --- |
+| PLAN | The todo list, with the same marks as the plan block in the turn |
+| CHANGES | `hal code` only: the changed paths of the copy, with `diff`, `accept...` and `export`. Click a path to read that file's diff; Esc closes it |
+| CONTEXT | The use bar and token counts |
 
 ## Input
 
@@ -122,13 +193,16 @@ When you leave, the full screen prints one line: the session id and the command 
 - Reasoning from thinking models is folded to one dim line: `thought for 4s` in the full screen
   (the token estimate shows once it is open), `thought for ~N tokens` in the line UI. A click opens
   it in place, and `[ui].show_thinking = true` starts it open.
-- Each tool call is a card: title, then status and duration when it ends. Output is folded to
+- In the line UI each tool call is a card: title, then status and duration when it ends. In the
+  full screen it is a row (see [Tool rows](#tool-rows)). Output is folded to
   `[ui].tool_output_lines` lines. Edits show a numbered, coloured unified diff, cut at
-  `[ui].diff_max_lines`. Subagent calls are indented under their parent. A subagent is one
-  row in the full screen (name, task, time; a spinner while it runs, `ok` and its time when done)
-  with its last three tool calls below it and `+N more` above them. The todo list is a
-  checklist: in the full screen one `plan` block per turn with a progress bar and `1 of 3`,
-  updated in place as items finish; in the line UI a `Todo` panel each time it changes.
+  `[ui].diff_max_lines`.
+- Subagent calls are indented under their parent. In the full screen a subagent is one row:
+  name, task and time, with a spinner while it runs and `ok` and its time when done. Its last
+  three tool calls show below it, with `+N more` above them.
+- The todo list is a checklist. In the full screen it is one `plan` block per turn with a
+  progress bar and `1 of 3`, updated in place as items finish. In the line UI it is a `Todo`
+  panel each time it changes.
 - The line after each turn shows files changed, `+/-` lines, tokens, time and tok/s, and the stop
   reason in words when the turn did not finish normally (`cancelled`, `stopped: hit the output
   limit`). `UNSANDBOXED` is added to it, to the status bar and to a red banner when the session
@@ -139,21 +213,30 @@ When you leave, the full screen prints one line: the session id and the command 
 
 ## Approvals
 
-In the full screen a broker approval opens a dialog over everything else:
+In the full screen a broker approval opens a dialog over everything else. At 80x24 it looks like
+this (`approval-80x24-dark-ascii.snap`, with the border drawn in ASCII here):
 
 ```text
-+-- Approval needed: leaves the box ------------------------------- 1 of 2 --+
-| shell.run [exec] from hal-tools   key 3f9a0c12d4e8                          |
-| ! classifier: high - writes outside the workspace                           |
-| why: tool tier exec needs approval under lockdown standard                  |
-| Arguments (every one, exactly as the tool receives them)                    |
-| {"command": "rm -rf build/", "cwd": "/work"}                                |
-|  Deny  n   Deny with a note  e   Allow once  y   Allow these exact          |
-|  arguments this session  a                                                  |
-+-----------------------------------------------------------------------------+
++----------------------------------------------------------------------+
+| Approval needed: leaves the box                                      |
+| shell.run [exec] from hal-tools   key 3f9a0c12d4e8                   |
+| ! classifier: high - writes outside the workspace                    |
+| why: exec tier asks                                                  |
+| Arguments (every one, exactly as the tool receives them)             |
+| +------------------------------------------------------------------+ |
+| | {"command": "rm -rf build/", "cwd": "/work"}                     | |
+| +------------------------------------------------------------------+ |
+| every argument shown                                                 |
+|                                Deny  n                               |
+|                         Deny with a note  e                          |
+|                            Allow once  y                             |
+|             Allow these exact arguments this session  a              |
+| y or a selects an allow button; Enter or a click confirms. Enter     |
+| alone denies.                                                        |
++----------------------------------------------------------------------+
 ```
 
-The screen behind the dialog dims, the focused Deny is filled red and a focused allow button is
+With two or more requests waiting, the title ends with `1 of 2`. The screen behind the dialog dims, the focused Deny is filled red and a focused allow button is
 filled amber. After you answer, one row in the turn records it, for example
 `x denied  shell.run [exec] from hal-tools  key 3f9a0c12d4e8` (also `denied with a note`,
 `allowed once`, `allowed this session` and `answered elsewhere`). The line UI prints what it

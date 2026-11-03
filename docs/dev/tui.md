@@ -13,16 +13,21 @@ User docs: [hal-code.md](../user/hal-code.md), [tui.md](../user/tui.md) and
 | `halcore/tui/render.py` | `Renderer` (updates to safe renderables) and `ConsoleSink` (scrollback) |
 | `halcore/tui/slash.py` | Slash commands; a bare listing command returns a `PickRequest` |
 | `halcore/tui/approval.py` | Approval panel text, `answer_to_option`, the line UI's asker |
+| `halcore/tui/status.py` | The status line's content (`StatusInfo`, `segments`) for both UIs |
+| `halcore/tui/choices.py` | The models `/model` offers, under the name the gateway serves them |
+| `halcore/tui/mentions.py` | `@path` mentions: the workspace index, matching, the preview and attaching files |
+| `halcore/tui/prompt.py` | The line UI's input editor (`PromptInput`, prompt_toolkit) |
+| `halcore/tui/keys.py` | The line UI's keys during a turn (`KeyWatcher`: Esc, Ctrl-O, Ctrl-T, focus) |
 | `halcore/tui/tokens.py` | Design tokens: colour roles per theme, glyph sets (Unicode and ASCII), spacing; no Textual or rich import |
 | `halcore/tui/fuzzy.py` | `score` (subsequence match with highlight indices) and `rank`, used by pickers and `@` completion (no Textual import) |
 | `halcore/tui/motion.py` | Easing helpers and `Ticker`, the one frame clock per app (no Textual import) |
 | `halcore/tui/theme.py` | `[ui]` settings and the `Glyphs`, `Palette`, prompt_toolkit colours and Textual themes built from `tokens.py` |
-| `halcore/tui/widgets.py` | Shared Textual widgets: `SafeStatic`, `Slider` (with `ValueEntry` to type a value), `Segmented`, `FitGauge`, `ToolCard`, `DiffView`, `ThinkingFold` |
-| `halcore/tui/chrome.py` | The bars around the transcript: `HalEye` (and, from the top bar on, the rest of the chrome) |
+| `halcore/tui/widgets.py` | Shared Textual widgets: `SafeStatic`, `Slider` (with `ValueEntry` to type a value), `Segmented`, `FitGauge`, `ToolCard`, `DiffView`, `ThinkingFold`, and `row_tail`, which keeps the time and result columns of every row aligned |
+| `halcore/tui/chrome.py` | The bars around the transcript: `HalEye`, `TopBar` (fitted by `fit_top`), `StatusLine`, `SideHandle` and `ChangesList` |
 | `halcore/tui/screens.py` | Shared modals: `PickerModal` (fuzzy ranked, matched letters bold), `ConfirmModal`, `ChoiceModal`, `HelpScreen`, `DiffScreen`, `EffortPopover`, `ContextPopover`, and `ask()` |
 | `halcore/tui/approvalmodal.py` | The approval gate of the full screen (`ApprovalModal`) and `ModalAsker`, its bridge sender |
 | `halcore/tui/agentapp.py` | The full-screen `hal code` and `hal chat`: `AgentApp`, `TextualUi`, `Composer` |
-| `halcore/tui/transcript.py` | The conversation view: `Transcript`, `UserMessage` and `TextualSink` (the `render.Sink` that mounts into it) |
+| `halcore/tui/transcript.py` | The conversation view: `Transcript`, `UserMessage`, `AssistantBlock`, `CodeBlock`, `ToolGroup`, `PlanBlock`, `SubagentTree` and `TextualSink` (the `render.Sink` that mounts into it) |
 | `halcore/tui/palette.py` | The Ctrl+P rows (`PaletteItem`) from commands, sessions, files, models and settings (no Textual import) |
 | `halcore/tui/welcome.py` | `WelcomeView`: eye art, facts, recent sessions (`RecentRow`) and `TIPS` |
 | `halcore/tui/fallback.py` | `can_run_textual`, `StartFailed`, `reason_of` and the notice printed before the line UI takes over |
