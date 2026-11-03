@@ -143,6 +143,14 @@ def _current() -> Scope:
     return _scope.get() or _HAL_HUB
 
 
+def _setup_command() -> str:
+    """`hal-hub`, or in a pack command the `hal-hub` of its environment, which is not on PATH."""
+    if _current() is _HAL_HUB:
+        return "hal-hub"
+    sibling = Path(sys.executable).parent / "hal-hub"
+    return str(sibling) if sibling.exists() else "hal-hub"
+
+
 def run_scoped(scope: Scope, argv: Sequence[str]) -> int:
     """Runs one command of `scope` (`PACK_COMMANDS` only, for a pack) and returns its exit code."""
     token = _scope.set(scope)
@@ -661,7 +669,7 @@ def doctor_report(hub: Hub) -> dict[str, object]:
             if SECRET_ENV_RE.search(name)
         ]
         notes += [
-            f"install step {step.id} has not run; run: hal-hub setup {spec.name}"
+            f"install step {step.id} has not run; run: {_setup_command()} setup {spec.name}"
             for step, prior in install.plan(spec)
             if prior is None or prior.status != "ok"
         ]

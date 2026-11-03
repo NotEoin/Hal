@@ -172,3 +172,15 @@ def test_doctor_notes_install_steps_not_yet_run(home, capsys):
     cli.main(["doctor", "--json"])
     kit = next(m for m in json.loads(capsys.readouterr().out)["modules"] if m["module"] == "kit")
     assert any("install step fetch has not run" in note for note in kit["notes"])
+
+
+def test_a_pack_command_names_the_hal_hub_of_its_own_environment(home, capsys, monkeypatch, tmp_path):
+    """Regression: `hal-memory doctor` said `run: hal-hub setup memory`; a pack alone has no `hal-hub`."""
+    bin_dir = tmp_path / "env" / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "hal-hub").touch()
+    monkeypatch.setattr("sys.executable", str(bin_dir / "python"))
+    scope = cli.Scope(prog="hal-kit", pack="kit", modules=frozenset({"kit"}), profile="standalone")
+    cli.run_scoped(scope, ["doctor", "--json"])
+    kit = next(m for m in json.loads(capsys.readouterr().out)["modules"] if m["module"] == "kit")
+    assert any(f"run: {bin_dir / 'hal-hub'} setup kit" in note for note in kit["notes"])
