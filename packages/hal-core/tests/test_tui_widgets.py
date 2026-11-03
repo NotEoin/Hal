@@ -228,3 +228,36 @@ def test_wheel_moves_a_slider_only_while_it_has_focus():
         return unfocused, slider.value
 
     assert run(app, script) == (5, 6)
+
+
+def test_a_click_on_the_value_opens_typed_entry_instead_of_jumping_to_the_top():
+    # regression: a click on the number right of the track set the slider to its highest value
+    slider = Slider(5, 0, 10, 1, title="Steps", id="s")
+    app = Host(slider)
+
+    async def script(pilot):
+        await pilot.click("#s", offset=(slider.size.width - 2, 0))
+        await pilot.pause()
+        opened = isinstance(app.screen, widgets.ValueEntry)
+        await pilot.press(*"7", "enter")
+        await pilot.pause()
+        return opened, slider.value, app.seen[-1]
+
+    assert run(app, script) == (True, 7, ("slider", 7, True, False))
+
+
+def test_typed_value_outside_the_range_or_not_a_number_changes_nothing():
+    slider = Slider(5, 0, 10, 1, id="s")
+    app = Host(slider)
+
+    async def script(pilot):
+        slider.focus()
+        for typed in ("42", "lots"):
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press(*typed, "enter")
+            await pilot.pause()
+        return slider.value, app.seen, len(app._notifications)
+
+    value, seen, notes = run(app, script)
+    assert value == 5 and seen == [] and notes == 2

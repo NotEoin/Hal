@@ -112,7 +112,9 @@ Plan for  [ This machine ] [ 8 GB ] [ 12 GB ] [ 16 GB ] [ 24 GB ] [ CPU only ]
   narrower and the rows of buttons drop their padding, so every control stays on screen.
 - **Context**, **GPU layers** and **Temperature** are sliders: drag the knob, click the track,
   use the wheel on a focused slider (elsewhere the wheel scrolls), or focus them and press
-  Left/Right (PgUp/PgDn for big steps, Home/End for the ends). The memory bar moves while you drag; the change lands when you let go. `Auto` (or `a`)
+  Left/Right (PgUp/PgDn for big steps, Home/End for the ends). Click the number, or press Enter,
+  to type an exact value (`48k` for a context); a value outside the range is refused with the
+  range. The memory bar moves while you drag; the change lands when you let go. `Auto` (or `a`)
   hands the value back to tuning; `Default` leaves the temperature to the model.
 - **GPU layers** puts that many layers on the GPU by hand. It is off, with the reason, when the
   model's layer count is unknown, when the server sizes the model, or when the plan has no GPU.

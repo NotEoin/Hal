@@ -42,7 +42,9 @@ from .tui.render import clean
 from .tui.slash import PickItem
 from .tui.theme import Look, textual_themes
 from .tui.widgets import FitGauge, SafeStatic, Segment, Segmented, Slider, toast
-from .tuneview import TIGHT_FRACTION, fit_line, fit_word, gib, guard_line, hal_models, hardware_lines, model_label
+from .tuneview import (
+    TIGHT_FRACTION, fit_line, fit_word, gib, guard_line, hal_models, hardware_lines, model_label, parse_tokens,
+)
 
 PRESET_SHORT = {"auto": "This machine", "cpu": "CPU only"}  # other presets show their label
 TEMP_STEP = 0.05
@@ -131,6 +133,7 @@ class RoleEditor(VerticalScroll, can_focus=False):
             yield SafeStatic(Text("Context"), classes="label")
             yield Slider(tuning.MIN_CONTEXT, tuning.MIN_CONTEXT, ceiling, tuning.CONTEXT_STEP, log=True,
                          fmt=tokens_label, allow_auto=True, auto_label=lambda v: f"auto {tokens_label(v)}",
+                         title=f"{role} context (tokens, or 32k)", parse=lambda t: float(parse_tokens(t)),
                          id="ctx")  # fmt: skip
             yield Button("Auto", id="ctx-auto")
         with Horizontal(classes="row"):
@@ -141,7 +144,7 @@ class RoleEditor(VerticalScroll, can_focus=False):
             yield SafeStatic(Text("GPU layers"), classes="label")
             yield Slider(total, 0, max(total, 1), 1, fmt=lambda v: "all" if int(v) == total else f"{int(v)}",
                          allow_auto=True, auto_label=lambda v: "auto all" if int(v) == total else f"auto {int(v)}",
-                         reason=reason, disabled=not total, id="layers")  # fmt: skip
+                         reason=reason, disabled=not total, title=f"{role} GPU layers", id="layers")  # fmt: skip
             yield Button("Auto", id="layers-auto", disabled=not total)
         levels, why_not = state.effort_options(role)
         segments = [Segment(tunestate.DEFAULT_EFFORT, tunestate.DEFAULT_EFFORT)]
@@ -152,7 +155,8 @@ class RoleEditor(VerticalScroll, can_focus=False):
         with Horizontal(classes="row"):
             yield SafeStatic(Text("Temperature"), classes="label")
             yield Slider(TEMP_SHOWN_DEFAULT, 0, modelconf.MAX_TEMPERATURE, TEMP_STEP, allow_auto=True,
-                         fmt=lambda v: f"{v:.2f}", auto_label=lambda v: "default", id="temp")  # fmt: skip
+                         fmt=lambda v: f"{v:.2f}", auto_label=lambda v: "default", title=f"{role} temperature",
+                         id="temp")  # fmt: skip
             yield Button("Default", id="temp-default")
         with Horizontal(classes="row"):
             yield SafeStatic(Text("Memory"), classes="label")
@@ -808,9 +812,10 @@ class TuneApp(App[int]):
     def action_help(self) -> None:
         """F1: the keys and what each control does."""
         keys = [("Tab / Shift+Tab", "next / previous control"), ("Left / Right", "adjust a slider or choose a segment"),
-                ("PgUp / PgDn, Home / End", "big slider steps, ends"), ("a", "back to auto on a slider"),
+                ("PgUp / PgDn, Home / End", "big slider steps, ends"), ("Enter", "type a slider's value"),
+                ("a", "back to auto on a slider"),
                 ("Ctrl+Z", "undo the last change"), ("Ctrl+S", "save (shows the diff first)"), ("Esc", "quit (asks when unsaved)")]  # fmt: skip
-        mouse = [("click", "buttons, segments, list rows"), ("drag", "slider knobs; the memory bar follows"),
+        mouse = [("click", "buttons, segments, list rows; a slider's number to type it"), ("drag", "slider knobs; the memory bar follows"),
                  ("wheel", "steps a focused slider, else scrolls"), ("Shift+drag", "select text in most terminals")]  # fmt: skip
         self.push_screen(screens.HelpScreen("hal tune", [screens.HelpSection("Keys", keys), screens.HelpSection("Mouse", mouse)]))
 

@@ -15,6 +15,9 @@ Design decisions:
   suits temperature. The knob follows a drag even outside the widget (the mouse is captured),
   and `Changed.final` is true only when the button is released or a key step lands, so costly
   listeners act once per change.
+- A click on a slider's value, or Enter, opens `ValueEntry` to type an exact value (`parse` reads
+  it, `32k` for a context); a value outside the range is refused with the range, never clamped
+  silently.
 - The wheel moves a slider only while it has focus; otherwise it scrolls the view around it, so
   wheeling down a page of sliders never changes a value the pointer happens to pass over.
 - `Segmented` is one focusable widget, not a row of buttons, so Tab moves past it in one step
@@ -34,11 +37,13 @@ from rich.text import Text
 from textual import events
 from textual.binding import Binding
 from textual.app import App
+from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.message import Message
 from textual.reactive import reactive
+from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Static
+from textual.widgets import Input, Static
 
 from .render import clean
 
@@ -77,6 +82,44 @@ class SafeStatic(Static):
 
 
 # --- slider ----------------------------------------------------------------------------------
+
+
+class ValueEntry(ModalScreen[str | None]):
+    """A one-line box to type a slider's value; Enter answers the text, Esc answers None."""
+
+    DEFAULT_CSS = """
+    ValueEntry { align: center middle; }
+    ValueEntry > Vertical { width: 44; height: auto; border: round $primary; background: $surface; padding: 0 1; }
+    ValueEntry .entry-title { text-style: bold; color: $primary; }
+    ValueEntry .entry-hint { color: $text-muted; }
+    """
+    BINDINGS = [Binding("escape", "cancel", "cancel")]
+
+    def __init__(self, title: str, value: str, hint: str) -> None:
+        super().__init__()
+        self.title_text, self.value, self.hint = title, value, hint
+
+    def compose(self) -> ComposeResult:
+        """Title, the line and the range."""
+        with Vertical():
+            yield SafeStatic(Text(self.title_text), classes="entry-title")
+            yield Input(self.value, id="entry")
+            yield SafeStatic(Text(self.hint), classes="entry-hint")
+
+    def on_mount(self) -> None:
+        """The line has focus with its text selected, so typing replaces it."""
+        entry = self.query_one("#entry", Input)
+        entry.focus()
+        entry.select_all()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Enter answers the typed text."""
+        event.stop()
+        self.dismiss(event.value)
+
+    def action_cancel(self) -> None:
+        """Esc: no value."""
+        self.dismiss(None)
 
 
 def value_at(x: int, track: int, low: float, high: float, step: float, *, log: bool = False) -> float:
@@ -124,6 +167,7 @@ class Slider(Widget, can_focus=True):
         Binding("home", "jump(0)", show=False),
         Binding("end", "jump(1)", show=False),
         Binding("a", "auto", "auto", show=False),
+        Binding("enter", "edit", "type a value", show=False),
     ]
 
     value: reactive[float] = reactive(0.0)
@@ -146,11 +190,13 @@ class Slider(Widget, can_focus=True):
     def __init__(
         self, value: float, low: float, high: float, step: float, *, log: bool = False,
         fmt: Callable[[float], str] = lambda v: f"{v:g}", allow_auto: bool = False, auto: bool = False,
-        auto_label: Callable[[float], str] = lambda v: "auto", reason: str = "", **kwargs: object,
+        auto_label: Callable[[float], str] = lambda v: "auto", reason: str = "", title: str = "Value",
+        parse: Callable[[str], float] = float, **kwargs: object,
     ) -> None:  # fmt: skip
         super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
         self.low, self.high, self.step_size, self.log_scale = low, high, step, log
         self.fmt, self.allow_auto, self.auto_label = fmt, allow_auto, auto_label
+        self.title, self.parse = title, parse
         self.reason = reason  # shown instead of the track when disabled
         self.set_reactive(Slider.value, snap(value, low, high, step))
         self.set_reactive(Slider.auto, auto)
@@ -203,14 +249,40 @@ class Slider(Widget, can_focus=True):
         if self.allow_auto:
             self.set_value(self.value, final=True, auto=True)
 
+    def action_edit(self) -> None:
+        """Enter, or a click on the value: type an exact value."""
+        if self.disabled:
+            return
+        hint = f"{self.fmt(self.low)} to {self.fmt(self.high)}; Enter sets it, Esc cancels"
+        self.app.push_screen(ValueEntry(self.title, f"{self.value:g}", hint), self.typed)
+
+    def typed(self, text: str | None) -> None:
+        """Sets the typed value, or says why not; an empty answer changes nothing."""
+        if not text or not text.strip():
+            return
+        try:
+            value = self.parse(text.strip())
+        except ValueError as exc:
+            toast(self, str(exc) or f"not a number: {text}", title=f"{self.title} not changed", severity="error")
+            return
+        if not self.low <= value <= self.high:
+            toast(self, f"choose {self.fmt(self.low)} to {self.fmt(self.high)}", title=f"{self.title} not changed",
+                  severity="error")  # fmt: skip
+            return
+        self.set_value(value, final=True)
+
     def _from_x(self, x: int) -> float:
         return value_at(x, self.track, self.low, self.high, self.step_size, log=self.log_scale)
 
     def on_mouse_down(self, event: events.MouseDown) -> None:
-        """Jumps to the clicked cell and starts a drag."""
+        """Jumps to the clicked cell and starts a drag; a click on the value opens the entry box."""
         if self.disabled:
             return
         self.focus()
+        if event.x > self.track:
+            event.stop()
+            self.action_edit()
+            return
         self.capture_mouse()
         self._dragging = True
         self.set_value(self._from_x(event.x), final=False)

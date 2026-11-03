@@ -469,3 +469,18 @@ def test_effort_options_stay_clickable_when_the_row_is_compact(home, server):
 
     compact, wanted, effort = drive(state, script, size=(80, 24))[0]
     assert compact and wanted != "default" and effort == wanted
+
+
+def test_typing_a_context_sets_it_by_hand(home, server):
+    state = open_state(home, server, roles=CHAT_ROLE)
+
+    async def script(pilot, app):
+        await settle(pilot)
+        app.query_one("#ctx", Slider).focus()
+        await pilot.press("enter")
+        await settle(pilot)
+        await pilot.press(*"16k", "enter")
+        await settle(pilot)
+        return state.drafts["chat"].context, state.drafts["chat"].manual
+
+    assert drive(state, script)[0] == (16384, True)
