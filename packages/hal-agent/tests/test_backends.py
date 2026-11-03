@@ -2,7 +2,7 @@
 
 import json
 
-from halagent.backends import BackendOutcome, BrokerBackend, outcome_from_result
+from halagent.backends import FIND_QUERY_MAX, BackendOutcome, BrokerBackend, outcome_from_result
 from halagent.loop import Agent
 from halagent.profiles import resolve_profile
 from halagent.settings import AgentSettings
@@ -64,6 +64,18 @@ def test_find_tools_parses_the_broker_answer(tmp_path):
         backend.close()
     assert [t.name for t in found] == ["mail_send"]
     assert broker.calls == [("hal_find_tools", {"query": "send mail", "limit": 8})]
+
+
+def test_find_tools_clips_a_long_query_to_the_broker_limit(tmp_path):
+    """Regression: a message over 500 characters was sent whole, the broker denied it, no tools offered."""
+    with FakeBroker(tmp_path / "b.sock") as broker:
+        broker.add_tool("hal_find_tools", json.dumps({"tools": []}))
+        backend = BrokerBackend(str(broker.socket_path))
+        backend.find_tools("paste " * 200 + "then save it to my notes", 8)
+        backend.close()
+    query = broker.calls[0][1]["query"]
+    assert len(query) <= FIND_QUERY_MAX
+    assert query.startswith("paste") and query.endswith("save it to my notes")
 
 
 def test_found_tool_is_offered_in_later_rounds_and_called_by_name(server, tmp_path):

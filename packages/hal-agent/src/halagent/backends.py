@@ -19,10 +19,18 @@ log = logging.getLogger("halagent.backends")
 BROKER_CALL_TIMEOUT_S = 3_900.0  # longest approval wait (3,600 s) plus 300 s for the tool (03-agent 3.13.2)
 FIND_TOOL, CALL_TOOL = "hal_find_tools", "hal_call"
 META_TOOLS = frozenset({FIND_TOOL, CALL_TOOL})  # the agent routes these itself
+FIND_QUERY_MAX = 500  # `max_length` of the broker's `hal_find_tools` query (halhub builtin manifest)
 FAILED_NOTE = "This did NOT happen. Fix the arguments and call again, or tell the user it failed."
 DENIED_NOTE = "This did NOT happen: it was not approved. Tell the user; do not call it again unless they ask."
 Status = Literal["ok", "error", "denied", "unavailable"]
 STATUSES = ("ok", "denied", "unavailable")
+
+
+def _clip_query(query: str) -> str:
+    if len(query) <= FIND_QUERY_MAX:
+        return query
+    half = (FIND_QUERY_MAX - 1) // 2
+    return f"{query[:half]} {query[-half:]}"
 
 
 @dataclass(frozen=True)
@@ -101,9 +109,13 @@ class BrokerBackend:
         return [_spec(t) for t in tools if t["name"] not in META_TOOLS]
 
     def find_tools(self, query: str, limit: int) -> list[ToolSpec]:
-        """Asks the broker's `hal_find_tools`; an unusable answer is an empty list."""
+        """Asks the broker's `hal_find_tools`; an unusable answer is an empty list.
+
+        A query over `FIND_QUERY_MAX` keeps its start and end, where a request usually sits,
+        because the broker denies a longer one outright.
+        """
         try:
-            out = self._client.call_tool_result(FIND_TOOL, {"query": query, "limit": limit})
+            out = self._client.call_tool_result(FIND_TOOL, {"query": _clip_query(query), "limit": limit})
         except McpError as exc:
             log.warning("hal_find_tools failed: %s", exc)
             return []
