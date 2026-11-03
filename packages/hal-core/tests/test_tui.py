@@ -296,3 +296,56 @@ def test_tui_registers_a_pid_file_while_it_runs_and_removes_it_after(tmp_path, m
 def _no_user_config(tmp_path, monkeypatch):
     """The TUI reads `[ui]` from the config file; tests must not read the real one."""
     monkeypatch.setenv("HAL_CONFIG", str(tmp_path / "no-such-config.toml"))
+
+
+def test_plan_question_is_shown_on_a_terminal_prompt():
+    # regression: the prompt_toolkit editor ignores its prompt argument, so the plan question never showed
+    state = make_state()
+    state.mode = "plan"
+    state.renderer.todo = [{"content": "write tests", "status": "pending"}]
+
+    async def editor_like(prompt=""):
+        return "n"  # draws only its glyph, like `PromptInput.read`
+
+    run(app.approve_plan(state, editor_like, io.StringIO()))
+    assert "Run this plan?" in state.renderer.out.getvalue()
+
+
+def test_chat_sessions_are_recorded_as_chat(tmp_path, monkeypatch):
+    # regression: `hal chat` stored every session with mode "code"
+    from halcore import sessionscmd
+    from halcore.acp.records import RecordStore
+
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "state"))
+    script = tmp_path / "agent.py"
+    script.write_text(FAKE_AGENT)
+    session = FakeSession()
+    store = RecordStore(tmp_path / "sessions")
+
+    async def go():
+        transport = await SubprocessTransport.spawn([sys.executable, str(script), "ok"], env=None, stderr_log=tmp_path / "e.log")
+        box = types.SimpleNamespace(session=session, transport=transport, close=transport.close)
+        lines = iter(["/quit"])
+
+        async def read(prompt=""):
+            return next(lines)
+
+        await run_tui(box, cwd="/scratch", out=io.StringIO(), stdin_line=read, store=store, mode="chat")
+
+    asyncio.run(go())
+    metas = sessionscmd.list_sessions(store)
+    assert [m["mode"] for m in metas] == ["chat"]
+
+
+def test_chat_resume_lists_only_chat_sessions(tmp_path):
+    # regression: chat `/resume` listed the code sessions of every project
+    from halcore import sessionscmd
+    from halcore.acp.records import RecordStore
+
+    store = RecordStore(tmp_path / "sessions")
+    sessionscmd.write_meta(store, "aaaaaaaaaaaa", project=str(tmp_path), mode="code", title="code work")
+    sessionscmd.write_meta(store, "bbbbbbbbbbbb", project="", mode="chat", title="a chat")
+    state = make_state()
+    state.records, state.surface = store, "chat"
+    listing = run(slash.dispatch("/resume", state, {})).message
+    assert "a chat" in listing and "code work" not in listing

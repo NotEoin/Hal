@@ -230,3 +230,29 @@ def test_hostile_subagent_text_is_cleaned():
     r, out = make()
     r.update({"sessionUpdate": "hal_subagent", "subagentId": "1", "agent": HOSTILE, "phase": "start", "task": HOSTILE})
     assert "\x1b" not in out.getvalue() and "\x07" not in out.getvalue()
+
+
+def test_approval_panel_uses_the_ui_theme():
+    # regression: the panel built its own look and ignored `[ui].theme`
+    import asyncio
+    import types
+
+    from halcore.tui import approval
+
+    request = {"tool": "t", "tier": "x", "pack": "p", "reason": "r", "display": "d", "scopes": ["once"]}
+    bridge = types.SimpleNamespace(request_for=lambda rid: request, consume=lambda msg: None)
+    light = theme.load_look({"theme": "light", "unicode": False}, stream=io.StringIO(), environ={})
+    seen = []
+
+    class Spy:
+        def print(self, panel):
+            seen.append(panel.border_style)
+
+    async def go():
+        async def line():
+            return "n"
+
+        await approval.make_asker(bridge, line, io.StringIO(), look=light, console=Spy())({"id": "r1"})
+
+    asyncio.run(go())
+    assert seen == [light.palette.accent] and light.palette.muted == "grey42"

@@ -66,7 +66,7 @@ async def run(args: argparse.Namespace) -> int:
     if not args.message:
         box = await sessions.BoxedAgent.start(kind="chat", project=None, channel=args.channel, **box_args)
         try:
-            return await run_tui(box, cwd=sessions.BOX_SCRATCH, model=args.model or "")
+            return await run_tui(box, cwd=sessions.BOX_SCRATCH, model=args.model or "", mode="chat")
         finally:
             await box.close()
     handler = ChatHandler(quiet=args.json)

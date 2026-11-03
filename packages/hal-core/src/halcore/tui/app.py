@@ -275,8 +275,13 @@ async def _run_tui(
     out: TextIO | None = None,
     stdin_line=None,  # noqa: ANN001 - an async callable returning one line; tests inject a script
     look: Look | None = None,
+    mode: str = "code",
 ) -> int:
-    """Runs the interactive loop on an already started box; returns the exit status."""
+    """Runs the interactive loop on an already started box; returns the exit status.
+
+    `mode` is `code` or `chat`: it is recorded in the session meta and limits `/resume` to
+    sessions of the same kind.
+    """
     out = out or sys.stdout
     look = look or load_ui_look(out)
     loop = asyncio.get_running_loop()
@@ -298,16 +303,16 @@ async def _run_tui(
         sid = resume
     else:
         sid = await client.new_session(cwd, [])
-    sessionscmd.write_meta(store, sid, project=str(project or ""), model=model, mode="code")
+    sessionscmd.write_meta(store, sid, project=str(project or ""), model=model, mode=mode)
 
     async def fresh() -> str:
         new = await client.new_session(cwd, [])
-        sessionscmd.write_meta(store, new, project=str(project or ""), model=model, mode="code")
+        sessionscmd.write_meta(store, new, project=str(project or ""), model=model, mode=mode)
         return new
 
     state = TuiState(
         client, sid, cwd, renderer, session=session, project=project, model=model,
-        new_conversation=fresh, records=store,
+        new_conversation=fresh, records=store, surface=mode,
     )  # fmt: skip
     interactive = stdin_line is None and sys.stdin.isatty()
     if stdin_line is None:
@@ -391,7 +396,7 @@ async def _run_tui(
     state.confirm = confirm
     bridge = PermissionBridge(socket_owned_by_us, lambda: state.sid)
     approvals = asyncio.ensure_future(
-        bridge.run(make_asker(bridge, read_approval, out, console=renderer.console, suspend=suspend, read_note=read_note, on_note=queued.append))
+        bridge.run(make_asker(bridge, read_approval, out, look=look, console=renderer.console, suspend=suspend, read_note=read_note, on_note=queued.append))
     )
     if session.backend == "none":
         renderer.console.print(Text(unboxed.BANNER, style=f"bold {look.palette.bad}"))
@@ -468,7 +473,8 @@ async def approve_plan(state: TuiState, read, out: TextIO) -> str | None:  # noq
     Only the human's own typed answer leaves plan mode, never agent text (the answer is read from the terminal).
     """
     state.renderer.console.print(state.renderer.todo_panel())
-    answer = (await read(PLAN_PROMPT)).strip().lower()
+    state.renderer.line(PLAN_PROMPT.strip(), "bold")  # the editor draws only its glyph, so the question is printed here
+    answer = (await read("")).strip().lower()
     chosen = PLAN_ANSWERS.get(answer)
     if chosen is None:
         state.renderer.info("staying in plan mode")

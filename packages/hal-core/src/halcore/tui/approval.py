@@ -90,6 +90,7 @@ def make_asker(
     read_line: Callable[[], Awaitable[str]],
     out: TextIO,
     *,
+    look: Look | None = None,
     console: Console | None = None,
     suspend: Callable[[], contextlib.AbstractContextManager[None]] = contextlib.nullcontext,
     read_note: Callable[[], Awaitable[str]] | None = None,
@@ -100,8 +101,9 @@ def make_asker(
     End of input denies. The answer goes through `bridge.consume`, so it is bound to the request
     key like any other surface (REQ-SEC-23). `suspend` pauses the live spinner and the Esc
     watcher while the human answers. With `e`, `read_note` asks for a note and `on_note` queues it.
+    `look` is the UI's look, so the panel follows `[ui].theme`; the defaults are used without one.
     """
-    look = load_look(stream=out)
+    look = look or load_look(stream=out)
     shown = console or make_console(look, out)
 
     async def ask(message: dict[str, object]) -> None:

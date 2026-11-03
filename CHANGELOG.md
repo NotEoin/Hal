@@ -114,6 +114,13 @@ First release of the monorepo (uv workspace on branch `next`).
 - A unit marked `X-HalOff=yes` follows `hal off` and `hal on` (off condition, stopped by
   `hal off`, listed by `hal status`) without being marked as a GPU user. hal-voice's units need it.
 
+### Fixed
+
+- `hal code` shows the "Run this plan?" question when a plan turn ends; it was never drawn on a
+  terminal. `hal chat` records its sessions as chats, and its `/resume` lists only chat sessions.
+  The approval panel follows `[ui].theme`. Leaving `hal code` names the accept command only when
+  the copy has changes.
+
 ### Security
 
 - Units render only from core Hal, the registered packs and `[hub].module_paths`; an empty

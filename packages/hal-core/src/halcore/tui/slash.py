@@ -96,6 +96,7 @@ class TuiState:
     save_model: Callable[[choices.Choice, str], list[str]] | None = None  # writes the `code` role: choice, effort
     ide: object | None = None  # an `IdeBridge` when the IDE channel is open
     confirm: Callable[[str], Awaitable[bool]] | None = None  # a yes/no typed on the terminal; None refuses
+    surface: str = "code"  # `code` or `chat`: the session kind `/resume` lists
 
 
 def image_block(path: Path) -> Block:
@@ -164,9 +165,9 @@ async def _resume(state: TuiState, args: str) -> Result:
     if state.records is None:
         return Result(message="/resume is not available here")
     if not args:
-        rows = sessionscmd.list_sessions(state.records, state.project, RESUME_LIST_LIMIT)
+        rows = sessionscmd.list_sessions(state.records, state.project, RESUME_LIST_LIMIT, mode=state.surface)
         if not rows:
-            return Result(message="no stored sessions for this project")
+            return Result(message="no stored chat sessions" if state.surface == "chat" else "no stored sessions for this project")
         state.resume_choices = [str(m["id"]) for m in rows]
         return Result(
             message="sessions (use /resume N or /resume ID):\n"

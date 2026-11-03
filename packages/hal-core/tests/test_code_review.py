@@ -73,3 +73,15 @@ def test_forced_export_replaces_a_symlink_without_writing_through_it(project, tm
     link.symlink_to(target)
     assert code.main(["export", iso.sid, str(link), "--force"]) == 0
     assert target.read_text() == "untouched\n" and not link.is_symlink()
+
+
+def test_code_exit_warns_only_when_the_copy_has_changes(project, caplog):
+    # regression: leaving `hal code` always logged the accept command, even for an untouched copy
+    iso = isolated.create(project, 10**6)
+    with caplog.at_level("WARNING"):
+        code.report_changes(iso)
+    assert "accept" not in caplog.text
+    (iso.work / "a.txt").write_text("two\n")
+    with caplog.at_level("WARNING"):
+        code.report_changes(iso)
+    assert f"1 unaccepted change in isolated session {iso.sid}" in caplog.text

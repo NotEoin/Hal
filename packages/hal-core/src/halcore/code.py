@@ -88,9 +88,21 @@ async def _tui(opts: argparse.Namespace) -> int:
         return await run_tui(box, cwd=sessions.BOX_WORK, project=project, model=opts.model, resume=opts.resume)
     finally:
         await box.close()
-        if box.session.iso is not None:
-            sid = box.session.iso.sid
-            log.warning("changes are in isolated session %s; `hal code accept %s` applies them", sid, sid)
+        report_changes(box.session.iso)
+
+
+def report_changes(iso: isolated.Isolated | None) -> None:
+    """Logs how to apply the copy's changes, only when it has some (a clean exit says nothing)."""
+    if iso is None:
+        return
+    try:
+        count = len(isolated.changes(iso))
+    except (sandbox.SandboxError, OSError) as exc:
+        log.warning("cannot list the changes of isolated session %s: %s", iso.sid, exc)
+        return
+    if count:
+        noun = "change" if count == 1 else "changes"
+        log.warning("%d unaccepted %s in isolated session %s; `hal code accept %s` applies them", count, noun, iso.sid, iso.sid)
 
 
 def main(argv: list[str]) -> int:

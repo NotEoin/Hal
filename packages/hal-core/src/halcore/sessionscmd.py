@@ -74,15 +74,17 @@ def title_of(text: str) -> str:
     return " ".join(text.split())[:TITLE_CHARS]
 
 
-def list_sessions(store: RecordStore, project: Path | None = None, limit: int = DEFAULT_LIMIT) -> list[dict[str, str]]:
-    """Sessions with a meta, newest first; with `project` only those of that project."""
+def list_sessions(
+    store: RecordStore, project: Path | None = None, limit: int = DEFAULT_LIMIT, *, mode: str = ""
+) -> list[dict[str, str]]:
+    """Sessions with a meta, newest first; with `project` only those of that project, with `mode` only that kind."""
     found = []
     if store.root.is_dir():
         for folder in store.root.iterdir():
             if not paths.SESSION_ID_RE.fullmatch(folder.name):
                 continue
             meta = read_meta(store, folder.name)
-            if meta and (project is None or meta.get("project") == str(project)):
+            if meta and (project is None or meta.get("project") == str(project)) and (not mode or meta.get("mode") == mode):
                 found.append(meta)
     return sorted(found, key=lambda m: m.get("updated", ""), reverse=True)[:limit]
 
