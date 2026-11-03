@@ -8,10 +8,16 @@ like the keys row (every control character is shown as `\\uXXXX`, and the panel 
 around the whole body), the answer is read from the human's keyboard only, and anything other
 than an offered letter, including end of input, is a deny. `e` denies the call and sends the
 human's note to the agent as their next message.
+
+One panel at a time: a second request waits until the first is answered. While a panel waits,
+the bridge is asked every `VANISH_POLL_S` whether the request is still pending; when it was
+answered elsewhere (`hal approve`, the console) the read is cancelled, a notice says so and
+nothing is sent, so the next line the human types cannot answer a request they no longer see.
 """
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable, Mapping
 from typing import TextIO
@@ -28,6 +34,8 @@ from .theme import Look, load_look, make_console
 ANSWERS = {"o": "once", "y": "once", "a": "session", "s": "session", "d": "deny", "n": "deny", "e": "edit", "": "deny"}
 RULE = "-" * 60
 RISK_STYLE = {"low": "ok", "medium": "accent", "high": "bad", "critical": "bad"}
+VANISH_POLL_S = 0.25  # how soon a panel notices its request was answered elsewhere
+ANSWERED_ELSEWHERE = "approval answered elsewhere (or expired); this prompt is closed"
 
 
 def _lines(request: Mapping[str, object]) -> list[str]:
@@ -105,22 +113,43 @@ def make_asker(
     """
     look = look or load_look(stream=out)
     shown = console or make_console(look, out)
+    one_at_a_time = asyncio.Lock()
+    still_pending = getattr(bridge, "is_pending", lambda rid: True)
+
+    async def answered_or_gone(rid: str, read: Callable[[], Awaitable[str]]) -> str | None:
+        """The typed line, or None when the request left the bridge first (the read is cancelled)."""
+        task = asyncio.ensure_future(read())
+        try:
+            while True:
+                done, _ = await asyncio.wait({task}, timeout=VANISH_POLL_S)
+                if done:
+                    return task.result()
+                if not still_pending(rid):
+                    return None
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, EOFError):
+                await task  # let the reader remove itself before anything else reads the terminal
 
     async def ask(message: dict[str, object]) -> None:
         rid = str(message["id"])
-        request = bridge.request_for(rid)
-        if request is None:
-            return
-        with suspend():
-            shown.print(approval_panel(request, look))
-            option, note = "deny", ""
-            try:
-                typed = await read_line()
-                option = answer_to_option(typed, request)
-                if ANSWERS.get(typed.strip().lower()) == "edit" and read_note is not None:
-                    note = (await read_note()).strip()
-            except EOFError:
-                option = "deny"
+        async with one_at_a_time:
+            request = bridge.request_for(rid)
+            if request is None or not still_pending(rid):
+                return
+            with suspend():
+                shown.print(approval_panel(request, look))
+                option, note = "deny", ""
+                try:
+                    typed = await answered_or_gone(rid, read_line)
+                    if typed is None:
+                        shown.print(Text(ANSWERED_ELSEWHERE, style=look.palette.muted))
+                        return
+                    option = answer_to_option(typed, request)
+                    if ANSWERS.get(typed.strip().lower()) == "edit" and read_note is not None:
+                        note = (await read_note()).strip()
+                except EOFError:
+                    option = "deny"
         if note and on_note is not None:
             on_note(note)
         outcome: dict[str, object] = {"outcome": "selected", "optionId": option}

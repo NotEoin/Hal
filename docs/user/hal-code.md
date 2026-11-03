@@ -85,7 +85,9 @@ sent one, the reason, every argument exactly as the tool receives it, and the ke
 | `e` | Deny, then type a note that is sent to the agent as your next message |
 
 Anything else, and end of input, denies. The text is made by the host and escaped again here, so
-the model cannot draw a fake panel. `hal approve ID` in another terminal also works.
+the model cannot draw a fake panel. `hal approve ID` in another terminal also works; the panel
+then closes with `approval answered elsewhere` and stops reading. Two requests are shown one
+after the other.
 
 ## Slash commands
 

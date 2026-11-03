@@ -27,6 +27,10 @@ until you answer from a terminal of your own. This page shows how. The policy si
 
 5. Leave a request alone to refuse it. Requests that nobody answers time out to deny.
 
+   When `hal code` or `hal chat` shows the same request, its approval prompt closes as soon as you
+   answer here, with the note `approval answered elsewhere`; nothing you type there afterwards
+   answers it.
+
 ## Symptoms and fixes
 
 | Symptom | Fix |

@@ -1,6 +1,7 @@
 """Tests for the app helpers: welcome panel, summary line, notes, shell, notifications and the loop prefixes."""
 
 import asyncio
+import contextlib
 import io
 import os
 import sys
@@ -137,3 +138,20 @@ def test_loop_handles_note_shell_and_mention_prefixes(tmp_path, monkeypatch):
 def test_note_refuses_a_planted_fifo_without_blocking(tmp_path):
     os.mkfifo(tmp_path / "AGENTS.md")
     assert "refused" in controller.append_note(tmp_path, "x")
+
+
+def test_a_cancelled_line_read_leaves_no_reader_behind(monkeypatch):
+    read_fd, write_fd = os.pipe()
+    monkeypatch.setattr(sys, "stdin", os.fdopen(read_fd, "r"))
+
+    async def go():
+        first = asyncio.ensure_future(app.read_stdin_line("approve> ", io.StringIO()))
+        await asyncio.sleep(0.02)
+        first.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await first
+        os.write(write_fd, b"my next message\n")
+        return await asyncio.wait_for(app.read_stdin_line("", io.StringIO()), 2)
+
+    assert asyncio.run(go()) == "my next message"
+    os.close(write_fd)

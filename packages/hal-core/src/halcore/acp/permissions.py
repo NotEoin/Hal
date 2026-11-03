@@ -13,6 +13,9 @@ Design decisions:
 - A voice request carries a two-digit challenge in `_meta`; `once` counts only when the response
   echoes the same digits, else the answer is a deny.
 - A malformed or unknown response is a deny, never an allow.
+- A request that leaves the hub's pending list (answered in another terminal or the console, or
+  expired) is dropped here too, so `is_pending` turns false and a late answer is ignored rather
+  than sent. A failed listing drops nothing.
 """
 
 from __future__ import annotations
@@ -145,6 +148,10 @@ class PermissionBridge:
         self._pending: dict[str, _Pending] = {}
         self._shown: set[str] = set()
 
+    def is_pending(self, rid: str) -> bool:
+        """True while our request `rid` is unanswered here and still pending in the hub."""
+        return rid in self._pending
+
     def request_for(self, rid: str) -> Mapping[str, object] | None:
         """The wire request behind our id `rid`, while it is unanswered."""
         pending = self._pending.get(rid)
@@ -175,7 +182,15 @@ class PermissionBridge:
                 found = await loop.run_in_executor(None, control.list_pending)
             except OSError as exc:
                 log.warning("cannot list approvals: %s", exc)
-                found = []
+                found = None
+            if found is None:
+                await asyncio.sleep(POLL_INTERVAL_S)
+                continue
+            listed = {str(r.get("id")) for r in found}
+            for rid, pending in list(self._pending.items()):
+                if str(pending.request.get("id")) not in listed:
+                    log.info("approval %s was answered elsewhere or expired", pending.request.get("id"))
+                    del self._pending[rid]
             for request in found:
                 ident = str(request.get("id"))
                 if ident in self._shown or not self._owns(str(request.get("session"))):

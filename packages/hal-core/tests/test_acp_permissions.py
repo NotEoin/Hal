@@ -121,3 +121,58 @@ def test_control_socket_served_by_another_process_is_not_ours(tmp_path, monkeypa
         assert permissions.socket_owned_by_us("aaaaaaaaaaaa")
         assert not permissions.socket_owned_by_us("bbbbbbbbbbbb")
         server.close()
+
+
+def test_a_request_answered_elsewhere_stops_being_pending_and_a_late_answer_is_ignored(monkeypatch):
+    answers, sent = [], []
+    listing = [[dict(REQ)]]
+    monkeypatch.setattr(control, "list_pending", lambda: listing[0])
+    monkeypatch.setattr(control, "answer", lambda req, verdict, scope=None, **kw: answers.append(verdict))
+    monkeypatch.setattr(permissions, "POLL_INTERVAL_S", 0.01)
+
+    async def go():
+        bridge = PermissionBridge(lambda sid: True, lambda: "0123456789ab")
+
+        async def send(msg):
+            sent.append(msg["id"])
+
+        task = asyncio.ensure_future(bridge.run(send))
+        for _ in range(100):
+            await asyncio.sleep(0.01)
+            if sent:
+                break
+        assert bridge.is_pending("hal-1")
+        listing[0] = []  # `hal approve` in another terminal answered it
+        await asyncio.sleep(0.05)
+        late = bridge.consume({"jsonrpc": "2.0", "id": "hal-1", **selected("once")})
+        task.cancel()
+        return bridge.is_pending("hal-1"), late
+
+    pending, late = asyncio.run(go())
+    assert sent == ["hal-1"] and pending is False and late is False and answers == []
+
+
+def test_a_failed_listing_keeps_the_pending_requests(monkeypatch):
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) > 1:
+            raise OSError("socket gone")
+        return [dict(REQ)]
+
+    monkeypatch.setattr(control, "list_pending", flaky)
+    monkeypatch.setattr(permissions, "POLL_INTERVAL_S", 0.01)
+
+    async def go():
+        bridge = PermissionBridge(lambda sid: True, lambda: "0123456789ab")
+
+        async def send(msg):
+            return None
+
+        task = asyncio.ensure_future(bridge.run(send))
+        await asyncio.sleep(0.08)
+        task.cancel()
+        return bridge.is_pending("hal-1")
+
+    assert asyncio.run(go()) is True

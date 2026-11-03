@@ -318,3 +318,56 @@ def test_the_sink_gets_the_streaming_tail_and_thinking_as_cleaned_text():
     thought = next(c for c in sink.calls if c[0] == "thought")
     assert "\x1b" not in thought[2] and thought[3] is False
     assert any(c[0] == "tail" and c[1] is not None for c in sink.calls)
+
+
+def test_an_approval_prompt_closes_without_an_answer_when_the_request_is_answered_elsewhere():
+    # regression: the reader stayed up and took the next line the user typed for the main prompt
+    import asyncio
+    import types
+
+    from halcore.tui import approval
+
+    request = {"tool": "t", "tier": "x", "pack": "p", "reason": "r", "display": "d", "scopes": ["once"]}
+    pending = {"r1": True}
+    sent, cancelled = [], []
+    bridge = types.SimpleNamespace(request_for=lambda rid: request, consume=sent.append, is_pending=lambda rid: pending[rid])
+    out = io.StringIO()
+
+    async def go():
+        async def never():
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                cancelled.append(1)
+                raise
+
+        ask = asyncio.ensure_future(approval.make_asker(bridge, never, out, look=LOOK)({"id": "r1"}))
+        await asyncio.sleep(0.05)
+        pending["r1"] = False
+        await asyncio.wait_for(ask, 2)
+
+    asyncio.run(go())
+    assert sent == [] and cancelled == [1] and "answered elsewhere" in out.getvalue()
+
+
+def test_a_second_approval_waits_for_the_first():
+    import asyncio
+    import types
+
+    from halcore.tui import approval
+
+    request = {"tool": "t", "tier": "x", "pack": "p", "reason": "r", "display": "d", "scopes": ["once"]}
+    sent = []
+    bridge = types.SimpleNamespace(request_for=lambda rid: request, consume=sent.append, is_pending=lambda rid: True)
+    answers = iter(["y", "n"])
+
+    async def go():
+        async def line():
+            await asyncio.sleep(0.01)
+            return next(answers)
+
+        ask = approval.make_asker(bridge, line, io.StringIO(), look=LOOK)
+        await asyncio.gather(ask({"id": "r1"}), ask({"id": "r2"}))
+
+    asyncio.run(go())
+    assert [(m["id"], m["result"]["outcome"]["optionId"]) for m in sent] == [("r1", "once"), ("r2", "deny")]

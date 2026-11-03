@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import sys
 from collections.abc import Awaitable, Callable, Iterator
 from typing import TextIO
@@ -22,7 +23,7 @@ from halkit import config as kitconfig
 from .. import pids, sessions
 from ..acp.permissions import PermissionBridge
 from .approval import make_asker
-from .controller import MODE_ORDER, Controller, history_path, read_plan_choice
+from .controller import MODE_ORDER, Controller, Sender, history_path, read_plan_choice
 from .keys import KeyWatcher
 from .prompt import Hooks, PromptInput, private_history
 from .render import Renderer, TurnStats
@@ -36,6 +37,7 @@ PROMPT = "\nyou> "
 NOTIFY_MIN_S = 10.0  # a turn shorter than this never notifies
 NOTIFY_LONG_S = 60.0  # a turn this long notifies even when the terminal cannot report focus
 YES_ANSWERS = ("y", "yes")
+MAX_LINE_BYTES = 64 * 1024  # one typed answer; a terminal line buffer holds 4 KiB
 LineReader = Callable[[str], Awaitable[str]]
 __all__ = ["MODE_ORDER", "LineUi", "load_ui_look", "notify", "run_tui"]
 
@@ -57,6 +59,37 @@ def notify(out: TextIO, mode: str) -> None:
     out.flush()
 
 
+async def read_stdin_line(prompt: str, out: TextIO) -> str:
+    """One line from stdin read on the event loop, so a cancelled read leaves no reader behind.
+
+    `input()` in a thread cannot be cancelled: after an approval was answered elsewhere it would
+    still take the next line the human typed. Raises `EOFError` at end of input.
+    """
+    if prompt:
+        out.write(prompt)
+        out.flush()
+    loop = asyncio.get_running_loop()
+    fd = sys.stdin.fileno()
+    future: asyncio.Future[bytes] = loop.create_future()
+
+    def ready() -> None:
+        if future.done():
+            return
+        try:
+            future.set_result(os.read(fd, MAX_LINE_BYTES))
+        except OSError as exc:
+            future.set_exception(EOFError(str(exc)))
+
+    loop.add_reader(fd, ready)
+    try:
+        data = await future
+    finally:
+        loop.remove_reader(fd)
+    if not data:
+        raise EOFError
+    return data.decode("utf-8", "replace").rstrip("\r\n")
+
+
 class LineUi:
     """The `Ui` of the line interface: a prompt_toolkit editor (or a scripted reader) and the scrollback."""
 
@@ -71,6 +104,7 @@ class LineUi:
         self.loop = asyncio.get_running_loop()
         self.interactive = stdin_line is None and sys.stdin.isatty()
         self.watcher = KeyWatcher(self.on_key)
+        self._asks: set[asyncio.Future[None]] = set()
         self.editor: PromptInput | None = None
         if self.interactive:
             self.editor = PromptInput(
@@ -102,28 +136,42 @@ class LineUi:
     async def _read_raw(self, label: str) -> str:
         if self.stdin_line is not None:
             return await self.stdin_line("")
-        return await self.loop.run_in_executor(None, input, label)
+        return await read_stdin_line(label, self.out)
 
     async def confirm(self, question: str) -> bool:
-        """A typed yes; anything else is no."""
-        if self.stdin_line is not None:
-            answer = await self.stdin_line("")
-        else:
-            with self.suspend():
-                answer = await self.loop.run_in_executor(None, input, question)
+        """A typed yes; anything else, and end of input, is no."""
+        try:
+            if self.stdin_line is not None:
+                answer = await self.stdin_line("")
+            else:
+                with self.suspend():
+                    answer = await read_stdin_line(question, self.out)
+        except EOFError:
+            return False
         return answer.strip().lower() in YES_ANSWERS
 
     async def choose_plan(self, state: TuiState) -> str | None:
         """The typed plan answer."""
         return await read_plan_choice(self.renderer, self.read_line)
 
-    def approval_sender(self, bridge: PermissionBridge, on_note: Callable[[str], None]):  # noqa: ANN201 - a `Sender`
-        """The escaped approval panel answered on this terminal."""
-        return make_asker(
+    def approval_sender(self, bridge: PermissionBridge, on_note: Callable[[str], None]) -> Sender:
+        """The escaped approval panel answered on this terminal.
+
+        The panel runs in its own task, so the bridge keeps polling and notices a request that
+        was answered elsewhere while the panel is up.
+        """
+        ask = make_asker(
             bridge, lambda: self._read_raw("approve [y once / a session / n deny / e note]> "), self.out,
             look=self.look, console=self.renderer.console, suspend=self.suspend,
             read_note=lambda: self._read_raw("note for the agent> "), on_note=on_note,
         )  # fmt: skip
+
+        async def send(message: dict[str, object]) -> None:
+            task = asyncio.ensure_future(ask(message))
+            self._asks.add(task)
+            task.add_done_callback(self._asks.discard)
+
+        return send
 
     # -- drawing ---------------------------------------------------------------------------------
 
@@ -170,8 +218,10 @@ class LineUi:
             yield
 
     def close(self) -> None:
-        """Restores the terminal."""
+        """Restores the terminal and drops any open approval panel (the hub times the request out as a deny)."""
         self.watcher.stop()
+        for task in self._asks:
+            task.cancel()
 
 
 async def run_tui(box: sessions.BoxedAgent, **kwargs) -> int:  # noqa: ANN003 - same keywords as `_run_tui`
