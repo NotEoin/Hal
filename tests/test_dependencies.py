@@ -25,7 +25,7 @@ THIRD_PARTY: dict[str, frozenset[str]] = {
     "hal-sandbox": frozenset({"mcp"}),
     "hal-gateway": frozenset(),
     "hal-remote": frozenset(),
-    "hal-core": frozenset({"rich", "prompt-toolkit"}),
+    "hal-core": frozenset({"rich", "prompt-toolkit", "textual"}),
 }
 DIST_OF = {
     "halkit": "hal-kit",

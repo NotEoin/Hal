@@ -352,7 +352,7 @@ Reasons for the cuts:
 | hal-sandbox | `mcp>=2.3,<3` | Broker speaks MCP on the session socket |
 | hal-gateway | none | A stdlib HTTP proxy |
 | hal-remote | none | Drives the system `ssh` client |
-| hal-core | `rich`, `prompt_toolkit` | TUI only |
+| hal-core | `rich`, `prompt_toolkit`, `textual` | TUI only: `textual` draws the full-screen `hal code`, `hal chat` and `hal tune` |
 
 Any other runtime dependency needs a stated reason in its spec and an entry in
 `tests/test_dependencies.py` (REQ-SYS-03). ACP is implemented in stdlib JSON-RPC inside
