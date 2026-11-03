@@ -104,11 +104,11 @@ def test_cli_rejects_a_bad_run_file(tmp_path, capsys):
 
 
 def test_map_brain_moves_known_keys_and_drops_with_reasons():
-    brain = {"model": "m", "num_ctx": 8192, "think": False, "user_name": "Eoin", "keep_alive": "5m",
+    brain = {"model": "m", "num_ctx": 8192, "think": False, "user_name": "Alex", "keep_alive": "5m",
              "ollama_url": "http://x", "deep_work": "claude", "deep_work_dir": "/d"}  # fmt: skip
     out = map_brain(brain)
     assert out.assistant == {"model": "m", "context": 8192, "think": False}
-    assert out.hal == {"user_name": "Eoin"}
+    assert out.hal == {"user_name": "Alex"}
     assert set(out.dropped) == {"keep_alive", "ollama_url", "deep_work", "deep_work_dir"}
     assert len(out.warnings) == 2
 
