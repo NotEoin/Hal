@@ -43,6 +43,18 @@ def index_files(root: Path, *, limit: int = MAX_INDEX) -> list[str]:
     return found
 
 
+def fuzzy(query: str, text: str) -> bool:
+    """True when every character of `query` appears in `text` in order, ignoring case."""
+    pos = 0
+    low = text.lower()
+    for ch in query.lower():
+        pos = low.find(ch, pos)
+        if pos < 0:
+            return False
+        pos += 1
+    return True
+
+
 def match_files(root: Path, query: str, *, count: int = 40) -> list[str]:
     """Paths whose name contains `query`, basename matches first."""
     q = query.lower()

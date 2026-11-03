@@ -47,6 +47,7 @@ tested against. Start with [../README.md](../README.md) and [../SETUP.md](../SET
 | [dev/manifest.md](dev/manifest.md) | Tool manifest (`hal-module.toml`) reference: every table and key, placeholders, v1 rules |
 | [dev/remote.md](dev/remote.md) | Remote developer notes: modules, pairing protocol, manual checks M1 to M6 and the sshd tests |
 | [dev/sandbox.md](dev/sandbox.md) | Sandbox developer notes: modules, adding a backend, tests, what is not built |
+| [dev/tui.md](dev/tui.md) | Terminal UI developer notes: controller and `Ui` protocol, widgets, rendering safety, Pilot tests |
 | [dev/tuning.md](dev/tuning.md) | The tuning formula for context and offload, a worked example and its limits |
 | [dev/threat-model.md](dev/threat-model.md) | Threat model: assets, adversaries, trust boundaries, threats with their mitigations, residual risks |
 | [dev/worker-protocol.md](dev/worker-protocol.md) | The JSON-lines protocol between the tool hub and a tool worker, and the v1 one-shot protocol |

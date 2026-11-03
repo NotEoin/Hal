@@ -43,6 +43,7 @@ from rich.console import Console, Group
 from rich.text import Text
 
 from . import modelplan, tunepresets, tunestate
+from .tui.mentions import fuzzy
 from .tui.status import context_bar
 from .tui.theme import PT_COLORS, Look, load_look, make_console
 
@@ -103,18 +104,6 @@ def parse_tokens(text: str) -> int:
         raise ValueError(f"not a number of tokens: {text!r} (try 32768 or 32k)")
     factor = {"": 1, "k": 1024, "m": 1024 * 1024}[found.group(2).lower()]
     return int(float(found.group(1)) * factor)
-
-
-def fuzzy(query: str, text: str) -> bool:
-    """True when every character of `query` appears in `text` in order, ignoring case."""
-    pos = 0
-    low = text.lower()
-    for ch in query.lower():
-        pos = low.find(ch, pos)
-        if pos < 0:
-            return False
-        pos += 1
-    return True
 
 
 def gib(mib: int) -> str:
