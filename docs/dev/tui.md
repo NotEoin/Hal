@@ -16,6 +16,24 @@ User docs: [hal-code.md](../user/hal-code.md), [tui.md](../user/tui.md) and
 | `halcore/tui/theme.py` | `[ui]` settings, glyphs, colour tokens and the Textual themes |
 | `halcore/tui/widgets.py` | Shared Textual widgets: `SafeStatic`, `Slider`, `Segmented`, `FitGauge`, `ToolCard`, `DiffView`, `ThinkingFold` |
 | `halcore/tui/screens.py` | Shared modals: `PickerModal`, `ConfirmModal`, `ChoiceModal`, `HelpScreen`, and `ask()` |
+| `halcore/tui/approvalmodal.py` | The approval gate of the full screen (`ApprovalModal`) and `ModalAsker`, its bridge sender |
+| `halcore/tui/agentapp.py` | The full-screen `hal code` and `hal chat`: `AgentApp`, `TextualUi`, `TextualSink`, `Composer` |
+| `halcore/tui/fallback.py` | `can_run_textual` and the notice printed before the line UI takes over |
+| `halcore/tuneapp.py` | The full-screen `hal tune` (`TuneApp`, `QuickStart`, `SourceModal`) |
+| `halcore/tuneview.py` | What both tune screens show, as plain text |
+
+## How the two UIs share one loop
+
+`Controller` (in `controller.py`) owns the ACP client, the session state and the approval bridge.
+Its `run(ui)` reads each message with `ui.read_message()`, runs the slash command, prefix or turn,
+and asks the `Ui` every question: `confirm`, `choose_plan` (only `PLAN_CHOICES` or None leave plan
+mode), and `approval_sender` (the `send` that `PermissionBridge.run` calls). `LineUi` reads from
+prompt_toolkit and prints to scrollback; `TextualUi` reads from `AgentApp.inbox` (filled by the
+composer, pickers and buttons) and answers with modals. The full screen runs the controller in a
+worker and puts the `QUIT` item in the inbox to end it.
+
+Updates from the agent arrive on the ACP reader task. `TextualSink` hands each one to
+`App.call_later`, so widgets are mounted on the app's loop, in order, with the app's context.
 
 ## Rendering safety
 

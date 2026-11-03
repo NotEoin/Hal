@@ -165,6 +165,7 @@ class ApprovalModal(ModalScreen[tuple[str, str]]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """A pressed button answers; an allow button only when armed and seen."""
+        event.stop()
         which = str(event.button.id)
         if which == "deny-note":
             self.action_note()

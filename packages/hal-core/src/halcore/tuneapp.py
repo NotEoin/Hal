@@ -251,6 +251,7 @@ class SourceModal(ModalScreen[str | None]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Add or Cancel."""
+        event.stop()
         if event.button.id == "add":
             self.try_add()
         else:

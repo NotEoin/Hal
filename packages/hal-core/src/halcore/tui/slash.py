@@ -132,6 +132,8 @@ class TuiState:
     save_model: Callable[[choices.Choice, str], list[str]] | None = None  # writes the `code` role: choice, effort
     ide: object | None = None  # an `IdeBridge` when the IDE channel is open
     confirm: Callable[[str], Awaitable[bool]] | None = None  # a yes/no typed on the terminal; None refuses
+    # the full-screen accept dialog: (report text, patch, has high-risk flags) -> (apply, allow flags); None asks with `confirm`
+    review_accept: Callable[[str, str, bool], Awaitable[tuple[bool, bool]]] | None = None
     surface: str = "code"  # `code` or `chat`: the session kind `/resume` lists
     busy: bool = False  # True while a turn runs
 
@@ -496,14 +498,23 @@ async def _apply(state: TuiState, args: str) -> Result:
         return Result(message=f"/accept: {exc}")
     if not rep.files:
         return Result(message="/accept: the copy has no changes")
-    state.renderer.plain(isolated.render(rep))
-    if state.confirm is None:  # headless or scripted: an accept needs a human at the terminal
-        return Result(message="/accept: nothing applied; confirming needs a terminal (or run `hal code accept`)")
-    question = f"apply {len(rep.files)} changed paths to {safe(str(session.iso.project))}? [y/N] "
-    if not await state.confirm(question):
-        return Result(message="/accept: nothing applied")
+    allow_flags = args == ALLOW_FLAGS
+    if state.review_accept is not None:
+        flagged = any(f.severity == isolated.HIGH for f in rep.flags)
+        text = reviewed.decode("utf-8", "replace") if isinstance(reviewed, bytes) else str(reviewed)
+        ok, ticked = await state.review_accept(isolated.render(rep), text, flagged)
+        if not ok:
+            return Result(message="/accept: nothing applied")
+        allow_flags = allow_flags or ticked
+    else:
+        state.renderer.plain(isolated.render(rep))
+        if state.confirm is None:  # headless or scripted: an accept needs a human at the terminal
+            return Result(message="/accept: nothing applied; confirming needs a terminal (or run `hal code accept`)")
+        question = f"apply {len(rep.files)} changed paths to {safe(str(session.iso.project))}? [y/N] "
+        if not await state.confirm(question):
+            return Result(message="/accept: nothing applied")
     try:
-        applied = session.apply_isolated(allow_flags=args == ALLOW_FLAGS, expected_patch=reviewed)
+        applied = session.apply_isolated(allow_flags=allow_flags, expected_patch=reviewed)
     except SandboxError as exc:
         return Result(message=f"/accept: {exc}")
     return Result(message=f"applied {len(applied)} changed paths")

@@ -1,0 +1,516 @@
+"""Pilot tests for the full-screen `hal code` and `hal chat` with an in-process scripted ACP agent.
+
+No box, no gateway, no GPU: the agent is `ScriptedAgent`, a transport that answers the session
+methods and streams scripted updates; the session is a fake with checkpoints.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import io
+import types
+
+import pytest
+from textual import events
+from textual.widgets import Button
+
+from halcore.acp.records import RecordStore
+from halcore.tui import agentapp, screens
+from halcore.tui.agentapp import AgentApp, Composer, UserMessage
+from halcore.tui.approvalmodal import ApprovalModal
+from halcore.tui.controller import Controller
+from halcore.tui.render import Renderer
+from halcore.tui.theme import load_look
+from halcore.tui.widgets import SafeStatic, ToolCard
+
+SID = "0123456789ab"
+LOOK = load_look({"unicode": False, "animations": False, "notify": "off"}, stream=io.StringIO(), environ={})
+SIZE = (120, 36)
+WAIT_CANCEL = "wait-cancel"
+
+
+def chunk(text):
+    return {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}
+
+
+class ScriptedAgent:
+    """An in-process ACP agent: answers session methods and streams one script per prompt."""
+
+    def __init__(self, turns=()):
+        self.inbox, self.sent, self.calls = asyncio.Queue(), [], []
+        self.turns = list(turns)
+        self.prompts = []
+        self.cancelled = None
+
+    async def send(self, msg):
+        self.sent.append(msg)
+        method, rid = msg.get("method"), msg.get("id")
+        if method == "session/prompt":
+            self.prompts.append(msg["params"]["prompt"])
+            asyncio.ensure_future(self._turn(rid))
+        elif method == "session/cancel":
+            if self.cancelled is not None:
+                self.cancelled.set()
+        elif method:
+            self.calls.append((method, msg.get("params")))
+            result = {"initialize": {"protocolVersion": 1}, "session/new": {"sessionId": SID}}.get(method, {})
+            await self.inbox.put({"jsonrpc": "2.0", "id": rid, "result": result})
+
+    async def _turn(self, rid):
+        script = self.turns.pop(0) if self.turns else [chunk("hi")]
+        for step in script:
+            if step == WAIT_CANCEL:
+                self.cancelled = asyncio.Event()
+                await self.cancelled.wait()
+                await self.inbox.put({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                return
+            if isinstance(step, float):
+                await asyncio.sleep(step)
+                continue
+            await self.inbox.put({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": SID, "update": step}})
+        await self.inbox.put({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+
+    async def receive(self):
+        return await self.inbox.get()
+
+    async def close(self, timeout=5.0):
+        pass
+
+
+class Checkpoints:
+    def __init__(self):
+        self.items = [types.SimpleNamespace(n=0, created="2026-11-03T10:00:00Z", label="start")]
+
+    def list(self):
+        return list(self.items)
+
+
+class FakeSession:
+    def __init__(self, backend="docker", work=None, iso=None):
+        self.checkpoints = Checkpoints()
+        self.iso = iso
+        self.work = work
+        self.backend = backend
+        self.runtime = "runsc"
+        self.heard, self.undone, self.applied = [], [], []
+        self.broker = types.SimpleNamespace(on_human_message=lambda t, s: self.heard.append(t))
+
+    def checkpoint(self, label):
+        self.checkpoints.items.append(types.SimpleNamespace(n=len(self.checkpoints.items), created="t", label=label))
+
+    def undo(self, to):
+        self.undone.append(to)
+        return types.SimpleNamespace(restored=(), deleted=(), not_restorable=(), safety=types.SimpleNamespace(n=9))
+
+    def apply_isolated(self, *, allow_flags, expected_patch):
+        self.applied.append((allow_flags, expected_patch))
+        return ["a.txt"]
+
+
+@pytest.fixture(autouse=True)
+def private_dirs(tmp_path, monkeypatch):
+    monkeypatch.setenv("HAL_STATE_DIR", str(tmp_path / "state"))
+    rt = tmp_path / "rt"
+    rt.mkdir(mode=0o700)
+    monkeypatch.setenv("HAL_RUNTIME_DIR", str(rt))
+
+
+def drive(tmp_path, script, *, turns=(), session=None, mode="code", size=SIZE, project=None, setup=None):
+    """Starts a controller on `ScriptedAgent`, runs the app and `script(pilot, app, agent)`; returns its result."""
+    agent = ScriptedAgent(turns)
+    session = session or FakeSession()
+    box = types.SimpleNamespace(session=session, transport=agent)
+
+    async def go():
+        controller = Controller(box, Renderer(io.StringIO(), LOOK), cwd="/work", project=project,
+                                store=RecordStore(tmp_path / "sessions"), mode=mode, live=False)
+        await controller.start()
+        if setup is not None:
+            setup(controller)
+        app = AgentApp(controller, LOOK)
+        controller.renderer.sink = app.sink
+        async with app.run_test(size=size) as pilot:
+            await settle(pilot)
+            return await script(pilot, app, agent)
+
+    return asyncio.run(go())
+
+
+async def settle(pilot, n=6):
+    for _ in range(n):
+        await pilot.pause()
+    await asyncio.sleep(0.02)
+    await pilot.pause()
+
+
+async def type_text(pilot, text):
+    await pilot.press(*text)
+
+
+def plain(widget):
+    """What a `SafeStatic` shows, as plain text (markdown rendered the way the screen draws it)."""
+    from rich.console import Console
+
+    console = Console(width=200, record=True, file=io.StringIO(), color_system=None)
+    console.print(widget.content)
+    return console.export_text()
+
+
+def transcript_text(app):
+    return "\n".join(plain(w) for w in app.transcript.query(SafeStatic))
+
+
+async def until(pilot, check, tries=60):
+    for _ in range(tries):
+        if check():
+            return True
+        await asyncio.sleep(0.02)
+        await pilot.pause()
+    return check()
+
+
+def test_enter_sends_and_alt_enter_inserts_newline(tmp_path):
+    async def script(pilot, app, agent):
+        await type_text(pilot, "fix")
+        await pilot.press("ctrl+j")
+        await type_text(pilot, "it")
+        assert app.query_one(Composer).text == "fix\nit"
+        await pilot.press("enter")
+        assert await until(pilot, lambda: "hi" in transcript_text(app))
+        return agent.prompts, app.query_one(Composer).text
+
+    prompts, left = drive(tmp_path, script)
+    assert prompts[0][0]["text"] == "fix\nit" and left == ""
+
+
+def test_multiline_paste_becomes_one_chip_and_backspace_removes_it(tmp_path):
+    async def script(pilot, app, agent):
+        composer = app.query_one(Composer)
+        composer.post_message(events.Paste("a\nb\nc\nd"))
+        await settle(pilot)
+        chip_text = composer.text
+        await pilot.press("backspace")
+        after_backspace = composer.text
+        composer.post_message(events.Paste("1\n2\n3"))
+        await settle(pilot)
+        await pilot.press("enter")
+        assert await until(pilot, lambda: agent.prompts)
+        return chip_text, after_backspace, agent.prompts[0][0]["text"]
+
+    chip, after, sent = drive(tmp_path, script)
+    assert chip == "[pasted 4 lines #1]" and after == "" and sent == "1\n2\n3"
+
+
+def test_slash_popup_completes_commands_and_arguments(tmp_path):
+    async def script(pilot, app, agent):
+        await type_text(pilot, "/mo")
+        shown = [o.prompt.plain.split()[0] for o in app.popup._options]
+        await pilot.press("down", "tab")
+        await type_text(pilot, "pl")
+        await pilot.press("tab")
+        return shown, app.query_one(Composer).text
+
+    shown, text = drive(tmp_path, script)
+    assert shown == ["/model", "/mode"] and text == "/mode plan"
+
+
+def test_at_popup_completes_workspace_files_in_code_only(tmp_path):
+    work = tmp_path / "work"
+    (work / "src").mkdir(parents=True)
+    (work / "src" / "parse.py").write_text("x = 1\n")
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "look at @pars")
+        shown = [o.prompt.plain for o in app.popup._options]
+        await pilot.press("tab")
+        return shown, app.query_one(Composer).text
+
+    shown, text = drive(tmp_path, script, session=FakeSession(work=work))
+    assert shown == ["@src/parse.py"] and text == "look at @src/parse.py "
+
+    async def chat(pilot, app, agent):
+        await type_text(pilot, "@pars")
+        return app.popup.display
+
+    assert drive(tmp_path, chat, session=FakeSession(work=work), mode="chat") is False
+
+
+def test_streaming_text_lands_as_cleaned_markdown_and_markup_stays_literal(tmp_path):
+    hostile = "[@click=app.quit]press[/] \x1b[2J" + chr(0x202E) + " done\n\n"
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "go")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: "press" in transcript_text(app))
+        for widget in app.transcript.query(SafeStatic):
+            if "press" in plain(widget):
+                await pilot.click(widget)
+        await settle(pilot)
+        return transcript_text(app), app.is_running
+
+    text, running = drive(tmp_path, script, turns=[[chunk(hostile)]])
+    assert running and "[@click=app.quit]" in text and "\x1b" not in text and chr(0x202E) not in text
+
+
+def test_long_running_tool_card_is_visible_before_it_finishes(tmp_path):
+    turn = [{"sessionUpdate": "tool_call", "toolCallId": "c1", "title": "Run pytest -q", "status": "in_progress"}, 0.3,
+            {"sessionUpdate": "tool_call_update", "toolCallId": "c1", "status": "completed",
+             "content": [{"type": "content", "content": {"type": "text", "text": "3 passed"}}]}]
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "test")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: app.query(ToolCard))
+        card = app.query_one(ToolCard)
+        running = card.has_class("running") and "running" in str(card.query_one(".header").render())
+        assert await until(pilot, lambda: not card.has_class("running"))
+        return running, str(card.query_one(".header").render())
+
+    running, done = drive(tmp_path, script, turns=[turn])
+    assert running and "Run pytest -q" in done and "ok" in done
+
+
+def test_esc_stops_a_running_turn(tmp_path):
+    async def script(pilot, app, agent):
+        await type_text(pilot, "go")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: app.busy)
+        await pilot.press("escape")
+        assert await until(pilot, lambda: not app.busy)
+        return transcript_text(app)
+
+    text = drive(tmp_path, script, turns=[[WAIT_CANCEL]])
+    assert "cancelled" in text
+
+
+def test_ctrl_c_clears_the_composer_then_stops_a_running_turn(tmp_path):
+    async def script(pilot, app, agent):
+        await type_text(pilot, "draft")
+        await pilot.press("ctrl+c")
+        cleared = app.query_one(Composer).text == ""
+        await type_text(pilot, "go")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: app.busy)
+        await pilot.press("ctrl+c")
+        assert await until(pilot, lambda: not app.busy)
+        return cleared, app.is_running
+
+    assert drive(tmp_path, script, turns=[[WAIT_CANCEL]]) == (True, True)
+
+
+def test_ctrl_c_on_empty_idle_composer_needs_a_second_press_to_quit(tmp_path):
+    async def script(pilot, app, agent):
+        await pilot.press("ctrl+c")
+        await settle(pilot)
+        first = app.is_running
+        await pilot.press("ctrl+c")
+        await until(pilot, lambda: not app.is_running)
+        return first, app.is_running
+
+    assert drive(tmp_path, script) == (True, False)
+
+
+def test_model_chip_click_opens_picker_and_switches_model(tmp_path):
+    def setup(controller):
+        controller.state.list_models = lambda: [{"id": "qwen3:8b"}, {"id": "gemma3:12b", "context_length": 32768}]
+
+    async def script(pilot, app, agent):
+        await pilot.click("#chip-model")
+        assert await until(pilot, lambda: isinstance(app.screen, screens.PickerModal))
+        await type_text(pilot, "gemma")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: ("session/set_model", {"sessionId": SID, "modelId": "gemma3:12b"}) in agent.calls)
+        await settle(pilot)
+        return str(app.query_one("#chip-model", Button).label)
+
+    label = drive(tmp_path, script, setup=setup)
+    assert "gemma3:12b" in label
+
+
+def test_shift_tab_cycles_mode_and_status_updates(tmp_path):
+    async def script(pilot, app, agent):
+        await pilot.press("shift+tab")
+        await settle(pilot)
+        return app.state.mode, str(app.query_one("#status").render()), str(app.query_one("#chip-mode", Button).label)
+
+    mode, status, chip = drive(tmp_path, script)
+    assert mode == "auto-edit" and "mode auto-edit" in status and chip == "mode: auto-edit"
+
+
+def test_plan_card_keeps_planning_by_default_and_runs_only_on_button(tmp_path):
+    plan = {"sessionUpdate": "plan", "entries": [{"content": "write the test", "status": "pending"}]}
+
+    def setup(controller):
+        controller.state.mode = controller.state.status.mode = "plan"
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "plan it")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: isinstance(app.screen, screens.ChoiceModal))
+        assert app.screen.focused.id == "choice-keep"
+        await pilot.press("enter")
+        assert await until(pilot, lambda: not app.busy and not isinstance(app.screen, screens.ChoiceModal))
+        kept = (app.state.mode, len(agent.prompts))
+        await type_text(pilot, "again")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: isinstance(app.screen, screens.ChoiceModal))
+        await pilot.click("#choice-default")
+        assert await until(pilot, lambda: len(agent.prompts) == 3)
+        return kept, app.state.mode, agent.prompts[-1][0]["text"]
+
+    kept, mode, follow_up = drive(tmp_path, script, turns=[[plan], [plan]], setup=setup)
+    assert kept == ("plan", 1) and mode == "default" and follow_up == "The plan is approved. Carry it out."
+
+
+def isolated_session(tmp_path, changed=True):
+    from halsandbox import isolated
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "a.txt").write_text("one\n")
+    iso = isolated.create(project, 10**6)
+    if changed:
+        (iso.work / "a.txt").write_text("two\n")
+    return FakeSession(iso=iso), project
+
+
+def test_accept_modal_applies_exactly_the_reviewed_patch(tmp_path):
+    from halsandbox import isolated
+
+    session, project = isolated_session(tmp_path)
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "/accept")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: isinstance(app.screen, agentapp.AcceptModal))
+        modal = app.screen
+        assert modal.focused.id == "cancel" and not modal.query("#allow-flags")
+        patch_shown = "\n".join(str(w.render()) for w in modal.query("#patch SafeStatic"))
+        await pilot.click("#apply")
+        assert await until(pilot, lambda: session.applied)
+        return patch_shown
+
+    shown = drive(tmp_path, script, session=session, project=project)
+    allow_flags, expected = session.applied[0]
+    assert allow_flags is False and expected == isolated.patch_bytes(session.iso) and "+two" in shown
+
+
+def test_accept_modal_cancel_applies_nothing(tmp_path):
+    session, project = isolated_session(tmp_path)
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "/accept")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: isinstance(app.screen, agentapp.AcceptModal))
+        await pilot.press("enter")  # Enter on the focused Cancel
+        await settle(pilot)
+        return transcript_text(app)
+
+    text = drive(tmp_path, script, session=session, project=project)
+    assert session.applied == [] and "nothing applied" in text
+
+
+def test_exit_with_unaccepted_changes_offers_keep_review_discard(tmp_path):
+    session, project = isolated_session(tmp_path)
+
+    async def script(pilot, app, agent):
+        await pilot.press("ctrl+d")
+        assert await until(pilot, lambda: isinstance(app.screen, screens.ChoiceModal))
+        ids = [b.id for b in app.screen.query(Button)]
+        focused = app.screen.focused.id
+        await pilot.press("enter")
+        await until(pilot, lambda: not app.is_running)
+        return ids, focused, app.is_running
+
+    ids, focused, running = drive(tmp_path, script, session=session, project=project)
+    assert ids == ["choice-keep", "choice-review", "choice-discard", "choice-cancel"]
+    assert focused == "choice-keep" and not running and (session.iso.work / "a.txt").read_text() == "two\n"
+
+
+def test_exit_without_changes_quits_at_once(tmp_path):
+    session, project = isolated_session(tmp_path, changed=False)
+
+    async def script(pilot, app, agent):
+        await pilot.press("ctrl+d")
+        await until(pilot, lambda: not app.is_running)
+        return app.is_running
+
+    assert drive(tmp_path, script, session=session, project=project) is False
+
+
+def test_chat_surface_hides_code_only_commands_and_hints(tmp_path):
+    async def script(pilot, app, agent):
+        await type_text(pilot, "/")
+        shown = {o.prompt.plain.split()[0] for o in app.popup._options}
+        return shown, bool(app.query("#chip-mode")), bool(app.query("#side-changes"))
+
+    shown, has_mode, has_changes = drive(tmp_path, script, mode="chat")
+    assert "/model" in shown and not shown & {"/diff", "/accept", "/rewind", "/export", "/init", "/ide"}
+    assert not has_mode and not has_changes
+
+
+def test_theme_switch_applies_live(tmp_path):
+    async def script(pilot, app, agent):
+        await type_text(pilot, "/theme light")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: app.theme == "hal-light")
+        return app.theme
+
+    assert drive(tmp_path, script) == "hal-light"
+
+
+def test_unsandboxed_banner_and_status_on_every_redraw(tmp_path):
+    async def script(pilot, app, agent):
+        await type_text(pilot, "go")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: "hi" in transcript_text(app) and not app.busy)
+        return app.query_one("#unsandboxed").display, str(app.query_one("#status").render()), transcript_text(app)
+
+    banner, status, text = drive(tmp_path, script, session=FakeSession(backend="none"))
+    assert banner and "UNSANDBOXED" in status and "UNSANDBOXED" in text.strip().splitlines()[-1]
+
+
+def test_message_click_offers_rewind_to_its_checkpoint(tmp_path):
+    session = FakeSession()
+
+    async def script(pilot, app, agent):
+        await type_text(pilot, "change things")
+        await pilot.press("enter")
+        assert await until(pilot, lambda: not app.busy and "hi" in transcript_text(app))
+        message = app.transcript.query_one(UserMessage)
+        await pilot.click(message)
+        assert await until(pilot, lambda: isinstance(app.screen, screens.ChoiceModal))
+        await pilot.click("#choice-rewind")
+        assert await until(pilot, lambda: session.undone)
+        return message.checkpoint
+
+    checkpoint = drive(tmp_path, script, session=session)
+    assert checkpoint == 1 and session.undone == [1]
+
+
+def test_approval_request_opens_the_modal_and_ctrl_c_denies(tmp_path):
+    from test_tui_approval_modal import REQUEST, FakeBridge
+
+    bridge = FakeBridge({"hal-1": REQUEST})
+
+    async def script(pilot, app, agent):
+        send = app.ui.approval_sender(bridge, lambda note: None)
+        await send({"id": "hal-1"})
+        assert await until(pilot, lambda: isinstance(app.screen, ApprovalModal))
+        app.refresh_status()
+        waiting = "approval waiting" in str(app.query_one("#status").render())
+        await pilot.press("ctrl+c")
+        assert await until(pilot, lambda: bridge.answers)
+        return waiting
+
+    assert drive(tmp_path, script) is True
+    assert bridge.answers == [("hal-1", "deny")]
+
+
+def test_layout_fits_80_by_24_without_horizontal_scroll(tmp_path):
+    async def script(pilot, app, agent):
+        composer = app.query_one(Composer)
+        return app.transcript.region.height, composer.region.right, app.query_one("#side").display
+
+    height, right, side = drive(tmp_path, script, size=(80, 24))
+    assert height >= 12 and right <= 80 and not side

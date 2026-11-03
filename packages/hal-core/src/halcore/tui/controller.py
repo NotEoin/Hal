@@ -98,8 +98,8 @@ class Ui(Protocol):
     def turn_started(self) -> None:
         """A turn began (the line UI starts its key watcher)."""
 
-    def turn_ended(self, stats: TurnStats) -> None:
-        """A turn ended (the line UI may ring the bell)."""
+    def turn_ended(self, stats: TurnStats, reason: str) -> None:
+        """A turn ended with ACP stop reason `reason`: show the end-of-turn line (and maybe ring the bell)."""
 
     def status_changed(self) -> None:
         """The status fields changed; redraw them."""
@@ -375,10 +375,10 @@ async def run_turn(state: TuiState, box: sessions.BoxedAgent, text: str, ui: Ui 
     state.status.tok_s = stats.tok_s
     if stats.size:
         state.status.used, state.status.size = stats.used, stats.size
-    unsandboxed = session.backend == "none"
-    state.renderer.line(turn_line(stats, str(reason), state.mode, unsandboxed=unsandboxed), look.palette.muted)
     if ui is not None:
-        ui.turn_ended(stats)
+        ui.turn_ended(stats, str(reason))
+    else:
+        state.renderer.line(turn_line(stats, str(reason), state.mode, unsandboxed=session.backend == "none"), look.palette.muted)
     return str(reason)
 
 

@@ -23,10 +23,10 @@ from halkit import config as kitconfig
 from .. import pids, sessions
 from ..acp.permissions import PermissionBridge
 from .approval import make_asker
-from .controller import MODE_ORDER, Controller, Sender, history_path, read_plan_choice
+from .controller import MODE_ORDER, Controller, Sender, history_path, read_plan_choice, turn_line
 from .keys import KeyWatcher
 from .prompt import Hooks, PromptInput, private_history
-from .render import Renderer, TurnStats
+from .render import ConsoleSink, Renderer, TurnStats
 from .slash import Result, TuiState, command_descriptions
 from .status import segments, to_prompt_toolkit
 from .theme import UI_TABLE, Look, load_look
@@ -189,8 +189,10 @@ class LineUi:
         """Starts the Esc / Ctrl-O / Ctrl-T watcher for the turn."""
         self.watcher.start()
 
-    def turn_ended(self, stats: TurnStats) -> None:
-        """Stops the watcher; rings the bell after a long turn the user was not watching."""
+    def turn_ended(self, stats: TurnStats, reason: str) -> None:
+        """The `[reason] mode ...` line; stops the watcher; rings the bell after a long unwatched turn."""
+        unsandboxed = self.controller.session.backend == "none"
+        self.renderer.line(turn_line(stats, reason, self.state.mode, unsandboxed=unsandboxed), self.look.palette.muted)
         self.watcher.stop()
         background = self.watcher.focus_known and not self.watcher.focused
         if stats.elapsed >= NOTIFY_LONG_S or (stats.elapsed >= NOTIFY_MIN_S and background):
@@ -222,6 +224,38 @@ class LineUi:
         self.watcher.stop()
         for task in self._asks:
             task.cancel()
+
+
+FULL_BY_DEFAULT = False  # until then the full screen runs only with `[ui].interface = "full"`
+
+
+def wants_full_screen(look: Look, out: TextIO) -> bool:
+    """True when the full-screen UI should run: asked for (or `auto` once it is the default) and possible."""
+    from . import fallback  # noqa: PLC0415 - small, but keeps the line path free of the check's imports
+
+    if look.interface == "line" or (look.interface == "auto" and not FULL_BY_DEFAULT):
+        return False
+    ok, reason = fallback.can_run_textual(sys.stdin, out, os.environ, look.interface)
+    if not ok:
+        log.info("line UI: %s", reason)
+    return ok
+
+
+async def _run_full(controller: Controller, look: Look) -> int | None:
+    """Runs the full-screen app; None when it failed before its first draw (the line UI takes over)."""
+    from . import fallback  # noqa: PLC0415
+    from .agentapp import AgentApp, run_full  # noqa: PLC0415 - Textual loads only for the full screen
+
+    app: AgentApp | None = None
+    try:
+        status, app = await run_full(controller, look)
+    except Exception as exc:  # noqa: BLE001 - a start failure falls back to the line UI; a later one is raised
+        started = getattr(exc, "hal_app_mounted", False)
+        if started:
+            raise
+        sys.stderr.write(fallback.notice(str(exc) or type(exc).__name__) + "\n")
+        return None
+    return status
 
 
 async def run_tui(box: sessions.BoxedAgent, **kwargs) -> int:  # noqa: ANN003 - same keywords as `_run_tui`
@@ -260,6 +294,11 @@ async def _run_tui(
         renderer.plain(error)
         await controller.client.close()
         return 1
+    if stdin_line is None and wants_full_screen(look, out):
+        status = await _run_full(controller, look)
+        if status is not None:
+            return status
+        renderer.sink = ConsoleSink(renderer.console, renderer._live_view, look.refresh_hz)  # noqa: SLF001 - same package
     ui = LineUi(controller, out, stdin_line=stdin_line)
     if ui.interactive:
         await controller.open_ide()

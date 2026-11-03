@@ -190,6 +190,7 @@ class ChoiceModal(ModalScreen[str]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """A button answers with its value."""
+        event.stop()
         self.dismiss(str(event.button.id).removeprefix("choice-"))
 
     def action_safe(self) -> None:
