@@ -56,7 +56,7 @@ set `[ui].unicode = false` to force ASCII.
 | Ctrl+B, Ctrl+T | Show or hide the side panel; open it on the todo list |
 | Ctrl+P | Every command in a filterable list |
 | Ctrl+L | Clear the transcript view (the session keeps its history) |
-| PgUp, PgDn | Scroll the transcript |
+| PgUp, PgDn | Scroll the transcript; while you read further up, a `N new below` line counts new output, and a click on it (or scrolling to the bottom) follows the output again |
 | F1, `/help` | Help: keys, commands, prefixes and mouse |
 
 A message typed while a turn runs is queued and sent when the turn ends; the working line counts

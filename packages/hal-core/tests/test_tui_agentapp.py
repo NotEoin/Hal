@@ -720,3 +720,23 @@ def test_enter_on_a_command_that_is_also_a_prefix_runs_it(tmp_path):
 
     first, opened, shown = drive(tmp_path, script)
     assert first == "/mode" and opened, shown
+
+
+def test_scrolled_up_transcript_counts_new_output_and_a_click_follows_it_again(tmp_path):
+    async def script(pilot, app, agent):
+        for i in range(60):
+            app.transcript.add(SafeStatic(f"line {i}"))
+        await settle(pilot)
+        app.transcript.scroll_home(animate=False)
+        await settle(pilot)
+        app.transcript.add(SafeStatic("late 1"))
+        app.transcript.add(SafeStatic("late 2"))
+        await settle(pilot)
+        below = app.query_one("#below")
+        shown = below.display and "2 new below" in plain(below)
+        still_up = app.transcript.scroll_y == 0
+        await pilot.click("#below")
+        await settle(pilot)
+        return shown, still_up, app.transcript.scroll_y >= app.transcript.max_scroll_y - 1, below.display
+
+    assert drive(tmp_path, script) == (True, True, True, False)

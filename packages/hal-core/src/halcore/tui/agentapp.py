@@ -14,6 +14,8 @@ the context use. `hal chat` leaves out what needs a project copy.
 Design decisions:
 
 - Messages typed while a turn runs wait in `AgentApp.inbox` and are sent after it ("queued").
+- Scrolled up, the transcript stays put while output arrives and a "N new below" line under it
+  counts what came in; a click on it, or scrolling to the bottom, follows the output again.
 - Questions (confirm, plan, accept, approvals) are modals whose focus starts on the safe answer.
 - A bare listing command (`/model`) opens a picker; the choice runs the same command again with
   the chosen value, so the picker adds no new path into the session.
@@ -104,6 +106,8 @@ class Transcript(VerticalScroll):
         super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
         self.follow = True
         self.tail = SafeStatic("", id="tail")
+        self.unseen = 0  # items added while the user was reading further up
+        self.below = SafeStatic("", id="below")  # the "new output below" line, mounted by the app
 
     def compose(self) -> ComposeResult:
         """The streaming tail, kept last."""
@@ -114,11 +118,23 @@ class Transcript(VerticalScroll):
         self.mount(widget, before=self.tail)  # type: ignore[arg-type]  # a Widget
         if self.follow:
             self.call_after_refresh(self.scroll_end, animate=False)
+        else:
+            self.unseen += 1
+            self.below.update(Text(f"v {self.unseen} new below: click here or scroll down to follow", style="bold"))
+            self.below.display = True
 
     def watch_scroll_y(self, old: float, new: float) -> None:
         """Following stops when the user scrolls up and starts again at the bottom."""
         super().watch_scroll_y(old, new)
         self.follow = new >= self.max_scroll_y - 1
+        if self.follow:
+            self.unseen = 0
+            self.below.display = False
+
+    def jump(self) -> None:
+        """Back to the newest output, following it again."""
+        self.follow = True
+        self.scroll_end(animate=False)
 
 
 class UserMessage(SafeStatic):
@@ -480,6 +496,7 @@ class AgentApp(App[int]):
     #main { height: 1fr; }
     #side { width: 38; border-left: solid $panel; display: none; }
     #side.shown { display: block; }
+    #below { height: 1; padding: 0 1; background: $primary 30%; display: none; }
     #working { height: 1; padding: 0 1; color: $primary; display: none; }
     #working.busy { display: block; }
     #popup { height: auto; max-height: 10; display: none; border: round $panel; margin: 0 1; }
@@ -568,6 +585,7 @@ class AgentApp(App[int]):
                             yield Button("Export", id="act-export")
                 with TabPane("Context", id="side-context"):
                     yield SafeStatic("", id="context")
+        yield self.transcript.below
         yield SafeStatic("", id="working")
         yield self.popup
         history = list(reversed(list(self.history_store.load_history_strings())))
@@ -668,7 +686,7 @@ class AgentApp(App[int]):
     def send(self, line: str) -> None:
         """Shows the message in the transcript and queues it for the controller."""
         message = UserMessage(line, self.look)
-        self.transcript.follow = True
+        self.transcript.jump()
         self.transcript.add(message)
         self.waiting_messages.append(message)
         self.inbox.put_nowait(line)
@@ -991,6 +1009,11 @@ class AgentApp(App[int]):
         elif which == "chip-lockdown":
             toast(self, "Lockdown and paranoia are read only here: change them on the host with `hal config set`.")
         self.query_one(Composer).focus()  # the next thing typed is a message, not another press of the chip
+
+    def on_click(self, event: events.Click) -> None:
+        """A click on the "new below" line jumps to the newest output."""
+        if event.widget is self.transcript.below:
+            self.transcript.jump()
 
     def on_key(self, event: events.Key) -> None:
         """A printable key that reached the app (focus on a card or a chip) goes into the message box."""
