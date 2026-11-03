@@ -194,14 +194,14 @@ def textual_themes() -> list[Theme]:
 
     out = []
     for name in ("dark", "light"):
-        background, surface, panel, foreground = SURFACES[name]
-        colors = PT_COLORS[name]
+        r = tokens.ROLES[name]
         out.append(
             Theme(
-                name=TEXTUAL_NAMES[name], primary=ACCENT, accent=ACCENT, secondary=colors["muted"],
-                success=colors["ok"], error=colors["bad"], warning=WARNING[name], foreground=foreground,
-                background=background, surface=surface, panel=panel, dark=name == "dark",
+                name=TEXTUAL_NAMES[name], primary=r["accent"], accent=r["accent"], secondary=r["muted"],
+                success=r["ok"], error=r["bad"], warning=r["warn"], foreground=r["fg"], background=r["bg"],
+                surface=r["surface"], panel=r["panel"], dark=name == "dark", variables=tokens.css_variables(name),
             )
         )  # fmt: skip
-    out.append(Theme(name=TEXTUAL_NAMES["mono"], primary="ansi_default", ansi=True, dark=True))
+    mono = {f"hal-{role.replace('_', '-')}": "ansi_default" for role in tokens.ROLES["dark"]}
+    out.append(Theme(name=TEXTUAL_NAMES["mono"], primary="ansi_default", ansi=True, dark=True, variables=mono))
     return out

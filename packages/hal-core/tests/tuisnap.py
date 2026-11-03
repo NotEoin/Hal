@@ -124,16 +124,15 @@ def grid(app) -> Snapshot:  # noqa: ANN001 - a running Textual App
 
 def role_table(theme: str) -> tuple[dict[str, str], str]:
     """`({hex: letter}, background hex)` for a theme, from the TUI's colour tokens."""
-    from halcore.tui import theme as look  # noqa: PLC0415 - the helper loads after the test's own imports
+    from halcore.tui import tokens  # noqa: PLC0415 - the helper loads after the test's own imports
 
-    background, surface, panel, foreground = look.SURFACES[theme]
-    colors = look.PT_COLORS[theme]
-    roles = {"f": foreground, "m": colors["muted"], "a": look.ACCENT, "o": colors["ok"], "b": colors["bad"],
-             "w": look.WARNING[theme], "p": panel, "s": surface}  # fmt: skip
+    roles = tokens.ROLES[theme]
+    letters = {"fg": "f", "muted": "m", "faint": "i", "accent": "a", "accent_dim": "d", "ok": "o", "warn": "w",
+               "bad": "b", "panel": "p", "surface": "s"}  # fmt: skip
     table: dict[str, str] = {}
-    for letter, hex_ in roles.items():
-        table.setdefault(hex_.lower(), letter)
-    return table, background.lower()
+    for role, letter in letters.items():
+        table.setdefault(roles[role].lower(), letter)
+    return table, roles["bg"].lower()
 
 
 def render_golden(snap: Snapshot, *, name: str, theme: str, look: str, masks: Sequence[tuple[str, str]] = ()) -> str:

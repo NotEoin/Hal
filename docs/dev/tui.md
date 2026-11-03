@@ -81,6 +81,15 @@ Run apps with `App.run_test(size=(100, 30))` inside `asyncio.run`, no network, n
 offsets must stay inside the screen. Modals are tested by pushing them on a bare `App` and
 collecting the dismiss result. Verified against Textual 8.2.8.
 
+## Colour roles
+
+`tokens.ROLES` holds eleven roles per theme: `bg`, `surface`, `panel`, `fg`, `muted`, `faint`,
+`accent`, `accent_dim`, `ok`, `warn`, `bad`. Textual themes expose each as a CSS variable
+(`$hal-faint`, `$hal-accent-dim`, ...). Hal CSS uses only `$hal-*`, `$primary`, `$warning`,
+`$success`, `$error` and `$background`, never Textual's blended `$text-muted` or `$boost`, so
+the snapshot role map stays exact. `test_tui_tokens.py` computes WCAG contrast: text roles at
+least 4.5:1 on `bg`, `faint` at least 3:1.
+
 ## Snapshot tests
 
 `packages/hal-core/tests/test_tui_snapshots.py` renders each screen at 80x24 and 120x36, dark and

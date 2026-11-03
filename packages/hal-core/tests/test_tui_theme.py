@@ -2,7 +2,7 @@
 
 import io
 
-from halcore.tui import theme
+from halcore.tui import theme, tokens
 
 
 class Utf8(io.StringIO):
@@ -61,7 +61,8 @@ def test_look_names_its_theme_and_no_color_means_mono():
 def test_every_theme_has_a_textual_theme_with_the_hal_accent():
     built = {t.name: t for t in theme.textual_themes()}
     assert set(built) == {"hal-dark", "hal-light", "hal-mono"}
-    assert built["hal-dark"].primary == built["hal-light"].primary == theme.ACCENT
+    assert built["hal-dark"].primary == theme.ACCENT
+    assert built["hal-light"].primary == tokens.ACCENT_LIGHT  # darkened for contrast on white
     assert built["hal-mono"].ansi and not built["hal-light"].dark
     for name in theme.THEMES:
         assert theme.load_look({"theme": name}, environ={}).textual_theme in built

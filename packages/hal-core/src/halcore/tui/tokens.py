@@ -13,23 +13,47 @@ each Unicode glyph has an ASCII fallback with the same field name.
 from __future__ import annotations
 
 ACCENT = "#e5484d"  # HAL red
+ACCENT_LIGHT = "#c9373c"  # HAL red darkened: #e5484d on #fafafa is 3.75:1, under the 4.5:1 text minimum
+WCAG_TEXT = 4.5  # WCAG 2.1 SC 1.4.3 minimum for body text
+WCAG_HINT = 3.0  # WCAG 2.1 minimum for large text; used for the faint grey of timings and hints
 
 # fmt: off
 ROLES: dict[str, dict[str, str]] = {
     "dark": {
-        "bg": "#121212", "surface": "#1c1c1c", "panel": "#262626", "fg": "#e4e4e4", "muted": "#8a8a8a",
-        "faint": "#5c5c5c", "accent": ACCENT, "accent_dim": "#6b2a2c", "ok": "#5faf5f", "warn": "#d4a72c",
+        "bg": "#121212", "surface": "#1b1b1b", "panel": "#2a2a2a", "fg": "#e4e4e4", "muted": "#8a8a8a",
+        "faint": "#666666", "accent": ACCENT, "accent_dim": "#6b2a2c", "ok": "#5faf5f", "warn": "#d4a72c",
         "bad": ACCENT,
     },
     "light": {
-        "bg": "#fafafa", "surface": "#f0f0f0", "panel": "#e4e4e4", "fg": "#1c1c1c", "muted": "#6c6c6c",
-        "faint": "#9e9e9e", "accent": ACCENT, "accent_dim": "#e8b4b6", "ok": "#2e7d32", "warn": "#9a6700",
-        "bad": "#c62828",
+        "bg": "#fafafa", "surface": "#f0f0f0", "panel": "#dedede", "fg": "#1c1c1c", "muted": "#5f5f5f",
+        "faint": "#8a8a8a", "accent": ACCENT_LIGHT, "accent_dim": "#e8b4b6", "ok": "#2e7d32", "warn": "#9a6700",
+        "bad": ACCENT_LIGHT,
     },
 }
 # fmt: on
 TEXT_ROLES = ("fg", "muted", "accent", "ok", "warn", "bad")  # held to the WCAG 4.5:1 text minimum
 HINT_ROLES = ("faint",)  # timings and hints: held to 3:1
+
+
+
+def luminance(hex_colour: str) -> float:
+    """WCAG relative luminance of `#rrggbb`."""
+    value = hex_colour.lstrip("#")
+    channels = [int(value[i : i + 2], 16) / 255 for i in (0, 2, 4)]
+    linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]  # noqa: PLR2004 - WCAG constants
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def contrast(a: str, b: str) -> float:
+    """WCAG contrast ratio between two `#rrggbb` colours (1 to 21)."""
+    high, low = sorted((luminance(a), luminance(b)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
+def css_variables(theme: str) -> dict[str, str]:
+    """The roles of `theme` as Textual CSS variables: `hal-fg`, `hal-muted`, `hal-faint`, ..."""
+    return {f"hal-{role.replace('_', '-')}": value for role, value in ROLES[theme].items()}
+
 
 # Rich style names of the line UI (a terminal's own palette reads better there than hex values).
 RICH_STYLES: dict[str, dict[str, str]] = {

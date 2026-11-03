@@ -50,7 +50,7 @@ from textual.widgets import Button, Checkbox, Footer, OptionList, TabbedContent,
 from textual.widgets.option_list import Option
 
 from .. import __version__
-from . import mentions, screens
+from . import mentions, screens, tokens
 from . import fallback
 from .approvalmodal import ModalAsker
 from .controller import (
@@ -488,6 +488,11 @@ class AgentApp(App[int]):
     ENABLE_COMMAND_PALETTE = False  # Ctrl+P opens Hal's own command list
     CSS = """
     Screen { layout: vertical; }
+    ScrollableContainer, OptionList, TextArea {
+        scrollbar-size-vertical: 1; scrollbar-color: $hal-panel; scrollbar-color-hover: $hal-muted;
+        scrollbar-color-active: $primary; scrollbar-background: $background; scrollbar-background-hover: $background;
+        scrollbar-background-active: $background;
+    }
     #header { height: 1; padding: 0 1; }
     #header .chip { height: 1; min-width: 6; border: none; margin-left: 1; background: $panel; }
     #header .chip:hover { background: $primary 40%; }
@@ -550,6 +555,15 @@ class AgentApp(App[int]):
         self.state.review_accept = self.ui.review_accept
         if not look.animations:
             self.animation_level = "none"
+        for theme in textual_themes():
+            self.register_theme(theme)
+        self.theme = look.textual_theme
+
+    def get_theme_variable_defaults(self) -> dict[str, str]:
+        """The `$hal-*` colour roles, so the CSS parses before the theme is applied."""
+        look = getattr(self, "look", None)  # Textual asks while `App.__init__` runs, before `look` is set
+        theme = look.theme if look is not None and look.theme in tokens.ROLES else "dark"
+        return tokens.css_variables(theme)
 
     def look_for(self, theme: str) -> Look:
         """This look with another theme."""
@@ -637,9 +651,6 @@ class AgentApp(App[int]):
     async def on_mount(self) -> None:
         """Theme, the side panel on wide terminals, then the controller loop."""
         self.mounted = True
-        for theme in textual_themes():
-            self.register_theme(theme)
-        self.theme = self.look.textual_theme
         self.query_one("#side").set_class(self.size.width >= WIDE, "shown")
         if self.controller.session.backend == "none":
             self.query_one("#unsandboxed").add_class("shown")

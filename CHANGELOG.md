@@ -118,6 +118,9 @@ First release of the monorepo (uv workspace on branch `next`).
 
 ### Changed
 
+- The light theme's accent is a darker HAL red (`#c9373c`) and its greys are darker, so every text
+  colour passes the WCAG 4.5:1 contrast minimum (hints 3:1); scrollbars in the full screen are one
+  thin grey column instead of a red bar.
 - `hal chat` offers only the commands that work in a chat: `/help`, Tab and Esc Esc leave out the
   project-copy commands (`/rewind`, `/diff`, `/accept`, `/export`, `/ide`, `/init`), and `!`, `#`
   and `@` are sent as plain text.
