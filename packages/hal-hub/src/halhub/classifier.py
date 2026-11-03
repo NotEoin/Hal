@@ -74,6 +74,9 @@ GUARDIAN_CRITERIA = (
 GUARDIAN_SCORING = "If the last assistant's text meets the criteria, return 'yes'; otherwise, return 'no'."
 _SCORE = re.compile(r"<score>\s*(yes|no)\b\s*(</(score>?)?)?", re.I)  # the close may be cut off
 READ_SKIP_REASON = "read tool, no rule matched; model skipped"
+SEARCH_SKIP_REASON = "tool search: the query only ranks tools and is never run"
+# the hub's own search; the registry refuses any other module named `hub`, so no pack can pose
+SEARCH_TOOL = ("hub", "hal_find_tools")
 REASON_CHARS = 300  # same cut as the reviewer's audited reason
 
 # paranoia -> risk -> (effect, reviewer may auto-approve a reviewable ask); RESOLUTIONS I5 table
@@ -407,6 +410,8 @@ class Classifier:
 
     def classify(self, req: ClassifyRequest) -> Classification:
         """Never raises: any model failure is a `high` risk with the cause in `error`."""
+        if (req.tool.pack, req.tool.name) == SEARCH_TOOL:
+            return Classification("low", SEARCH_SKIP_REASON)
         floor, labels = rules(req)
         if floor == "critical":
             return Classification("critical", "; ".join(labels), labels)

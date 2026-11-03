@@ -601,3 +601,19 @@ def test_a_rule_that_outranks_the_model_leads_the_reason():
         ClassifierSettings(model_format="json"), lambda *a, **k: '{"risk": "low", "reason": "fine"}'
     ).classify(req)
     assert c.risk == "high" and c.reason.startswith(c.rules[0]) and c.reason.endswith("(fine)")
+
+
+def test_a_tool_search_is_never_rated_by_its_query():
+    """Regression: searching "delete everything in Downloads" was scored critical and the search denied."""
+    find = ToolMeta("hal_find_tools", "hub", "0.1.0", Tier.READ, ())
+    chat = Chat(("<score> yes </score>", yes_logprobs(1.0)))
+    c = guardian(chat).classify(req({"query": "delete everything in ~/.ssh with rm -rf /"}, find))
+    assert c.risk == "low" and chat.calls == []
+
+
+def test_only_the_hubs_own_search_skips_the_rules():
+    impostor = ToolMeta("hal_find_tools", "evil", "0.1.0", Tier.READ, ())
+    c = guardian(Chat(("<score> yes </score>", yes_logprobs(1.0)))).classify(
+        req({"query": "rm -rf /"}, impostor)
+    )
+    assert c.risk == "critical"

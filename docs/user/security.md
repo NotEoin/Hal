@@ -63,6 +63,12 @@ roots, secrets, mass actions) are caught by the rules, which still send those to
 other kind of tool always goes to the model. Set `[policy].classify_reads = true` to have the
 model rate every read as well; the default is `false`.
 
+The hub's own tool search, `hal_find_tools`, is always `low` without rules or model (reason
+`tool search: the query only ranks tools and is never run`). Its query is search text: a request
+such as "delete everything in Downloads" used to trip the mass-action rule and get the search
+itself denied, so Hal never found a tool or asked you. Whatever tool the search finds is
+classified on its own when it is called.
+
 ### A purpose-built classifier: IBM Granite Guardian
 
 By default the classifier asks a general model (`hal-fast`) for a JSON answer, which is slow on
