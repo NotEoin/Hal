@@ -161,7 +161,7 @@ class LineUi:
         was answered elsewhere while the panel is up.
         """
         ask = make_asker(
-            bridge, lambda: self._read_raw("approve [y once / a session / n deny / e note]> "), self.out,
+            bridge, lambda: self._read_raw("answer [y / a / n / e; Enter denies]> "), self.out,
             look=self.look, console=self.renderer.console, suspend=self.suspend,
             read_note=lambda: self._read_raw("note for the agent> "), on_note=on_note,
         )  # fmt: skip

@@ -74,15 +74,16 @@ set `[ui].unicode = false` to force the ASCII form shown above.
 
 ## Approvals
 
-A broker approval is a rounded panel: tool, tier, pack, the classifier's verdict when the hub
-sent one, the reason, every argument exactly as the tool receives it, and the keys.
+A broker approval is a rounded panel: tool, tier, pack, the label `leaves the box` and the first
+12 hex digits of the approval key, the classifier's verdict when the hub sent one, the reason,
+every argument exactly as the tool receives it, and the keys.
 
 | Key | Effect |
 | --- | --- |
-| `y` | Allow this exact call once |
-| `a` | Allow for this session (only when the request offers it) |
+| `y` | Allow once |
+| `a` | Allow these exact arguments this session (only when the request offers it) |
 | `n`, Enter | Deny |
-| `e` | Deny, then type a note that is sent to the agent as your next message |
+| `e` | Deny with a note: type a note that is sent to the agent as your next message |
 
 Anything else, and end of input, denies. The text is made by the host and escaped again here, so
 the model cannot draw a fake panel. `hal approve ID` in another terminal also works; the panel

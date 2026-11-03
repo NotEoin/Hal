@@ -171,7 +171,7 @@ def test_approval_panel_shows_risk_args_keys_and_escapes_hostile_text():
     out = io.StringIO()
     theme.make_console(look, out).print(approval.approval_panel(request, look))
     text = out.getvalue()
-    assert "classifier: high" in text and "[a] always this session" in text and "[e]" in text
+    assert "classifier: high" in text and "[a] allow these exact arguments this session" in text and "[e]" in text
     assert "\x1b" not in text and RLO not in text and "[bold red]x[/]" in text
     assert text.splitlines()[0].startswith("+") and text.isascii()
 
@@ -371,3 +371,13 @@ def test_a_second_approval_waits_for_the_first():
 
     asyncio.run(go())
     assert [(m["id"], m["result"]["outcome"]["optionId"]) for m in sent] == [("r1", "once"), ("r2", "deny")]
+
+
+def test_line_approval_panel_shows_key_prefix_and_leaves_the_box_label():
+    # REQ-CLI-25: the TUI panel lacked the key prefix and the label the web console shows
+    from halcore.tui import approval
+
+    request = {"tool": "t", "tier": "x", "pack": "p", "reason": "r", "display": "d", "scopes": ["once"],
+               "key": "sha256:3f9a0c12d4e8" + "0" * 52}
+    text = approval.render_approval(request)
+    assert "leaves the box" in text and "key 3f9a0c12d4e8" in text and "3f9a0c12d4e80" not in text

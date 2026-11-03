@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from dataclasses import dataclass
 from collections.abc import Awaitable, Callable, Mapping
 from typing import TextIO
 
@@ -38,20 +39,55 @@ VANISH_POLL_S = 0.25  # how soon a panel notices its request was answered elsewh
 ANSWERED_ELSEWHERE = "approval answered elsewhere (or expired); this prompt is closed"
 
 
-def _lines(request: Mapping[str, object]) -> list[str]:
+LABEL = "leaves the box"  # REQ-CLI-25: a broker approval is about a call that leaves the box
+KEY_PREFIX = "sha256:"
+KEY_DIGITS = 12  # REQ-CLI-25: the first 12 hex digits of the approval key
+ALLOW_ONCE = "Allow once"
+ALLOW_SESSION = "Allow these exact arguments this session"
+DENY = "Deny"
+DENY_NOTE = "Deny with a note"
+
+
+@dataclass(frozen=True)
+class ApprovalView:
+    """The display parts of one approval request; every field is escaped for the terminal."""
+
+    header: str  # tool [tier] from pack
+    key: str  # the first `KEY_DIGITS` hex digits of the approval key, or ""
+    risk: str  # the classifier line, or ""
+    why: str
+    display: str  # every argument, as the tool receives them
+    session_offered: bool
+
+
+def view_of(request: Mapping[str, object]) -> ApprovalView:
+    """The escaped parts both approval views draw (the line panel and the full-screen modal)."""
     scopes = request.get("scopes")
     offered = scopes if isinstance(scopes, list) else []
-    keys = "[y] once" + (" / [a] always this session" if "session" in offered else "") + " / [n] deny (default) / [e] deny and tell the agent why"
-    lines = [f"{safe(request.get('tool'))} [{safe(request.get('tier'))}] from {safe(request.get('pack'))}"]
+    key = str(request.get("key") or "").removeprefix(KEY_PREFIX)[:KEY_DIGITS]
     risk = request.get("risk")
+    risk_line = ""
     if risk:
-        verdict = f"classifier: {safe(risk)}"
         reason = request.get("risk_reason")
-        lines.append(verdict + (f" - {safe(reason)}" if reason else ""))
+        risk_line = f"classifier: {safe(risk)}" + (f" - {safe(reason)}" if reason else "")
+    return ApprovalView(
+        header=f"{safe(request.get('tool'))} [{safe(request.get('tier'))}] from {safe(request.get('pack'))}",
+        key=safe(key), risk=risk_line, why=f"why: {safe(request.get('reason', ''))}",
+        display=termsafe.escape(str(request.get("display", "")), multiline=True), session_offered="session" in offered,
+    )  # fmt: skip
+
+
+def _lines(request: Mapping[str, object]) -> list[str]:
+    view = view_of(request)
+    keys = f"[y] {ALLOW_ONCE.lower()}"
+    keys += f" / [a] {ALLOW_SESSION.lower()}" if view.session_offered else ""
+    keys += f" / [n] {DENY.lower()} (Enter) / [e] {DENY_NOTE.lower()}"
+    head = f"{view.header}  {LABEL}" + (f"  key {view.key}" if view.key else "")
+    lines = [head] + ([view.risk] if view.risk else [])
     lines += [
-        f"why: {safe(request.get('reason', ''))}",
+        view.why,
         "arguments (every one, as the tool will receive them):",
-        termsafe.escape(str(request.get("display", "")), multiline=True),
+        view.display,
         "",
         f"Allow this exact call? {keys}",
     ]
