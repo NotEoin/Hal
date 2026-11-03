@@ -188,3 +188,16 @@ def test_diff_view_cuts_at_limit_and_enter_expands():
         return len(card.body.children)
 
     assert run(app, script) == 3
+
+
+def test_toast_shows_markup_and_escapes_literally():
+    app = Host()
+
+    async def script(pilot):
+        widgets.toast(app, "[@click=app.quit]x[/] \x1b[2J", title="[b]t[/b]")
+        await pilot.pause()
+        note = list(app._notifications)[-1]
+        return note.message, note.title, note.markup
+
+    message, title, markup = run(app, script)
+    assert message.startswith("[@click=app.quit]") and "\x1b" not in message and title == "[b]t[/b]" and markup is False

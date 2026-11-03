@@ -41,7 +41,7 @@ from .tui import screens
 from .tui.render import clean
 from .tui.slash import PickItem
 from .tui.theme import Look, textual_themes
-from .tui.widgets import FitGauge, SafeStatic, Segment, Segmented, Slider
+from .tui.widgets import FitGauge, SafeStatic, Segment, Segmented, Slider, toast
 from .tuneview import TIGHT_FRACTION, fit_line, fit_word, gib, guard_line, hal_models, hardware_lines, model_label
 
 PRESET_SHORT = {"auto": "This machine", "cpu": "CPU only"}  # other presets show their label
@@ -499,7 +499,7 @@ class TuneApp(App[int]):
             result = edit()
         except ValueError as exc:
             self.state.restore(snap)
-            self.notify(clean(exc), title="Not changed", severity="error")
+            toast(self, clean(exc), title="Not changed", severity="error")
             self.editor().sync()
             return None
         self.undo = [*self.undo[-MAX_UNDO:], snap]
@@ -553,7 +553,8 @@ class TuneApp(App[int]):
         notes = self.change(lambda: self.state.apply_preset(preset), rebuild=True)
         if notes:
             missing = [n for n in notes if "no discovered model" in n]  # type: ignore[union-attr]
-            self.notify(
+            toast(
+                self,
                 Text("\n".join(clean(n) for n in notes)),  # type: ignore[union-attr]
                 title=f"Planned for {preset.label}", severity="warning" if missing else "information", timeout=8,
             )  # fmt: skip
@@ -574,7 +575,7 @@ class TuneApp(App[int]):
         elif which == "auto-role":
             notes = self.change(lambda: state.auto_tune(role), rebuild=True)
             if notes:
-                self.notify(Text("\n".join(map(clean, notes))), title=f"Tuned {role}")  # type: ignore[arg-type]
+                toast(self, "\n".join(map(str, notes)), title=f"Tuned {role}")  # type: ignore[arg-type]
         elif which == "clear-role":
             self.change(lambda: state.clear(role), rebuild=True)
         elif which == "source-add":
@@ -595,7 +596,7 @@ class TuneApp(App[int]):
             word = fit_word(self.preview_fit(role, m))
             items.append(PickItem(model_label(state, m.source, m.name), f"{m.source}\n{m.name}", f"{size}  {m.quant}  {word}".strip()))
         if not items:
-            self.notify("No models found: add a source on the Sources tab, or check that your server runs.", severity="warning")
+            toast(self, "No models found: add a source on the Sources tab, or check that your server runs.", severity="warning")
             return
         d = state.drafts.get(role)
         current = f"{d.source}\n{d.model}" if d and d.model else ""
@@ -632,7 +633,7 @@ class TuneApp(App[int]):
     def action_undo(self) -> None:
         """Ctrl+Z: puts back the state before the last edit."""
         if not self.undo:
-            self.notify("Nothing to undo.")
+            toast(self, "Nothing to undo.")
             return
         self.state.restore(self.undo.pop())
         self.fill_sources()
@@ -685,7 +686,7 @@ class TuneApp(App[int]):
             return str(exc)
         self.undo.append(snap)
         found = self.state.found[name]
-        self.notify(clean(found.error or f"{len(found.models)} models"), title=f"Added {name}",
+        toast(self, clean(found.error or f"{len(found.models)} models"), title=f"Added {name}",
                     severity="warning" if found.error else "information")  # fmt: skip
         return ""
 
@@ -752,7 +753,7 @@ class TuneApp(App[int]):
         try:
             lines = await asyncio.to_thread(self.state.write)
         except (ValueError, OSError, *modelplan.plain_errors()) as exc:
-            self.notify(clean(exc), title="Nothing written", severity="error", timeout=10)
+            toast(self, clean(exc), title="Nothing written", severity="error", timeout=10)
             return
         self.written = list(lines)
         self.undo.clear()
@@ -831,7 +832,7 @@ class TuneApp(App[int]):
             self.exit(EXIT_OK)
         elif key:
             self.take_preset(key)
-            self.notify("Review the roles, then Ctrl+S to save.", title="Preset applied")
+            toast(self, "Review the roles, then Ctrl+S to save.", title="Preset applied")
 
 
 def run_app(state: tunestate.TuneSession, look: Look) -> tuple[int, TuneApp]:

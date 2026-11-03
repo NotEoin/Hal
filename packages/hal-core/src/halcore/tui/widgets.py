@@ -30,6 +30,7 @@ from rich.console import RenderableType
 from rich.text import Text
 from textual import events
 from textual.binding import Binding
+from textual.app import App
 from textual.containers import Vertical
 from textual.message import Message
 from textual.reactive import reactive
@@ -53,6 +54,12 @@ def safe_text(content: RenderableType | str, style: str = "") -> RenderableType:
     if isinstance(content, str):
         return Text(clean(content), style=style)
     return content
+
+
+def toast(widget: Widget | App, message: object, *, title: str = "", **kwargs: object) -> None:
+    """A notification with markup off: `message` and `title` are cleaned text, never Textual markup."""
+    plain = message.plain if isinstance(message, Text) else str(message)
+    widget.notify(clean(plain), title=clean(title), markup=False, **kwargs)  # type: ignore[arg-type]  # notify's own keywords
 
 
 class SafeStatic(Static):
@@ -302,7 +309,7 @@ class Segmented(Widget, can_focus=True):
         seg = next((s for s in self.segments if s.value == value), None)
         if seg is None or seg.reason:
             if seg is not None:
-                self.notify(clean(seg.reason), title=clean(seg.label), severity="warning")
+                toast(self, seg.reason, title=seg.label, severity="warning")
             return False
         if value != self.selected:
             self.selected = value

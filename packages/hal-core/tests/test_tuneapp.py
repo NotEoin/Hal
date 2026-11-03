@@ -390,3 +390,17 @@ def test_layout_fits_80_by_24(home, server):
 
     (slider_right, button_right), _, _ = drive(state, script, size=(80, 24))
     assert slider_right <= 80 and button_right <= 80
+
+
+def test_textual_ctrl_q_also_asks_when_there_are_unsaved_changes(home, server):
+    state = open_state(home, server, roles=CHAT_ROLE)
+
+    async def script(pilot, app):
+        app.query_one("#kv", Segmented).focus()
+        await pilot.press("right")
+        await app.action_quit()  # what Textual's own Ctrl+Q binding calls
+        await settle(pilot)
+        return isinstance(app.screen, screens.ChoiceModal), app.is_running
+
+    (asked, running), _, _ = drive(state, script)
+    assert asked and running

@@ -35,7 +35,7 @@ from textual.widgets import Button, Input
 
 from . import approval
 from .screens import MODAL_CSS
-from .widgets import SafeStatic
+from .widgets import SafeStatic, toast
 
 ARM_S = 0.6  # a person reading the panel takes longer; a key in flight from the composer arrives sooner
 ALLOW_IDS = ("allow-once", "allow-session")
@@ -272,7 +272,7 @@ class ModalAsker:
                 finished, _ = await asyncio.wait({future}, timeout=self.poll_s)
                 if not finished and not self.pending(rid):
                     modal.gone()
-                    self.app.notify(approval.ANSWERED_ELSEWHERE, title="Approval closed")
+                    toast(self.app, approval.ANSWERED_ELSEWHERE, title="Approval closed")
             return future.result()
         finally:
             self.current = None
