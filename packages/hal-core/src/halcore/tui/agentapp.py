@@ -872,11 +872,11 @@ class AgentApp(App[int]):
 
     def action_expand_all(self) -> None:
         """Ctrl+O: expands every tool card and thinking block when any is folded, else folds them all."""
-        cards = [c for c in self.query(ToolCard) if c.body is not None and c.body.foldable]
+        cards = [c for c in self.query(ToolCard) if c.expandable]
         folds = list(self.query(ThinkingFold))
-        expand = any(not c.body.expanded for c in cards) or any(not f.open for f in folds)  # type: ignore[union-attr]  # filtered above
+        expand = any(not c.expanded for c in cards) or any(not f.open for f in folds)
         for card in cards:
-            if card.body.expanded != expand:  # type: ignore[union-attr]  # filtered above
+            if card.expanded != expand:
                 card.action_toggle()
         for fold in folds:
             if fold.open != expand:

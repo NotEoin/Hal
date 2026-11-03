@@ -268,7 +268,7 @@ def test_long_running_tool_card_is_visible_before_it_finishes(tmp_path):
         return running, str(card.query_one(".header").render())
 
     running, done = drive(tmp_path, script, turns=[turn])
-    assert running and "Run pytest -q" in done and "ok" in done
+    assert running and "Run    pytest -q" in done and "ok" in done
 
 
 def test_esc_stops_a_running_turn(tmp_path):

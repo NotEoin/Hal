@@ -46,7 +46,7 @@ from textual.widget import Widget
 from textual.widgets import Input, Static
 
 from . import tokens
-from .render import clean
+from .render import ToolRow, clean
 
 VALUE_WIDTH = 9  # columns kept for the value text right of a slider track
 PAGE_CELLS = 10  # PgUp / PgDn move the knob this many cells
@@ -495,15 +495,94 @@ class DiffView(Vertical):
         return len(self.full) > len(self.folded)
 
 
-class ToolCard(Vertical):
-    """One tool call: a spinner and timer while it runs, then its result row; the body expands on click or Enter."""
+VERB_WIDTH = 6  # verbs are padded to this many cells so targets line up
+
+
+def _roles(app: object) -> dict[str, str]:
+    look = getattr(app, "look", None)
+    if look is None or not look.color or look.theme not in tokens.ROLES:
+        return {}
+    return tokens.ROLES[look.theme]
+
+
+class ToolHeader(Widget):
+    """The one row of a tool call: mark, verb, target, diffstat, then time, result and fold glyph at the right."""
 
     DEFAULT_CSS = """
-    ToolCard { height: auto; margin: 0 0 0 2; }
-    ToolCard > .header { height: 1; }
-    ToolCard > .header:hover { background: $boost; }
-    ToolCard:focus-within > .header { background: $boost; }
-    ToolCard.running > .header { color: $primary; }
+    ToolHeader { height: 1; width: 1fr; }
+    ToolHeader:hover { background: $surface; }
+    """
+
+    def __init__(self, card: ToolCard, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
+        self.card = card
+
+    def render(self) -> RenderableType:
+        """The row, laid out for the current width; the target is clipped, never wrapped."""
+        card = self.card
+        if card.legacy is not None:
+            return card.legacy
+        look = getattr(self.app, "look", None)
+        glyphs = look.glyphs if look is not None else None
+        roles = _roles(self.app)
+        faint, muted, accent = roles.get("faint", "dim"), roles.get("muted", "dim"), roles.get("accent", "bold")
+        ellipsis = glyphs.ellipsis if glyphs is not None else "..."
+        row = card.row
+        text = Text("  " * card.depth, no_wrap=True, overflow="crop")
+        right = Text(no_wrap=True)
+        if row is None:
+            if look is not None and look.animations:
+                mark = look.glyphs.spinner_frames[card.tick % len(look.glyphs.spinner_frames)]
+            else:
+                mark = glyphs.running if glyphs is not None else "..."
+            text.append(f"{mark} ", style=accent)
+            verb, target = card.verb_target()
+            right.append(f"running {clock() - card.started:.0f}s", style=faint)
+            adds = dels = 0
+        else:
+            tool = glyphs.tool if glyphs is not None else "*"
+            text.append(f"{tool} ", style=faint if row.ok else f"bold {roles.get('bad', 'bold')}")
+            verb, target = row.verb, row.target
+            adds, dels = row.adds, row.dels
+            right.append(f"{row.seconds:.1f}s", style=faint)
+            mark_ok = glyphs.ok if glyphs is not None else "ok"
+            mark_fail = glyphs.fail if glyphs is not None else "FAIL"
+            right.append(f"  {mark_ok if row.ok else mark_fail}", style=roles.get("ok", "") if row.ok else roles.get("bad", "bold"))
+            if card.has_body:
+                fold = (glyphs.fold_open if card.open else glyphs.fold_closed) if glyphs is not None else ("v" if card.open else ">")
+                right.append(f"  {fold}", style=faint)
+        text.append(verb.ljust(VERB_WIDTH), style=f"bold {roles.get('fg', '')}".strip())
+        stat = Text()
+        if adds or dels:
+            stat.append("  ")
+            stat.append(f"+{adds}", style=roles.get("ok", ""))
+            stat.append(" ")
+            stat.append(f"-{dels}", style=roles.get("bad", ""))
+        width = self.size.width or 80
+        room = width - text.cell_len - stat.cell_len - right.cell_len - 3
+        shown = target if len(target) <= max(0, room) else target[: max(0, room - len(ellipsis))] + ellipsis
+        if room > 0 and target:
+            text.append(" " + shown, style=muted)
+        text.append_text(stat)
+        text.append(" " * max(2, width - text.cell_len - right.cell_len))
+        text.append_text(right)
+        return text
+
+
+class ToolCard(Vertical):
+    """One tool call as a single row: a spinner and timer while it runs, then its result; a click opens the body.
+
+    `finish` with a `ToolRow` gives the one-row layout with the body closed (a failed call opens
+    it); without one (callers that only have a header `Text`), the header and folded body show as
+    they are.
+    """
+
+    # `$surface` and `$secondary` are the hal surface and muted roles in hal themes; `$hal-*` names
+    # would fail in a bare test app, which has no hal theme
+    DEFAULT_CSS = """
+    ToolCard { height: auto; }
+    ToolCard:focus-within > .header { background: $surface; }
+    ToolCard > DiffView { padding-left: 2; color: $secondary; }
     """
     can_focus = True
     BINDINGS = [Binding("enter", "toggle", "expand", show=False)]
@@ -514,12 +593,24 @@ class ToolCard(Vertical):
         self.started = clock()
         self.finished = False
         self.body: DiffView | None = None
-        self._tick = 0
+        self.row: ToolRow | None = None
+        self.legacy: Text | None = None  # a header `Text` from a caller without a `ToolRow`
+        self.open = False
+        self.tick = 0
         self._handles: list[object] = []
+
+    @property
+    def has_body(self) -> bool:
+        """True when there is output or a diff to open."""
+        return self.body is not None and bool(self.body.full or self.body.folded)
+
+    def verb_target(self) -> tuple[str, str]:
+        """The title as `(verb, target)`."""
+        return ToolRow.split(self.title.plain)
 
     def compose(self):  # noqa: ANN201 - Textual's ComposeResult
         """The header row."""
-        yield SafeStatic(self._running_header(), classes="header")
+        yield ToolHeader(self, classes="header")
 
     def on_mount(self) -> None:
         """Joins the app's motion clock: elapsed time each second, spinner frames when motion is on."""
@@ -536,42 +627,62 @@ class ToolCard(Vertical):
             handle.cancel()  # type: ignore[attr-defined]  # a `motion.Handle`
         self._handles = []
 
-    def _running_header(self) -> Text:
-        look = getattr(self.app, "look", None) if self.is_attached else None
-        if look is not None and look.animations:
-            spin = look.glyphs.spinner_frames[self._tick % len(look.glyphs.spinner_frames)]
-        else:
-            spin = look.glyphs.running if look is not None else "..."
-        row = Text("  " * self.depth)
-        row.append(f"{spin} ", style="bold")
-        row.append_text(self.title)
-        row.append(f"  running {clock() - self.started:.0f}s", style="dim")
-        return row
-
     def _spin(self, now: float) -> bool:
-        self._tick += 1
+        self.tick += 1
         return self._redraw(now)
 
     def _redraw(self, now: float = 0.0) -> bool:
         if self.finished or not self.is_attached:
             return False
-        self.query_one(".header", SafeStatic).update(self._running_header())
+        self.query_one(ToolHeader).refresh()
         return True
 
-    def finish(self, header: Text, folded: Sequence[RenderableType], full: Sequence[RenderableType]) -> None:
-        """Shows the result row and the folded body."""
+    def finish(
+        self, header: Text, folded: Sequence[RenderableType], full: Sequence[RenderableType], row: ToolRow | None = None
+    ) -> None:
+        """Shows the result row; with a `row`, the body stays closed until clicked (open when the call failed)."""
         self.finished = True
         self.remove_class("running")
         self._stop()
-        self.query_one(".header", SafeStatic).update(header)
+        self.row = row
+        if row is None:
+            self.legacy = header
         if folded or full:
             self.body = DiffView(folded, full)
             self.mount(self.body)
+            if row is not None:
+                self.body.display = False
+                if not row.ok:  # a failure is what the human needs to read: it opens by itself
+                    self.action_toggle()
+        self.query_one(ToolHeader).refresh()
 
     def action_toggle(self) -> None:
-        """Expands or folds the body."""
-        if self.body is not None and self.body.foldable:
+        """Opens or closes the body (one-row calls), or expands the folded body (header-only calls)."""
+        if self.body is None:
+            return
+        if self.row is None:
+            if self.body.foldable:
+                self.body.toggle()
+            return
+        self.open = not self.open
+        if self.body.foldable and self.body.expanded != self.open:
             self.body.toggle()
+        self.body.display = self.open
+        self.query_one(ToolHeader).refresh()
+
+    @property
+    def expanded(self) -> bool:
+        """True when the body shows in full (one-row calls: when it is open)."""
+        if self.body is None:
+            return False
+        return self.open if self.row is not None else self.body.expanded
+
+    @property
+    def expandable(self) -> bool:
+        """True when a toggle would show more."""
+        if self.body is None:
+            return False
+        return self.has_body if self.row is not None else self.body.foldable
 
     def on_click(self, event: events.Click) -> None:
         """A click toggles the body."""

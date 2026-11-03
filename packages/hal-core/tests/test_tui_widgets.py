@@ -162,7 +162,7 @@ def test_tool_card_shows_running_timer_then_result_and_toggles_on_click():
     app = Host(card)
 
     async def script(pilot):
-        header = card.query_one(".header", SafeStatic)
+        header = card.query_one(".header")
         running = str(header.render())
         card.finish(Text("* Run pytest  ok  3.2s"), [Text("a"), Text("... 9 more lines")], [Text(str(i)) for i in range(10)])
         await pilot.pause()
@@ -261,3 +261,53 @@ def test_typed_value_outside_the_range_or_not_a_number_changes_nothing():
 
     value, seen, notes = run(app, script)
     assert value == 5 and seen == [] and notes == 2
+
+
+def test_tool_row_is_one_line_with_the_body_closed_until_clicked():
+    from halcore.tui.render import ToolRow
+
+    card = ToolCard("c1", Text("Read src/calc.py"), id="card")
+    app = Host(card)
+
+    async def script(pilot):
+        card.finish(Text("unused"), [Text("a")], [Text("a"), Text("b")], ToolRow("Read", "src/calc.py", True, 0.3))
+        await pilot.pause()
+        closed = (card.region.height, str(card.query_one(".header").render()))
+        await pilot.click("#card", offset=(2, 0))
+        await pilot.pause()
+        return closed, card.region.height, card.expanded
+
+    (height, row), opened, expanded = run(app, script)
+    assert height == 1 and "Read" in row and "src/calc.py" in row and "0.3s" in row
+    assert opened == 3 and expanded
+
+
+def test_failed_tool_opens_its_body_by_itself():
+    from halcore.tui.render import ToolRow
+
+    card = ToolCard("c1", Text("Run pytest"), id="card")
+    app = Host(card)
+
+    async def script(pilot):
+        card.finish(Text("unused"), [Text("E boom")], [Text("E boom")], ToolRow("Run", "pytest", False, 1.0))
+        await pilot.pause()
+        return card.open, card.region.height, str(card.query_one(".header").render())
+
+    opened, height, row = run(app, script)
+    assert opened and height == 2 and "FAIL" in row
+
+
+def test_long_tool_target_is_clipped_not_wrapped():
+    from halcore.tui.render import ToolRow
+
+    target = "src/" + "very_long_directory_name/" * 8 + "file.py"
+    card = ToolCard("c1", Text("Read " + target), id="card")
+    app = Host(card)
+
+    async def script(pilot):
+        card.finish(Text("unused"), [], [], ToolRow("Read", target, True, 0.1))
+        await pilot.pause()
+        return card.region.height, str(card.query_one(".header").render())
+
+    height, row = run(app, script)
+    assert height == 1 and "..." in row and "0.1s" in row

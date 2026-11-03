@@ -104,6 +104,26 @@ class TurnStats:
         return self.tokens / self.elapsed if self.elapsed > 0.05 else 0.0
 
 
+@dataclass(frozen=True)
+class ToolRow:
+    """The parts of a finished tool call's row, so a UI can lay them out in columns (all text cleaned)."""
+
+    verb: str
+    target: str
+    ok: bool
+    seconds: float
+    depth: int = 0
+    adds: int = 0
+    dels: int = 0
+    diff: bool = False
+
+    @staticmethod
+    def split(title: str) -> tuple[str, str]:
+        """`(verb, target)` of a one-line tool title: the first word, then the rest."""
+        verb, _, target = title.strip().partition(" ")
+        return verb, target.strip()
+
+
 @dataclass
 class Card:
     """One tool call being tracked."""
@@ -163,7 +183,11 @@ def _hal_meta(update: Update) -> dict[str, object]:
 
 
 class Sink(Protocol):
-    """Where the renderer's output goes; every renderable it receives is already safe to show."""
+    """Where the renderer's output goes; every renderable it receives is already safe to show.
+
+    A sink may also have `tool_row(cid, row)`: the renderer then passes a finished call's parts
+    (a `ToolRow`) just before `tool_finished`. It is optional, so older sinks keep working.
+    """
 
     def write(self, renderable: RenderableType) -> None:
         """Adds one finished item to the transcript."""
@@ -498,6 +522,7 @@ class Renderer:
         diffs = [i for i in items if i.get("type") == "diff"]
         body: list[RenderableType] = []
         full: list[RenderableType] = []
+        total_adds = total_dels = 0
         for item in diffs:
             path = clean(item.get("path", "?")).replace("\n", " ")
             rows = diff_rows(str(item.get("oldText") or ""), str(item.get("newText") or ""))
@@ -505,12 +530,18 @@ class Renderer:
             self.stats.files.add(path)
             self.stats.added += adds
             self.stats.removed += dels
+            total_adds, total_dels = total_adds + adds, total_dels + dels
             row.append(f"  {clip(path, 60)} ", style=pal.muted)
             row.append(f"+{adds}", style=pal.ok)
             row.append(" ")
             row.append(f"-{dels}", style=pal.bad)
             body += diff_text(rows, self.look, self.look.diff_max_lines)
             full += diff_text(rows, self.look, MAX_VERBOSE_LINES)
+        flat = clip(clean(title).replace("\n", " "))
+        verb, target = ToolRow.split(flat)
+        tool_row = getattr(self.sink, "tool_row", None)
+        if tool_row is not None:
+            tool_row(cid, ToolRow(verb, target, ok, clock() - card.started, card.depth, total_adds, total_dels, bool(diffs)))
         texts = [
             str(i["content"]["text"])
             for i in items

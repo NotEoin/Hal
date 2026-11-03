@@ -19,7 +19,7 @@ from textual.app import ComposeResult
 from textual.containers import Vertical, VerticalScroll
 
 from . import tokens
-from .render import clean
+from .render import ToolRow, clean
 from .theme import Look
 from .widgets import SafeStatic, ThinkingFold, ToolCard
 
@@ -204,6 +204,7 @@ class TextualSink:
     def __init__(self, app: AgentApp) -> None:
         self.app = app
         self.cards: dict[str, ToolCard] = {}
+        self.rows: dict[str, ToolRow] = {}  # parts of a finished call, from `tool_row`, until `tool_finished`
         self.pending: list[Callable[[], None]] = []  # output before the app has mounted
 
     def _run(self, action: Callable[[], None]) -> None:
@@ -243,17 +244,22 @@ class TextualSink:
 
         self._run(start)
 
+    def tool_row(self, cid: str, row: ToolRow) -> None:
+        """The parts of a finished call, for its one-row layout (comes just before `tool_finished`)."""
+        self.rows[cid] = row
+
     def tool_finished(self, cid: str, header: Text, body: list[RenderableType], full: list[RenderableType]) -> None:
         """The card shows its result; a call that never started gets a finished card."""
+        row = self.rows.pop(cid, None)
 
         def finish() -> None:
             card = self.cards.pop(cid, None)
             if card is None:
-                card = ToolCard(cid, Text(""))
+                card = ToolCard(cid, Text(""), row.depth if row else 0)
                 self.app.transcript.add(card)
-                card.call_after_refresh(card.finish, header, body, full)
+                card.call_after_refresh(card.finish, header, body, full, row)
             else:
-                card.finish(header, body, full)
+                card.finish(header, body, full, row)
             self.app.status_soon()
 
         self._run(finish)

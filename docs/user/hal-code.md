@@ -38,8 +38,9 @@ while a turn runs). F1 lists every key.
 Each message starts a turn: your message after a `>` mark, then everything Hal did for it, held
 together by a thin rail on the left. The rail is red while the turn runs, amber while an approval
 waits, and grey once it is done; a message sent during a turn gets its own faint rail and a
-`queued` tag until its turn starts. Each tool call is a card: it shows a spinner and its own timer while it runs, then
-its result, and a click (or Enter on it) shows the folded output or diff in full. A click on one
+`queued` tag until its turn starts. Each tool call is one row: a spinner and the time while it runs, then the verb, its target,
+the `+N -N` of an edit, the time taken and the result at the right. A click on the row (or Enter
+on it) opens its output or diff, and a failed call opens by itself. Ctrl+O opens or closes them all. A click on one
 of your messages offers Copy and, in `hal code`, Rewind files to before it. The side panel
 (Ctrl+B; open from 110 columns and closed below, following resizes until you press Ctrl+B)
 has the todo list, the changes of the copy with Diff, Accept and Export buttons, and the
