@@ -1,6 +1,7 @@
 """Tests for `halremote.keys`: parsing, fingerprints and ed25519 generation."""
 
 import base64
+import os
 import shutil
 import stat
 import struct
@@ -69,7 +70,8 @@ def test_generate_runs_keygen_with_ed25519_no_passphrase_and_refuses_existing(tm
     assert argv[argv.index("-f") + 1] == str(path)
     assert timeout == keys.KEYGEN_TIMEOUT_S
     assert key.comment == "tunnel"
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name != "nt":  # Windows keeps the key private through the profile's ACL, not a mode
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
     with pytest.raises(FileExistsError):
         keys.generate(path, comment="tunnel", ssh_keygen=Path("/usr/bin/ssh-keygen"), runner=runner)
     assert len(calls) == 1
@@ -83,4 +85,5 @@ def test_fingerprint_matches_ssh_keygen_for_a_generated_key(tmp_path):
         [SSH_KEYGEN, "-lf", str(path) + ".pub"], capture_output=True, text=True, timeout=30, check=True
     ).stdout
     assert key.fingerprint() == out.split()[1]
-    assert (tmp_path / "k").stat().st_mode & 0o077 == 0
+    if os.name != "nt":  # as above: no POSIX mode on Windows
+        assert (tmp_path / "k").stat().st_mode & 0o077 == 0

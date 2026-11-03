@@ -11,6 +11,10 @@ from halremote.model import Forward
 
 from .conftest import FakeRunner
 
+pytestmark = pytest.mark.skipif(
+    os.name == "nt", reason="desktop side: runs on the Linux desktop, not the laptop"
+)
+
 GOOD_SSHD = """\
 PasswordAuthentication no
 KbdInteractiveAuthentication no

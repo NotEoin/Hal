@@ -88,7 +88,7 @@ def test_path_with_a_quote_is_refused():
 def test_argv_builders_name_only_ssh_and_the_generated_config(tmp_path):
     paths, ssh = _paths(tmp_path), Path("/usr/bin/ssh")
     assert sshconf.tunnel_argv(_profile(), paths, ssh) == [
-        "/usr/bin/ssh", "-F", str(tmp_path / "ssh_config"), "-N", "hal-desktop-tunnel",
+        str(ssh), "-F", (tmp_path / "ssh_config").as_posix(), "-N", "hal-desktop-tunnel",
     ]  # fmt: skip
     assert sshconf.mcp_argv(_profile(), paths, ssh)[-2:] == ["-T", "hal-desktop-mcp"]
 
@@ -132,7 +132,9 @@ def test_ssh_g_resolves_the_rendered_file_as_designed(tmp_path):
         return {line.split(" ", 1)[0]: line.split(" ", 1)[1] for line in out.splitlines() if " " in line}
 
     tunnel, mcp = resolve("hal-desktop-tunnel"), resolve("hal-desktop-mcp")
-    assert tunnel["identityfile"] == str(paths.tunnel_key)
+    assert (
+        tunnel["identityfile"] == paths.tunnel_key.as_posix()
+    )  # the config names paths with "/" on Windows too
     assert tunnel["localforward"] == "[127.0.0.1]:8741 [127.0.0.1]:8741"
     assert tunnel["sessiontype"] == "none"
     assert tunnel["identityagent"] == "none"

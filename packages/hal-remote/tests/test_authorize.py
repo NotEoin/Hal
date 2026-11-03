@@ -18,6 +18,10 @@ from halremote.authorize import AuthorizeError, AuthorizeRequest
 from .conftest import FakeRunner
 from .test_servercheck import GOOD_SSHD, SS_OK
 
+pytestmark = pytest.mark.skipif(
+    os.name == "nt", reason="desktop side: runs on the Linux desktop, not the laptop"
+)
+
 
 def _blob(fill: bytes) -> str:
     wire = struct.pack(">I", 11) + b"ssh-ed25519" + struct.pack(">I", 32) + fill * 32

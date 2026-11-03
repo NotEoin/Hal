@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import struct
 import subprocess
 from pathlib import Path
@@ -101,7 +102,8 @@ def test_setup_stores_the_delivered_token_with_private_mode(home):
     pairing.setup(_opts(), runner=Scripted())
     pp = profile_paths("desktop")
     assert pp.token.read_text().strip() == "remote-secret-token"
-    assert pp.token.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":  # Windows keeps the token private through the profile's ACL, not a mode
+        assert pp.token.stat().st_mode & 0o777 == 0o600
 
 
 def test_setup_writes_a_profile_that_loads_back(home):

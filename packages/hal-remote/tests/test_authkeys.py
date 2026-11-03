@@ -12,6 +12,10 @@ from halremote import authkeys
 from halremote.keys import PublicKey
 from halremote.model import Forward
 
+pytestmark = pytest.mark.skipif(
+    os.name == "nt", reason="desktop side: runs on the Linux desktop, not the laptop"
+)
+
 BLOB = "AAAAC3NzaC1lZDI1NTE5AAAAIAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB"
 KEY = PublicKey("ssh-ed25519", BLOB, "ignored")
 FORWARDS = (Forward("gateway", 18741, 8741),)

@@ -9,6 +9,10 @@ import pytest
 
 from halremote import serve
 
+pytestmark = pytest.mark.skipif(
+    os.name == "nt", reason="desktop side: runs on the Linux desktop, not the laptop"
+)
+
 CONN = "192.168.1.20 50000 192.168.1.5 22"
 
 

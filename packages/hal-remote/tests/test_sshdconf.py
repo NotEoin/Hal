@@ -8,6 +8,10 @@ import pytest
 
 from halremote import sshdconf
 
+pytestmark = pytest.mark.skipif(
+    os.name == "nt", reason="desktop side: runs on the Linux desktop, not the laptop"
+)
+
 FIXTURES = Path(__file__).parent / "fixtures" / "sshd"
 
 
