@@ -404,3 +404,15 @@ def test_textual_ctrl_q_also_asks_when_there_are_unsaved_changes(home, server):
 
     (asked, running), _, _ = drive(state, script)
     assert asked and running
+
+
+def test_without_a_source_the_app_opens_on_the_sources_tab(home):
+    home.config.write_text("# empty\n")
+    state = tunestate.open_state(hw=hardware.from_dict(CARD_24GB))
+
+    async def script(pilot, app):
+        await settle(pilot)
+        return app.query_one("#tabs").active, app.focused.id
+
+    (tab, focused), _, _ = drive(state, script, first_run=True)
+    assert tab == "tab-sources" and focused == "sources"

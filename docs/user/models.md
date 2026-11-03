@@ -126,7 +126,8 @@ Plan for  [ This machine ] [ 8 GB ] [ 12 GB ] [ 16 GB ] [ 24 GB ] [ CPU only ]
 - **Ctrl+Z** undoes the last change, a preset included. **Esc** quits at once when nothing
   changed; otherwise it asks, with Keep editing focused (Discard and quit, or Save).
 - The first time (no role assigned) a **Quick start** screen shows what each preset would pick;
-  click a card or press Enter on it, choose Adjust by hand, or press Esc to leave.
+  click a card or press Enter on it, choose Adjust by hand, or press Esc to leave. With no model
+  source at all, the app opens on the Sources tab instead.
 
 The `code` role set straight in `[hal]` to a gateway `backend/model`, such as a llama.cpp router
 preset, is shown but not tuned. The `guard` row is the tool-call safety classifier from

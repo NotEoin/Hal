@@ -433,7 +433,11 @@ class TuneApp(App[int]):
         self.fill_roles()
         self.fill_sources()
         self.query_one("#roles", OptionList).focus()
-        if self.first_run and self.state.models():
+        if not self.state.sources:
+            self.action_show_tab("tab-sources")
+            toast(self, "Add a model source to begin: Ollama, an OpenAI-compatible server or a folder of GGUF files.",
+                  title="No model source yet", timeout=10)  # fmt: skip
+        elif self.first_run and self.state.models():
             self.push_screen(QuickStart(self.previews()), self.quick_start_done)
 
     # -- role list -------------------------------------------------------------------------------
