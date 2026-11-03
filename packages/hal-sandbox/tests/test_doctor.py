@@ -79,6 +79,7 @@ def test_doctor_warns_when_the_agent_code_is_newer_than_the_image(monkeypatch, t
     source.write_text("x = 1\n")
     os.utime(source, (2_000_000_000, 2_000_000_000))  # 2033-05-18
     monkeypatch.setattr(images, "find_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(images, "BOXSIDE_DIR", tmp_path / "boxside")  # real scripts change per checkout
     newer = images.newer_sources("2026-11-03T01:00:00Z")
     assert newer == [source]
     check = doctor.freshness_check([{"tag": "hal-sandbox:full-abc", "built": "2026-11-03T01:00:00Z"}])
