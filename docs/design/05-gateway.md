@@ -297,6 +297,59 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
   `max_restarts` (3) times in 600 s; beyond that requests MUST get 503 naming the log. Test:
   unit `test_crash_restart_budget`.
 
+### Managed OpenAI-compatible servers (REQ-GW-9x)
+
+- **REQ-GW-90** A `managed-openai` backend MUST name a non-empty `command` whose first item is
+  an absolute path and a non-empty `served_models`, MUST NOT set `url` (it is derived from
+  `port`), and its `env` table MUST refuse a name that looks like a secret under 01-security's
+  key rule, `PORT`, `HOST` and the `key_env` name. Test: unit
+  `test_managed_server_needs_a_command_and_its_models`,
+  `test_managed_server_env_refuses_secret_looking_names`.
+- **REQ-GW-91** The managed server's environment MUST be exactly the 01-security allowlist,
+  the configured `env`, `HOST=127.0.0.1`, `PORT` and, when `key_env` is set, the generated key
+  from `<state>/gateway/<name>.key` (mode 0600). The key MUST NOT appear in argv. Test:
+  integration `test_child_gets_only_allowlisted_env_plus_port_host_and_key`,
+  `test_shell_secrets_never_reach_the_child`, `test_key_is_never_in_the_argv`.
+- **REQ-GW-92** After a start, the gateway MUST poll `health_path` and `/v1/models` every
+  second until the first answers 200 and the second lists a served model, and MUST stop the
+  process group and fail with the log path when the process exits or `startup_timeout_s` (300)
+  passes. Test: integration `test_start_waits_for_health_and_writes_the_record`,
+  `test_exit_during_startup_fails_with_the_log_path`,
+  `test_startup_timeout_stops_the_process_group`.
+- **REQ-GW-93** Stopping a managed process (router or server) MUST signal its whole process
+  group, `SIGTERM` then `SIGKILL` after `stop_timeout_s`, and wait until no process of the group
+  is left, including children whose leader already exited; a group whose leader pid now has
+  another start time MUST NOT be signalled. On gateway start a recorded server with the same
+  argv, cwd, env and port hash MUST be adopted, and any other stopped. Test: integration
+  `test_stop_ends_the_whole_process_group`, `test_stop_escalates_to_sigkill`,
+  `test_stop_ends_children_left_after_the_leader_exited`,
+  `test_server_is_adopted_across_gateway_restart_when_config_is_unchanged`,
+  `test_changed_config_stops_the_old_server_at_start`.
+- **REQ-GW-94** A request to a managed server MUST start it on demand, restart it after a crash
+  at most `max_restarts` times in 600 s, and get 503 after `backend/stop` until the next start;
+  `/v1/models` MUST list `served_models` without contacting or starting it, and effort hints
+  MUST map as for an `openai` backend. Test: integration
+  `test_request_starts_the_server_on_demand_and_carries_its_key`, `test_crash_restart_budget`,
+  `test_stopped_server_is_not_restarted_by_a_request`,
+  `test_model_listing_shows_served_models_without_starting_the_server`,
+  `test_effort_off_disables_thinking_on_a_managed_server`.
+- **REQ-GW-95** Before a managed server with `exclusive_gpu` starts, the gateway MUST stop the
+  router and other managed GPU servers without the deliberate-stop mark (the next request to
+  them starts them again) and unload the Ollama models of `unload_ollama`; a router start MUST
+  stop an exclusive managed server the same way. A backend with requests in flight MUST NOT be
+  stopped: the start fails with 503. Test: integration
+  `test_managed_start_yields_the_router_and_empties_ollama`,
+  `test_managed_start_refuses_to_stop_a_backend_with_requests_running`,
+  `test_router_start_stops_the_managed_server_without_marking_it_stopped`, unit
+  `test_yield_gpu_stops_the_router_without_marking_it_stopped`,
+  `test_router_start_calls_before_start_first`.
+- **REQ-GW-96** The idle unload MUST NOT stop a managed server with `idle_stop = false`; a GPU
+  release (`release-gpu`, a reclaim) MUST stop it and report its models, and `release-gpu
+  --stop-router` MUST stop it with the deliberate-stop mark. Test: integration
+  `test_idle_unload_keeps_a_server_with_idle_stop_false`,
+  `test_free_vram_stops_the_server_and_returns_its_models`,
+  `test_release_gpu_stop_router_stops_managed_servers`.
+
 ### Router policies (REQ-GW-4x)
 
 - **REQ-GW-40** Context overflow: a 400 response whose JSON `error.type` is
@@ -615,6 +668,7 @@ packages/hal-gateway/
       openai.py                  generic OpenAI-compatible backend (local or remote)
       ollama.py                  Ollama backend, ps/unload/tags helpers (ported from power.py)
       llama_router.py            router backend: external or managed (process supervisor)
+      managed.py                 managed-openai backend: a server the gateway starts and stops
       llama_args.py              llama_server_command (01 REQ-SEC-76)
       launchers.py               process launcher and docker launcher for the managed router
     policies/
@@ -757,7 +811,7 @@ Every secret comparison uses `hmac.compare_digest` on the hashes.
 | GET | `/api/tags`, `/api/version` | ollama_native | ollama | yes | yes (tags filtered) | no |
 | GET | `/api/ps` | ollama_native | ollama | yes | no | no |
 | GET | `/hal/v1/status`, `/hal/v1/aliases`, `/hal/v1/sessions`, `/hal/v1/leases` | admin | openai | yes | no | no |
-| POST | `/hal/v1/mode`, `/hal/v1/router/stop`, `/hal/v1/models/load`, `/hal/v1/models/unload`, `/hal/v1/gpu/release`, `/hal/v1/sessions` | admin | openai | unix only | no | no |
+| POST | `/hal/v1/mode`, `/hal/v1/router/stop`, `/hal/v1/models/load`, `/hal/v1/models/unload`, `/hal/v1/gpu/release`, `/hal/v1/sessions`, `/hal/v1/backend/start`, `/hal/v1/backend/stop`, `/hal/v1/backend/restart` | admin | openai | unix only | no | no |
 | DELETE | `/hal/v1/sessions/{id}` | admin | openai | unix only | no | no |
 
 The session column equals 01-security REQ-SEC-66 plus `GET /health`, which the forwarder
@@ -896,13 +950,41 @@ class Backend(Protocol):
 | `llama-router` | all except `ollama_native` | true | true | `[<reclaimer_name>]` | `/v1/models` of the router lists presets; `free_vram` posts `/models/unload` for each loaded preset |
 | `ollama` | all except `responses_count` | true | true | `[<reclaimer_name>]` | `count_tokens` is estimated (REQ-GW-18); `free_vram` posts `/api/generate {"model", "keep_alive": 0}` for the models this gateway served; `/v1/models` duplicates and `llamacpp:<sha>` ids are dropped; digests checked (REQ-GW-77) |
 | `openai` | `chat`, `models`, `embeddings` | false | true when local, false when remote | `[]` | `apis` must be set to add `responses`, `responses_count` or `messages` |
+| `managed-openai` | `chat`, `models`, `embeddings` | true | true | `[]` | The gateway runs the server (see "Managed OpenAI-compatible server"); `/v1/models` lists `served_models`; `free_vram` stops the process |
 
-Upstream credentials: `llama-router` managed uses the generated key; external routers,
+Upstream credentials: `llama-router` managed and `managed-openai` with `key_env` use their
+generated key; external routers,
 `openai` backends and remote backends use `api_key_file` or `api_key_env`; Ollama has none
 (it has no auth built in; research-interop section 6).
 
 External routers and `openai` backends load their own files, so the gateway cannot verify
 them; `hal-gateway status` and `hal doctor` show them as `verified: false` (Decision 22).
+
+### Managed OpenAI-compatible server
+
+`ManagedServer` (`backends/managed.py`) runs any OpenAI-compatible server that takes its
+port from `PORT` and an API key from an environment variable: a vLLM launch script, SGLang,
+a llama-server wrapper. It shares the launcher, the record format and the crash rules with the
+router.
+
+- Files in `<state>/gateway/`: `<name>.json` (0600: `pid`, `pid_start`, `boot_id`,
+  `config_sha256`, `address`, `started`), `<name>.key` (0600, generated once) and `<name>.log`.
+- `config_sha256` is the sha256 of the argv, cwd, `env`, `port` and `key_env`. A gateway
+  restart adopts a live server with the same hash; any other recorded server is stopped.
+- Child: `Popen(command, cwd=cwd or dirname(command[0]), env=<REQ-GW-91>,
+  start_new_session=True)`, output appended to the log. No shell, no `PATH` lookup.
+- Ready: `GET <health_path>` answers 200, then `GET /v1/models` lists one of `served_models`.
+  vLLM answers `/health` before it lists its models, so both are checked.
+- Stop: the whole process group (vLLM's `EngineCore` is a child of the API server and holds
+  the VRAM), `SIGTERM`, `stop_timeout_s`, `SIGKILL`.
+- `autostart = "on-demand"` (default) starts it at the first request or at `hal-gateway backend
+  start`; `"with-gateway"` at gateway start.
+- GPU: with `exclusive_gpu` (default) a start first stops the router and other managed GPU
+  servers (`yield_gpu`, no deliberate-stop mark) and unloads Ollama (`unload_ollama`). The router
+  and every managed server share one lifecycle lock, so two starts that each stop the other run
+  one after the other instead of deadlocking.
+- `idle_stop = false` keeps the server through the idle unload; a cold start of a 27B model
+  under vLLM took 57 to 138 s on the reference machine (RTX 3090, 2026-11-05).
 
 ### Managed llama-server router
 
@@ -1662,6 +1744,8 @@ replacing the env block of `hal:124-178`):
 `POST /hal/v1/mode` body `{"mode": "gpu", "wait_s": 900, "force": false}`; answers 200 with
 the status when loaded, 409 `router_busy` when draining failed, 4xx/5xx with the log path on
 load failure. `POST /hal/v1/models/load` and `/unload` body `{"model": "<preset>"}`.
+`POST /hal/v1/backend/start`, `/stop` and `/restart` body `{"name": "<backend>"}` act on a
+`managed-openai` backend and answer `{"backends": {"<name>": <status>}}`; an unknown name is 404.
 
 ### CLI
 
@@ -1673,8 +1757,10 @@ hal-gateway modes                            list modes with descriptions and so
 hal-gateway models [--json]                  what /v1/models returns to the owner
 hal-gateway load MODEL | unload MODEL        load or unload a router preset
 hal-gateway router stop                      stop the managed router process
+hal-gateway backend start|stop|restart NAME  control a managed-openai server
 hal-gateway release-gpu [--force] [--stop-router] [--reclaim]
-                                             unload and release the GPU (gpu-light's reclaimer uses --reclaim)
+                                             unload and release the GPU (gpu-light's reclaimer uses --reclaim);
+                                             --stop-router also stops managed servers
 hal-gateway token show | rotate              print or replace the owner token
 hal-gateway token issue --name NAME [--allow-remote] [--class C] [--rotate] [--json]
 hal-gateway token revoke --name NAME
@@ -1784,6 +1870,23 @@ gpu = true
 expose_models = true
 unload_offloaded_on_claim = true
 gpu_light_uses = ["hal-gateway"]  # default [reclaimer_name]: the gateway reclaimer frees Ollama too (GL "Hal gateway", step 4)
+
+# [gateway.backends.qwen]
+# type = "managed-openai"
+# command = ["/opt/qwen/start-vllm.sh"]  # argv, no shell; the first item is an absolute path
+# cwd = ""                  # "" = the command's directory
+# env = {}                  # extra variables; names that look like secrets are refused
+# port = 8000               # passed as PORT, with HOST = "127.0.0.1"
+# key_env = ""              # e.g. "VLLM_API_KEY": gets the generated <state>/gateway/<name>.key
+# served_models = []        # required: what /v1/models lists, and what readiness waits for
+# health_path = "/health"
+# startup_timeout_s = 300.0
+# stop_timeout_s = 60.0
+# autostart = "on-demand"   # "on-demand" | "with-gateway"
+# max_restarts = 3
+# exclusive_gpu = true      # stop the router and other managed servers, empty Ollama, before a start
+# unload_ollama = ["ollama"]
+# idle_stop = true          # false: the idle unload leaves it running
 
 # [gateway.backends.openrouter]
 # type = "openai"

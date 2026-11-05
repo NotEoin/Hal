@@ -158,6 +158,38 @@ It replaces `hal-serve start|stop|status`.
 
 Tests use a fake `llama-server` script (`tests/test_llama_router.py`); no real model is loaded.
 
+## Managed OpenAI server (`backends/managed`, `launchers`)
+
+`ManagedServer` is the `managed-openai` backend: one process from `command`, which takes its
+port from `PORT`. It follows the router's pattern (record, adopt, crash budget, deliberate stop)
+with its own files `<state>/gateway/<name>.json|.key|.log`.
+
+- **Identity**: `fingerprint()` hashes argv, cwd, `env`, `port` and `key_env`; `adopt()` keeps a
+  live server with the same hash and stops any other.
+- **Environment**: `child_env()` is `llamacmd.ENV_ALLOWLIST` from the gateway's environment, the
+  configured `env`, `HOST`, `PORT` and the key (`halkit.secrets.generate_token`). The config
+  check refuses secret-looking `env` names with `halkit.redact.is_secret_key`.
+- **Ready**: `ready()` needs `health_path` at 200 and a served model in `/v1/models`.
+  `_wait_ready()` polls every `poll_s` (1 s; tests set 0.05) up to `startup_timeout_s`.
+- **Stop**: `launchers.ProcessLauncher.stop` signals the process group (`os.killpg`) and waits
+  for `launchers.group_members(pid)` to be empty, so a child such as vLLM's `EngineCore` is
+  gone before the VRAM is counted free. A group that still has a process with the leader's pid
+  but another start time belongs to someone else and is left alone.
+- **Lifecycle hooks**: both `ManagedServer` and `LlamaRouter` have `before_start`, `yield_gpu()`,
+  `running()` and `in_flight()`. `Gateway._make_room` is the `before_start` of each: it yields the
+  other GPU backends (refusing with 503 when one has requests running) and, for an exclusive
+  server, unloads Ollama. `Gateway.lifecycle_lock` is shared by all of them.
+- **Request path**: `OpenAIBackend.ensure()` and `request()` are no-ops, so the handler calls
+  them on every backend; `aliases.Resolver.models_of` uses `static_models()` when a backend
+  has it. `hints.BACKEND_KINDS` maps `managed-openai` to `openai`.
+- **GPU manager**: the idle unload skips a backend whose `idle_free` is false (`idle_stop =
+  false`); `free_vram()` is `yield_gpu()` plus the served models.
+- **Admin**: `POST /hal/v1/backend/start|stop|restart` with `{"name"}` (owner on the unix socket),
+  `GatewayClient.backend(action, name)`, `hal-gateway backend ACTION NAME`.
+
+Tests use a fake server script (`tests/test_backends_managed.py`) that forks a child into its
+process group to stand in for `EngineCore`.
+
 ## Policies (`policies/`)
 
 Policies apply to `llama-router` backends on `/v1/messages` and `/v1/chat/completions` only.

@@ -12,18 +12,19 @@ The schema is the one in docs/design/05-gateway.md "Configuration". Decisions:
 from __future__ import annotations
 
 import ipaddress
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from halkit import config, modelconf, paths
+from halkit import config, modelconf, paths, redact
 
 from .gpu.peers import PeerConfigError, parse_peers
 
 OWNER = "hal-gateway"
 LOOPBACK_HOSTS = ("127.0.0.1", "::1")
-BACKEND_TYPES = ("llama-router", "ollama", "openai")
+BACKEND_TYPES = ("llama-router", "managed-openai", "ollama", "openai")
 RESERVED_BACKEND_NAMES = ("hal",)  # the slash alias form `hal/main` needs the name free
 BACKEND_APIS = ("chat", "responses", "messages", "models", "embeddings", "native")
 COORDINATORS = ("auto", "gpu-light-v2", "gpu-light-v1", "none")
@@ -41,6 +42,9 @@ ROLE_ALIASES = {
     "hal-vision": "vision_model",
 }
 EMPTY_MEANS_CHAT = ("hal-code", "hal-writer")
+ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# set by the gateway itself for a managed server (docs/design/05-gateway.md "Managed OpenAI server")
+MANAGED_ENV = ("PORT", "HOST")
 
 
 def _positive(value: object) -> str | None:
@@ -94,6 +98,40 @@ def _loopback_http_url(value: object) -> str | None:
     if parts.scheme == "http" and parts.hostname in ("127.0.0.1", "::1") and parts.port:
         return None
     return "must be empty or http://127.0.0.1:PORT or http://[::1]:PORT (the tunnel end)"
+
+
+def _command(value: object) -> str | None:
+    if not (isinstance(value, list) and value and all(isinstance(item, str) and item for item in value)):
+        return "must be a non-empty list of non-empty strings (the server's argv)"
+    if not Path(value[0]).expanduser().is_absolute():
+        return f"{value[0]!r} must be an absolute path; the server gets no shell and no PATH search"
+    return None
+
+
+def _absolute_or_empty(value: object) -> str | None:
+    return None if value == "" or Path(str(value)).expanduser().is_absolute() else "must be an absolute path"
+
+
+def _env_name_or_empty(value: object) -> str | None:
+    return None if value == "" or ENV_NAME.match(str(value)) else "must be an environment variable name"
+
+
+def _child_env(value: object) -> str | None:
+    """REQ-GW-90: a managed server's extra environment holds settings, never secrets."""
+    if not isinstance(value, dict):
+        return 'must be a table of NAME = "value"'
+    for name, item in value.items():
+        if not ENV_NAME.match(name) or not isinstance(item, str):
+            return f"{name!r} must be an environment variable name with a string value"
+        if name in MANAGED_ENV:
+            return f"{name} is set by the gateway (from port); remove it"
+        if redact.is_secret_key(name):
+            return f"{name} looks like a secret; the config holds no secrets, use key_env for the API key"
+    return None
+
+
+def _http_path(value: object) -> str | None:
+    return None if str(value).startswith("/") else "must start with /"
 
 
 def _vram_map(value: object) -> str | None:
@@ -241,6 +279,28 @@ _ROUTER_KEYS = (
     K("container_image", str, "", doc="Docker image for the docker launcher"),
     K("container_runtime", str, "nvidia", choices=("nvidia", "runc", "runsc-gpu"), doc="Docker runtime"),
 )
+_MANAGED_KEYS = (
+    K("command", list, [], check=_command, doc="argv of the server; the first item is an absolute path"),
+    K("cwd", str, "", check=_absolute_or_empty, doc="Working directory; empty = the command's directory"),
+    K("env", dict, {}, check=_child_env, doc="Extra environment for the server; no secrets"),
+    K("port", int, 8000, check=_port, doc="Loopback TCP port, passed to the server as PORT"),
+    K(
+        "key_env",
+        str,
+        "",
+        check=_env_name_or_empty,
+        doc="Variable for the generated API key; empty = none",
+    ),
+    K("served_models", list, [], check=_strings, doc="Model ids the server serves; required"),
+    K("health_path", str, "/health", check=_http_path, doc="GET path that answers 200 when ready"),
+    K("startup_timeout_s", float, 300.0, check=_positive, doc="Wait for the server to become ready"),
+    K("stop_timeout_s", float, 60.0, check=_positive, doc="Wait after SIGTERM before SIGKILL"),
+    K("autostart", str, "on-demand", choices=("on-demand", "with-gateway"), doc="When the server starts"),
+    K("max_restarts", int, 3, check=_non_negative, doc="Crash restarts before giving up"),
+    K("exclusive_gpu", bool, True, doc="Stop other managed GPU servers and empty Ollama before a start"),
+    K("unload_ollama", list, ["ollama"], check=_strings, doc="Ollama backends emptied before a start"),
+    K("idle_stop", bool, True, doc="The idle unload ([gateway.gpu].idle_unload_s) stops the server"),
+)
 _OLLAMA_KEYS = (K("unload_offloaded_on_claim", bool, True, doc="Unload partly offloaded models on a claim"),)
 _ALIAS_KEYS = (
     K("backend", str, "", doc="Backend that serves the alias"),
@@ -298,7 +358,9 @@ def _backend(name: str, raw: object, path: Path, *, default_type: str = "") -> M
     if name in RESERVED_BACKEND_NAMES:
         raise config.ConfigError(f"backend name {name!r} is reserved", path=path, table=table)
     kind = raw.get("type", default_type) if isinstance(raw, dict) else None
-    extra = {"llama-router": _ROUTER_KEYS, "ollama": _OLLAMA_KEYS}.get(str(kind), ())
+    extra = {"llama-router": _ROUTER_KEYS, "managed-openai": _MANAGED_KEYS, "ollama": _OLLAMA_KEYS}.get(
+        str(kind), ()
+    )
     cli = {"type": default_type} if default_type else None
     entry = dict(_entry("backends", name, raw, _COMMON_BACKEND + extra, path, cli))
     if not entry["type"]:
@@ -320,7 +382,33 @@ def _backend(name: str, raw: object, path: Path, *, default_type: str = "") -> M
         raise config.ConfigError(
             f"[{table}] models_dir is required when managed = true", path=path, table=table, key="models_dir"
         )
+    if kind == "managed-openai":
+        _check_managed(table, entry, path)
     return entry
+
+
+def _check_managed(table: str, entry: Mapping[str, object], path: Path) -> None:
+    """A managed server needs a command and its model list, and listens where the gateway says."""
+    if not entry["command"]:
+        raise config.ConfigError(f"[{table}] command is required", path=path, table=table, key="command")
+    if not entry["served_models"]:
+        raise config.ConfigError(
+            f"[{table}] served_models must name at least one model",
+            path=path,
+            table=table,
+            key="served_models",
+        )
+    if entry["url"]:
+        raise config.ConfigError(
+            f"[{table}] url is derived from port for a managed server; remove it",
+            path=path,
+            table=table,
+            key="url",
+        )
+    if entry["key_env"] and entry["key_env"] in dict(entry["env"]):  # type: ignore[call-overload]
+        raise config.ConfigError(
+            f"[{table}] {entry['key_env']} is key_env, set by the gateway", path=path, table=table, key="env"
+        )
 
 
 def _is_loopback(host: str) -> bool:

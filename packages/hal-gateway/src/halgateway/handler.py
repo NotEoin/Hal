@@ -367,6 +367,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             result = gateway.gpu.release(**flags)
             self._send(200, json.dumps(result.as_json()).encode("ascii"))
             return
+        if name.startswith("backend/"):
+            self._backend_admin(gateway, name.removeprefix("backend/"))
+            return
         if name == "status":
             backends = {
                 n: (b.status() if hasattr(b, "status") else {"type": b.type}) | self._remote_fields(b)
@@ -400,6 +403,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise BadRequest("model must be a non-empty string")
             (router.load if name == "models/load" else router.unload)(preset)
         self._send(200, json.dumps({"backends": {router.name: router.status()}}).encode("ascii"))
+
+    def _backend_admin(self, gateway, action: str) -> None:  # type: ignore[no-untyped-def]
+        """`POST /hal/v1/backend/start|stop|restart` with `{"name": ...}` for a managed server."""
+        body = self._read_json(ADMIN_BODY_LIMIT)
+        name = body.get("name")
+        if not isinstance(name, str) or not name:
+            raise BadRequest("name must be a non-empty string")
+        server = gateway.managed_server(name)
+        if action in ("stop", "restart"):
+            server.stop()
+        if action in ("start", "restart"):
+            gateway.gpu.check_peers()
+            server.start()
+        self._send(200, json.dumps({"backends": {name: server.status()}}).encode("ascii"))
 
     @staticmethod
     def _remote_fields(backend) -> dict:  # type: ignore[no-untyped-def,type-arg]
@@ -530,11 +547,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return doc
 
     def _relay(self, gateway, backend, body: bytes | None) -> None:  # type: ignore[no-untyped-def]
-        if isinstance(backend, LlamaRouter):
-            backend.ensure()
-            with backend.request():
-                self._relay_once(gateway, backend, body)
-        else:
+        """Starts a backend with a process if needed (a no-op for the others), then relays."""
+        backend.ensure()
+        with backend.request():
             self._relay_once(gateway, backend, body)
 
     def _relay_once(self, gateway, backend, body: bytes | None) -> None:  # type: ignore[no-untyped-def]

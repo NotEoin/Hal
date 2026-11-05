@@ -88,6 +88,14 @@ def test_llama_router_gets_template_kwargs_and_a_reasoning_budget():
     assert body["reasoning_budget"] == 1024 and body["chat_template_kwargs"] == {"enable_thinking": True}
 
 
+def test_effort_off_disables_thinking_on_a_managed_openai_server():
+    body = {"messages": []}
+    decided = apply(
+        body, header="off", alias="qwen/qwen3.8-27b", model="qwen3.8-27b", backend="managed-openai"
+    )
+    assert body["chat_template_kwargs"] == {"enable_thinking": False} and decided == {"effort": "off"}
+
+
 def test_role_family_overrides_name_detection():
     body = {}
     apply(body, header="high", model="my-finetune", roles={"chat": role(family="qwen3")})

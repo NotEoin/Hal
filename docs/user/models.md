@@ -12,6 +12,10 @@ A source is a place models come from. Add as many as you like in
 | --- | --- | --- |
 | `ollama` | An Ollama server | `url` (default `http://127.0.0.1:11434`) |
 | `openai` | Any OpenAI-compatible server: LM Studio, llama.cpp server, vLLM | `url` (default `http://127.0.0.1:1234/v1`), optional `api_key_file` |
+
+A source only says where models are. To have the gateway also start and stop the server, add a
+`managed-openai` backend with the same name as the source; see
+[run a vLLM server under Hal](../howto/run-a-vllm-server-under-hal.md).
 | `gguf` | A folder of GGUF files served by Hal's llama.cpp router | `path` |
 | `anthropic` | The Anthropic API | `api_key_file` |
 | `openai-cloud` | The OpenAI API | `api_key_file` |

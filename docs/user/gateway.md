@@ -1,8 +1,8 @@
 # The model gateway
 
 `hal-gateway` is the one local endpoint for model requests. Harnesses, the agent, tool packs and
-the box talk to it; it forwards to Ollama, a managed `llama-server` router or a cloud backend
-you opted into. It also owns the GPU claims, the mode presets and the model manifest.
+the box talk to it; it forwards to Ollama, a managed `llama-server` router, an OpenAI-compatible
+server it runs for you (such as vLLM), or a cloud backend you opted into. It also owns the GPU claims, the mode presets and the model manifest.
 
 Status: the package is built and tested with fake backends. The launcher (`hal serve`, `hal
 connect`) still calls the old `hal-serve`; until it switches, run `hal-gateway` directly.
@@ -26,7 +26,8 @@ Nothing here has run against a live llama-server in this checkout (unverified; c
 | `hal-gateway mode [NAME] [--force] [--no-wait]` | Show or switch the router mode |
 | `hal-gateway models [--json]` | What `/v1/models` returns to the owner |
 | `hal-gateway load` / `unload` / `router stop` | Control the managed router |
-| `hal-gateway release-gpu` | Unload models and release the GPU claims |
+| `hal-gateway backend start\|stop\|restart NAME` | Control a `managed-openai` server |
+| `hal-gateway release-gpu` | Unload models and release the GPU claims; `--stop-router` also stops the router and managed servers |
 | `hal-gateway token show\|rotate\|issue\|revoke\|list` | Owner and client tokens |
 | `hal-gateway modes` / `render` | List and render the mode presets (see [modes](modes.md)) |
 | `hal-gateway check-config` | Validate `[gateway]` and exit |
@@ -51,6 +52,30 @@ defaults is in [design 05](../design/05-gateway.md) under "Configuration". Old `
 settings (`HAL_LLAMA_SERVER`, `HAL_MODELS_DIR`, `HAL_LLAMA_URL`, `HAL_MODE`, `HAL_OLLAMA_URL`)
 map to `[gateway.backends.local]` and `[hal].ollama_url`; `halgateway.legacy.import_hal_conf`
 reads them without running the file, and `hal configure` will offer to write them.
+
+## A server the gateway runs
+
+A `managed-openai` backend is any OpenAI-compatible server that reads its port from `PORT`,
+such as a vLLM launch script. The gateway starts it at the first request (or at `hal-gateway
+backend start NAME`), waits until `health_path` answers and `/v1/models` lists a model in
+`served_models`, restarts it after a crash (at most `max_restarts` in 10 minutes) and stops its
+whole process group on `backend stop`. A restarted gateway keeps a server whose command, `env`
+and port did not change.
+
+- It gets `PORT`, `HOST=127.0.0.1`, the few variables of the environment allowlist and your
+  `env` table. Your shell's tokens never reach it. With `key_env` set, the gateway generates an
+  API key in `~/.local/state/hal/gateway/<name>.key` and passes it in that variable.
+- With `exclusive_gpu = true` (the default), starting it stops the llama router and empties
+  Ollama first; starting the router stops it again. Neither is marked stopped, so the next
+  request to either brings it back. A backend busy with a request is never stopped under it.
+- `idle_stop = false` keeps it running through the idle unload (`[gateway.gpu].idle_unload_s`);
+  `release-gpu` still stops it.
+- `/v1/models` lists `served_models` from the config, so a listing never waits for a cold start.
+- Its output goes to `~/.local/state/hal/gateway/<name>.log`; every start failure names it.
+
+Steps and a symptom table are in [run a vLLM server under Hal](../howto/run-a-vllm-server-under-hal.md);
+the keys and defaults are in [design 05](../design/05-gateway.md) under "Configuration". Verified
+by `packages/hal-gateway/tests/test_backends_managed.py` (a fake server).
 
 ## Models and pinning
 

@@ -13,6 +13,9 @@ Ported from `hal-serve`. Design decisions:
   presets and again before an admin `load`.
 - The legacy `hal-serve` router blocks a managed start (REQ-GW-37): two routers would fight
   for the same VRAM and port.
+- A start first calls `before_start`, which the gateway uses to stop managed servers that need
+  the whole card (REQ-GW-95). `yield_gpu` is the other direction: it stops the router without the
+  deliberate-stop mark, so the next request brings it back.
 """
 
 from __future__ import annotations
@@ -93,6 +96,7 @@ class LlamaRouter(OpenAIBackend):
         self._swap: swap.SwapScheduler | None = None
         self.turns = route.TurnMemory()  # the route policy's held choice per conversation
         self.on_mode: Callable[[modes.HalSettings | None], None] = lambda hal: None
+        self.before_start: Callable[[LlamaRouter], None] = lambda router: None
 
     def configure(
         self,
@@ -100,9 +104,16 @@ class LlamaRouter(OpenAIBackend):
         models_dir: Path,
         verifier: Verifier,
         ollama: Callable[[], list],  # type: ignore[type-arg]
+        lock: threading.RLock | None = None,
     ) -> None:
-        """Gives the router the gateway's state directory (`<state>/gateway`), models and Ollama backends."""
+        """Gives the router the gateway's state directory (`<state>/gateway`), models and Ollama backends.
+
+        `lock` is the gateway's lifecycle lock, shared with managed servers so that two starts
+        that each stop the other cannot deadlock.
+        """
         self._state, self._models_dir, self._verifier, self._ollama = state, models_dir, verifier, ollama
+        if lock is not None:
+            self._lock = lock
 
     # --- addressing -------------------------------------------------------------------------
 
@@ -250,6 +261,7 @@ class LlamaRouter(OpenAIBackend):
                 self._stopped = False
                 return
             self._stop_locked()
+            self.before_start(self)
             self._unload_ollama()
             self._spawn(rendered)
             self._stopped = False
@@ -370,6 +382,14 @@ class LlamaRouter(OpenAIBackend):
         with self._lock:
             self._stop_locked()
             self._stopped = True
+
+    def yield_gpu(self) -> None:
+        """Stops the router to free the card for a managed server; the next request starts it again."""
+        with self._lock:
+            if self._record:
+                log.info("stopping llama-server to free the GPU")
+            self._stop_locked()
+            self._swap = None  # a restarted router has nothing loaded
 
     def ensure(self) -> None:
         """Called before a request is relayed: starts on demand, restarts after a crash within the budget."""

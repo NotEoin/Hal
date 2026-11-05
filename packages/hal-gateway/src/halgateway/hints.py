@@ -28,7 +28,13 @@ log = logging.getLogger(__name__)
 
 HEADER = "X-Hal-Effort"
 BODY_FIELD = "hal_effort"
-BACKEND_KINDS = {"ollama": "ollama", "openai": "openai", "llama-router": "llamacpp"}
+# a managed server speaks OpenAI (vLLM takes `chat_template_kwargs`, REQ-GW-94)
+BACKEND_KINDS = {
+    "ollama": "ollama",
+    "openai": "openai",
+    "managed-openai": "openai",
+    "llama-router": "llamacpp",
+}
 
 
 def role_of(alias: str) -> str | None:

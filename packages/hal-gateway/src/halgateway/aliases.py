@@ -5,6 +5,8 @@ The order is the one in docs/design/05-gateway.md "Alias resolution": user alias
 Decisions:
 
 - Backend model lists are cached for `LIST_TTL_S` seconds, so a request does not cost a list call.
+  A backend with `static_models` (a managed server) lists those instead, so a listing never
+  waits for, or depends on, a server that is stopped.
 - Mode aliases (`hal/main`, preset names) come from the managed router (plan step 11); the
   resolver takes them as a plain mapping so that step only has to fill it.
 - A role alias whose model is in no backend list falls back to the only Ollama backend: Ollama
@@ -71,6 +73,9 @@ class Resolver:
 
     def models_of(self, backend: OpenAIBackend) -> list[str]:
         """The backend's model ids, cached for `LIST_TTL_S`; empty when it cannot answer."""
+        static = getattr(backend, "static_models", None)
+        if static is not None:
+            return list(static())
         hit = self._cache.get(backend.name)
         if hit and time.monotonic() - hit[0] < LIST_TTL_S:
             return hit[1]

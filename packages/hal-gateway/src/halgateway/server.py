@@ -9,6 +9,8 @@ Decisions:
   start (REQ-GW-04), so two gateways never share a runtime directory.
 - Connections are capped by a semaphore taken in `process_request`; beyond the cap the client
   gets 503 with `Retry-After: 1` and the thread is not started (REQ-GW-72).
+- The router and the managed servers share one lifecycle lock: a start may stop another
+  backend (REQ-GW-95), and two such starts with a lock each would deadlock.
 """
 
 from __future__ import annotations
@@ -28,10 +30,10 @@ from halkit import paths
 
 from . import auth, relay, reqlog
 from .aliases import Resolver
-from .backends import LlamaRouter, make_backend
+from .backends import LlamaRouter, ManagedServer, make_backend
 from .clienttokens import ClientTokens
 from .config import GatewayConfig
-from .errors import GatewayError, ModelUnverified, Unavailable, error_body
+from .errors import GatewayError, ModelUnverified, NotFound, Unavailable, error_body
 from .gpu import LeaseInfo
 from .gpu.manager import GpuManager, make_coordinator
 from .handler import Handler
@@ -148,9 +150,20 @@ class Gateway:
         self._digests: dict[str, tuple[float, dict[str, str]]] = {}  # backend -> (time, name -> digest)
         self.backends = {n: make_backend(n, e, cfg.ollama_url) for n, e in cfg.backends.items()}
         self.resolver = Resolver(cfg, self.backends, relay.fetch_model_ids, profile_of=self.profile_of)
+        self.lifecycle_lock = threading.RLock()
         for backend in self.backends.values():
             if isinstance(backend, LlamaRouter):
-                backend.configure(self.state_dir, self.models_dir(), self.verifier, self._ollama_backends)
+                backend.configure(
+                    self.state_dir,
+                    self.models_dir(),
+                    self.verifier,
+                    self._ollama_backends,
+                    self.lifecycle_lock,
+                )
+                backend.before_start = self._make_room
+            elif isinstance(backend, ManagedServer):
+                backend.configure(self.state_dir, self.lifecycle_lock)
+                backend.before_start = self._make_room
         self.gpu = GpuManager(cfg.gpu, self.backends, make_coordinator(cfg.gpu), state_dir=self.state_dir)
         self.gpu.router_stop = self._stop_router
         self.sessions = SessionRegistry(
@@ -185,11 +198,62 @@ class Gateway:
         """The first managed `llama-router` backend, or None."""
         return next((b for b in self.backends.values() if isinstance(b, LlamaRouter) and b.managed), None)
 
+    def managed(self) -> dict[str, ManagedServer]:
+        """The `managed-openai` backends by name."""
+        return {n: b for n, b in self.backends.items() if isinstance(b, ManagedServer)}
+
+    def managed_server(self, name: str) -> ManagedServer:
+        """The `managed-openai` backend `name`; raises `NotFound`."""
+        server = self.managed().get(name)
+        if server is None:
+            raise NotFound(f"no managed-openai backend named {name!r}")
+        return server
+
     def _ollama_backends(self) -> list:  # type: ignore[type-arg]
         """The Ollama backends the router empties before a load (`unload_ollama`)."""
         router = self.router()
-        names = router.entry["unload_ollama"] if router else []
+        return self._ollama_named(router.entry["unload_ollama"] if router else [])  # type: ignore[arg-type]
+
+    def _ollama_named(self, names: list[str]) -> list:  # type: ignore[type-arg]
         return [self.backends[n] for n in names if n in self.backends and self.backends[n].type == "ollama"]  # type: ignore[attr-defined]
+
+    def _make_room(self, starting: object) -> None:
+        """REQ-GW-95: before a backend starts, stop the managed servers that need the whole card.
+
+        A managed server with `exclusive_gpu` also stops the router and empties its
+        `unload_ollama` backends; the router empties its own. A backend with requests in flight
+        is not stopped under them: the start fails with 503 instead.
+        """
+        exclusive = isinstance(starting, ManagedServer) and starting.exclusive_gpu
+        rivals = [b for b in self.backends.values() if self._must_yield(b, starting, exclusive=exclusive)]
+        for backend in rivals:
+            busy = backend.in_flight()  # type: ignore[attr-defined]
+            if busy:
+                raise Unavailable(
+                    f"backend {backend.name} has {busy} request(s) running and holds the GPU; retry later"
+                )
+        for backend in rivals:
+            backend.yield_gpu()  # type: ignore[attr-defined]
+        if exclusive:
+            self._empty_ollama(list(starting.entry["unload_ollama"]))  # type: ignore[attr-defined,call-overload]
+
+    @staticmethod
+    def _must_yield(backend: object, starting: object, *, exclusive: bool) -> bool:
+        """True for a running GPU backend with a process that `starting` cannot share the card with."""
+        if backend is starting or not getattr(backend, "gpu", False) or not hasattr(backend, "yield_gpu"):
+            return False
+        sharing = exclusive or (isinstance(backend, ManagedServer) and backend.exclusive_gpu)
+        return sharing and bool(backend.running())  # type: ignore[attr-defined]
+
+    def _empty_ollama(self, names: list[str]) -> None:
+        """Unloads the models the named Ollama backends hold in VRAM; a failure is logged, not raised."""
+        for ollama in self._ollama_named(names):
+            try:
+                for model in ollama.in_vram():
+                    log.info("unloading Ollama model %s to free VRAM", model)
+                    ollama.unload(model)
+            except (GatewayError, OSError) as exc:
+                log.warning("cannot unload Ollama models of %s: %s", ollama.name, exc)
 
     def models_dir(self) -> Path:
         """The router's model directory (`@MODELS@`); the current directory when unset."""
@@ -303,6 +367,7 @@ class Gateway:
         for warning in self.remote_warnings():
             log.warning("%s", warning)
         log.info("gateway listening on %s", path)
+        self._adopt_managed()
         router = self.router()
         if router is not None:
             router.on_mode = self._set_mode_aliases
@@ -313,10 +378,25 @@ class Gateway:
                     target=self._autostart, args=(router, self.gpu), name="hal-router-start", daemon=True
                 ).start()
 
+    def _adopt_managed(self) -> None:
+        """Adopts or stops each recorded managed server, then starts the `with-gateway` ones."""
+        for server in self.managed().values():
+            server.adopt()
+            if server.entry["autostart"] == "with-gateway":
+                threading.Thread(
+                    target=self._autostart,
+                    args=(server, self.gpu),
+                    name=f"hal-{server.name}-start",
+                    daemon=True,
+                ).start()
+
     def _stop_router(self) -> None:
+        """`release-gpu --stop-router`: stops the router and every managed server."""
         router = self.router()
         if router is not None:
             router.stop()
+        for server in self.managed().values():
+            server.stop()
 
     def _gpu_ticker(self) -> None:
         """Runs the GPU idle timers until the gateway stops."""
@@ -337,12 +417,12 @@ class Gateway:
         self.resolver.mode_aliases.update(aliases)
 
     @staticmethod
-    def _autostart(router: LlamaRouter, gpu: GpuManager) -> None:
+    def _autostart(backend: LlamaRouter | ManagedServer, gpu: GpuManager) -> None:
         try:
             gpu.check_peers()
-            router.ensure()
+            backend.ensure()
         except GatewayError as exc:
-            log.error("router autostart failed: %s", exc.message)
+            log.error("autostart of %s failed: %s", backend.name, exc.message)
 
     @staticmethod
     def _clear_stale_socket(path: Path) -> None:

@@ -69,7 +69,17 @@ ROUTES: tuple[Route, ...] = (
     ),
     *(
         _r("POST", f"/hal/v1/{name}", Api.ADMIN, "openai", False, False, True)
-        for name in ("mode", "router/stop", "models/load", "models/unload", "gpu/release", "sessions")
+        for name in (
+            "mode",
+            "router/stop",
+            "models/load",
+            "models/unload",
+            "gpu/release",
+            "sessions",
+            "backend/start",
+            "backend/stop",
+            "backend/restart",
+        )  # fmt: skip
     ),
     _r("DELETE", "/hal/v1/sessions/{id}", Api.ADMIN, "openai", False, False, True),
 )

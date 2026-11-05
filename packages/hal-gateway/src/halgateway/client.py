@@ -2,7 +2,7 @@
 
 It speaks `/hal/v1/*` as the owner over the gateway's unix socket, the only place where admin
 routes are served. Every call has a timeout; calls that wait for a model (`set_mode`, `load`,
-`unload`, `release_gpu`) widen it by the wait they ask for, so a slow load is not reported as a
+`unload`, `release_gpu`, `backend`) widen it by the wait they ask for, so a slow load is not reported as a
 dead gateway. A refusal raises `ClientError` carrying the HTTP status and the server's error
 type, so callers can tell a busy router (409) from a missing one (404).
 """
@@ -145,6 +145,12 @@ class GatewayClient:
     def stop_router(self) -> None:
         """Stops the managed router process."""
         self.admin("POST", "/hal/v1/router/stop", timeout_s=RELEASE_TIMEOUT_S)
+
+    def backend(
+        self, action: Literal["start", "stop", "restart"], name: str, *, wait_s: float = 900.0
+    ) -> dict[str, Any]:
+        """Starts, stops or restarts managed server `name`; a start waits up to `wait_s` for it."""
+        return self.admin("POST", f"/hal/v1/backend/{action}", {"name": name}, timeout_s=wait_s + MARGIN_S)
 
     def load(self, model: str, wait_s: float = 900.0) -> None:
         """Loads one router preset."""

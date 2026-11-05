@@ -263,6 +263,22 @@ def test_stopped_router_is_not_restarted_by_a_request(env):
         env.router.ensure()
 
 
+def test_yield_gpu_stops_the_router_without_marking_it_stopped(env):
+    env.router.start()
+    pid = env.router._record["pid"]
+    env.router.yield_gpu()
+    assert not launchers.is_alive(pid) and not env.router.running()
+    env.router.ensure()  # a yield is not `router/stop`: the next request starts it again
+    assert env.router.running()
+
+
+def test_router_start_calls_before_start_first(env):
+    seen = []
+    env.router.before_start = lambda router: seen.append((router.running(), list(env.order)))
+    env.router.start()
+    assert seen == [(False, [])] and env.order == ["unloaded gemma:1"]
+
+
 def test_mode_switch_waits_for_inflight_requests(env):
     env.router.start()
     with env.router.request():

@@ -3,6 +3,22 @@
 Format: [Keep a Changelog](https://keepachangelog.com/). Versions follow semver; every package
 carries the same version.
 
+## Unreleased
+
+### Added
+
+- The gateway can run an OpenAI-compatible server for you, such as vLLM: a `managed-openai`
+  backend starts at the first request (or `hal-gateway backend start NAME`), is ready when its
+  health path answers and it lists a model of `served_models`, restarts after a crash, frees the
+  GPU by stopping the llama router and emptying Ollama, and stops with its whole process group.
+  A restarted gateway keeps a server whose config did not change; `idle_stop = false` keeps it
+  through the idle unload. See `docs/howto/run-a-vllm-server-under-hal.md`.
+
+### Changed
+
+- Stopping the managed llama router now ends its whole process group and waits for every
+  process in it, not only the leader.
+
 ## 0.1.0 - 2026-11-03
 
 First release of the monorepo (uv workspace on branch `next`).
