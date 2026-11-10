@@ -19,6 +19,12 @@ carries the same version.
 - Stopping the managed llama router now ends its whole process group and waits for every
   process in it, not only the leader.
 
+### Fixed
+
+- Role names such as `hal-code` and `hal-chat`, and `hal/main` and `hal/agent`, now report the
+  `ctx-size` the active mode started the model with. Before, they reported no context, so
+  `hal code` fell back to 32768 tokens even when `hal tune` had set 128k.
+
 ## 0.1.0 - 2026-11-03
 
 First release of the monorepo (uv workspace on branch `next`).

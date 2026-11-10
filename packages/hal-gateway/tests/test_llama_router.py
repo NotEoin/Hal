@@ -336,6 +336,7 @@ def test_admin_mode_switch_and_status_over_the_unix_socket(env):
         status, doc = admin(gw, "POST", "/hal/v1/mode", {"mode": "two"})
         assert status == 200 and doc["backends"]["local"]["mode"] == "two"
         assert gw.resolver.mode_aliases["hal/main"] == ("local", "m")
+        assert gw.resolver.mode_windows[("local", "m")] == 8192
         status, doc = admin(gw, "GET", "/hal/v1/status")
         assert status == 200 and doc["backends"]["local"]["state"] == "running"
         status, doc = admin(gw, "POST", "/hal/v1/router/stop")

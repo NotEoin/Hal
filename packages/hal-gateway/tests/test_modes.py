@@ -101,6 +101,20 @@ def test_context_window_ignores_the_classifier_and_the_agent_in_swap_modes(tmp_p
     assert render(tmp_path, "mine", AcceptAll(), dirs).hal.context_window == 5000
 
 
+def test_preset_windows_give_each_preset_its_own_ctx_size(tmp_path):
+    body = """\
+        [hal]
+        main = a
+        [*]
+        ctx-size = 1000
+        [a]
+        ctx-size = 131072
+        [b]
+        """
+    dirs = user_mode(tmp_path, body)
+    assert render(tmp_path, "mine", AcceptAll(), dirs).hal.preset_windows == {"a": 131072, "b": 1000}
+
+
 def test_bundled_checksums_match_the_files():
     for file, digest in modes._bundled_sums().items():
         assert sha256_file(modes.BUNDLED / file) == digest, file

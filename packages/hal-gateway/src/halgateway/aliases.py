@@ -69,6 +69,9 @@ class Resolver:
         self._list_models = list_models
         self._profile_of = profile_of
         self.mode_aliases = dict(mode_aliases or {})  # name -> (backend name, upstream model)
+        # (backend name, upstream model) -> context the active mode started it with; lets roles
+        # such as `hal-code` report the window `hal tune` chose instead of none
+        self.mode_windows: dict[tuple[str, str], int] = {}
         self._cache: dict[str, tuple[float, list[str]]] = {}
 
     def models_of(self, backend: OpenAIBackend) -> list[str]:
@@ -84,6 +87,7 @@ class Resolver:
         return ids
 
     def _target(self, alias: str, backend: OpenAIBackend, model: str, window: int | None = None) -> Target:
+        window = window or self.mode_windows.get((backend.name, model))
         return Target(alias, backend, model, backend.remote, window or None)
 
     def role_value(self, role: str) -> str:

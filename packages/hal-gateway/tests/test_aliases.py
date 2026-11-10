@@ -93,6 +93,21 @@ def test_mode_aliases_resolve_before_backend_slash_names(tmp_path):
     assert pair(resolver.resolve("hal/main")) == ("a", "main-preset")
 
 
+def test_role_alias_reports_the_window_the_active_mode_started_it_with(tmp_path):
+    # regression: `hal-code` reported no context, so hal-agent fell back to 32k under a 128k mode
+    resolver = build(tmp_path)
+    resolver.mode_windows[("a", "chat-m")] = 131072
+    assert resolver.resolve("hal-code").context_length == 131072
+    listed = {e.id: e.context_length for e in resolver.listing()}
+    assert listed["hal-code"] == 131072 and listed["hal-fast"] is None
+
+
+def test_alias_context_window_wins_over_the_mode_window(tmp_path):
+    resolver = build(tmp_path)
+    resolver.mode_windows[("a", "coder-up")] = 131072
+    assert resolver.resolve("coder").context_length == 4096
+
+
 def test_role_aliases_follow_hal_table(tmp_path):
     resolver = build(tmp_path, BASE.replace('chat_model = "chat-m"', 'chat_model = "only-a"'))
     assert pair(resolver.resolve("hal-chat")) == ("a", "only-a")

@@ -408,13 +408,17 @@ class Gateway:
                 log.exception("GPU idle timer failed")
 
     def _set_mode_aliases(self, hal) -> None:  # type: ignore[no-untyped-def]
-        """Points `hal/main` and `hal/agent` at the models the active mode names."""
+        """Points `hal/main` and `hal/agent` at the active mode's models and records their windows."""
         router = self.router()
-        aliases = {}
+        aliases: dict[str, tuple[str, str]] = {}
+        windows: dict[tuple[str, str], int] = {}
         if hal is not None and router is not None:
             aliases = {"hal/main": (router.name, hal.main), "hal/agent": (router.name, hal.agent)}
+            windows = {(router.name, preset): size for preset, size in hal.preset_windows.items()}
         self.resolver.mode_aliases.clear()
         self.resolver.mode_aliases.update(aliases)
+        self.resolver.mode_windows.clear()
+        self.resolver.mode_windows.update(windows)
 
     @staticmethod
     def _autostart(backend: LlamaRouter | ManagedServer, gpu: GpuManager) -> None:
