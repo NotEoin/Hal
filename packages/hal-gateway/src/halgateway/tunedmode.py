@@ -9,12 +9,15 @@ user's modes directory, beside the bundled modes (which keep working). Decisions
 - Presets load on demand (`load-on-startup = false`) because the roles are planned one at a
   time, not as a set that fits in memory together.
 - `n-gpu-layers = 99` means "all layers" (the value existing bundled modes use).
+- A write often plans only some roles (`hal tune --role`, `hal models assign`, the screens write
+  the changed ones), so `read` gives back the presets already in the file for the caller to keep.
 - The `embeddings` key for the embed role and `tensor-split` follow llama-server's argument
   names [unverified against every llama.cpp build: check `hal-gateway render tuned`].
 """
 
 from __future__ import annotations
 
+import configparser
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -91,6 +94,45 @@ def render(presets: list[Preset]) -> str:
     for preset in presets:
         lines += [*_section(preset), ""]
     return "\n".join(lines)
+
+
+def read(path: Path) -> list[Preset]:
+    """The presets of a `tuned.ini` that `render` wrote; empty when the file does not exist.
+
+    Raises `ValueError` when the file is not one `render` could have written.
+    """
+    if not Path(path).exists():
+        return []
+    parser = configparser.ConfigParser(interpolation=None, default_section="*")
+    try:
+        # `version = 1` comes before the first section, which configparser refuses on its own
+        parser.read_string("[__top__]\n" + Path(path).read_text(encoding="utf-8"), source=str(path))
+    except configparser.Error as exc:
+        raise ValueError(f"{path}: {exc}") from exc
+    prefix, out = preset_name(""), []
+    for section in parser.sections():
+        if not section.startswith(prefix):
+            continue
+        sec = parser[section]
+        try:
+            layers = int(sec["n-gpu-layers"])
+            split = tuple(float(v) for v in sec["tensor-split"].split(",")) if "tensor-split" in sec else ()
+            out.append(
+                Preset(
+                    role=section.removeprefix(prefix),
+                    model_path=Path(sec["model"]),
+                    context=int(sec["ctx-size"]),
+                    kv_type=sec["cache-type-k"],
+                    gpu_layers=ALL_LAYERS if layers == ALL_LAYERS_VALUE else layers,
+                    tensor_split=split,
+                    temperature=float(sec.get("temp", "-1")),
+                    embedding=sec.get("embeddings") == "true",
+                    mmproj=Path(sec["mmproj"]) if "mmproj" in sec else None,
+                )
+            )
+        except (KeyError, ValueError) as exc:
+            raise ValueError(f"{path}: preset [{section}] is not one hal tune writes ({exc})") from exc
+    return out
 
 
 def write(presets: list[Preset], modes_dir: Path) -> Path:

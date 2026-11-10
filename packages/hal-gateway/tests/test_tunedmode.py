@@ -62,3 +62,19 @@ def test_an_unpinned_weight_file_is_refused_by_the_mode_checks(tmp_path):
             verifier=verifier,
             user_dirs=[tmp_path / "modes"],
         )
+
+
+def test_read_gives_back_every_preset_render_wrote(tmp_path):
+    presets = [
+        preset(tmp_path, "chat"),
+        preset(
+            tmp_path, "code-128k", context=131072, gpu_layers=30, tensor_split=(0.5, 0.5), temperature=0.2
+        ),
+        preset(tmp_path, "embed", embedding=True, mmproj=tmp_path / "mmproj.gguf"),
+    ]
+    path = tunedmode.write(presets, tmp_path)
+    assert tunedmode.read(path) == presets
+    assert tunedmode.read(tmp_path / "missing.ini") == []
+    path.write_text("version = 1\n[tuned-chat]\nmodel = x\n")
+    with pytest.raises(ValueError, match="not one hal tune writes"):
+        tunedmode.read(path)

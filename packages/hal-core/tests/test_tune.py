@@ -376,3 +376,18 @@ def test_tune_refuses_a_role_that_does_not_exist(home, ollama, hw_file, capsys):
     add_ollama(home, ollama)
     assert tune.main(["--role", "nope", "--hardware", hw_file(CARD_24GB)]) == tune.EXIT_ERROR
     assert "no role nope" in capsys.readouterr().err
+
+
+def test_writing_one_gguf_role_keeps_the_presets_of_the_others_in_the_tuned_mode(home, tmp_path, hw_file, capsys):
+    # regression: a write planned for one role rewrote tuned.ini with only that role's preset,
+    # so the gateway lost every other GGUF role
+    models = tmp_path / "gguf"
+    models.mkdir()
+    write_gguf(models / "chatty-Q4_K_M.gguf", llama_like(), pad_to=3 * MIB)
+    home.config.write_text(f'[models.sources.weights]\nkind = "gguf"\npath = "{models}"\n')
+    assert run_json(capsys, "--auto", "--write", "--role", "chat", "--hardware", hw_file(CARD_24GB))[0] == 0
+    text = home.config.read_text() + '[models.roles.long-code]\nsource = "weights"\nmodel = "chatty-Q4_K_M"\n'
+    home.config.write_text(text)
+    assert run_json(capsys, "--write", "--role", "long-code", "--hardware", hw_file(CARD_24GB))[0] == 0
+    mode = (home.config.parent / "modes" / "tuned.ini").read_text()
+    assert "[tuned-chat]" in mode and "[tuned-long-code]" in mode

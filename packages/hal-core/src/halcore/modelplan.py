@@ -519,10 +519,11 @@ def apply(
     mode_file = paths.config_dir() / "modes" / f"{tunedmode.MODE_NAME}.ini"
     saved = {store.manifest: _read_bytes(store.manifest), mode_file: _read_bytes(mode_file)}
     done: list[str] = []
+    presets = _merged_presets(wiring.presets, plans, mode_file, new)
     try:
         done = pin(plans, found, store)
         if wiring.presets:
-            done.append(f"wrote {tunedmode.write(wiring.presets, mode_file.parent)}")
+            done.append(f"wrote {tunedmode.write(presets, mode_file.parent)}")
         backup = confmigrate.apply(target, new)
     except plain_errors() as exc:
         changed = [p for p, data in saved.items() if _read_bytes(p) != data]
@@ -532,6 +533,19 @@ def apply(
         raise ApplyError(f"nothing was written ({exc}){undone}") from exc
     done.append(f"wrote {target}" + (f" (backup {backup.name})" if old else ""))
     return [*done, *wiring.notes]
+
+
+def _merged_presets(
+    planned: list[tunedmode.Preset], plans: list[RolePlan], mode_file: Path, new_config: str
+) -> list[tunedmode.Preset]:
+    """`planned`, plus the presets already in the tuned mode of roles this write did not plan.
+
+    A kept preset's role must still be in the new config: a removed role loses its preset.
+    """
+    roles = (tomllib.loads(new_config).get("models") or {}).get("roles") or {}
+    touched = {rp.role for rp in plans}
+    kept = [p for p in tunedmode.read(mode_file) if p.role not in touched and p.role in roles]
+    return [*kept, *planned]
 
 
 def plain_errors() -> tuple[type[Exception], ...]:

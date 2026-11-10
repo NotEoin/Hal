@@ -28,6 +28,9 @@ carries the same version.
 - Role names such as `hal-code` and `hal-chat`, and `hal/main` and `hal/agent`, now report the
   `ctx-size` the active mode started the model with. Before, they reported no context, so
   `hal code` fell back to 32768 tokens even when `hal tune` had set 128k.
+- A write that plans some roles (`hal tune --write --role`, `hal models assign`, saving the tune
+  screen) keeps the other roles' presets in the generated `tuned` mode. Before, it rewrote the
+  mode with only the planned roles, so the gateway stopped serving the other GGUF roles.
 
 ## 0.1.0 - 2026-11-03
 
