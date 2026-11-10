@@ -34,7 +34,7 @@
                                                                                                                         
                                                                                                                         
                                                                                                                         
-                                                                                                                        
+ New role...                                                                                                            
  ^s Save  ^z Undo  esc Quit  f1 Help  f2 Roles  f3 Sources  f4 Review                                                   
 ## roles
 00 _1 x3 _1 x1 _2 x3 _1 x4 _2 x5 _1 x1 _1 x5 _1 x3 _1 x4 _80
@@ -98,8 +98,7 @@
 32 _120
 32bg X36 .84
 33 _120
-33bg X36 .84
-34 _120
-34bg X36 .84
+34 _1 F3 _1 F7 _108
+34bg S13 .107
 35 _1 A2 _1 f4 _2 A2 _1 f4 _2 A3 _1 f4 _2 A2 _1 f4 _2 A2 _1 f5 _2 A2 _1 f7 _2 A2 _1 f6 _51
 35bg P120

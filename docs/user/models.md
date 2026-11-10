@@ -59,6 +59,32 @@ temperature = 0.7      # -1 = the model's default
 auto = true            # true: `hal tune --write` may replace context, kv_type and gpu_layers
 ```
 
+### Named roles
+
+You can add your own roles beside the built-in ones. A named role is one model with its own
+settings, such as a coding setup with a long context next to the everyday `code` role. The
+gateway serves it as `hal-NAME`, so you pick it in `hal code` with `/model hal-code-128k`, or
+start with `hal code --model hal-code-128k`.
+
+```toml
+[models.roles.code-128k]
+source = "local"
+model = "qwen3.8:27b"
+context = 131072
+auto = false
+
+[gateway.aliases.hal-code-128k]   # written by `hal tune` and `hal models assign`
+backend = "ollama"
+model = "qwen3.8:27b"
+```
+
+A name is lowercase letters, digits and `-`, starts with a letter, and is at most 32
+characters. Add one in the tune screen (**New role...**), or with
+`hal models assign NAME SOURCE MODEL`. Remove one with **Remove role** or
+`hal models remove-role NAME`, which also removes its alias. Auto-tune and the presets never
+choose a model for a named role: it keeps the model you gave it. A named role on a GGUF file
+gets its own preset (`tuned-NAME`) in the generated mode.
+
 `[models]` itself takes `context_cap` (largest context tuning plans, default 131072),
 `headroom_mib` (VRAM kept free per GPU, 0 = the larger of 1 GiB and 8 percent) and
 `kv_type` (default `auto`).
@@ -70,6 +96,8 @@ hal models add-source ollama http://127.0.0.1:11434   # add a source
 hal models list                                       # every source and its models
 hal models list --source local --json                 # one source, for scripts
 hal models assign chat local gemma3:12b               # give a role a model, pin it, wire the gateway
+hal models assign code-128k local qwen3.8:27b         # add a named role, served as hal-code-128k
+hal models remove-role code-128k                      # remove a named role and its alias
 hal models remove-source local                        # refused while a role uses it
 hal tune --auto                                       # detect, discover, plan; changes nothing
 hal tune --auto --write                               # also pin, save the roles, generate the mode
@@ -158,6 +186,7 @@ a role: `model code`.
 | `effort` | Pick a default effort, or `default`; shown only for models that can think |
 | `temp` | Pick a temperature, or `default` |
 | `auto` | Tune the role for this hardware; `auto all` tunes every role |
+| `newrole`, `delrole` | Add a named role (`newrole code-128k`), or remove one |
 | `source` | Add or remove a model source |
 | `diff`, `write`, `quit`, `menu` | Show the changes, write them, leave, or go back to the menus |
 

@@ -5,8 +5,8 @@ drags and keys into its edits, exactly like the line screen (`halcore.tuneui`), 
 the fallback. Nothing is written until Save, which shows the diff, asks with Cancel focused and
 then writes through `TuneSession.write` (the `modelplan.apply` path of `hal tune --write`).
 
-Layout: a hardware line, a preset row ("Plan for"), then tabs. Roles: a role list on the left and
-the editor of the chosen role on the right (model, context, KV cache, GPU layers, effort,
+Layout: a hardware line, a preset row ("Plan for"), then tabs. Roles: a role list on the left
+(with "New role..." for a named setup such as `code-128k`) and the editor of the chosen role on the right (model, context, KV cache, GPU layers, effort,
 temperature, a VRAM gauge and the reasoning). Sources: the model sources, add and remove.
 Review: the config diff and Save. A first run (no role assigned) opens Quick start, which
 previews what each preset would choose.
@@ -124,6 +124,8 @@ class RoleEditor(VerticalScroll, can_focus=False):
             yield SafeStatic(Text("No model yet: choose one, or Auto-tune this role.", style="dim"), classes="why")
             with Horizontal(classes="actions"):
                 yield Button("Auto-tune this role", id="auto-role")
+                if modelconf.is_custom(role):  # a named role can be dropped before it has a model
+                    yield Button("Remove role", id="remove-role")
             return
         model = state.model_of(role)
         ceiling = int(state.limits["context_cap"])  # type: ignore[call-overload]  # validated config
@@ -165,7 +167,10 @@ class RoleEditor(VerticalScroll, can_focus=False):
         yield SafeStatic("", classes="why", id="why")
         with Horizontal(classes="actions"):
             yield Button("Auto-tune this role", id="auto-role")
-            yield Button("Clear role", id="clear-role")
+            if modelconf.is_custom(role):
+                yield Button("Remove role", id="remove-role")
+            else:
+                yield Button("Clear role", id="clear-role")
 
     def model_text(self) -> Text:
         """The model button's label: the real model behind the role, then `change`."""
@@ -278,6 +283,56 @@ class SourceModal(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class RoleNameModal(ModalScreen[str | None]):
+    """Names a new role; an error shows inline and keeps the text."""
+
+    DEFAULT_CSS = screens.MODAL_CSS + "RoleNameModal { align: center middle; } RoleNameModal .error { color: $error; height: auto; }"
+    BINDINGS = [Binding("escape", "cancel", "cancel")]
+
+    def __init__(self, submit: Callable[[str], str]) -> None:
+        super().__init__()
+        self.submit = submit  # returns an error message, or "" when the role was added
+
+    def compose(self) -> ComposeResult:
+        """Title, name, error line and buttons."""
+        with Vertical(classes="modal-box"):
+            yield SafeStatic(Text("New role: a model with its own settings, served as hal-NAME"), classes="modal-title")
+            yield Input(placeholder="name, such as code-128k", id="role-name")
+            yield SafeStatic("", classes="error", id="error")
+            with Horizontal(classes="modal-buttons"):
+                yield Button("Cancel", id="cancel")
+                yield Button("Add", id="add", variant="primary")
+
+    def on_mount(self) -> None:
+        """Focus on the name."""
+        self.query_one("#role-name", Input).focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Enter adds."""
+        self.try_add()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Add or Cancel."""
+        event.stop()
+        if event.button.id == "add":
+            self.try_add()
+        else:
+            self.dismiss(None)
+
+    def try_add(self) -> None:
+        """Adds the role, or shows why not and stays open."""
+        name = self.query_one("#role-name", Input).value.strip().lower()
+        error = self.submit(name)
+        if error:
+            self.query_one("#error", SafeStatic).update(Text(clean(error)))
+            return
+        self.dismiss(name)
+
+    def action_cancel(self) -> None:
+        """Esc closes without adding."""
+        self.dismiss(None)
+
+
 class PresetCard(Vertical, can_focus=True):
     """One Quick start choice: the preset and what it would pick per role; click or Enter takes it."""
 
@@ -361,7 +416,8 @@ class TuneApp(App[int]):
     #presets { height: 1; padding: 0 1; margin-bottom: 1; }
     #presets Segmented { width: 1fr; }
     #presets .label { width: 10; color: $text-muted; }
-    #roles { width: 30%; min-width: 20; max-width: 40; height: 1fr; border: none; text-wrap: nowrap; text-overflow: ellipsis; }
+    #role-side { width: 30%; min-width: 20; max-width: 40; height: 1fr; }
+    #roles { height: 1fr; border: none; text-wrap: nowrap; text-overflow: ellipsis; }
     Button#model-btn { width: 1fr; content-align: left middle; text-align: left; }
     #role-pane { height: 1fr; }
     #sources { height: auto; max-height: 12; border: none; }
@@ -414,7 +470,10 @@ class TuneApp(App[int]):
             yield Segmented([Segment(preset_label(p), p.key) for p in tunepresets.PRESETS], current, id="preset")
         with TabbedContent(initial="tab-roles", id="tabs"):
             with TabPane("Roles", id="tab-roles"), Horizontal(id="role-pane"):
-                yield OptionList(markup=False, id="roles")
+                with Vertical(id="role-side"):
+                    yield OptionList(markup=False, id="roles")
+                    with Horizontal(classes="bar"):
+                        yield Button("New role...", id="role-new")
                 self._editor = RoleEditor(self, self.role)
                 yield self._editor
             with TabPane("Sources", id="tab-sources"), Vertical():
@@ -487,9 +546,11 @@ class TuneApp(App[int]):
         """Redraws the role list, keeping the highlight."""
         roles = self.query_one("#roles", OptionList)
         keep = roles.highlighted
-        names = [*modelconf.ROLES, GUARD]
+        names = [*self.state.role_names(), GUARD]
         roles.set_options([Option(self.role_row(r), id=r) for r in names])
-        roles.highlighted = keep if keep is not None else names.index(self.role)
+        if self.role not in names:  # a named role was removed (or its add undone)
+            self.role, keep = "chat", None
+        roles.highlighted = keep if keep is not None and keep < len(names) else names.index(self.role)
         changes = len(self.state.changed_roles()) + (1 if self.state.has_changes() and not self.state.changed_roles() else 0)
         self.query_one("#tabs", TabbedContent).get_tab("tab-review").label = f"Review {changes}" if changes else "Review"
 
@@ -600,12 +661,36 @@ class TuneApp(App[int]):
                 toast(self, "\n".join(map(str, notes)), title=f"Tuned {role}")  # type: ignore[arg-type]
         elif which == "clear-role":
             self.change(lambda: state.clear(role), rebuild=True)
+        elif which == "remove-role":
+            self.change(lambda: state.remove_role(role), rebuild=True)
+        elif which == "role-new":
+            self.push_screen(RoleNameModal(self.add_role), self.role_added)
         elif which == "source-add":
             self.push_screen(SourceModal(self.add_source), lambda _: self.after_sources())
         elif which == "source-remove":
             self.remove_source()
         elif which == "save":
             self.action_save()
+
+    def add_role(self, name: str) -> str:
+        """Adds a named role as one undo step; returns why not, or ""."""
+        snap = self.state.snapshot()
+        try:
+            self.state.add_role(name)
+        except ValueError as exc:
+            return str(exc)
+        self.undo = [*self.undo[-MAX_UNDO:], snap]
+        return ""
+
+    def role_added(self, name: str | None) -> None:
+        """Opens the new role and its model picker."""
+        if not name:
+            return
+        self.role = name
+        self.fill_roles()
+        self.query_one("#roles", OptionList).highlighted = self.state.role_names().index(name)
+        self.rebuild_editor()
+        self.run_worker(self.pick_model(), exclusive=True, group="pick")
 
     async def pick_model(self) -> None:
         """The model picker: usable models for the role, each with its size, quant and fit."""

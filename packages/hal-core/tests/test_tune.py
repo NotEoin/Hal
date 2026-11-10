@@ -321,3 +321,58 @@ def test_a_failed_pin_rolls_back_earlier_pins_and_writes_no_config(home, ollama,
     assert home.config.read_text() == before
     assert not (home.config.parent / "models.toml").exists()
     assert not list(home.config.parent.glob("config.toml.bak.*"))
+
+
+def no_gpu_probe(monkeypatch):
+    monkeypatch.setattr(hardware, "default_runner", lambda argv, timeout: (_ for _ in ()).throw(FileNotFoundError()))
+
+
+def test_assign_with_a_new_name_adds_a_named_role_served_as_a_gateway_alias(home, ollama, capsys, monkeypatch):
+    from halgateway.config import load_config
+
+    no_gpu_probe(monkeypatch)
+    add_ollama(home, ollama)
+    assert modelscmd.main(["assign", "code-big", "local", "coder:7b"]) == 0
+    cfg = tomllib.loads(home.config.read_text())
+    assert cfg["models"]["roles"]["code-big"]["model"] == "coder:7b"
+    assert cfg["gateway"]["aliases"]["hal-code-big"] == {"backend": "local", "model": "coder:7b"}
+    assert "code_model" not in cfg.get("hal", {})
+    assert load_config(home.config).aliases["hal-code-big"]["backend"] == "local"
+
+
+def test_remove_role_drops_the_named_role_and_its_alias_but_not_a_built_in_one(home, ollama, capsys, monkeypatch):
+    no_gpu_probe(monkeypatch)
+    add_ollama(home, ollama)
+    assert modelscmd.main(["assign", "code-big", "local", "coder:7b"]) == 0
+    assert modelscmd.main(["remove-role", "code-big"]) == 0
+    text = home.config.read_text()
+    assert "code-big" not in text
+    assert modelscmd.main(["assign", "fast", "local", "tiny:1b"]) == 0
+    assert modelscmd.main(["remove-role", "fast"]) == 1
+
+
+def test_assign_refuses_a_role_name_that_cannot_be_an_alias(home, ollama, capsys):
+    add_ollama(home, ollama)
+    assert modelscmd.main(["assign", "Code 128k", "local", "coder:7b"]) == 1
+    assert "lowercase letters" in capsys.readouterr().err
+
+
+def test_a_named_gguf_role_gets_its_own_preset_in_the_tuned_mode(home, tmp_path, hw_file, capsys):
+    models = tmp_path / "gguf"
+    models.mkdir()
+    write_gguf(models / "chatty-Q4_K_M.gguf", llama_like(), pad_to=3 * MIB)
+    home.config.write_text(
+        f'[models.sources.weights]\nkind = "gguf"\npath = "{models}"\n'
+        '[models.roles.long-code]\nsource = "weights"\nmodel = "chatty-Q4_K_M"\n'
+    )
+    status, doc = run_json(capsys, "--write", "--role", "long-code", "--reassign", "--hardware", hw_file(CARD_24GB))
+    assert status == 0, doc
+    cfg = tomllib.loads(home.config.read_text())
+    assert cfg["gateway"]["aliases"]["hal-long-code"] == {"backend": "router", "model": "tuned-long-code"}
+    assert "[tuned-long-code]" in (home.config.parent / "modes" / "tuned.ini").read_text()
+
+
+def test_tune_refuses_a_role_that_does_not_exist(home, ollama, hw_file, capsys):
+    add_ollama(home, ollama)
+    assert tune.main(["--role", "nope", "--hardware", hw_file(CARD_24GB)]) == tune.EXIT_ERROR
+    assert "no role nope" in capsys.readouterr().err

@@ -664,6 +664,18 @@ wraps it.
   existing next-step text. Test: unit
   `test_setup_opens_the_tune_screen_on_a_terminal_when_no_chat_model_is_assigned`,
   `test_setup_off_a_terminal_only_prints_the_next_step`.
+- **REQ-CLI-121** (MUST) Besides the built-in roles, `[models.roles.NAME]` MUST accept a named role
+  whose name matches `halkit.modelconf.CUSTOM_ROLE` and is not `guard`; any other name MUST be
+  refused with the rule. A write (`hal models assign NAME ...`, `hal tune --write`, the tune
+  screens' New role) MUST wire a named role as `[gateway.aliases.hal-NAME]` (a GGUF role as preset
+  `tuned-NAME` of the generated mode) and MUST NOT add a `[hal]` key for it. Auto-tune, presets
+  and `--reassign` MUST keep a named role's model. `hal models remove-role NAME` and the screens'
+  Remove role MUST delete the role table and its alias, and MUST refuse a built-in role. Test: unit
+  `test_assign_with_a_new_name_adds_a_named_role_served_as_a_gateway_alias`,
+  `test_remove_role_drops_the_named_role_and_its_alias_but_not_a_built_in_one`,
+  `test_a_named_gguf_role_gets_its_own_preset_in_the_tuned_mode`,
+  `test_a_named_role_is_added_chosen_and_written_with_its_alias`,
+  `test_new_role_names_a_setup_opens_its_model_picker_and_lists_it`.
 - **REQ-CLI-113** (MUST) `hal configure` MUST NOT name or pull a model; it MUST accept `--profile
   max|24gb|12gb|cloud` as a preset for `[models] context_cap` and `kv_type` with a deprecation
   note, and print the `hal tune` plan. Test: unit
@@ -848,7 +860,8 @@ hal claude [--preset NAME] [--model NAME] [--vault | --dir DIR] [--cloud] [CLAUD
 hal gateway ARGS...                  delegates to hal-gateway (05-gateway "CLI")
 hal models [list|sources] [--source S] [--json]
 hal models add-source KIND [LOCATION] [--name N] [--key-file F] [--allow-remote] | remove-source NAME
-hal models assign ROLE SOURCE MODEL
+hal models assign ROLE SOURCE MODEL     ROLE may be a new name: a named role (REQ-CLI-121)
+hal models remove-role NAME
 hal tune [--auto] [--write] [--json] [--role R]... [--reassign] [--hardware FILE]
 hal models pull NAME... | --profile P | --preset P [--yes] [--dry-run]   (planned, explicit opt-in)
 hal models verify [NAME...] [--full] [--json]

@@ -389,3 +389,24 @@ def test_tune_effort_menu_can_clear_the_effort(home, server):
                                       picks=["local\nqwen3:8b", "medium", "default"])
     screen.run_commands()
     assert prompter.seen[-1][1][0] == "default" and screen.state.drafts["chat"].effort == ""
+
+
+def test_newrole_adds_a_named_setup_with_its_own_context_and_delrole_drops_it(home, server):
+    screen, out, prompter = open_screen(
+        home, server,
+        asks=["newrole code-128k", "context 32768", "write", "delrole code-128k", "write", "quit"],
+        picks=["local\nqwen3:8b", "yes", "yes"],
+    )
+    assert screen.run_commands() == 0
+    titles = [t for t, _ in prompter.seen]
+    assert titles == ["code-128k model", "Write these changes?", "Write these changes?"]
+    assert "hal-code-128k" in out.getvalue() and "at most" not in out.getvalue()
+    assert "code-128k" not in home.config.read_text()
+
+
+def test_newrole_through_the_menus_then_saving_writes_the_role_and_its_alias(home, server):
+    screen, _, _ = open_screen(home, server, asks=["code-big"], picks=["role", "\n", "local\ncoder:7b", None, None, "save", "yes"])
+    screen.run()
+    cfg = tomllib.loads(home.config.read_text())
+    assert cfg["models"]["roles"]["code-big"]["model"] == "coder:7b"
+    assert cfg["gateway"]["aliases"]["hal-code-big"] == {"backend": "local", "model": "coder:7b"}

@@ -17,6 +17,9 @@ Design decisions:
   model's layers means all of them, written as `-1` like a tuned plan.
 - `snapshot` and `restore` copy every draft and the source edits, so the screen can undo any
   change, including a preset.
+- Named roles (`modelconf.is_custom`) are added empty and written once they have a model.
+  Removing one is a config edit kept with the source edits, so the diff shows it and undo
+  brings it back. Auto-tune and presets leave named roles alone: they are the user's setups.
 """
 
 from __future__ import annotations
@@ -65,6 +68,7 @@ class Snapshot:
     source_edits: list[Callable[[str], str]]
     added: frozenset[str]
     removed: frozenset[str]
+    named: frozenset[str]
     hw: Hardware
     preset: tunepresets.Preset | None
 
@@ -115,6 +119,7 @@ class TuneSession:
         self._source_edits: list[Callable[[str], str]] = []
         self._added: set[str] = set()
         self._removed: set[str] = set()
+        self._named: set[str] = {r for r in roles if modelconf.is_custom(r)}
 
     # --- models and fit ---------------------------------------------------------------------
 
@@ -272,7 +277,7 @@ class TuneSession:
         """A copy of the drafts, sources and source edits, for `restore`."""
         return Snapshot(
             copy.deepcopy(self.drafts), dict(self.sources), dict(self.found), list(self._source_edits),
-            frozenset(self._added), frozenset(self._removed), self.hw, self.preset,
+            frozenset(self._added), frozenset(self._removed), frozenset(self._named), self.hw, self.preset,
         )  # fmt: skip
 
     def restore(self, snap: Snapshot) -> None:
@@ -280,7 +285,7 @@ class TuneSession:
         self.drafts = copy.deepcopy(snap.drafts)
         self.sources, self.found = dict(snap.sources), dict(snap.found)
         self._source_edits = list(snap.source_edits)
-        self._added, self._removed = set(snap.added), set(snap.removed)
+        self._added, self._removed, self._named = set(snap.added), set(snap.removed), set(snap.named)
         self.hw, self.preset = snap.hw, snap.preset
 
     def set_effort(self, role: str, level: str) -> None:
@@ -373,6 +378,34 @@ class TuneSession:
             notes.append(f"{role}: chose {rp.model.name} for {preset.label}")
         return notes
 
+    # --- named roles ------------------------------------------------------------------------
+
+    def role_names(self) -> list[str]:
+        """The built-in roles, then the named ones, in the order the screens list them."""
+        return [*modelconf.ROLES, *sorted(self._named)]
+
+    def add_role(self, name: str) -> str:
+        """Adds an empty named role; raises `ValueError` for a bad or taken name. Returns the name."""
+        name = name.strip().lower()
+        why = modelconf.check_role_name(name)
+        if why is None and name in self._named:
+            why = f"{name!r} is already a role name"
+        if why:
+            raise ValueError(why)
+        self._named.add(name)
+        return name
+
+    def remove_role(self, name: str) -> None:
+        """Removes a named role, and on write its config table and gateway alias."""
+        if not modelconf.is_custom(name):
+            raise ValueError(f"{name} is a built-in role; choose another model or clear it instead")
+        if name not in self._named:
+            raise ValueError(f"no role named {name!r}")
+        self._named.discard(name)
+        self.drafts.pop(name, None)
+        if name in self._original:
+            self._source_edits.append(lambda text, n=name: modelplan.remove_role(text, n))
+
     # --- sources ----------------------------------------------------------------------------
 
     def add_source(self, kind: str, location: str, name: str = "") -> str:
@@ -440,7 +473,7 @@ class TuneSession:
 
     def changed_roles(self) -> list[str]:
         """Roles whose draft differs from the config, in role order."""
-        return [r for r in modelconf.ROLES if r in self.drafts and self.drafts[r] != self._original.get(r)]
+        return [r for r in self.role_names() if r in self.drafts and self.drafts[r] != self._original.get(r)]
 
     def has_changes(self) -> bool:
         """True when a write would change the config."""

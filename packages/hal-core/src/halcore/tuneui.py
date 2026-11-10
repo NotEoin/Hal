@@ -10,7 +10,8 @@ terminal cannot run the full screen. The screen is a set of menus: a live summar
 then a highlighted list. Up and Down move, Enter chooses, 1 to 9 jump to a row (short lists),
 Esc goes back, and a click on a row chooses it.
 Pressing `:` on the main menu opens the old typed command line (`model code`, `context chat 48k`)
-for power users.
+for power users. The role list ends with "New role..." (or `newrole NAME`), which adds a named
+setup such as `code-128k`; `delrole NAME` removes one.
 
 Input goes through a `Prompter`. `PtPrompter` is the real one (a command line with completion and
 a list that filters when it is long); tests pass a scripted prompter or feed `PtPrompter`
@@ -82,6 +83,8 @@ COMMANDS = {
     "effort": "set the default thinking effort",
     "temp": "set the temperature",
     "auto": "tune for this hardware (auto all: every role)",
+    "newrole": "add a named role, a model with its own settings (newrole code-128k)",
+    "delrole": "remove a named role",
     "source": "add or remove a model source",
     "diff": "show the config changes",
     "write": "show the changes, then write them",
@@ -92,6 +95,7 @@ COMMANDS = {
 ALIASES = {"m": "model", "c": "context", "k": "kv", "e": "effort", "t": "temp", "a": "auto", "s": "source",
            "d": "diff", "w": "write", "q": "quit", "r": "role", "?": "help", "exit": "quit", "b": "menu"}
 DEFAULT_ROLE = "chat"
+NEW_ROLE = "\n"  # the "New role..." row's value: no role name can contain a newline
 
 
 # --- drawing ---------------------------------------------------------------------------------
@@ -108,7 +112,7 @@ def render_summary(state: tunestate.TuneSession, look: Look) -> Group:
         rows.append(Text("no model source yet: choose Model sources", style=pal.muted))
     rows.append(Text(""))
     changed = state.changed_roles()
-    for role in modelconf.ROLES:
+    for role in state.role_names():
         model, ctx, fit = role_line(state, role, look)
         word = fit.rsplit(" ", 1)[-1]
         style = pal.ok if word == "fits" else (pal.bad if word == "big" else pal.muted)
@@ -377,12 +381,18 @@ class TuneScreen:
         """Picks a role, then shows its menu until the user goes back."""
         while True:
             items = []
-            for role in modelconf.ROLES:
+            for role in self.state.role_names():
                 model, ctx, fit = role_line(self.state, role, self.look)
                 items.append((f"{role:<7} {short(model, SUMMARY_MODEL_WIDTH)}  {ctx}", role))
+            items.append(("New role...", NEW_ROLE))
             role = self.prompter.pick("Adjust which role?", items, self.role, filterable=False)
             if role is None:
                 return
+            if role == NEW_ROLE:
+                name = self.prompter.ask("Name of the new role (such as code-128k): ", [])
+                if not name or not self._guarded(self.cmd_newrole, name.strip()):
+                    continue
+                role = self.role
             self.role = role
             self.menu_role(role)
 
@@ -391,8 +401,12 @@ class TuneScreen:
         while True:
             model, ctx, fit = role_line(self.state, role, self.look)
             title = f"{role}: {short(model, SUMMARY_MODEL_WIDTH)} {ctx} {fit}".rstrip()
-            choice = self.prompter.pick(title, ROLE_ITEMS, filterable=False)
+            items = (*ROLE_ITEMS[:-1], ("Remove this role", "delrole"), ROLE_ITEMS[-1]) if modelconf.is_custom(role) else ROLE_ITEMS
+            choice = self.prompter.pick(title, items, filterable=False)
             if choice in (None, "back"):
+                return
+            if choice == "delrole":
+                self._guarded(self.cmd_delrole, role)
                 return
             self._guarded(getattr(self, f"cmd_{choice}"), role)
 
@@ -425,7 +439,7 @@ class TuneScreen:
     def _target(self, arg: str) -> tuple[str, str]:
         """`(role, rest)`: a leading role name in `arg` overrides the current role."""
         first, _, rest = arg.partition(" ")
-        if first in modelconf.ROLES:
+        if first in self.state.role_names():
             return first, rest.strip()
         return self.role, arg
 
@@ -437,12 +451,32 @@ class TuneScreen:
 
     def cmd_role(self, arg: str) -> None:
         """Chooses the current role."""
-        name = arg or self.prompter.pick("role", [(r, r) for r in modelconf.ROLES], self.role)
-        if name not in modelconf.ROLES:
+        names = self.state.role_names()
+        name = arg or self.prompter.pick("role", [(r, r) for r in names], self.role)
+        if name not in names:
             if name:
-                raise ValueError(f"roles: {', '.join(modelconf.ROLES)}")
+                raise ValueError(f"roles: {', '.join(names)} (newrole NAME adds one)")
             return
         self.role, self.dirty = name, True
+
+    def cmd_newrole(self, arg: str) -> bool:
+        """Adds a named role, makes it current and asks for its model."""
+        if not arg:
+            raise ValueError("give the role a name: newrole code-128k")
+        self.role = self.state.add_role(arg)
+        self.dirty = True
+        self.say(f"Added role {self.role}; the gateway serves it as hal-{self.role} once it is saved.", "muted")
+        self.cmd_model(self.role)
+        return True
+
+    def cmd_delrole(self, arg: str) -> None:
+        """Removes a named role (its config table and gateway alias go on write)."""
+        name = arg or self.role
+        self.state.remove_role(name)
+        if self.role == name:
+            self.role = DEFAULT_ROLE
+        self.dirty = True
+        self.say(f"Removed role {name}; write to save it.", "muted")
 
     def cmd_model(self, arg: str) -> None:
         """Picks a model from the discovered ones."""

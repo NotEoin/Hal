@@ -5,11 +5,13 @@
     hal models add-source KIND LOCATION [--name NAME] [--key-file FILE] [--allow-remote]
     hal models remove-source NAME
     hal models assign ROLE SOURCE MODEL
+    hal models remove-role NAME
 
 `LOCATION` is a URL for `ollama` and `openai`, a folder for `gguf`; `anthropic` and
 `openai-cloud` take no location and need `--key-file`. `assign` names the model for a role,
-pins it and wires the gateway, the same as `hal tune --write --role ROLE` for that model. No
-command here downloads a model.
+pins it and wires the gateway, the same as `hal tune --write --role ROLE` for that model. A
+`ROLE` that is not built in (`chat`, `fast`, `code`, ...) adds a named role, served as the
+gateway alias `hal-ROLE`; `remove-role` takes it away again. No command here downloads a model.
 """
 
 from __future__ import annotations
@@ -142,6 +144,9 @@ def assign_role(role: str, source: str, model: str, effort: str = "") -> list[st
     Raises `ValueError` or a `modelplan.plain_errors()` error, with nothing written, when the source
     or model is unknown or a pin fails.
     """
+    why = modelconf.check_role_name(role) if modelconf.is_custom(role) else None
+    if why:
+        raise ValueError(why)
     text = _read()
     sources = modelconf.load_sources()
     if source not in sources:
@@ -157,6 +162,16 @@ def assign_role(role: str, source: str, model: str, effort: str = "") -> list[st
     roles = modelconf.load_roles()
     plans = modelplan.build(roles, sources, found, hardware.detect(), modelconf.limits(), only=(role,))
     return modelplan.apply(plans, found)
+
+
+def remove_role(args: argparse.Namespace) -> int:
+    """`hal models remove-role NAME`: drops a named role and its gateway alias."""
+    if args.name not in modelconf.load_roles() or not modelconf.is_custom(args.name):
+        print(f"hal models: no named role {args.name!r} (built-in roles are reassigned, not removed)", file=sys.stderr)
+        return EXIT_ERROR
+    _validated_write(modelplan.remove_role(_read(), args.name))
+    print(f"removed role {args.name} (alias {modelplan.alias_name(args.name)})")
+    return EXIT_OK
 
 
 def assign(args: argparse.Namespace) -> int:
@@ -187,15 +202,17 @@ def main(argv: list[str]) -> int:
     p = sub.add_parser("remove-source", help="remove a source no role uses")
     p.add_argument("name")
     p = sub.add_parser("assign", help="give a role a model, pin it and wire the gateway")
-    p.add_argument("role", choices=modelconf.ROLES)
+    p.add_argument("role", help=f"{', '.join(modelconf.ROLES)}, or a new name such as code-128k")
     p.add_argument("source")
     p.add_argument("model")
+    p = sub.add_parser("remove-role", help="remove a named role and its gateway alias")
+    p.add_argument("name")
     args = ap.parse_args(argv)
     if args.command is None:
         args = ap.parse_args(["list", *argv])
     try:
         handler = {"list": list_models, "sources": list_models, "add-source": add_source,
-                   "remove-source": remove_source, "assign": assign}[args.command]
+                   "remove-source": remove_source, "assign": assign, "remove-role": remove_role}[args.command]
         return handler(args)
     except modelplan.plain_errors() as exc:
         print(f"hal models: {exc}", file=sys.stderr)

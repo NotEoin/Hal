@@ -498,3 +498,40 @@ def test_role_rows_never_wrap_a_model_name(home, server):
     (css, lines), _, _ = drive(state, script, size=(80, 24))
     assert css == ("nowrap", "ellipsis")  # OptionList wraps a prompt whatever the Text says
     assert lines[0].startswith("chat") and "qwen3:8b" in lines[1]
+
+
+def test_new_role_names_a_setup_opens_its_model_picker_and_lists_it(home, server):
+    state = open_state(home, server, roles=CHAT_ROLE)
+
+    async def script(pilot, app):
+        await pilot.click("#role-new")
+        await settle(pilot)
+        name = app.screen.query_one("#role-name")
+        name.value = "chat"
+        await pilot.press("enter")  # a taken name keeps the form open with the reason
+        await settle(pilot)
+        refused = isinstance(app.screen, tuneapp.RoleNameModal), str(app.screen.query_one("#error").render())
+        app.screen.query_one("#role-name").value = "code-128k"
+        await pilot.press("enter")
+        await settle(pilot, 10)
+        picker_open = not isinstance(app.screen, tuneapp.RoleNameModal) and app.screen is not app.screen_stack[0]
+        await pilot.press("escape")
+        await settle(pilot)
+        ids = [o.id for o in app.query_one("#roles", OptionList)._options]
+        return refused, picker_open, ids, app.role, [b.id for b in app.editor().query(Button)]
+
+    (refused, picker_open, ids, role, buttons), _, _ = drive(state, script)
+    assert refused[0] and "already a role name" in refused[1]
+    assert picker_open and "code-128k" in ids and role == "code-128k"
+    assert "remove-role" in buttons and "clear-role" not in buttons
+
+
+def test_the_new_role_button_is_on_screen_at_60_by_20(home, server):
+    state = open_state(home, server, roles=CHAT_ROLE)
+
+    async def script(pilot, app):
+        await settle(pilot)
+        button = app.query_one("#role-new", Button)
+        return button.region.right <= 60 and 0 < button.region.bottom <= 20
+
+    assert drive(state, script, size=(60, 20))[0]

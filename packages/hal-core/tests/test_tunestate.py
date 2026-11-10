@@ -273,3 +273,41 @@ def test_snapshot_and_restore_undo_any_change(home, server):
     assert s.has_changes()
     s.restore(snap)
     assert not s.has_changes() and "chat" not in s.drafts
+
+
+def test_a_named_role_is_added_chosen_and_written_with_its_alias(home, server):
+    s = session(home, server)
+    assert s.add_role("Code-128K") == "code-128k"
+    assert s.role_names()[-1] == "code-128k" and not s.has_changes()
+    s.choose("code-128k", s.find("local", "coder:7b"))
+    assert "[gateway.aliases.hal-code-128k]" in s.diff()
+    s.write()
+    cfg = tomllib.loads(home.config.read_text())
+    assert cfg["models"]["roles"]["code-128k"]["model"] == "coder:7b"
+    assert cfg["gateway"]["aliases"]["hal-code-128k"]["model"] == "coder:7b"
+
+
+def test_a_named_role_name_must_be_new_and_alias_safe(home, server):
+    s = session(home, server)
+    for bad in ("chat", "guard", "has space", "9lives"):
+        with pytest.raises(ValueError):
+            s.add_role(bad)
+    s.add_role("mine")
+    with pytest.raises(ValueError, match="already"):
+        s.add_role("mine")
+    with pytest.raises(ValueError, match="built-in"):
+        s.remove_role("chat")
+
+
+def test_removing_a_saved_named_role_is_written_and_can_be_undone(home, server):
+    extra = '[models.roles.code-128k]\nsource = "local"\nmodel = "coder:7b"\n[gateway.aliases.hal-code-128k]\nbackend = "local"\nmodel = "coder:7b"\n'
+    s = session(home, server, extra=extra)
+    assert "code-128k" in s.role_names()
+    snap = s.snapshot()
+    s.remove_role("code-128k")
+    assert "code-128k" not in s.role_names() and s.has_changes()
+    s.restore(snap)
+    assert "code-128k" in s.role_names() and not s.has_changes()
+    s.remove_role("code-128k")
+    s.write()
+    assert "code-128k" not in home.config.read_text()

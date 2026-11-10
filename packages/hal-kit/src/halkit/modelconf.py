@@ -2,7 +2,8 @@
 
     [models]                       # tuning limits
     [models.sources.NAME]          # where models come from (kind: ollama, openai, gguf, ...)
-    [models.roles.ROLE]            # which model plays chat, fast, code, writer, vision or embed
+    [models.roles.ROLE]            # which model plays chat, fast, code, writer, vision or embed,
+                                   # or a role the user named (a setup such as `code-128k`)
 
 `MODELS_TABLE` is a registered halkit table. Sources and roles are user-named entries, so each
 is validated on its own, as `halgateway.config` does for backends: errors name file, table and
@@ -15,11 +16,15 @@ key (REQ-SYS-06). Design decisions:
 - `anthropic` and `openai-cloud` sources talk to fixed hosts and need only a key file.
 - A role's `context`, `kv_type` and `gpu_layers` are filled in by `hal tune --write` while
   `auto = true`; `auto = false` keeps the user's values.
+- Besides the built-in `ROLES`, a role may have any name `CUSTOM_ROLE` matches: a named setup
+  (one model with its own context and settings) that the gateway serves as `hal-NAME`. The name
+  is lowercase and short because it becomes part of that alias and of a llama.cpp preset name.
 """
 
 from __future__ import annotations
 
 import ipaddress
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +37,8 @@ SOURCE_KINDS = ("ollama", "openai", "gguf", "anthropic", "openai-cloud")
 URL_KINDS = ("ollama", "openai")
 KEY_FILE_KINDS = ("anthropic", "openai-cloud")
 ROLES = ("chat", "fast", "code", "writer", "vision", "embed")
+CUSTOM_ROLE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")  # becomes the alias `hal-NAME`
+RESERVED_ROLE_NAMES = ("guard",)  # the tune screens list the guardian under this name
 KV_CHOICES = ("auto", "f16", "q8_0", "q4_0")
 EFFORT_CHOICES = ("off", "low", "medium", "high", "max")
 INLINE_KEY_NAMES = ("api_key", "key", "token", "secret", "password")
@@ -140,6 +147,28 @@ class Role:
     auto: bool = True
 
 
+def is_custom(name: str) -> bool:
+    """True when `name` is a role the user named, not one of the built-in `ROLES`."""
+    return name not in ROLES
+
+
+def check_role_name(name: str) -> str | None:
+    """Why `name` cannot be a new role, or None when it can."""
+    if name in ROLES or name in RESERVED_ROLE_NAMES:
+        return f"{name!r} is already a role name"
+    if not CUSTOM_ROLE.match(name):
+        return (
+            f"role name {name!r} must be lowercase letters, digits and '-', "
+            "start with a letter, at most 32 characters"
+        )
+    return None
+
+
+def role_names(roles: Mapping[str, object]) -> list[str]:
+    """The built-in roles in their order, then the named ones in `roles`, sorted."""
+    return [*ROLES, *sorted(n for n in roles if is_custom(n))]
+
+
 def _is_loopback(host: str) -> bool:
     if host in config.LOOPBACK_NAMES:
         return True
@@ -222,8 +251,8 @@ def load_roles(path: Path | None = None) -> dict[str, Role]:
     roles = {}
     for name, body in raw.items():
         table = f"models.roles.{name}"
-        if name not in ROLES:
-            raise _fail(f"[{table}] is not a role; use one of {', '.join(ROLES)}", path, "models.roles", name)
+        if name not in ROLES and check_role_name(name):
+            raise _fail(f"[{table}] {check_role_name(name)}", path, "models.roles", name)
         e = _entry("roles", name, body, _ROLE_KEYS, path)
         if e["source"] not in sources:
             raise _fail(f"[{table}] source {e['source']!r} is not in [models.sources]", path, table, "source")

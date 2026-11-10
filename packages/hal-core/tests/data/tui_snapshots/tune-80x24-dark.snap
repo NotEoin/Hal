@@ -22,7 +22,7 @@
    hal-fast                                                                  \u2586\u2586 
                          Memory      [\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591] 10.6 / 21.5 GB  fits   
                                                                                 
-                         - budget 21998 MiB - weights 5120 MiB = 16878 MiB      
+ New role...             - budget 21998 MiB - weights 5120 MiB = 16878 MiB      
  ^s Save  ^z Undo  esc Quit  f1 Help  f2 Roles  f3 Sources  f4 Review           
 ## roles
 00 _1 x3 _1 x1 _2 x3 _1 x4 _2 x5 _1 x1 _1 x5 _1 x3 _1 x4 _40
@@ -62,8 +62,8 @@
 20 _25 x6 _6 f1 o8 x9 f1 _1 o4 _1 o1 _1 o4 _1 o2 _2 o4 _3
 20bg X24 .53 X2 .1
 21 _80
-21bg X24 .53 X2 .1
-22 _25 x1 _1 x6 _1 x5 _1 x3 _1 x1 _1 x7 _1 x4 _1 x3 _1 x1 _1 x5 _1 x3 _6
-22bg X24 .53 X2 .1
+21bg .77 X2 .1
+22 _1 F3 _1 F7 _13 x1 _1 x6 _1 x5 _1 x3 _1 x1 _1 x7 _1 x4 _1 x3 _1 x1 _1 x5 _1 x3 _6
+22bg S13 .64 X2 .1
 23 _1 A2 _1 f4 _2 A2 _1 f4 _2 A3 _1 f4 _2 A2 _1 f4 _2 A2 _1 f5 _2 A2 _1 f7 _2 A2 _1 f6 _11
 23bg P80

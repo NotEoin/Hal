@@ -6,7 +6,8 @@ the generated mode) into four steps:
 1. `survey` lists the models of every source;
 2. `build` picks a model per role (an assigned one stays; an empty role gets the best fit among
    local models) and plans its settings on this hardware;
-3. `wire` works out what the gateway needs to serve the plan: `[hal]` model names, backends;
+3. `wire` works out what the gateway needs to serve the plan: `[hal]` model names, backends,
+   and a `[gateway.aliases.hal-NAME]` entry per named role;
 4. `apply` pins the models, writes the config and the generated mode.
 
 Design decisions:
@@ -17,6 +18,8 @@ Design decisions:
 - Assigning a model pins it (the Ollama digest, or the sha256 of a GGUF file): the user's
   choice is their statement of trust, and the gateway refuses unpinned models.
 - Nothing here downloads a model.
+- A named role (`modelconf.is_custom`) is never chosen automatically: it exists because the
+  user gave it a model. It has no `[hal]` key, so it is served as the gateway alias `hal-NAME`.
 - An Anthropic source can be listed and assigned but the gateway has no Anthropic backend, so
   `wire` leaves such a role out of the gateway and says so in the plan notes.
 """
@@ -182,11 +185,11 @@ def build(
     """A `RolePlan` per role (or per role in `only`): assigned models are kept unless `reassign`."""
     plans: list[RolePlan] = []
     taken: dict[str, ModelInfo] = {}
-    for role in modelconf.ROLES:
+    for role in modelconf.role_names(roles):
         if only and role not in only:
             continue
         cfg = roles.get(role)
-        if cfg is not None and not reassign:
+        if cfg is not None and (not reassign or modelconf.is_custom(role)):
             model = _find(found, cfg.source, cfg.model)
             rp = RolePlan(role, sources[cfg.source], model, assigned=True, locked=not cfg.auto)
             if model is None:
@@ -219,6 +222,7 @@ class Wiring:
 
     hal: dict[str, object] = field(default_factory=dict)
     backends: dict[str, dict[str, object]] = field(default_factory=dict)
+    aliases: dict[str, dict[str, object]] = field(default_factory=dict)  # `[gateway.aliases]` of named roles
     presets: list[tunedmode.Preset] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -239,6 +243,9 @@ def wire(plans: list[RolePlan], doc: Mapping[str, object]) -> Wiring:  # noqa: C
         if rp.model is None or rp.source is None:
             continue
         src, model = rp.source, rp.model
+        if modelconf.is_custom(rp.role):
+            _wire_named(out, rp, existing, hal_now)  # type: ignore[arg-type]
+            continue
         key = HAL_KEYS[rp.role]
         if src.kind == "ollama":
             default_ollama = default_ollama or src.name
@@ -286,6 +293,58 @@ def wire(plans: list[RolePlan], doc: Mapping[str, object]) -> Wiring:  # noqa: C
     if hal_now.get("ollama_url") == out.hal.get("ollama_url"):  # type: ignore[union-attr]
         out.hal.pop("ollama_url", None)
     return out
+
+
+def _ollama_backend(out: Wiring, src: modelconf.Source, existing: Mapping[str, Mapping[str, object]],
+                    hal_now: Mapping[str, object]) -> str:
+    """The backend name that serves Ollama source `src`, adding one to `out` when none does."""
+    url = src.url.rstrip("/")
+    for name, entry in existing.items():
+        if entry.get("type", "ollama") == "ollama" and str(entry.get("url") or hal_now.get("ollama_url") or "").rstrip("/") == url:
+            return name
+    if not existing and url == str(hal_now.get("ollama_url") or modelconf.DEFAULT_URLS["ollama"]).rstrip("/"):
+        return DEFAULT_OLLAMA  # the gateway's implicit backend, or the one `wire` adds beside new ones
+    out.backends.setdefault(src.name, {"type": "ollama", "url": src.url})
+    return src.name
+
+
+def _wire_named(out: Wiring, rp: RolePlan, existing: Mapping[str, Mapping[str, object]], hal_now: Mapping[str, object]) -> None:
+    """Wires a named role as `[gateway.aliases.hal-NAME]`, adding the backend it needs."""
+    assert rp.source is not None and rp.model is not None
+    src, model = rp.source, rp.model
+    if src.kind == "ollama":
+        backend, upstream = _ollama_backend(out, src, existing, hal_now), model.name
+    elif src.kind in ("openai", "openai-cloud"):
+        entry: dict[str, object] = {"type": "openai", "url": src.url if src.kind == "openai" else OPENAI_URL}
+        if src.kind == "openai-cloud":
+            entry["allow_remote"] = True
+        if src.api_key_file:
+            entry["api_key_file"] = src.api_key_file
+        out.backends.setdefault(src.name, entry)
+        backend, upstream = src.name, model.name
+    elif src.kind == "gguf":
+        if rp.plan is None or rp.plan.status == "does-not-fit":
+            out.notes.append(f"{rp.role}: {model.name} does not fit; not wired")
+            return
+        backend = next((n for n, b in existing.items() if b.get("type") == "llama-router"), None) or ROUTER_BACKEND
+        if backend not in existing:
+            out.backends.setdefault(
+                backend,
+                {"type": "llama-router", "managed": True, "models_dir": str(Path(src.path).expanduser()), "mode": tunedmode.MODE_NAME},
+            )
+        elif existing[backend].get("mode", "gpu") != tunedmode.MODE_NAME:
+            out.notes.append(f"set mode = \"tuned\" in [gateway.backends.{backend}] to serve {rp.role} from the GGUF file")
+        upstream = tunedmode.preset_name(rp.role)
+        out.presets.append(_preset(rp))
+    else:
+        out.notes.append(f"{rp.role}: the gateway has no {src.kind} backend; the role is not wired")
+        return
+    out.aliases[alias_name(rp.role)] = {"backend": backend, "model": upstream}
+
+
+def alias_name(role: str) -> str:
+    """The gateway alias that serves a named role."""
+    return f"hal-{role}"
 
 
 def _preset(rp: RolePlan) -> tunedmode.Preset:
@@ -343,7 +402,16 @@ def edit_config(text: str, plans: list[RolePlan], wiring: Wiring) -> str:
         text = tomledit.set_keys(text, "hal", wiring.hal)
     for name, entry in wiring.backends.items():
         text = tomledit.set_table(text, f"gateway.backends.{name}", entry)
+    for name, entry in wiring.aliases.items():
+        text = tomledit.set_table(text, f"gateway.aliases.{name}", entry)
     return text
+
+
+def remove_role(text: str, role: str) -> str:
+    """The config text without named role `role`: its role table and its gateway alias."""
+    if not modelconf.is_custom(role):
+        raise ValueError(f"{role} is a built-in role; it can be cleared, not removed")
+    return tomledit.remove_table(tomledit.remove_table(text, f"models.roles.{role}"), f"gateway.aliases.{alias_name(role)}")
 
 
 class _Tags:

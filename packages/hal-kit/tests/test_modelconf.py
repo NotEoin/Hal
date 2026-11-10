@@ -109,9 +109,12 @@ def test_ollama_and_openai_sources_default_their_url(tmp_path):
     assert modelconf.load_sources(path)["a"].url == "http://127.0.0.1:11434"
 
 
-def test_a_role_must_use_a_known_role_name_and_source(tmp_path):
-    path = write(tmp_path, FULL + '[models.roles.poet]\nsource = "local"\nmodel = "m"\n')
-    with pytest.raises(config.ConfigError, match="not a role"):
+def test_a_role_must_use_a_valid_role_name_and_a_known_source(tmp_path):
+    path = write(tmp_path, FULL + '[models.roles.Poet_1]\nsource = "local"\nmodel = "m"\n')
+    with pytest.raises(config.ConfigError, match="lowercase letters"):
+        modelconf.load_roles(path)
+    path = write(tmp_path, FULL + '[models.roles.guard]\nsource = "local"\nmodel = "m"\n')
+    with pytest.raises(config.ConfigError, match="already a role name"):
         modelconf.load_roles(path)
     path = write(tmp_path, FULL + '[models.roles.fast]\nsource = "ghost"\nmodel = "m"\n')
     with pytest.raises(config.ConfigError, match="not in \\[models.sources\\]"):
@@ -125,3 +128,11 @@ def test_bad_role_values_are_refused(tmp_path, line):
     path = write(tmp_path, FULL + f'[models.roles.fast]\nsource = "local"\nmodel = "m"\n{line}\n')
     with pytest.raises(config.ConfigError):
         modelconf.load_roles(path)
+
+
+def test_a_named_role_loads_and_is_listed_after_the_built_in_ones(tmp_path):
+    role = '[models.roles.code-128k]\nsource = "local"\nmodel = "m"\ncontext = 131072\nauto = false\n'
+    path = write(tmp_path, FULL + role)
+    roles = modelconf.load_roles(path)
+    assert roles["code-128k"].context == 131072 and modelconf.is_custom("code-128k")
+    assert modelconf.role_names(roles) == [*modelconf.ROLES, "code-128k"]

@@ -22,8 +22,6 @@ from collections.abc import Mapping
 from halkit import effort
 from halkit.modelconf import UNSET_TEMPERATURE, Role
 
-from .config import ROLE_ALIASES
-
 log = logging.getLogger(__name__)
 
 HEADER = "X-Hal-Effort"
@@ -38,8 +36,12 @@ BACKEND_KINDS = {
 
 
 def role_of(alias: str) -> str | None:
-    """The role name of a role alias (`hal-chat` gives `chat`), else None."""
-    return alias.removeprefix("hal-") if alias in ROLE_ALIASES else None
+    """The role an alias may name (`hal-chat` gives `chat`, `hal-code-128k` gives `code-128k`), else None.
+
+    A named role is served as the user alias `hal-NAME`, so any `hal-` alias may name one;
+    `apply_hints` uses the result only when `[models.roles]` has that role.
+    """
+    return alias.removeprefix("hal-") if alias.startswith("hal-") else None
 
 
 def _merge(body: dict, fields: Mapping[str, object]) -> None:  # type: ignore[type-arg]

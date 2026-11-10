@@ -138,7 +138,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--auto", action="store_true", help="choose and plan without questions")
     ap.add_argument("--write", action="store_true", help="pin the models and write the config")
     ap.add_argument("--json", action="store_true", help="print the plan as JSON")
-    ap.add_argument("--role", action="append", choices=modelconf.ROLES, default=[], help="only this role (repeatable)")
+    ap.add_argument("--role", action="append", default=[], help="only this role, built-in or named (repeatable)")
     ap.add_argument("--reassign", action="store_true", help="choose again for roles that already have a model")
     ap.add_argument("--hardware", metavar="FILE", help="plan for the machine described in this JSON file")
     ap.add_argument("-i", "--interactive", action="store_true", help="open the interactive screen (the default on a terminal with no flags)")
@@ -154,6 +154,9 @@ def main(argv: list[str]) -> int:
         sources = modelconf.load_sources()
         roles = modelconf.load_roles()
         limits = modelconf.limits()
+        unknown = [r for r in args.role if r not in modelconf.role_names(roles)]
+        if unknown:
+            raise ValueError(f"no role {', '.join(unknown)}; add a named role with `hal models assign NAME SOURCE MODEL`")
         hw = hardware.from_dict(json.loads(Path(args.hardware).read_text(encoding="utf-8"))) if args.hardware else hardware.detect()
     except (OSError, ValueError, json.JSONDecodeError, *modelplan.plain_errors()) as exc:
         print(f"hal tune: {exc}", file=sys.stderr)

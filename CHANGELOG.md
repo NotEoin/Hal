@@ -13,6 +13,10 @@ carries the same version.
   GPU by stopping the llama router and emptying Ollama, and stops with its whole process group.
   A restarted gateway keeps a server whose config did not change; `idle_stop = false` keeps it
   through the idle unload. See `docs/howto/run-a-vllm-server-under-hal.md`.
+- Named roles: besides `chat`, `code` and the other built-in roles, `hal tune` (**New role...**)
+  and `hal models assign NAME SOURCE MODEL` add a role with its own model and settings, such as
+  `code-128k`. The gateway serves it as `hal-NAME`, so `hal code` can pick it with `/model`.
+  `hal models remove-role NAME` and **Remove role** take it away again. See `docs/user/models.md`.
 
 ### Changed
 
