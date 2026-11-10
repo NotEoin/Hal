@@ -535,3 +535,28 @@ def test_the_new_role_button_is_on_screen_at_60_by_20(home, server):
         return button.region.right <= 60 and 0 < button.region.bottom <= 20
 
     assert drive(state, script, size=(60, 20))[0]
+
+
+def test_the_gauge_spans_the_whole_card_and_marks_the_guidance(home, server):
+    state = open_state(home, server, roles=CHAT_ROLE)
+
+    async def script(pilot, app):
+        await settle(pilot)
+        gauge = app.query_one(FitGauge)
+        return gauge.budget, gauge.mark, str(gauge.render())
+
+    (scale, mark, drawn), _, _ = drive(state, script)
+    assert scale == CARD_24GB["gpus"][0]["total_mib"] and 0 < mark < scale
+    assert drawn.count("|") == 1 and "/ 24.0 GB" in drawn
+
+
+def test_a_context_past_the_guidance_stays_on_the_gpu_and_says_so(home, server):
+    state = open_state(home, server, roles=CHAT_ROLE.replace("qwen3:8b", "gemma:12b"))  # 128K native
+    ctx = state.fit("chat").context
+    while not state.try_context("chat", ctx).above_guidance:
+        ctx += 1024
+        assert state.try_context("chat", ctx).status == "gpu", "passed the card before the guidance"
+    state.set_context("chat", ctx)
+    fit = state.fit("chat")
+    assert fit.above_guidance and tuneapp.gauge_caption(fit, LOOK).endswith("above guidance")
+    assert state.role_plans()[0].plan.gpu_layers == -1  # written all on the GPU

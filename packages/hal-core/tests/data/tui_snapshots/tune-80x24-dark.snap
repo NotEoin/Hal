@@ -20,7 +20,7 @@
    embeddinggemma                                                               
  guard   safety check,\u2026  Temperature \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u25cf\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500   default  Default    
    hal-fast                                                                  \u2586\u2586 
-                         Memory      [\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591] 10.6 / 21.5 GB  fits   
+                         Memory      [\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591|\u2591] 10.6 / 24.0 GB  fits   
                                                                                 
  New role...             - budget 21998 MiB - weights 5120 MiB = 16878 MiB      
  ^s Save  ^z Undo  esc Quit  f1 Help  f2 Roles  f3 Sources  f4 Review           
@@ -59,7 +59,7 @@
 18bg X24 .44 S9 X2 .1
 19 _3 f8 _66 x2 _1
 19bg X24 .53 X2 .1
-20 _25 x6 _6 f1 o8 x9 f1 _1 o4 _1 o1 _1 o4 _1 o2 _2 o4 _3
+20 _25 x6 _6 f1 o8 x7 F1 x1 f1 _1 o4 _1 o1 _1 o4 _1 o2 _2 o4 _3
 20bg X24 .53 X2 .1
 21 _80
 21bg .77 X2 .1

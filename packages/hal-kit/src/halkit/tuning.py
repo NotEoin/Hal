@@ -21,6 +21,11 @@ gets a deliberately pessimistic KV estimate and the plan says so.
 
 Design decisions:
 
+- The budget (total minus headroom) is guidance: `plan_model`, which auto-tune uses, stays within
+  it. A context or layer count the user sets (`fit_context`, `fit_layers`) may use the whole card
+  less the runtime overhead (`card_mib`): a headless GPU needs no headroom, and the user may
+  accept the risk. `Plan.card_mib` carries that limit and `Plan.total_mib` the card's size, so the
+  screens can show both. A setting beyond the card still spills layers to RAM (hybrid).
 - Each role is planned as if it were the only model loaded; the gateway and gpu-light swap
   roles in and out, so their footprints are not added up.
 - Memory sizes are MiB throughout; `KV_BYTES` are bytes per element.
@@ -56,6 +61,7 @@ HEADROOM_FRACTION = 0.08
 # (about 300 MiB), per GPU in use. Rounded up from llama.cpp logs seen with 7B to 30B models
 # [unverified: measure with `llama-server` logs on your card]
 RUNTIME_OVERHEAD_MIB = 600
+ABOVE_NOTE = "fine on a headless GPU, but a desktop on the card may run out of memory"
 RAM_HEADROOM_MIN_MIB = 2048  # the OS, the desktop and Hal itself
 RAM_HEADROOM_FRACTION = 0.10
 UNKNOWN_LAYERS = 32  # a typical 7B to 13B model
@@ -79,6 +85,8 @@ class Plan:
     budget_mib: int = 0
     estimated: bool = False  # True when the architecture was unknown
     reasoning: tuple[str, ...] = field(default_factory=tuple)
+    card_mib: int = 0  # what a setting made by hand may use: the cards less runtime overhead
+    total_mib: int = 0  # the cards' total memory, for the gauge's full scale
 
     def to_dict(self) -> dict[str, object]:
         """A JSON-ready view."""
@@ -102,6 +110,16 @@ def usable_mib(gpu: Gpu, override_mib: int = 0) -> int:
     whatever else runs on the card (see `busy_warning`).
     """
     return max(gpu.total_mib - headroom_mib(gpu.total_mib, override_mib) - RUNTIME_OVERHEAD_MIB, 0)
+
+
+def card_mib(gpu: Gpu) -> int:
+    """Memory of one GPU a setting made by hand may use: total memory less runtime overhead, no headroom."""
+    return max(gpu.total_mib - RUNTIME_OVERHEAD_MIB, 0)
+
+
+def _cards(hw: Hardware) -> tuple[int, int]:
+    """`(card limit, total memory)` summed over every GPU."""
+    return sum(card_mib(g) for g in hw.gpus), sum(g.total_mib for g in hw.gpus)
 
 
 def gpu_busy_mib(gpu: Gpu) -> int:
@@ -241,6 +259,7 @@ def _plan_once(model: ModelInfo, hw: Hardware, kv_type: str, cap: int, headroom_
             budget,
             estimated,
             tuple(notes + why),
+            *_cards(hw),
         )
 
     if gpus:
@@ -340,20 +359,24 @@ def fit_context(
     weights = _weights_mib(model)
     per_tok, fixed, layers, estimated = _kv_per_token(model, kv_type, weights)
     kv = _kv_mib(context, per_tok, fixed)
-    gpus = [g for g in hw.gpus if usable_mib(g, headroom_override_mib) > 0]
+    gpus = [g for g in hw.gpus if card_mib(g) > 0]
     budget = sum(usable_mib(g, headroom_override_mib) for g in gpus)
+    card, total = _cards(hw)
     ram_keep = max(RAM_HEADROOM_MIN_MIB, math.ceil(hw.ram_total_mib * RAM_HEADROOM_FRACTION))
     ram = max(hw.ram_free_mib - ram_keep, 0)
     why = [f"weights {weights} MiB + KV {kv} MiB for {context} tokens = {weights + kv} MiB"]
     status, n_gpu, in_ram = "cpu", NO_GPU_LAYERS, weights + kv
     if gpus and weights + kv <= budget:
         status, n_gpu, in_ram = "gpu", ALL_LAYERS, 0
-        why.append(f"fits the {budget} MiB VRAM budget")
+        why.append(f"fits the {budget} MiB VRAM guidance")
+    elif gpus and weights + kv <= card:
+        status, n_gpu, in_ram = "gpu", ALL_LAYERS, 0
+        why.append(f"above the {budget} MiB guidance, within the {card} MiB the card holds: {ABOVE_NOTE}")
     elif gpus:
         per_layer = (weights + kv) / layers
-        n_gpu = min(int(budget // per_layer), layers - 1)
+        n_gpu = min(int(card // per_layer), layers - 1)
         in_ram = math.ceil((layers - n_gpu) * per_layer)
-        why.append(f"{n_gpu} of {layers} layers fit the {budget} MiB VRAM budget; the rest go to RAM")
+        why.append(f"{n_gpu} of {layers} layers fit the {card} MiB the card holds; the rest go to RAM")
         status = "hybrid" if n_gpu >= 1 else "cpu"
         n_gpu = max(n_gpu, NO_GPU_LAYERS)
     else:
@@ -363,8 +386,9 @@ def fit_context(
         why.append(f"RAM is {in_ram - ram} MiB short ({ram} MiB usable): use a smaller context or model")
     split = _split(gpus, headroom_override_mib) if status in ("gpu", "hybrid") else ()
     return Plan(
-        model.name, status, context, kv_type, n_gpu, split, weights, kv, budget, estimated, tuple(why)
-    )
+        model.name, status, context, kv_type, n_gpu, split, weights, kv, budget, estimated, tuple(why),
+        card, total,
+    )  # fmt: skip
 
 
 def fit_layers(
@@ -392,8 +416,9 @@ def fit_layers(
     per_tok, fixed, layers, estimated = _kv_per_token(model, kv_type, weights)
     layers = int(model.layers)
     kv = _kv_mib(context, per_tok, fixed)
-    gpus = [g for g in hw.gpus if usable_mib(g, headroom_override_mib) > 0]
+    gpus = [g for g in hw.gpus if card_mib(g) > 0]
     budget = sum(usable_mib(g, headroom_override_mib) for g in gpus)
+    card, total = _cards(hw)
     ram = max(
         hw.ram_free_mib - max(RAM_HEADROOM_MIN_MIB, math.ceil(hw.ram_total_mib * RAM_HEADROOM_FRACTION)), 0
     )
@@ -409,20 +434,23 @@ def fit_layers(
     if not gpus:
         why.append("no usable GPU: every layer runs on the CPU")
     else:
-        why.append(f"{on_gpu} of {layers} layers on the GPU use {in_vram} of {budget} MiB of VRAM")
+        why.append(f"{on_gpu} of {layers} layers on the GPU use {in_vram} MiB of VRAM (guidance {budget})")
+        if budget < in_vram <= card:
+            why.append(f"above the guidance, within the {card} MiB the card holds: {ABOVE_NOTE}")
     if on_gpu == layers:
         status = "gpu"
     else:
         status = "hybrid" if on_gpu else "cpu"
         why.append(f"the other {layers - on_gpu} layers use {in_ram} MiB of RAM ({ram} MiB usable)")
-    if in_vram > budget:
+    if in_vram > card:
         status = "does-not-fit"
-        why.append(f"VRAM is {in_vram - budget} MiB short: put fewer layers on the GPU")
+        why.append(f"VRAM is {in_vram - card} MiB short: put fewer layers on the GPU")
     elif in_ram > ram:
         status = "does-not-fit"
         why.append(f"RAM is {in_ram - ram} MiB short: put more layers on the GPU or use a smaller model")
     shown_layers = ALL_LAYERS if on_gpu == layers else on_gpu
     split = _split(gpus, headroom_override_mib) if status in ("gpu", "hybrid") else ()
     return Plan(
-        model.name, status, context, kv_type, shown_layers, split, weights, kv, budget, estimated, tuple(why)
-    )
+        model.name, status, context, kv_type, shown_layers, split, weights, kv, budget, estimated, tuple(why),
+        card, total,
+    )  # fmt: skip

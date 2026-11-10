@@ -60,7 +60,9 @@ def fit_line(fit: tunestate.Fit, layers: int | None, look: Look) -> tuple[str, s
         return "muted", "no model: choose one, or auto-tune the role"
     if fit.status in ("missing", "server"):
         return "bad" if fit.status == "missing" else "muted", fit.notes[0] if fit.notes else fit.status
-    bar = context_bar(fit.used_mib, fit.budget_mib, g)
+    bar = context_bar(fit.used_mib, fit.total_mib or fit.budget_mib, g)
+    if fit.above_guidance:
+        return "muted", f"{bar} {gib(fit.used_mib)} GiB VRAM, above the {gib(fit.budget_mib)} GiB guidance, all layers on the GPU"
     if fit.status == "gpu":
         return "ok", f"{bar} {gib(fit.used_mib)} of {gib(fit.budget_mib)} GiB VRAM, all layers on the GPU"
     if fit.status == "hybrid":
@@ -73,6 +75,8 @@ def fit_line(fit: tunestate.Fit, layers: int | None, look: Look) -> tuple[str, s
 
 def fit_word(fit: tunestate.Fit) -> str:
     """`fits`, `tight`, `too big` and the like: one word for how well a draft fits."""
+    if fit.above_guidance:
+        return "above guidance"
     if fit.status == "gpu":
         return "tight" if fit.budget_mib and fit.used_mib > TIGHT_FRACTION * fit.budget_mib else "fits"
     return {"hybrid": "tight, uses RAM", "cpu": "CPU only", "does-not-fit": "too big"}.get(fit.status, "")

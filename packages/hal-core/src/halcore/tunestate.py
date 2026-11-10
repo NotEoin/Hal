@@ -82,9 +82,16 @@ class Fit:
     kv_type: str = ""
     gpu_layers: int = 0
     used_mib: int = 0
-    budget_mib: int = 0
+    budget_mib: int = 0  # the guidance: what auto-tune plans within
     estimated: bool = False
     notes: tuple[str, ...] = ()
+    card_mib: int = 0  # what a setting made by hand may use
+    total_mib: int = 0  # the cards' total memory
+
+    @property
+    def above_guidance(self) -> bool:
+        """True when the model is all on the GPU but past the guidance budget."""
+        return self.status == "gpu" and 0 < self.budget_mib < self.used_mib
 
     @property
     def ok(self) -> bool:
@@ -195,7 +202,7 @@ class TuneSession:
         if plan is None:
             return Fit("server", notes=("the server decides context and offload",))
         return Fit(plan.status, plan.context, plan.kv_type, plan.gpu_layers, plan.weights_mib + plan.kv_mib,
-                   plan.budget_mib, plan.estimated, plan.reasoning)
+                   plan.budget_mib, plan.estimated, plan.reasoning, plan.card_mib, plan.total_mib)
 
     def try_context(self, role: str, tokens: int) -> Fit:
         """The fit `role` would have with `tokens` of context; the draft is not changed."""

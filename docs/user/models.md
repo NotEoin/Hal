@@ -152,8 +152,11 @@ Plan for  [ This machine ] [ 8 GB ] [ 12 GB ] [ 16 GB ] [ 24 GB ] [ CPU only ]
   model's layer count is unknown, when the server sizes the model, or when the plan has no GPU.
 - **KV cache** and **Effort** are rows of buttons. `auto` shows what tuning picks now. Effort
   levels the model cannot use are struck through; `default` clears the effort.
-- **Memory** is green when the role fits, amber when it is tight (over 85 percent of the budget)
-  or spills into RAM, red when it does not fit; the lines below it give the numbers.
+- **Memory** spans the whole card, with a `|` at the budget (the guidance). Auto-tune stays left of
+  it. A context or layer count you set may go past it, up to the card less 600 MiB for the runtime:
+  fine on a headless GPU, risky with a desktop on the card. The bar is green when the role fits,
+  amber when it is tight (over 85 percent of the budget), past the guidance or spilling into RAM,
+  and red when it does not fit; the lines below it give the numbers.
 - **Sources** adds a source (the form keeps what you typed and shows any error in place) or
   removes one; Remove is off, with the reason, while a role uses the source.
 - **Review** shows the diff of `config.toml`. **Save** (Ctrl+S) shows the diff again and asks,

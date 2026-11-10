@@ -20,6 +20,9 @@ carries the same version.
 
 ### Changed
 
+- `hal tune` treats the VRAM headroom as guidance. Auto-tune still plans within it, but a context
+  or GPU layer count you set may use the whole card (less 600 MiB for the runtime), for example
+  on a headless GPU. The memory bar spans the whole card and marks the guidance with `|`.
 - Stopping the managed llama router now ends its whole process group and waits for every
   process in it, not only the leader.
 

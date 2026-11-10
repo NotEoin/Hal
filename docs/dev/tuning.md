@@ -86,16 +86,19 @@ split proportional to each device's usable memory. A device with no usable memor
 ## A chosen context
 
 The tune screen (`halcore.tuneui`, state in `halcore.tunestate`) lets the user fix the context.
-`tuning.fit_context` then checks that exact number: weights plus `context x kv/token` against the
-VRAM budget gives `gpu`; otherwise layers move to RAM as in the hybrid case; with no GPU it is
-`cpu`; and `does-not-fit` when RAM is short too. The screen calls it for every context size it lists, so
+`tuning.fit_context` then checks that exact number against the card, not the budget: the budget
+is guidance that the automatic plan stays within, and a number the user sets may use the headroom
+too (a headless GPU needs none). Weights plus `context x kv/token` within the card
+(`card = sum of (total - 600)`) gives `gpu`, with a reasoning line when it passes the budget;
+otherwise layers move to RAM as in the hybrid case; with no GPU it is `cpu`; and `does-not-fit`
+when RAM is short too. The screen calls it for every context size it lists, so
 the fit shown is the same arithmetic as the automatic plan.
 
 ## Chosen GPU layers
 
 `tuning.fit_layers(model, hw, kv_type=..., context=..., gpu_layers=N)` checks a layer count set
-by hand. A layer holds `(weights + kv) / layers` MiB; `N` layers on the GPU must fit the VRAM
-budget and the rest must fit usable RAM, else the status is `does-not-fit` with the shortfall.
+by hand. A layer holds `(weights + kv) / layers` MiB; `N` layers on the GPU must fit the card
+(as for a chosen context, not the budget) and the rest must fit usable RAM, else the status is `does-not-fit` with the shortfall.
 `N` equal to the layer count (or `ALL_LAYERS`) is `gpu`, 0 is `cpu`, anything between `hybrid`.
 It needs a known layer count and raises `ValueError` without one.
 

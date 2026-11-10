@@ -235,3 +235,36 @@ def test_fit_layers_over_budget_is_does_not_fit():
 def test_fit_layers_needs_a_known_layer_count():
     with pytest.raises(ValueError, match="layer count is unknown"):
         tuning.fit_layers(model12b(layers=None), hw(gpu(24564)), kv_type="f16", context=8192, gpu_layers=4)
+
+
+def _past_guidance(card):
+    """The first context, stepping up from the automatic plan, whose need passes the guidance budget."""
+    ctx = tuning.plan_model(model12b(), card, kv_type="f16").context
+    while True:
+        ctx += tuning.CONTEXT_STEP
+        fit = tuning.fit_context(model12b(), card, kv_type="f16", context=ctx)
+        if fit.weights_mib + fit.kv_mib > fit.budget_mib:
+            return ctx, fit
+
+
+def test_a_context_set_by_hand_may_use_the_card_past_the_guidance_but_auto_stays_within_it():
+    card = hw(gpu(24564))
+    auto = tuning.plan_model(model12b(), card, kv_type="f16")
+    assert auto.weights_mib + auto.kv_mib <= auto.budget_mib < auto.card_mib < auto.total_mib == 24564
+    ctx, fit = _past_guidance(card)
+    assert fit.status == "gpu" and fit.gpu_layers == tuning.ALL_LAYERS
+    assert any("above the" in line for line in fit.reasoning)
+    assert fit.card_mib == 24564 - tuning.RUNTIME_OVERHEAD_MIB
+
+
+def test_a_context_past_the_whole_card_still_spills_layers_to_ram():
+    card = hw(gpu(24564))
+    fit = tuning.fit_context(model12b(), card, kv_type="f16", context=131072)
+    assert fit.weights_mib + fit.kv_mib > fit.card_mib and fit.status == "hybrid"
+
+
+def test_gpu_layers_set_by_hand_may_fill_the_card_past_the_guidance():
+    card = hw(gpu(24564))
+    ctx, _ = _past_guidance(card)
+    fit = tuning.fit_layers(model12b(), card, kv_type="f16", context=ctx, gpu_layers=tuning.ALL_LAYERS)
+    assert fit.status == "gpu"

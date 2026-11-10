@@ -73,7 +73,9 @@ def gauge_status(fit: tunestate.Fit) -> str:
 
 
 def gauge_caption(fit: tunestate.Fit, look: Look) -> str:
-    """`9.4 / 22.1 GB  fits` for a sized fit; the fit line otherwise."""
+    """`9.4 / 24.0 GB  fits` for a sized fit (of the whole card; the gauge marks the guidance); the fit line otherwise."""
+    if fit.status in ("gpu", "hybrid", "cpu", "does-not-fit") and fit.total_mib:
+        return f"{gib(fit.used_mib)} / {gib(fit.total_mib)} GB  {fit_word(fit)}"
     if fit.status in ("gpu", "hybrid", "cpu", "does-not-fit") and fit.budget_mib:
         return f"{gib(fit.used_mib)} / {gib(fit.budget_mib)} GB  {fit_word(fit)}"
     if fit.status in ("gpu", "hybrid", "cpu", "does-not-fit"):
@@ -214,7 +216,8 @@ class RoleEditor(VerticalScroll, can_focus=False):
 
     def show_fit(self, fit: tunestate.Fit) -> None:
         """The gauge and the reasoning for `fit` (the draft's, or a preview while a slider moves)."""
-        self.query_one("#gauge", FitGauge).show(fit.used_mib, fit.budget_mib, gauge_status(fit), gauge_caption(fit, self.tune.look))
+        gauge = self.query_one("#gauge", FitGauge)
+        gauge.show(fit.used_mib, fit.total_mib or fit.budget_mib, gauge_status(fit), gauge_caption(fit, self.tune.look), mark=fit.budget_mib)
         notes = list(fit.notes)
         self.query_one("#why", SafeStatic).update(Text("\n".join(f"- {clean(n)}" for n in notes), style="dim"))
 
