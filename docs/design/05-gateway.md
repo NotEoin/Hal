@@ -287,9 +287,8 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
 - **REQ-GW-36** On gateway start, a running router recorded in the pid file with the same
   mode and render hash MUST be adopted, and one with a different mode or hash MUST be stopped.
   Test: integration `test_router_is_adopted_across_gateway_restart`.
-- **REQ-GW-37** While `~/.local/state/hal/router.pid` names a live `llama-server` process
-  (the legacy `hal-serve`), the gateway MUST refuse to start its own router with an error that
-  says to run `hal-serve stop`. Test: unit `test_legacy_router_blocks_managed_start`.
+- **REQ-GW-37** Withdrawn (0.2.0): the `hal-serve` launcher is gone, so there is no legacy router
+  to guard against.
 - **REQ-GW-38** A mode switch MUST wait up to `drain_s` (30) for in-flight requests to the
   router and then fail with 409 unless `force` is set. Test: unit
   `test_mode_switch_waits_for_inflight_requests`.
@@ -1054,10 +1053,10 @@ against REQ-GW-78 before it writes the file, so a refused mode never reaches lla
 
 #### Mode files
 
-Modes are the INI files of today's `modes/` plus one Hal section. Discovery order:
-`router.modes_dirs` (default `["~/.config/hal/modes"]`), then the bundled
-`halgateway/modes/`. A user file with the same name replaces the bundled one, which is how a
-second install swaps models without a fork (as an earlier private fork did). A mode is
+Modes are INI files of llama-server presets plus one Hal section. Hal ships none since 0.2.0:
+`hal tune` writes `tuned` (06), and a user may write others. Discovery looks in
+`router.modes_dirs` (default `["~/.config/hal/modes"]`); the bundled `halgateway/modes/` keeps
+only the files a mode may reference (the chat template, the policy prompts, `SHA256SUMS`). A mode is
 what 06 and 00 call a preset in `hal serve [PRESET]`; inside a mode, each INI section is a
 llama-server preset.
 
@@ -1706,9 +1705,8 @@ def record_ollama(names: Sequence[str]) -> list[ModelEntry]: ...   # pins curren
 - `add_local` hashes an existing file and records it with `source = "local"`;
   `record_ollama` reads `/api/tags` and pins the current digests. 06's `hal models` shows the
   entries and asks before either writes, because pinning is a statement of trust.
-- `hal configure` (06) offers `record_ollama` for the models `[hal]` names and `add_local` for
-  the files the bundled modes reference, so an existing install keeps working after the
-  update (Migration).
+- `hal configure` (06) offers `record_ollama` for the models `[hal]` names, so an existing
+  install keeps working after the update (Migration).
 
 ### Admin status and aliases
 
@@ -2050,8 +2048,6 @@ the managed router die with the gateway and keeps it in the cgroup gpu-light's
 
 Keeping existing users working:
 
-- While a legacy `hal-serve` router lives, it and the gateway must not run routers on the same port;
-  REQ-GW-37 makes the gateway refuse while the legacy router lives.
 - Preset names (`hal-gpu`, `hal-hybrid`, `hal-agent`, ...) stay valid model names through
   alias step 3, so a Claude Code config that names them keeps working once its base URL points
   at the gateway.
@@ -2095,8 +2091,8 @@ Fakes (in `tests/fakes/`):
 Unit tests per module (each REQ names its tests above): `test_config.py`, `test_auth.py`,
 `test_sessions.py`, `test_clienttokens.py`, `test_routes.py`, `test_aliases.py`,
 `test_relay.py`, `test_errors.py`, `test_estimate.py`, `test_reqlog.py`, `test_modes.py`
-(every bundled mode parses and renders; `context_window` matches the old awk rule for all 10
-modes; bundled templates match `SHA256SUMS`), `test_model_manifest.py`,
+(a user mode parses and renders with its `[hal]` wiring; no mode ships with Hal; bundled
+templates match `SHA256SUMS`), `test_model_manifest.py`,
 `test_model_download.py`, `test_models.py`, `test_llama_args.py`,
 `test_policies_text.py` (ported decision-point cases), `test_policies_route.py`,
 `test_policies_delegate.py`, `test_policies_effort.py`, `test_policies_swap.py`,
@@ -2224,7 +2220,7 @@ gpu-light v2's daemon only for its manual check; its tests use `FakeGpuLightV2`.
    01-security names the check]).
 4. **Modes carry their own policy wiring** in a `[hal]` section, so `hal-serve`'s and `hal`'s
    case statements (`hal-serve:142-145, 180-191`, `hal:127-139`, `hal:159-168`) become data.
-   A user mode file in `~/.config/hal/modes/` replaces the bundled one of the same name.
+   Since 0.2.0 no mode ships with Hal: `hal tune` writes `tuned` into `~/.config/hal/modes/`.
 5. **Two kinds of built-in alias.** Role aliases (`hal-chat` ... `hal-vision`) follow the
    `[hal]` table, which stays the single source of truth for model roles (resolution D1);
    mode aliases (`hal/main`, `hal/agent`) follow the active router mode. The slash form cannot

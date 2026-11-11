@@ -29,7 +29,6 @@ log = logging.getLogger(__name__)
 
 STOP_POLL_S = 0.1
 BOOT_ID_PATH = Path("/proc/sys/kernel/random/boot_id")
-LEGACY_COMM = "llama-server"  # `/proc/<pid>/comm` of the legacy router
 
 
 class LaunchError(RuntimeError):
@@ -90,15 +89,6 @@ def comm(pid: int) -> str:
         return Path(f"/proc/{pid}/comm").read_text(encoding="ascii", errors="replace").strip()
     except OSError:
         return ""
-
-
-def legacy_router_pid(pid_file: Path) -> int | None:
-    """The pid in the legacy `hal-serve` pid file when it names a live `llama-server`, else None."""
-    try:
-        pid = int(pid_file.read_text(encoding="ascii").strip())
-    except (OSError, ValueError):
-        return None
-    return pid if is_alive(pid) and comm(pid).startswith(LEGACY_COMM) else None
 
 
 class ProcessLauncher:

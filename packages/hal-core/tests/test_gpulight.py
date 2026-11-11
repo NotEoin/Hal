@@ -38,8 +38,8 @@ class ClaimTest(LightCase):
         self.assertEqual(said, [])
 
     def test_a_pid_claim_without_wait_passes_the_pid(self):
-        self.assertTrue(gpulight.claim("hal-serve", "router", pid=4242, wait=False).ok)
-        self.assertEqual(self.calls(), ["gpu-light claim --name hal-serve --reason router --pid 4242"])
+        self.assertTrue(gpulight.claim("hal-job", "router", pid=4242, wait=False).ok)
+        self.assertEqual(self.calls(), ["gpu-light claim --name hal-job --reason router --pid 4242"])
 
     def test_a_bad_claim_name_fails_loudly(self):
         with self.assertRaises(ValueError):

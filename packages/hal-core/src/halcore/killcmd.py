@@ -1,6 +1,7 @@
 """`hal kill`: stops everything Hal runs, whoever started it.
 
-Order: mark Hal off and free the GPU, stop the systemd units hal installed, stop the model server,
+Order: mark Hal off and free the GPU, stop the systemd units hal installed, ask the gateway to stop
+its model servers,
 then signal every process that registered a pid file (`pids.py`) and remove the box containers they
 leave behind. Pid files replace the old `pkill -f` on a command-line pattern, which could hit an
 unrelated process whose arguments looked alike. Exit status is 1 when something could not be stopped.
@@ -9,19 +10,18 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import subprocess
 import sys
 import urllib.error
 from collections.abc import Callable
-from pathlib import Path
 
-from . import pids, power, units
+from halgateway import client as gwclient
+
+from . import modellink, pids, power, units
 
 log = logging.getLogger(__name__)
 
 UNIT_GLOBS = ("hal.target", "hal-*.service", "hal-*.timer")  # the old script's stop list
-SERVE_STOP_TIMEOUT_S = 120.0  # the llama.cpp router unloads its models before it exits
 
 
 def stop_units() -> list[str]:
@@ -33,16 +33,15 @@ def stop_units() -> list[str]:
     return names
 
 
-def stop_model_server() -> None:
-    """Runs `hal-serve stop` (max profile) when the launcher says where it lives."""
-    root = os.environ.get("HAL_ROOT")
-    script = Path(root) / "hal-serve" if root else None
-    if script is None or not script.is_file():
+def stop_model_servers() -> None:
+    """Asks a running gateway to stop its llama router and managed servers and free the GPU."""
+    sock = modellink.gateway_socket()
+    if sock is None:
         return
     try:
-        subprocess.run([str(script), "stop"], capture_output=True, timeout=SERVE_STOP_TIMEOUT_S, check=False)
-    except (OSError, subprocess.SubprocessError) as exc:
-        log.warning("hal-serve stop failed: %s", exc)
+        gwclient.GatewayClient(sock, "").release_gpu(force=True, stop_router=True)  # the peer uid proves the owner
+    except gwclient.ClientError as exc:
+        log.warning("the gateway did not release the GPU: %s", exc)
 
 
 def kill_all(*, quiet: bool = False, sweep: Callable[[], object] | None = None) -> tuple[int, list[str]]:
@@ -52,7 +51,7 @@ def kill_all(*, quiet: bool = False, sweep: Callable[[], object] | None = None) 
     except (OSError, subprocess.SubprocessError, urllib.error.URLError) as exc:
         log.warning("hal off failed, continuing: %s", exc)
     stop_units()
-    stop_model_server()
+    stop_model_servers()
     records = pids.live()
     left = [f"{r.name} (pid {r.pid})" for r in pids.terminate(records)]
     try:

@@ -617,9 +617,8 @@ wraps it.
 - **REQ-CLI-82** (MUST) `hal configure` MUST create `config.toml` (0600) only when it is
   missing, and MUST never overwrite an existing key; `--fix-modes` MUST set 0600 on Hal's
   config and secret files. Test: unit `test_configure_never_overwrites_keys`.
-- **REQ-CLI-83** (MUST) The profile detector MUST map VRAM and RAM to `max`, `24gb`, `12gb` or
-  `cloud` with the thresholds of `setup.sh` (`profile_for_hardware`). Test: unit
-  `test_profile_thresholds_match_setup_sh`.
+- **REQ-CLI-83** Withdrawn (0.2.0): the hardware profiles are gone; `hal tune` sizes every role
+  from the detected hardware (REQ-CLI-112, REQ-CLI-122).
 - **REQ-CLI-112** (MUST) `hal tune` MUST detect the hardware (GPUs, RAM, CPU threads, WSL2) without
   raising, list the models of every `[models.sources]` entry, plan context, KV cache type and GPU
   layers per role, and change nothing without `--write`; `--write` MUST pin each chosen model and
@@ -702,15 +701,11 @@ wraps it.
   `test_with_the_gateway_a_code_box_asks_for_hal_code_and_a_chat_box_for_hal_chat`,
   `test_a_gateway_link_mints_a_session_that_cannot_reach_a_remote_backend_and_revokes_it`,
   `test_without_the_gateway_the_box_uses_the_hal_model_at_ollama_and_says_so`.
-- **REQ-CLI-113** (MUST) `hal configure` MUST NOT name or pull a model; it MUST accept `--profile
-  max|24gb|12gb|cloud` as a preset for `[models] context_cap` and `kv_type` with a deprecation
-  note, and print the `hal tune` plan. Test: unit
-  `test_configure_records_the_detected_profile_and_names_no_model`,
-  `test_an_old_profile_name_is_a_preset_with_a_deprecation_note`.
-- **REQ-CLI-114** (MUST) `setup.sh`, `hal setup` and `hal configure` MUST NOT download a model;
-  `setup.sh --pull-suggested` is the only opt-in. With no chat model assigned, `hal setup` and
-  `hal doctor` MUST say so and print the command to run. Test: unit
-  `test_ollama_pull_appears_only_inside_the_opt_in_function`,
+- **REQ-CLI-113** (MUST) `hal configure` MUST NOT name or pull a model, and MUST print the
+  `hal tune` plan. Test: unit `test_configure_names_no_model_and_prints_the_plan`.
+- **REQ-CLI-114** (MUST) `scripts/install.sh`, `hal setup` and `hal configure` MUST NOT download
+  a model. With no chat model assigned, `hal setup` and `hal doctor` MUST say so and print the
+  command to run. Test: unit
   `test_setup_has_a_models_step_that_names_the_next_command_and_never_pulls`,
   `test_doctor_warns_when_no_model_is_assigned_and_names_hal_tune`.
 - **REQ-CLI-84** (MUST) `hal configure --migrate` MUST read `hal.conf` as `KEY="value"` lines

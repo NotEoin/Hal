@@ -117,12 +117,12 @@ Each `GatewayError` subclass owns one HTTP status. `error_body(err, fmt)` render
 
 ## Mode presets (`modes`, `modes/`)
 
-- `halgateway/modes/` holds the ten INI modes, the prompt and template files, `effort-xhigh.txt`
-  and `SHA256SUMS` (the bundled files a preset may reference as a chat template). A file of the
-  same name in `[router].modes_dirs` wins.
-- Each mode has a `[hal]` block before `[*]` (keys in the design). `hal-serve` drops that block
-  with `sed` until the gateway renders modes itself; `hal-gateway render MODE` does it and
-  checks the mode first.
+- `halgateway/modes/` holds no mode since 0.2.0, only the files a mode may reference: the
+  Qwen3.8 chat template, the prompt files of the delegate and effort policies, `effort-xhigh.txt`
+  and `SHA256SUMS` (the bundled files a preset may use as a chat template). Modes live in
+  `[router].modes_dirs`; `hal tune` writes `tuned` there (`halgateway.tunedmode`).
+- Each mode has a `[hal]` block before `[*]` (keys in the design); `hal-gateway render MODE`
+  drops it and checks the mode first.
 - `render_mode` refuses a mode that sets a denied key (`host`, `api-key`, `tools`, `hf-repo`,
   any `*-default`, ...), names a weight file the manifest does not pin or whose sha256 differs,
   names a pickle format, or uses a `chat-template-file` that is neither bundled (name and hash in
@@ -135,10 +135,9 @@ Each `GatewayError` subclass owns one HTTP status. `error_body(err, fmt)` render
 ## Managed router (`backends/llama_router`, `launchers`, `llamacmd`)
 
 `LlamaRouter` is the `llama-router` backend. A managed entry owns one `llama-server` process.
-It replaces `hal-serve start|stop|status`.
+It replaced the `hal-serve start|stop|status` launcher, removed in 0.2.0.
 
-- **Start** (`start(mode)`): refuse while the legacy `hal-serve` router lives
-  (`<state>/router.pid` names a `llama-server`), render the mode (which verifies weights),
+- **Start** (`start(mode)`): render the mode (which verifies weights),
   unload Ollama models that hold VRAM (`unload_ollama`), spawn, then poll `GET /models` every
   second until every startup preset is `loaded`. A `failed` preset, `unloaded` after `loading`,
   a process exit or `load_timeout_s` stops the router and raises 503 `router_failed` with the
@@ -367,9 +366,8 @@ re-reads it on a changed mtime or inode. `[gateway].url` must be `http://127.0.0
   returns a `config.toml`-shaped dict (`[gateway.backends.local]` `server`, `models_dir`, `mode`,
   `port` from `HAL_LLAMA_URL`, and `[hal].ollama_url`). A non-loopback `HAL_LLAMA_URL` raises
   `LegacyImportError`. Nothing calls it yet: `hal configure` (design 06) will show and write it.
-- User docs: `docs/user/gateway.md`, `docs/user/modes.md` (the former root `MODES.md`, moved
-  unchanged except one link; its `hal-serve` sections describe the old router until plan step 29)
-  and four how-tos. They mark the live behaviour unverified.
-- Not built: the launcher
-  switch and removal of `hal-serve` (28, 29), and the docker launcher (30). sha256 values and
+- User docs: `docs/user/gateway.md`, `docs/user/modes.md` (modes, now written by `hal tune`, and
+  the GGUF measurements of the old bundled modes) and four how-tos. They mark the live behaviour
+  unverified.
+- Not built: the docker launcher (30). sha256 values and
   commit pins are left for the maintainer.

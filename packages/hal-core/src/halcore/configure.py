@@ -1,15 +1,14 @@
 """`hal configure`: writes ~/.config/hal/config.toml on first install, and keeps it pointing at this checkout.
 
-    hal configure [--profile auto|max|24gb|12gb|cloud] [--chat-model M] [--vault DIR] [--yes]
+    hal configure [--chat-model M] [--vault DIR] [--migrate [HAL_CONF]] [--yes]
 
 A new file gets Hal's defaults and a private ntfy topic for phone notifications. An
 existing file is only changed where it must be: [hub].module_paths gains this
 checkout's core and extensions folders if they are missing.
 
-Models are not chosen here any more. After the file is written, `hal configure` runs the same
-engine as `hal tune --auto` and prints the plan; `hal tune --auto --write` saves it. The
-profile names `max`, `24gb`, `12gb` and `cloud` still work as presets for the tuning limits
-(`halcore.profiles`) and print a deprecation note. Nothing is downloaded.
+Models are not chosen here. After the file is written, `hal configure` runs the same engine as
+`hal tune --auto` and prints the plan; `hal tune` sets everything about the models. Nothing is
+downloaded.
 """
 from __future__ import annotations
 
@@ -19,21 +18,19 @@ import secrets
 import sys
 from pathlib import Path
 
-from . import config, confmigrate, profiles
+from . import config, confmigrate
 
 TEMPLATE = """# Hal's settings, shared by core hal and every extension. Each extension reads its own table;
 # see each one's README for what it takes.
 
 [hal]
-profile = "{profile}"                  # hardware profile chosen by hal configure (informational)
 vault = "{vault}"                      # the Obsidian vault Hal's memory lives in
 ollama_url = "http://localhost:11434"
 {chat_line}embed_on_cpu = true                    # keeps the vault index off the GPU
 # Models: point Hal at the ones you have with `hal models add-source ...`, then `hal tune --auto --write`.
 
 [models]
-context_cap = {context_cap}                  # largest context `hal tune` plans
-kv_type = "{kv_type}"                     # default KV cache type: auto, f16, q8_0 or q4_0
+kv_type = "auto"                       # default KV cache type: auto, f16, q8_0 or q4_0
 
 [brain]
 # user_name = "Sam"                    # how Hal addresses you
@@ -57,15 +54,13 @@ def paths() -> list[str]:
     return [str(config.ECOSYSTEM / "core"), str(config.extensions_dir())]
 
 
-def init(chat_model: str, vault: str, profile: str = "auto") -> str:
+def init(chat_model: str, vault: str) -> str:
     """Creates or updates the config file; `chat_model` is written only when not empty."""
     path = config.config_path()
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        preset = profiles.PROFILES.get(profile, profiles.DEFAULT_PRESET)
         chat_line = f'chat_model = "{chat_model}"\n' if chat_model else ""
-        path.write_text(TEMPLATE.format(profile=profile, vault=vault, chat_line=chat_line, topic=f"hal-{secrets.token_hex(12)}",
-                                        context_cap=preset.context_cap, kv_type=preset.kv_type,
+        path.write_text(TEMPLATE.format(vault=vault, chat_line=chat_line, topic=f"hal-{secrets.token_hex(12)}",
                                         paths=", ".join(f'"{p}"' for p in paths())))
         path.chmod(0o600)
         return f"wrote {path}"
@@ -87,11 +82,6 @@ def init(chat_model: str, vault: str, profile: str = "auto") -> str:
                       text, count=1, flags=re.M)
     path.write_text(text)
     return f"updated [hub].module_paths in {path}"
-
-
-def choose_profile(requested: str) -> str:
-    """The profile to record: `requested`, or the one the hardware suggests (informational)."""
-    return requested if requested != "auto" else profiles.detect_profile()
 
 
 def show_plan() -> None:
@@ -137,7 +127,6 @@ def migrate(conf_arg: str, yes: bool) -> int:
 def main(argv: list[str]) -> int:
     """Entry point of `hal configure`."""
     ap = argparse.ArgumentParser(prog="hal configure")
-    ap.add_argument("--profile", choices=("auto", *profiles.PROFILES), default="auto")
     ap.add_argument("--chat-model", default=None)
     ap.add_argument("--vault", default=config.SHARED["vault"])
     ap.add_argument("--migrate", nargs="?", const="", metavar="HAL_CONF", help="add keys from an old hal.conf")
@@ -145,13 +134,6 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
     if args.migrate is not None:
         return migrate(args.migrate, args.yes)
-    if args.profile != "auto":
-        preset = profiles.PROFILES[args.profile]
-        print(f"hal configure: --profile {args.profile} is deprecated; Hal now detects your hardware and "
-              f"sizes models with `hal tune`. Using it as a preset: context_cap={preset.context_cap}, "
-              f"kv_type={preset.kv_type}.", file=sys.stderr)
-    created = not config.config_path().exists()
-    name = choose_profile(args.profile) if created else "auto"
-    print(init(args.chat_model or "", args.vault, name))
+    print(init(args.chat_model or "", args.vault))
     show_plan()
     return 0

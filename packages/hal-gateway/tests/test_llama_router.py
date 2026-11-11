@@ -227,21 +227,6 @@ def test_router_of_another_mode_is_stopped_at_start(env):
     assert other.adopt() == "stopped" and not launchers.is_alive(pid)
 
 
-def test_legacy_router_blocks_managed_start(env, monkeypatch):
-    monkeypatch.setattr(launchers, "legacy_router_pid", lambda path: 4242)
-    with pytest.raises(Exception, match=r"hal-serve stop"):
-        env.router.start()
-
-
-def test_legacy_pid_file_naming_a_live_llama_server_is_found(tmp_path, monkeypatch):
-    pid_file = tmp_path / "router.pid"
-    pid_file.write_text(str(os.getpid()))
-    monkeypatch.setattr(launchers, "comm", lambda pid: "llama-server")
-    assert launchers.legacy_router_pid(pid_file) == os.getpid()
-    monkeypatch.setattr(launchers, "comm", lambda pid: "python3")
-    assert launchers.legacy_router_pid(pid_file) is None
-
-
 def test_crash_restart_budget(env):
     env.router.ensure()
     for _ in range(2):

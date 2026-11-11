@@ -11,8 +11,6 @@ Ported from `hal-serve`. Design decisions:
   while a crash restarts on the next request, at most `max_restarts` times in `CRASH_WINDOW_S`.
 - Every load goes through `Verifier.verify_path` (REQ-GW-78): at render for the startup
   presets and again before an admin `load`.
-- The legacy `hal-serve` router blocks a managed start (REQ-GW-37): two routers would fight
-  for the same VRAM and port.
 - A start first calls `before_start`, which the gateway uses to stop managed servers that need
   the whole card (REQ-GW-95). `yield_gpu` is the other direction: it stops the router without the
   deliberate-stop mark, so the next request brings it back.
@@ -43,7 +41,6 @@ log = logging.getLogger(__name__)
 RECORD_NAME = "router.json"
 KEY_NAME = "router.key"
 LOG_NAME = "router.log"
-LEGACY_PID_NAME = "router.pid"
 CRASH_WINDOW_S = 600.0  # REQ-GW-39
 POLL_S = 1.0  # REQ-GW-34
 STATUS_TIMEOUT_S = 5.0
@@ -247,11 +244,6 @@ class LlamaRouter(OpenAIBackend):
             raise BadRequest(f"backend {self.name} is not managed by the gateway")
         mode = mode or self._entry_mode()
         with self._lock:
-            legacy = launchers.legacy_router_pid(self._state.parent / LEGACY_PID_NAME)
-            if legacy is not None:
-                raise RouterError(
-                    f"the legacy hal-serve router (pid {legacy}) is running; run `hal-serve stop` first"
-                )
             rendered = self._render(mode)
             if (
                 self.running()
@@ -270,7 +262,7 @@ class LlamaRouter(OpenAIBackend):
     def _spawn(self, rendered: modes.RenderedMode) -> None:
         server = Path(str(self.entry["server"])).expanduser()
         if not (server.is_file() and os.access(server, os.X_OK)):
-            raise RouterError(f"llama-server not found at {server}; run ./setup.sh --profile max")
+            raise RouterError(f"llama-server not found at {server}; `hal setup` installs the pinned build")
         if str(self.entry["launcher"]) != "process":
             raise RouterError("the docker launcher is not available yet")
         if str(self.entry["listen"]) == "unix":

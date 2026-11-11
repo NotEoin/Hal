@@ -10,7 +10,7 @@ tested against. Start with [../README.md](../README.md) and [../SETUP.md](../SET
 | [user/agent.md](user/agent.md) | The `hal-agent` commands, limits from the model, host tools and exit codes |
 | [user/gateway.md](user/gateway.md) | The model gateway: listeners, commands, configuration, pinning, remote backends |
 | [user/models.md](user/models.md) | Model sources, roles, tuning and effort: point Hal at the models you have |
-| [user/modes.md](user/modes.md) | The llama.cpp modes: what each runs, how to switch, measurements |
+| [user/modes.md](user/modes.md) | llama.cpp modes: the one `hal tune` writes, your own, and GGUF measurements |
 | [user/security.md](user/security.md) | What Hal protects you from, the lockdown and paranoia tables, and which paths are not private |
 | [user/hal-code.md](user/hal-code.md) | A tour of the `hal code` and `hal chat` terminal UI: keys, streaming, approvals, slash commands, `[ui]` settings |
 | [user/tui.md](user/tui.md) | Headless `hal -p` and `hal sessions` |

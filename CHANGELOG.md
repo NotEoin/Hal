@@ -7,6 +7,15 @@ carries the same version.
 
 ## 0.2.0 - 2026-11-11
 
+### Removed
+
+- The bash launchers `hal`, `hal-serve`, `setup.sh` and `hal-route.py`, the `max` profile, the
+  ten bundled llama.cpp modes (`gpu`, `gpu-112k`, `hybrid*`, `combined`, `orchestrate*`), the
+  `models/` role scripts and `hal configure --profile`. The `hal` command, `scripts/install.sh`
+  and `hal setup` install and run Hal; `hal tune` sets every model, including the choices those
+  modes made (context, cache type, GPU layers, experts in RAM). `hal kill` asks the gateway to
+  stop its model servers instead of running `hal-serve stop`.
+
 ### Added
 
 - The gateway can run an OpenAI-compatible server for you, such as vLLM: a `managed-openai`

@@ -4,8 +4,7 @@
 the box talk to it; it forwards to Ollama, a managed `llama-server` router, an OpenAI-compatible
 server it runs for you (such as vLLM), or a cloud backend you opted into. It also owns the GPU claims, the mode presets and the model manifest.
 
-Status: the package is built and tested with fake backends. The launcher (`hal serve`, `hal
-connect`) still calls the old `hal-serve`; until it switches, run `hal-gateway` directly.
+Status: the package is built and tested with fake backends, and runs as `hal-gateway serve`.
 Nothing here has run against a live llama-server in this checkout (unverified; check with
 `hal-gateway status` after `hal-gateway serve`).
 
