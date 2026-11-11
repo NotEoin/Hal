@@ -12,7 +12,7 @@ from __future__ import annotations
 import http.client
 import json
 import socket
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -113,6 +113,33 @@ class GatewayClient:
                 str(err.get("type", "")),
             )
         return doc  # type: ignore[no-any-return]
+
+    def stream(self, path: str, body: dict, *, timeout_s: float) -> Iterator[bytes]:  # type: ignore[type-arg]
+        """POSTs `body` to `path` and yields the answer line by line (server-sent events).
+
+        Raises `ClientError` when the gateway is unreachable or answers with an error.
+        """
+        conn = _UnixConnection(self.socket_path, timeout_s)
+        try:
+            headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
+            conn.request("POST", path, body=json.dumps(body), headers=headers)
+            resp = conn.getresponse()
+            if resp.status >= 400:
+                raw = resp.read()
+                try:
+                    err = json.loads(raw or b"{}").get("error", {})
+                except (ValueError, AttributeError):
+                    err = {}
+                raise ClientError(
+                    f"gateway answered {resp.status}: {err.get('message', '')}",
+                    resp.status,
+                    str(err.get("type", "")),
+                )
+            yield from resp
+        except OSError as exc:  # includes socket timeouts
+            raise ClientError(f"cannot reach the gateway at {self.socket_path}: {exc}") from exc
+        finally:
+            conn.close()
 
     def health(self) -> bool:
         """True when `/health` answers; never raises."""

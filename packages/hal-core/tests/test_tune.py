@@ -429,3 +429,8 @@ def test_saving_the_classifier_moves_an_old_fast_table_to_its_new_name(home, oll
     assert tune.main(["--auto", "--write", "--role", "classifier", "--hardware", hw_file(CARD_24GB)]) == 0
     roles = tomllib.loads(home.config.read_text())["models"]["roles"]
     assert "fast" not in roles and roles["classifier"]["model"] == "guardian:2b"
+
+
+def test_bench_of_a_role_that_is_not_configured_is_an_error(home, capsys):
+    assert tune.main(["--bench", "--role", "nope"]) == tune.EXIT_ERROR
+    assert "no role nope" in capsys.readouterr().err

@@ -712,6 +712,14 @@ wraps it.
   `test_parallel_requests_shrink_the_fit_and_are_written`,
   `test_parallel_slots_share_one_cache_sized_for_all_of_them`,
   `test_a_role_with_parallel_requests_lists_its_slots`, `test_an_ollama_role_cannot_set_parallel_requests`.
+- **REQ-CLI-126** (MUST) `hal tune --bench` MUST send each configured role except `embed` and
+  `classifier` (or each `--role`) two streamed requests through the gateway as `hal-ROLE`, and
+  MUST report the time to the first token and the decode speed with reasoning tokens counted; a
+  failed request MUST be reported in the table, not raised, and make the exit status 1. Test:
+  unit `test_decode_speed_counts_reasoning_tokens_from_the_first_to_the_last`,
+  `test_a_refusal_or_an_empty_answer_is_reported_not_raised`,
+  `test_bench_runs_every_role_twice_and_render_lists_failures`,
+  `test_bench_of_a_role_that_is_not_configured_is_an_error`.
 - **REQ-CLI-113** (MUST) `hal configure` MUST NOT name or pull a model, and MUST print the
   `hal tune` plan. Test: unit `test_configure_names_no_model_and_prints_the_plan`.
 - **REQ-CLI-114** (MUST) `scripts/install.sh`, `hal setup` and `hal configure` MUST NOT download

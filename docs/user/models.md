@@ -118,6 +118,7 @@ hal models remove-source local                        # refused while a role use
 hal tune --auto                                       # detect, discover, plan; changes nothing
 hal tune --auto --write                               # also pin, save the roles, generate the mode
 hal tune --auto --json                                # the same plan for scripts
+hal tune --bench                                      # measure each role through the gateway
 ```
 
 A name a source lists twice shows once, and the `llamacpp:<hash>` blob ids that Ollama adds to
@@ -127,6 +128,14 @@ its OpenAI-style list are hidden: they have no model name to show.
 roles that already have a model; `--hardware FILE` plans for the machine described in a JSON
 file (the `hardware` object of `hal tune --json`). On a terminal, a bare `hal tune` (or `hal tune -i`) opens
 the interactive screen below; off a terminal, or with any other flag, it shows the `--auto` plan.
+
+`hal tune --bench` sends each configured role (or each `--role`) two requests through the
+running gateway and prints the time to the first token and the decode speed in tokens per
+second, reasoning tokens included; `--json` prints them for scripts. It measures what clients
+get, with the role's settings and any draft model. Each model loads in turn, so the first
+request of a role pays for a load or a swap and the second is the warm figure. `embed` and
+`classifier` are left out unless named. Leave the GPU otherwise idle while it runs: anything
+else on the card, such as an embedding job, lowers the figures.
 
 Exit status of `hal tune`: 0 done, 1 error, 2 usage, 3 nothing to tune (no source, or no model).
 
