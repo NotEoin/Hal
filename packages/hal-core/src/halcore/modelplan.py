@@ -642,7 +642,8 @@ def apply(
         done = create_derived(wiring.derived, store)
         done += pin(plans, found, store)
         if wiring.presets:
-            done.append(f"wrote {tunedmode.write(presets, mode_file.parent)}")
+            budget = max((rp.plan.budget_mib for rp in plans if rp.plan is not None), default=0)
+            done.append(f"wrote {tunedmode.write(presets, mode_file.parent, budget)}")
         backup = confmigrate.apply(target, new)
     except plain_errors() as exc:
         changed = [p for p, data in saved.items() if _read_bytes(p) != data]

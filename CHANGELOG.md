@@ -85,6 +85,9 @@ carries the same version.
 
 ### Fixed
 
+- Two GGUF roles that do not fit the GPU together (a coder and a writer) swap instead of running
+  out of memory: the `tuned` mode keeps one loaded (`models-max = 1`) when their files do not fit.
+
 - The gateway re-reads `models.toml` when it changes. A `hal tune` save remakes a role's Ollama
   model and pins it; until now that role answered 503 `model_unverified` until the gateway was
   restarted.

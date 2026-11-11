@@ -2,7 +2,11 @@
 
 A mode is a file of llama.cpp presets that the gateway's managed router (`llama-server` in router
 mode) loads. Hal ships none. `hal tune` writes the one you normally use, `tuned`, with a preset per
-role served from a GGUF file; you set its numbers in the tune screen, never by hand. This page says
+role served from a GGUF file; you set its numbers in the tune screen, never by hand. Presets load
+on their first request. When the presets' files, with 40 percent for cache and buffers, do not fit
+the GPU together, `tuned` sets `models-max = 1` and the router swaps them: the first request to
+another role unloads the last one (a 27B coder to a 31B writer took 11 to 16 s on an RTX 3090,
+2026-11-11). This page says
 where modes live and how to write your own, and keeps the measurements that guide a choice of
 GGUF.
 

@@ -115,3 +115,13 @@ def test_a_model_drafting_with_its_own_mtp_layers_names_no_draft_file(tmp_path):
     assert "spec-type = draft-mtp" in text and "spec-draft-n-max = 2" in text and "model-draft" not in text
     back = tunedmode.read(tunedmode.write([p], tmp_path))[0]
     assert back.draft_path == p.model_path and back.spec_type == "draft-mtp"
+
+
+def test_presets_that_do_not_fit_together_are_loaded_one_at_a_time(tmp_path):
+    # regression: with the default of 3 the router loaded the writer beside the coder and ran out of memory
+    big = [preset(tmp_path, "code"), preset(tmp_path, "writer")]
+    assert sum(p.model_path.stat().st_size for p in big) < tunedmode.MIB  # so the files count as 1 MiB
+    assert tunedmode.models_max_for(big, budget_mib=1) == 1  # 1 MiB x the margin does not fit
+    assert tunedmode.models_max_for(big, budget_mib=2) == 2
+    assert tunedmode.models_max_for(big, budget_mib=0) == 1  # unknown budget
+    assert "models-max = 1" in tunedmode.write(big, tmp_path, budget_mib=1).read_text()
