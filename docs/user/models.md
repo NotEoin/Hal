@@ -71,7 +71,8 @@ The `context` of a role is the window every client sees: the gateway reports it 
 sizes its conversation to it. For an Ollama model, saving makes `hal-tuned-ROLE` in Ollama
 (the same weights with that `num_ctx`), because Ollama ignores a context sent with a request.
 Roles on the same model with the same context (chat and vision, say) share one, so Ollama loads
-it once; see [how the settings reach the server](../dev/tuning.md#how-the-settings-reach-the-server).
+it once. With `[hal] embed_on_cpu` (the default) the embed role's model has no GPU layers, so
+indexing the vault never takes VRAM; see [how the settings reach the server](../dev/tuning.md#how-the-settings-reach-the-server).
 
 ### Named roles
 

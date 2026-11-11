@@ -526,3 +526,13 @@ def test_chat_and_vision_on_one_model_and_context_share_one_ollama_model(home, s
     assert hal["chat_model"] == hal["vision_model"] == "hal-tuned-chat:latest"
     assert [c["model"] for c in server.created] == ["hal-tuned-chat:latest"]
     assert tuneui.open_state(hw=hardware.from_dict(CARD_24GB)).stale_roles() == []
+
+
+@pytest.mark.parametrize(("on_cpu", "params"), [("true", {"num_ctx": 2048, "num_gpu": 0}), ("false", {"num_ctx": 2048})])
+def test_embed_on_cpu_keeps_the_embedding_model_off_the_gpu(home, server, on_cpu, params):
+    # regression: `[hal] embed_on_cpu` was read by nothing, and a vault reindex took VRAM a model load needed
+    s = session(home, server, extra=f"[hal]\nembed_on_cpu = {on_cpu}\n")
+    s.choose("embed", s.find("local", "nomic-embed"))
+    s.set_context("embed", 2048)
+    s.write()
+    assert {c["model"]: c["parameters"] for c in server.created}["hal-tuned-embed:latest"] == params

@@ -83,6 +83,9 @@ carries the same version.
 
 ### Fixed
 
+- `[hal] embed_on_cpu` works again: the embed role's Ollama model has no GPU layers, so a vault
+  reindex no longer takes VRAM that a model loading beside it needs (a coder load failed on it).
+
 - The gateway waits for Ollama to free the VRAM before it starts the router or a managed server;
   vLLM had refused to start because the unloaded model still held 2 GB.
 

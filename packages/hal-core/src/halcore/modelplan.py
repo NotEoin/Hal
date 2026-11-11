@@ -135,14 +135,21 @@ class Derived:
     parameters: dict[str, int]
 
 
-def derived(rp: RolePlan) -> Derived | None:
-    """The Ollama model that carries `rp`'s tuned context and offload, or None when the role needs none."""
+def derived(rp: RolePlan, *, embed_on_cpu: bool = False) -> Derived | None:
+    """The Ollama model that carries `rp`'s tuned context and offload, or None when the role needs none.
+
+    With `embed_on_cpu` (`[hal] embed_on_cpu`) the embed role's model has no GPU layers, so every
+    embedding through `hal-embed` runs on the CPU and a vault index never takes VRAM a model loading
+    beside it needs.
+    """
     if rp.model is None or rp.source is None or rp.model.kind != "ollama" or rp.plan is None:
         return None
     if rp.plan.status == "does-not-fit" or rp.plan.context < tuning.MIN_CONTEXT:
         return None
     params = {"num_ctx": rp.plan.context}
-    if rp.plan.gpu_layers >= 0:  # all layers: Ollama's own placement already puts them on the GPU
+    if rp.role == "embed" and embed_on_cpu:
+        params["num_gpu"] = 0
+    elif rp.plan.gpu_layers >= 0:  # all layers: Ollama's own placement already puts them on the GPU
         params["num_gpu"] = rp.plan.gpu_layers
     return Derived(rp.role, rp.source, rp.model.name, derived_name(rp.role), params)
 
@@ -325,7 +332,7 @@ def wire(plans: list[RolePlan], doc: Mapping[str, object]) -> Wiring:  # noqa: C
             continue
         key = HAL_KEYS[rp.role]
         if src.kind == "ollama":
-            made = derived(rp)
+            made = derived(rp, embed_on_cpu=bool(hal_now.get("embed_on_cpu", True)))
             if made:
                 made = out.share(made)
             served = made.name if made else model.name
