@@ -23,6 +23,10 @@ carries the same version.
   memory bar, and writes it into the `tuned` mode; **Speculative** and **Draft tokens** change it.
   On an RTX 3090 an MTP head took Qwen3.8-27B from 41 to 85 tokens/s and Gemma 4 31B from 39 to
   100 on code. Discovery no longer lists draft models or `imatrix` calibration files as models.
+- GPU parking: with `park = true` the gateway frees the card by moving a llama-server or vLLM
+  server's VRAM into host RAM (`cuda-checkpoint`) instead of stopping it, and resumes it in
+  seconds on its next request. A `hal-chat` request parks such a server, so voice gets the GPU
+  while hal-code or hal-writer is loaded (`[gateway.gpu].make_room_for`).
 - Parallel requests for GGUF roles: **Parallel** in `hal tune` (`parallel` in the role) serves
   several requests at once, each with the role's context, for bulk jobs such as vault ingest.
   The memory bar counts a cache for every slot, and the gateway lists the slots on the alias.

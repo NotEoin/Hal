@@ -249,6 +249,13 @@ GPU_TABLE = config.register(
             K("v1_dir", str, "", doc="gpu-light v1 directory; empty = its own resolution order"),
             K("vram_mib", dict, {}, check=_vram_map, doc="Model or preset -> MiB for admission"),
             K("peers", list, [], check=_peers, doc="Peer GPU servers to check before loading"),
+            K(
+                "make_room_for",
+                list,
+                ["hal-chat"],
+                check=_strings,
+                doc="Aliases whose Ollama requests park a server with `park` when the model is not loaded",
+            ),
         ),
     )
 )
@@ -284,6 +291,7 @@ _ROUTER_KEYS = (
     K("launcher", str, "process", choices=LAUNCHERS, doc="Run llama-server as a process or in docker"),
     K("container_image", str, "", doc="Docker image for the docker launcher"),
     K("container_runtime", str, "nvidia", choices=("nvidia", "runc", "runsc-gpu"), doc="Docker runtime"),
+    K("park", bool, False, doc="Free the GPU by parking llama-server in host RAM instead of stopping it"),
 )
 _MANAGED_KEYS = (
     K("command", list, [], check=_command, doc="argv of the server; the first item is an absolute path"),
@@ -306,6 +314,7 @@ _MANAGED_KEYS = (
     K("exclusive_gpu", bool, True, doc="Stop other managed GPU servers and empty Ollama before a start"),
     K("unload_ollama", list, ["ollama"], check=_strings, doc="Ollama backends emptied before a start"),
     K("idle_stop", bool, True, doc="The idle unload ([gateway.gpu].idle_unload_s) stops the server"),
+    K("park", bool, False, doc="Free the GPU by parking the server in host RAM instead of stopping it"),
 )
 _OLLAMA_KEYS = (K("unload_offloaded_on_claim", bool, True, doc="Unload partly offloaded models on a claim"),)
 _ALIAS_KEYS = (

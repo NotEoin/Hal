@@ -30,7 +30,7 @@ from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .. import launchers, llamacmd, modes, relay
+from .. import launchers, llamacmd, modes, park, relay
 from ..errors import BadGatewayError, BadRequest, GatewayError, ModelUnverified, RouterBusy, Unavailable
 from ..models.manifest import ManifestError, Verifier
 from ..policies import route, swap
@@ -82,6 +82,7 @@ class LlamaRouter(OpenAIBackend):
     def __init__(self, name: str, entry: Mapping[str, object], *, ollama_url: str) -> None:
         super().__init__(name, entry, ollama_url=ollama_url)
         self.managed = bool(entry["managed"])
+        self.parking = park.Parking(bool(entry["park"]))
         self.launcher = launchers.ProcessLauncher()
         self.poll_s = POLL_S
         self._lock = threading.RLock()
@@ -393,6 +394,7 @@ class LlamaRouter(OpenAIBackend):
                 log.warning("cannot unload Ollama models of %s: %s", backend.name, exc)
 
     def _stop_locked(self) -> None:
+        self.parking.forget()
         pid, started = self._record.get("pid"), self._record.get("pid_start")
         if isinstance(pid, int) and isinstance(started, int):
             self.launcher.stop(pid, started, float(self.entry["stop_timeout_s"]))  # type: ignore[arg-type]
@@ -405,8 +407,16 @@ class LlamaRouter(OpenAIBackend):
             self._stopped = True
 
     def yield_gpu(self) -> None:
-        """Stops the router to free the card for a managed server; the next request starts it again."""
+        """Frees the card for another backend: parks llama-server with `park`, else stops it.
+
+        The next request resumes or starts it again.
+        """
         with self._lock:
+            if self.parking.parked:
+                return
+            pid = self._record.get("pid")
+            if isinstance(pid, int) and self.running() and self.parking.try_park(self.name, pid):
+                return
             if self._record:
                 log.info("stopping llama-server to free the GPU")
             self._stop_locked()
@@ -417,6 +427,12 @@ class LlamaRouter(OpenAIBackend):
         if not self.managed:
             return
         with self._lock:
+            if self.parking.parked and self.running():
+                self.before_start(self)
+                self._unload_ollama()
+                if self.parking.try_resume(self.name):
+                    return
+                self._stop_locked()
             if self.running():
                 return
             if self._stopped:

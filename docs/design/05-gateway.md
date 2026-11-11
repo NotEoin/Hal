@@ -351,6 +351,21 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
   `test_router_start_stops_the_managed_server_without_marking_it_stopped`, unit
   `test_yield_gpu_stops_the_router_without_marking_it_stopped`,
   `test_router_start_calls_before_start_first`.
+- **REQ-GW-98** A router or managed server with `park = true` MUST be parked rather than stopped
+  when it yields the GPU: every CUDA process under it locked, then checkpointed with
+  `cuda-checkpoint`, and refused (falling back to a stop) when `cuda-checkpoint` is missing, a
+  step fails, or the move would leave less than 4 GB of available RAM. The next request to a
+  parked backend MUST make room as a start does, then restore and unlock it; a failed resume
+  MUST stop and start it. Test: unit
+  `test_park_locks_every_cuda_process_then_checkpoints_and_resume_reverses_it`,
+  `test_a_failed_lock_unlocks_what_was_locked`, `test_park_is_refused_when_the_vram_would_not_fit_in_ram`,
+  `test_a_parked_router_keeps_its_process_and_resumes_after_making_room`, integration
+  `test_a_parked_server_stays_alive_and_resumes_after_making_room`,
+  `test_a_server_that_cannot_be_parked_is_stopped`.
+- **REQ-GW-99** Before relaying to Ollama a request for an alias in `[gateway.gpu].make_room_for`,
+  the gateway MUST park every idle backend with `park = true` unless the model is already wholly
+  in VRAM, then unload Ollama models that sit partly in RAM. Test: integration
+  `test_a_hal_chat_request_parks_the_server_unless_the_model_is_on_the_gpu`.
 - **REQ-GW-96** The idle unload MUST NOT stop a managed server with `idle_stop = false`; a GPU
   release (`release-gpu`, a reclaim) MUST stop it and report its models, and `release-gpu
   --stop-router` MUST stop it with the deliberate-stop mark. Test: integration
@@ -1846,6 +1861,7 @@ reclaimer_timeout_s = 60.0  # unloading two presets
 v1_claim_name = "hal-gateway"
 v1_claim_wait_s = 120.0     # hal-serve LIGHT_WAIT: 30 s release deadline plus a late job
 v1_dir = ""                 # "" = gpu-light protocol 1 resolution order
+make_room_for = ["hal-chat"]  # REQ-GW-99: these aliases park `park = true` servers to reach the GPU
 
 [gateway.gpu.vram_mib]      # upstream model or preset -> MiB for GL admission; absent = not sent
 # "hal-gpu" = 22000
@@ -1858,7 +1874,7 @@ v1_dir = ""                 # "" = gpu-light protocol 1 resolution order
 type = "llama-router"
 url = ""                    # "" when managed: derived from listen/port
 managed = true
-server = "~/.local/share/hal/llama.cpp/llama-b11512/llama-server"
+server = "~/.local/share/hal/llama.cpp/llama-b12121/llama-server"
 models_dir = ""             # required when managed (was HAL_MODELS_DIR)
 mode = "gpu"                # was HAL_MODE
 modes_dirs = ["~/.config/hal/modes"]
@@ -1869,6 +1885,7 @@ load_timeout_s = 900.0      # hal-serve: 50 GB from a cold disk takes minutes
 stop_timeout_s = 60.0       # hal-serve stop loop
 max_restarts = 3
 unload_ollama = ["ollama"]  # Ollama backends to empty before a router load
+park = false                # REQ-GW-98: true parks llama-server in host RAM instead of stopping it
 launcher = "process"        # "process" | "docker"
 container_image = ""
 container_runtime = "nvidia"  # "nvidia" | "runc" (CPU-only modes) | "runsc-gpu" (fails here today)
@@ -1901,6 +1918,7 @@ gpu_light_uses = ["hal-gateway"]  # default [reclaimer_name]: the gateway reclai
 # exclusive_gpu = true      # stop the router and other managed servers, empty Ollama, before a start
 # unload_ollama = ["ollama"]
 # idle_stop = true          # false: the idle unload leaves it running
+# park = false              # true: yielding the GPU parks the server in host RAM (REQ-GW-98)
 
 # [gateway.backends.openrouter]
 # type = "openai"

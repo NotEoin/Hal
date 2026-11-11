@@ -237,6 +237,38 @@ class Gateway:
         if exclusive:
             self._empty_ollama(list(starting.entry["unload_ollama"]))  # type: ignore[attr-defined,call-overload]
 
+    def make_room_for(self, alias: str, backend: object, model: str) -> None:
+        """Parks the servers with `park` before an Ollama request for an alias in `make_room_for`.
+
+        Only when the model is not loaded yet: Ollama would otherwise put it beside a server that
+        fills the card, mostly in RAM (a 120-token hal-chat reply took 29 s that way, 2026-11-11).
+        A server with requests in flight is left alone. A failed park stops the server instead.
+        """
+        if alias not in self.cfg.gpu["make_room_for"] or getattr(backend, "type", "") != "ollama":
+            return
+        holders = [
+            b
+            for b in self.backends.values()
+            if getattr(b, "parking", None) is not None
+            and b.parking.enabled  # type: ignore[attr-defined]
+            and not b.parking.parked
+            and b.running()
+            and not b.in_flight()  # type: ignore[attr-defined]
+        ]
+        if not holders:
+            return
+        try:
+            loaded = backend.on_gpu()  # type: ignore[attr-defined]
+            if model in loaded or f"{model}:latest" in loaded:
+                return
+            for holder in holders:
+                holder.yield_gpu()  # type: ignore[attr-defined]
+            spilled = backend.unload_offloaded()  # type: ignore[attr-defined]  # reloads onto the freed card
+            if spilled:
+                backend.wait_unloaded(spilled)  # type: ignore[attr-defined]
+        except (GatewayError, OSError) as exc:
+            log.warning("cannot make room in Ollama for %s: %s", model, exc)
+
     @staticmethod
     def _must_yield(backend: object, starting: object, *, exclusive: bool) -> bool:
         """True for a running GPU backend with a process that `starting` cannot share the card with."""

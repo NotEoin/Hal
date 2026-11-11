@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from halgateway import cli, launchers
+from halgateway import cli, launchers, park
 from halgateway.backends.managed import ManagedServer
 from halgateway.config import load_config
 from halgateway.errors import Unavailable
@@ -88,6 +88,12 @@ class FakeOllama:
     def wait_unloaded(self, models):
         return not set(models) & set(self.held)
 
+    def on_gpu(self):
+        return list(self.held)
+
+    def unload_offloaded(self):
+        return []
+
     def unload(self, model):
         self.held.remove(model)
 
@@ -110,6 +116,22 @@ class FakeGpuBackend:
 
     def yield_gpu(self):
         self.yielded = True
+
+
+class FakeParker:
+    """Records parks and resumes instead of running `cuda-checkpoint`."""
+
+    def __init__(self, fail=False):
+        self.fail, self.calls = fail, []
+
+    def park(self, root):
+        if self.fail:
+            raise park.ParkError("synthetic lock failure")
+        self.calls.append("park")
+        return (root,)
+
+    def resume(self, pids):
+        self.calls.append("resume")
 
 
 @pytest.fixture
@@ -453,3 +475,40 @@ def test_status_lists_the_managed_server(gateway):
     qwen = doc["backends"]["qwen"]
     assert status == 200 and qwen["type"] == "managed-openai" and qwen["state"] == "stopped"
     assert qwen["models"] == ["m1"]
+
+
+def parkable(gateway, fail=False):
+    server = gateway.backends["qwen"]
+    server.parking = park.Parking(True, FakeParker(fail))
+    server.start()
+    return server
+
+
+def test_a_parked_server_stays_alive_and_resumes_after_making_room(gateway):
+    server = parkable(gateway)
+    gateway._make_room(FakeGpuBackend())  # what a router start calls through `before_start`
+    assert server.running() and server.parking.parked
+    router = FakeGpuBackend()
+    gateway.backends["local"] = router
+    gateway.backends["ollama"].held = ["chat-m"]
+    server.ensure()  # the next hal-code request
+    assert server.parking.parker.calls == ["park", "resume"] and not server.parking.parked
+    assert router.yielded and gateway.backends["ollama"].held == []
+
+
+def test_a_server_that_cannot_be_parked_is_stopped(gateway):
+    server = parkable(gateway, fail=True)
+    gateway._make_room(FakeGpuBackend())
+    assert not server.running() and not server.parking.parked
+
+
+def test_a_hal_chat_request_parks_the_server_unless_the_model_is_on_the_gpu(gateway):
+    server = parkable(gateway)
+    ollama = gateway.backends["ollama"]
+    ollama.held = ["chat-m:latest"]
+    gateway.make_room_for("hal-chat", ollama, "chat-m")
+    assert not server.parking.parked  # already loaded wholly on the GPU
+    gateway.make_room_for("hal-embed", ollama, "embed-m")
+    assert not server.parking.parked  # not an alias in make_room_for
+    gateway.make_room_for("hal-chat", ollama, "other-m")
+    assert server.parking.parked

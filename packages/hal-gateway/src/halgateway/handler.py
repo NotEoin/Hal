@@ -261,6 +261,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         )
         if decided:
             self.rec["policy"] = {**(self.rec.get("policy") or {}), **decided}
+        gateway.make_room_for(target.alias, backend, model)
         scheduler = self._scheduler(backend, route)
         ticket = self._admit(scheduler, backend, model, body) if scheduler else None
         body["model"] = ticket.model if ticket else model

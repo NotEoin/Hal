@@ -82,6 +82,16 @@ and port did not change.
   request to either brings it back. A backend busy with a request is never stopped under it.
 - `idle_stop = false` keeps it running through the idle unload (`[gateway.gpu].idle_unload_s`);
   `release-gpu` still stops it.
+- `park = true` (also on a `llama-router` backend) frees the card by parking the server instead
+  of stopping it: `cuda-checkpoint` moves its VRAM into host RAM and the process waits with its
+  model loaded. The next request to it makes room again and resumes it in seconds instead of a
+  cold start. On an RTX 3090 a 21.4 GB llama-server parked in 11.4 s and resumed in 5.3 s
+  (2026-11-11). A park needs `cuda-checkpoint` (NVIDIA driver 550 or later) and enough free RAM
+  for the VRAM plus 4 GB; otherwise the server is stopped as before.
+- A request for an alias in `[gateway.gpu].make_room_for` (default `["hal-chat"]`) that goes to
+  Ollama parks every idle server with `park = true` when its model is not already wholly on the
+  GPU, so voice and chat get the card instead of running in system RAM. A server busy with a
+  request is left alone.
 - `/v1/models` lists `served_models` from the config, so a listing never waits for a cold start.
 - Its output goes to `~/.local/state/hal/gateway/<name>.log`; every start failure names it.
 

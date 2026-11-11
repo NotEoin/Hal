@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-from halgateway import launchers, relay
+from halgateway import launchers, park, relay
 from halgateway.backends.llama_router import LlamaRouter, startup_presets
 from halgateway.config import load_config
 from halgateway.errors import ModelUnverified, RouterBusy
@@ -270,6 +270,28 @@ def test_yield_gpu_stops_the_router_without_marking_it_stopped(env):
     assert not launchers.is_alive(pid) and not env.router.running()
     env.router.ensure()  # a yield is not `router/stop`: the next request starts it again
     assert env.router.running()
+
+
+def test_a_parked_router_keeps_its_process_and_resumes_after_making_room(env):
+    calls = []
+
+    class Parker:
+        def park(self, root):
+            calls.append("park")
+            return (root,)
+
+        def resume(self, pids):
+            calls.append("resume")
+
+    env.router.parking = park.Parking(True, Parker())
+    env.router.start()
+    pid = env.router._record["pid"]
+    env.router.yield_gpu()
+    assert launchers.is_alive(pid) and env.router.parking.parked
+    env.router.before_start = lambda router: calls.append("room")
+    env.ollama.held = ["gemma:1"]
+    env.router.ensure()  # the next hal-writer request
+    assert calls == ["park", "room", "resume"] and env.ollama.held == [] and env.router._record["pid"] == pid
 
 
 def test_router_start_calls_before_start_first(env):

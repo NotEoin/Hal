@@ -34,7 +34,7 @@ from pathlib import Path
 
 from halkit import secrets
 
-from .. import launchers, llamacmd, relay
+from .. import launchers, llamacmd, park, relay
 from ..errors import BadGatewayError, Unavailable
 from .llama_router import CRASH_WINDOW_S, POLL_S  # the router's rules, so both backends behave alike
 from .openai import OpenAIBackend
@@ -66,6 +66,7 @@ class ManagedServer(OpenAIBackend):
         self.poll_s = POLL_S
         self.exclusive_gpu = bool(entry["exclusive_gpu"])
         self.idle_free = bool(entry["idle_stop"])  # read by the GPU manager's idle unload
+        self.parking = park.Parking(bool(entry["park"]))
         self._lock: threading.RLock = threading.RLock()
         self._idle = threading.Condition()
         self._inflight = 0
@@ -257,6 +258,7 @@ class ManagedServer(OpenAIBackend):
         log.info("%s is ready", self.name)
 
     def _stop_locked(self) -> None:
+        self.parking.forget()
         pid, started = self._record.get("pid"), self._record.get("pid_start")
         if isinstance(pid, int) and isinstance(started, int):
             self.launcher.stop(pid, started, float(self.entry["stop_timeout_s"]))  # type: ignore[arg-type]
@@ -269,8 +271,16 @@ class ManagedServer(OpenAIBackend):
             self._stopped = True
 
     def yield_gpu(self) -> None:
-        """Stops the server to free the card for another backend; the next request starts it again."""
+        """Frees the card for another backend: parks the server with `park`, else stops it.
+
+        The next request resumes or starts it again.
+        """
         with self._lock:
+            if self.parking.parked:
+                return
+            pid = self._record.get("pid")
+            if isinstance(pid, int) and self.running() and self.parking.try_park(self.name, pid):
+                return
             if self._record:
                 log.info("stopping %s to free the GPU", self.name)
             self._stop_locked()
@@ -278,6 +288,11 @@ class ManagedServer(OpenAIBackend):
     def ensure(self) -> None:
         """Called before a request is relayed: starts on demand, restarts after a crash within the budget."""
         with self._lock:
+            if self.parking.parked and self.running():
+                self.before_start(self)
+                if self.parking.try_resume(self.name):
+                    return
+                self._stop_locked()
             if self.running():
                 return
             if self._stopped:

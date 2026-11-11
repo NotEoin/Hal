@@ -124,6 +124,15 @@ class OllamaBackend(OpenAIBackend):
             if isinstance(m, dict) and "name" in m and m.get("size_vram", 0) > 0
         ]
 
+    def on_gpu(self) -> list[str]:
+        """Names of the models loaded wholly in VRAM (`size_vram >= size` in `GET /api/ps`)."""
+        doc = relay.call_json(self, "GET", "/api/ps")
+        return [
+            str(m["name"])
+            for m in doc.get("models", [])
+            if isinstance(m, dict) and "name" in m and m.get("size_vram", 0) >= m.get("size", 0) > 0
+        ]
+
     def free_vram(self, served: Iterable[str]) -> list[str]:
         """Unloads the models in `served` that hold VRAM; returns their names (REQ-GW-53)."""
         wanted = set(served)
