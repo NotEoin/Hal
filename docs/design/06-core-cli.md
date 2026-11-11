@@ -676,6 +676,24 @@ wraps it.
   `test_a_named_gguf_role_gets_its_own_preset_in_the_tuned_mode`,
   `test_a_named_role_is_added_chosen_and_written_with_its_alias`,
   `test_new_role_names_a_setup_opens_its_model_picker_and_lists_it`.
+- **REQ-CLI-122** (MUST) The tune plan MUST count what a model takes on the GPU (the weights
+  there, the cache and the runtime buffers of `halkit.tuning.overhead_mib`) and MUST plan on total
+  VRAM and RAM, never free memory. Auto-tune MUST stay within total less the headroom; a context,
+  cache type, GPU layer count or expert count the user sets MUST be checked against the whole card,
+  MUST stay as set until the user presses its Auto, Auto-tune or a preset, and MUST spill to RAM
+  rather than be refused when it passes the card. A context set by hand MUST be allowed up to the
+  model's own maximum. Test: unit `test_the_estimate_matches_a_measured_llama_31_8b`,
+  `test_a_setting_by_hand_may_fill_the_whole_card_past_the_guidance`,
+  `test_ram_is_planned_from_the_total_not_what_is_free_now`,
+  `test_settings_made_by_hand_stay_when_other_fields_change`,
+  `test_a_context_set_by_hand_may_pass_the_context_cap_up_to_the_model_maximum`.
+- **REQ-CLI-123** (MUST) A write MUST make every role's tuned context reach its server: a GGUF role
+  through the `tuned` mode, an Ollama role through a derived Ollama model `hal-tuned-ROLE` with the
+  tuned `num_ctx` (and `num_gpu` when layers spill), pinned like any model and left out of the
+  model pickers. The gateway MUST report a role's `context` as its alias's `context_length`
+  (05). Test: unit `test_write_saves_roles_pins_digests_and_names_the_models_for_the_gateway`,
+  `test_an_offloaded_ollama_role_also_sets_num_gpu`,
+  `test_a_role_alias_reports_the_context_hal_tune_set_for_any_backend`.
 - **REQ-CLI-113** (MUST) `hal configure` MUST NOT name or pull a model; it MUST accept `--profile
   max|24gb|12gb|cloud` as a preset for `[models] context_cap` and `kv_type` with a deprecation
   note, and print the `hal tune` plan. Test: unit
