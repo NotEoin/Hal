@@ -18,6 +18,8 @@ carries the same version.
 
 ### Added
 
+- `hal ask`, `index`, `brief`, `summarize`, `import`, `obsidian-key` and `register-repos` hand
+  off to the memory pack's `hal-memory`, as the removed bash launcher did.
 - `hal claude` opens Claude Code on your models through the gateway (`hal/main`, `hal/agent`),
   with its context set from the gateway, every Claude Code service call switched off and a proxy
   backstop, as the removed bash launcher did. `--cloud` uses your own Anthropic login.

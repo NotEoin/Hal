@@ -63,6 +63,10 @@ Then run `hal doctor`. Verified by `packages/hal-core/tests/test_install_script.
 
 ## hal connect
 
+The vault commands `hal ask`, `index`, `brief`, `summarize`, `import`, `obsidian-key` and
+`register-repos` come from the memory pack: `hal` runs its `hal-memory` program with the same
+arguments. Without the pack they exit 3 and say to run `hal packs add memory`.
+
 `hal claude [--cloud] [--vault | --dir DIR] [ARGS...]` opens Claude Code in the current folder
 on your own models: it asks the gateway for `hal/main` and `hal/agent` (see
 [gateway](gateway.md#halmain-and-halagent)), sets Claude Code's context to what `hal/main`

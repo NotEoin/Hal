@@ -58,6 +58,13 @@ COMMANDS: dict[str, Command] = {
     "gateway": Command("halgateway.cli", "model gateway admin (hal-gateway passthrough)"),
     "box": Command("halsandbox.cli", "run an agent CLI in the box, build box images"),
     "claude": Command("claude", "Claude Code on your models through the gateway (unsandboxed)"),
+    "ask": Command("memorycmd", "answer from your vault (memory pack)", ("ask",)),
+    "index": Command("memorycmd", "index the vault for search (memory pack)", ("index",)),
+    "brief": Command("memorycmd", "the morning brief from the vault (memory pack)", ("brief",)),
+    "summarize": Command("memorycmd", "summarise vault sources (memory pack)", ("summarize",)),
+    "import": Command("memorycmd", "import files into the vault (memory pack)", ("import",)),
+    "obsidian-key": Command("memorycmd", "store the Obsidian REST API key (memory pack)", ("obsidian-key",)),
+    "register-repos": Command("memorycmd", "add code repos to the vault (memory pack)", ("register-repos",)),
     "kill": Command("killcmd", "stop everything Hal started"),
     "scratch": Command("scratch", "inspect and clean box scratchpads"),
     "security": Command("security", "security status and doctor"),
@@ -123,6 +130,7 @@ def resolve(argv: list[str]) -> tuple[Command, list[str]] | None:
 # Groups for `hal --help`; a test keeps every command in exactly one group.
 GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("work", ("code", "chat", "acp", "jobs", "sessions", "box", "claude", "connect", "ide")),
+    ("vault", ("ask", "index", "brief", "summarize", "import", "obsidian-key", "register-repos")),
     ("safety", ("lockdown", "paranoia", "policy", "audit", "guard", "approvals", "approve", "deny", "scratch", "security")),
     ("system", ("doctor", "status", "kill", "power", "gpulight", "setup", "units", "gateway", "migrate", "configure", "tune", "models", "console", "eval", "packs")),
 )
