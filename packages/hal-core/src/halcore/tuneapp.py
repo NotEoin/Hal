@@ -60,6 +60,8 @@ MAX_UNDO = 100
 TOAST_READ_S = 10.0  # a note with several lines (a preset's changes, why nothing was written)
 EXIT_OK = 0
 GUARD = "guard"
+HARNESS = "harness"  # the role list row for `hal/main` and `hal/agent`
+HARNESS_ROWS = (("main", "hal/main"), ("agent", "hal/agent"))
 
 
 def preset_label(preset: tunepresets.Preset) -> str:
@@ -118,6 +120,18 @@ class RoleEditor(VerticalScroll, can_focus=False):
             model, note = self.tune.guard
             yield SafeStatic(Text(f"guard  {model}"), classes="title")
             yield SafeStatic(Text(f"{note}. Set in policy.toml; hal tune does not change it."), classes="why")
+            return
+        if role == HARNESS:
+            yield SafeStatic(Text("harness  hal/main and hal/agent"), classes="title")
+            segments = [Segment(alias.removeprefix("hal-"), alias) for alias in state.alias_names()]
+            for key, name in HARNESS_ROWS:
+                with Horizontal(classes="row"):
+                    yield SafeStatic(Text(name), classes="label")
+                    yield Segmented(segments, state.harness[key], id=f"harness-{key}")
+            yield SafeStatic(Text(
+                "What Claude Code and other harnesses get when they ask for hal/main (the conversation) and "
+                "hal/agent (subagents and side requests). Each serves one of your roles, with its model, "
+                "context and speed."), classes="why")  # fmt: skip
             return
         d = state.drafts.get(role)
         direct = self.tune.direct.get(role, "")
@@ -543,6 +557,11 @@ class TuneApp(App[int]):
         """
         row = Text(no_wrap=True, overflow="ellipsis")
         row.append(f"{role:<{ROLE_WIDTH}}", style="bold")
+        if role == HARNESS:
+            harness = self.state.harness
+            row.append(" hal/main, hal/agent", style="dim")
+            row.append(f"\n  {harness['main']}, {harness['agent']}")
+            return row
         if role == GUARD:
             model, note = self.guard
             row.append(f" {clean(note)}", style="dim")
@@ -567,7 +586,7 @@ class TuneApp(App[int]):
         """Redraws the role list, keeping the highlight."""
         roles = self.query_one("#roles", OptionList)
         keep = roles.highlighted
-        names = [*self.state.role_names(), GUARD]
+        names = [*self.state.role_names(), GUARD, HARNESS]
         roles.set_options([Option(self.role_row(r), id=r) for r in names])
         if self.role not in names:  # a named role was removed (or its add undone)
             self.role, keep = "chat", None
@@ -655,6 +674,9 @@ class TuneApp(App[int]):
             self.change(lambda: state.set_kv(role, event.value))
         elif event.segmented.id == "effort":
             self.change(lambda: state.set_effort(role, event.value))
+        elif event.segmented.id in ("harness-main", "harness-agent"):
+            key = event.segmented.id.removeprefix("harness-")
+            self.change(lambda: state.set_harness(key, event.value))
         elif event.segmented.id == "preset":
             self.take_preset(event.value)
 

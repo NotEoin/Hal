@@ -289,6 +289,11 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
 - **REQ-GW-36** On gateway start, a running router recorded in the pid file with the same
   mode and render hash MUST be adopted, and one with a different mode or hash MUST be stopped.
   Test: integration `test_router_is_adopted_across_gateway_restart`.
+- **REQ-GW-97** `hal/main` and `hal/agent` MUST serve the aliases `[gateway] main` and `agent`
+  name (default `hal-code`), keeping their own name and reporting that alias's context; an empty
+  key MUST fall back to the active router mode, and a key naming `hal/main` or `hal/agent` MUST
+  be a config error. Test: unit `test_hal_main_and_agent_serve_the_aliases_the_gateway_names`,
+  `test_a_mode_alias_cannot_point_at_itself`.
 - **REQ-GW-37** Withdrawn (0.2.0): the `hal-serve` launcher is gone, so there is no legacy router
   to guard against.
 - **REQ-GW-38** A mode switch MUST wait up to `drain_s` (30) for in-flight requests to the
@@ -877,9 +882,10 @@ Order (first match wins):
    `hal-vision`): its `[hal]` value is resolved with steps 3 to 5 (REQ-GW-26). User aliases
    in step 1 may not use these six names (config error), so the role table stays the single
    source of truth (00-overview).
-3. A mode alias of the active mode of a router backend: `hal/main`, `hal/agent`,
-   `hal/classifier` (when set), and every preset name of the active mode (`hal-gpu`,
-   `hal-hybrid`, ...), so today's names keep working.
+3. `hal/main` and `hal/agent` serve the alias `[gateway] main` and `agent` name (default
+   `hal-code`), under their own name and with that alias's context. With the key empty they
+   follow the active router mode instead, as does `hal/classifier` (when set) and every preset
+   name of the active mode.
 4. `<backend>/<model>` for a backend with `expose_models = true`. The backend name `hal` is
    reserved.
 5. A bare name present in the model list of exactly one backend with `expose_models = true`
@@ -1797,6 +1803,8 @@ token_file = "~/.config/hal/gateway-token"   # owner token; in client mode, the 
 allow_origins = []          # browsers have no business here (REQ-SEC-75)
 allow_hosts = []            # extra Host values, e.g. a tailnet name in front of loopback (07)
 default_model = ""          # "" = unknown names are 404
+main = "hal-code"           # the alias hal/main serves; "" = the active router mode's main preset
+agent = "hal-code"          # the alias hal/agent serves (subagents, side requests); "" = the mode's
 models_file = ""            # "" = config_dir()/models.toml
 max_request_bytes = 33554432  # 32 MiB: a 256K-token prompt is about 1 MiB of JSON; the rest is images
 max_header_bytes = 65536    # http.server's own line limit

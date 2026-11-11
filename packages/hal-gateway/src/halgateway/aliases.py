@@ -7,8 +7,10 @@ Decisions:
 - Backend model lists are cached for `LIST_TTL_S` seconds, so a request does not cost a list call.
   A backend with `static_models` (a managed server) lists those instead, so a listing never
   waits for, or depends on, a server that is stopped.
-- Mode aliases (`hal/main`, preset names) come from the managed router (plan step 11); the
-  resolver takes them as a plain mapping so that step only has to fill it.
+- `hal/main` and `hal/agent` serve the aliases `[gateway] main` and `agent` name (default
+  `hal-code`), so Claude Code and other harnesses follow the roles `hal tune` sets. With the key
+  empty they follow the active router mode's `[hal]` section instead, which a hand-written mode
+  may use; the resolver takes those mode aliases as a plain mapping the router fills.
 - The context a name reports, first found wins: the alias's own `context_window`, then the
   `context` of the role it serves (`[models.roles.ROLE]`, which `hal tune` writes for every
   backend), then the `ctx-size` the active mode started the model with. The role comes before
@@ -23,10 +25,10 @@ from __future__ import annotations
 import fnmatch
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .backends import OpenAIBackend
-from .config import EMPTY_MEANS_CHAT, ROLE_ALIASES, GatewayConfig
+from .config import EMPTY_MEANS_CHAT, MODE_KEYS, ROLE_ALIASES, GatewayConfig
 from .errors import Conflict, NotFound
 
 LIST_TTL_S = 30.0  # REQ design: lists cached for 30 s
@@ -142,6 +144,10 @@ class Resolver:
         )  # type: ignore[arg-type]
 
     def _by_name(self, name: str) -> Target | None:
+        pointed = str(self.cfg.gateway[MODE_KEYS[name]]) if name in MODE_KEYS else ""
+        if pointed:  # `hal/main` -> `hal-code`: serve that alias under this name
+            found = self._by_name(pointed)
+            return replace(found, alias=name) if found is not None else None
         if name in self.cfg.aliases:  # step 1
             return self._from_alias(name)
         if name in ROLE_ALIASES:  # step 2
@@ -202,6 +208,10 @@ class Resolver:
                 continue
             if target is not None:
                 add(role, target.backend, target.context_length, target.model)
+        for name in MODE_KEYS:
+            target = self._by_name(name) if self.cfg.gateway[MODE_KEYS[name]] else None
+            if target is not None:
+                add(name, target.backend, target.context_length, target.model)
         for backend in self.backends.values():
             if backend.expose_models:
                 for model in self.models_of(backend):

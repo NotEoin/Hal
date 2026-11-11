@@ -352,7 +352,8 @@ def test_guard_row_shows_safety_check_cpu(home, server):
     policy.chmod(0o600)
 
     async def script(pilot, app):
-        return app.query_one("#roles", OptionList)._options[-1].prompt.plain
+        options = app.query_one("#roles", OptionList)._options
+        return next(o.prompt.plain for o in options if o.id == tuneapp.GUARD)
 
     row, _, _ = drive(state, script)
     assert row.startswith("guard") and "safety check, CPU" in row
@@ -560,3 +561,21 @@ def test_a_context_past_the_guidance_stays_on_the_gpu_and_says_so(home, server):
     fit = state.fit("chat")
     assert fit.above_guidance and tuneapp.gauge_caption(fit, LOOK).endswith("above guidance")
     assert state.role_plans()[0].plan.gpu_layers == -1  # written all on the GPU
+
+
+def test_the_harness_row_points_hal_main_and_agent_at_roles(home, server):
+    state = open_state(home, server, roles=CHAT_ROLE)
+
+    async def script(pilot, app):
+        roles = app.query_one("#roles", OptionList)
+        roles.highlighted = [o.id for o in roles._options].index(tuneapp.HARNESS)
+        await settle(pilot)
+        main = app.query_one("#harness-main", Segmented)
+        assert main.selected == "hal-code" and "hal-chat" in [s.value for s in main.segments]
+        main.selected = "hal-chat"
+        main.post_message(Segmented.Changed(main, "hal-chat"))
+        await settle(pilot)
+        return state.harness["main"], roles._options[-1].prompt.plain
+
+    (main, row), _, _ = drive(state, script)
+    assert main == "hal-chat" and "hal-chat, hal-code" in row

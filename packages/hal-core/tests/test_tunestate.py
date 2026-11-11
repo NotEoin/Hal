@@ -398,3 +398,21 @@ def test_experts_are_refused_on_a_dense_model(home, server):
     assert s.experts_of("chat")[1] == "not a mixture-of-experts GGUF model"
     with pytest.raises(ValueError, match="mixture-of-experts"):
         s.set_cpu_moe("chat", 2)
+
+
+def test_hal_main_and_agent_point_at_role_aliases_and_are_written(home, server):
+    s = session(home, server)
+    assert s.harness == {"main": "hal-code", "agent": "hal-code"} and not s.has_changes()
+    s.add_role("code-128k")
+    assert "hal-code-128k" in s.alias_names()
+    s.set_harness("agent", "hal-chat")
+    with pytest.raises(ValueError, match="not one of"):
+        s.set_harness("main", "gpu-112k")
+    snap = s.snapshot()
+    s.set_harness("main", "hal-writer")
+    s.restore(snap)
+    assert s.harness == {"main": "hal-code", "agent": "hal-chat"} and s.has_changes()
+    s.write()
+    gateway = tomllib.loads(home.config.read_text())["gateway"]
+    assert gateway["agent"] == "hal-chat" and "main" not in gateway  # only what changed is written
+    assert not s.has_changes()

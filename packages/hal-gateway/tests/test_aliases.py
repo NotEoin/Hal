@@ -23,6 +23,8 @@ code_model = ""
 embed_model = "embed-m"
 [gateway]
 default_model = ""
+main = ""
+agent = ""
 [gateway.backends.a]
 type = "openai"
 url = "http://127.0.0.1:1"
@@ -264,3 +266,19 @@ def test_an_old_fast_model_still_feeds_the_classifier_alias(tmp_path):
     # 0.2.0 renamed hal-fast to hal-classifier; a config from before keeps working
     text = BASE.replace('classifier_model = "fast-m"', 'classifier_model = ""\nfast_model = "fast-m"')
     assert pair(build(tmp_path, text).resolve("hal-classifier")) == ("b", "fast-m")
+
+
+def test_hal_main_and_agent_serve_the_aliases_the_gateway_names(tmp_path):
+    # hal/main and hal/agent follow the roles hal tune sets, not a bundled mode
+    text = BASE.replace('main = ""\nagent = ""', 'main = "hal-code"\nagent = "coder"') + ROLES
+    resolver = build(tmp_path, text)
+    main, agent = resolver.resolve("hal/main"), resolver.resolve("hal/agent")
+    assert (main.alias, pair(main), main.context_length) == ("hal/main", ("a", "chat-m"), 65536)
+    assert (agent.alias, pair(agent), agent.context_length) == ("hal/agent", ("a", "coder-up"), 4096)
+    listed = {e.id: e.context_length for e in resolver.listing()}
+    assert listed["hal/main"] == 65536 and listed["hal/agent"] == 4096
+
+
+def test_a_mode_alias_cannot_point_at_itself(tmp_path):
+    with pytest.raises(ConfigError, match="points a mode alias at itself"):
+        build(tmp_path, BASE.replace('main = ""', 'main = "hal/agent"'))

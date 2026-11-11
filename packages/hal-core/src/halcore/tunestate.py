@@ -24,6 +24,8 @@ Design decisions:
   A layer count equal to the model's layers means all of them, written as `-1` like a tuned plan.
 - `snapshot` and `restore` copy every draft and the source edits, so the screen can undo any
   change, including a preset.
+- `hal/main` and `hal/agent` (what Claude Code and other harnesses ask for) point at aliases,
+  `[gateway] main` and `agent`; `harness` holds them and a write sets those keys.
 - Named roles (`modelconf.is_custom`) are added empty and written once they have a model.
   Removing one is a config edit kept with the source edits, so the diff shows it and undo
   brings it back. Auto-tune and presets leave named roles alone: they are the user's setups.
@@ -36,6 +38,7 @@ import difflib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 
+from halgateway.config import GATEWAY_TABLE
 from halkit import config, discovery, effort, modelconf, tomledit, tuning
 from halkit import hardware as hwmod
 from halkit.hardware import Hardware
@@ -47,6 +50,7 @@ CONTEXT_PRESETS = (8192, 16384, 32768, 65536, 131072, 262144)
 KV_OPTIONS = modelconf.KV_CHOICES
 OPTIONAL_ROLES = ("writer",)  # empty by design: falls back to chat
 DEFAULT_EFFORT = "default"  # the word the screens show for "no effort set"
+DEFAULT_HARNESS = {"main": "hal-code", "agent": "hal-code"}  # `[gateway] main` and `agent` defaults
 ROLE_KINDS = {"code": "coding model", "vision": "vision model", "embed": "embedding model", "classifier": "safety classifier"}
 
 
@@ -79,6 +83,7 @@ class Snapshot:
     named: frozenset[str]
     hw: Hardware
     preset: tunepresets.Preset | None
+    harness: dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -122,6 +127,7 @@ class TuneSession:
         self, hw: Hardware, sources: Mapping[str, modelconf.Source], found: Mapping[str, discovery.Discovery],
         roles: Mapping[str, modelconf.Role], limits: Mapping[str, object],
         discover: Callable[[modelconf.Source], discovery.Discovery] = discovery.discover,
+        harness: Mapping[str, str] | None = None,
     ) -> None:
         self.hw = hw
         self.real_hw = hw  # `hw` is what plans use; a preset swaps it, this is the machine
@@ -137,6 +143,8 @@ class TuneSession:
         self._added: set[str] = set()
         self._removed: set[str] = set()
         self._named: set[str] = {r for r in roles if modelconf.is_custom(r)}
+        self._harness_original = dict(harness or DEFAULT_HARNESS)
+        self.harness = dict(self._harness_original)
 
     # --- models and fit ---------------------------------------------------------------------
 
@@ -359,6 +367,7 @@ class TuneSession:
         return Snapshot(
             copy.deepcopy(self.drafts), dict(self.sources), dict(self.found), list(self._source_edits),
             frozenset(self._added), frozenset(self._removed), frozenset(self._named), self.hw, self.preset,
+            dict(self.harness),
         )  # fmt: skip
 
     def restore(self, snap: Snapshot) -> None:
@@ -368,6 +377,7 @@ class TuneSession:
         self._source_edits = list(snap.source_edits)
         self._added, self._removed, self._named = set(snap.added), set(snap.removed), set(snap.named)
         self.hw, self.preset = snap.hw, snap.preset
+        self.harness = dict(snap.harness)
 
     def set_effort(self, role: str, level: str) -> None:
         """Sets the default effort (`""` = the model's default); refused when the model cannot use the level."""
@@ -458,6 +468,24 @@ class TuneSession:
             notes.append(f"{role}: chose {rp.model.name} for {preset.label}")
         return notes
 
+    # --- hal/main and hal/agent -------------------------------------------------------------
+
+    def alias_names(self) -> list[str]:
+        """The aliases `hal/main` and `hal/agent` may serve: one per role, built-in and named."""
+        return [f"hal-{role}" for role in self.role_names()]
+
+    def set_harness(self, key: str, alias: str) -> None:
+        """Points `hal/main` (`key` = `main`) or `hal/agent` (`agent`) at `alias`; raises `ValueError`."""
+        if key not in DEFAULT_HARNESS:
+            raise ValueError(f"no setting {key!r}; use main or agent")
+        if alias not in self.alias_names():
+            raise ValueError(f"{alias} is not one of {', '.join(self.alias_names())}")
+        self.harness[key] = alias
+
+    def _harness_edit(self, text: str) -> str:
+        changed = {k: v for k, v in self.harness.items() if v != self._harness_original.get(k)}
+        return tomledit.set_keys(text, "gateway", changed) if changed else text
+
     # --- named roles ------------------------------------------------------------------------
 
     def role_names(self) -> list[str]:
@@ -547,7 +575,7 @@ class TuneSession:
     def _pre(self, text: str) -> str:
         for edit in self._source_edits:
             text = edit(text)
-        return text
+        return self._harness_edit(text)
 
     # --- changes and writing ----------------------------------------------------------------
 
@@ -557,7 +585,7 @@ class TuneSession:
 
     def has_changes(self) -> bool:
         """True when a write would change the config."""
-        return bool(self.changed_roles() or self._source_edits)
+        return bool(self.changed_roles() or self._source_edits or self.harness != self._harness_original)
 
     def role_plans(self) -> list[modelplan.RolePlan]:
         """`RolePlan`s of the changed roles, ready for `modelplan.apply`."""
@@ -589,6 +617,7 @@ class TuneSession:
         lines = modelplan.apply(self.role_plans(), self.found, self._pre)
         self._original = {r: replace(d) for r, d in self.drafts.items()}
         self._source_edits.clear()
+        self._harness_original = dict(self.harness)
         self._added.clear()
         self._removed.clear()
         return lines
@@ -601,7 +630,9 @@ def open_state(
     say = say or (lambda _: None)
     say("Detecting hardware and listing models...")
     sources, roles, limits = modelconf.load_sources(), modelconf.load_roles(), modelconf.limits()
+    gateway = config.load(GATEWAY_TABLE)
+    harness = {key: str(gateway[key]) or DEFAULT_HARNESS[key] for key in DEFAULT_HARNESS}
     hw = hw or hwmod.detect()
     kwargs = {"discover": discover} if discover else {}
     found = modelplan.survey(sources, **kwargs)
-    return TuneSession(hw, sources, found, roles, limits, **kwargs)
+    return TuneSession(hw, sources, found, roles, limits, harness=harness, **kwargs)

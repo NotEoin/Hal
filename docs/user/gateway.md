@@ -34,6 +34,19 @@ Nothing here has run against a live llama-server in this checkout (unverified; c
 Exit codes: 0 ok, 3 bad config, 4 refused, 5 gateway down or failed, 6 conflict (HTTP 409 or a
 busy reclaim).
 
+## hal/main and hal/agent
+
+Claude Code and other harnesses ask for two names: `hal/main` for the conversation and
+`hal/agent` for subagents and side requests. Each serves one of your aliases, `hal-code` by
+default, with that role's model and context. Point them elsewhere with the **harness** row of
+`hal tune`, or in the config:
+
+```toml
+[gateway]
+main = "hal-code"        # what hal/main serves
+agent = "hal-code-fast"  # what hal/agent serves: a named role, here
+```
+
 ## Sharing the GPU with gpu-light
 
 With gpu-light v2 running, the gateway registers a reclaimer and claims the card per request

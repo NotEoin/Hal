@@ -6,21 +6,21 @@
                                                                                 
  Roles  Sources  Review                                                         
 \u2578\u2501\u2501\u2501\u2501\u2501\u257a\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
- chat        40K  fits   chat                                                   
+ chat        40K  fi\u2026    chat                                                   
    local/qwen3:8b                                                               
- code        no model \u2026  Model         local/qwen3:8b  (change)                 
+ code        no mode\u2026    Model         local/qwen3:8b  (change)                 
    -                                                                            
- writer      falls bac\u2026  Context     \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u25cf  auto 40K   Auto      
+ writer      falls b\u2026    Context     \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u25cf  auto 40K   Auto      
    -                                                                            
- vision      set in [h\u2026  KV cache     auto (f16)   f16   q8_0   q4_0            
+ vision      set in \u2026    KV cache     auto (f16)   f16   q8_0   q4_0            
    qwen3-vl:8b                                                                  
- classifier  set in [h\u2026  GPU layers  \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u25cf  auto all   Auto      
-   granite4.1-guardian\u2026                                                         
- embed       set in [h\u2026  Effort      default off low medium high max            
+ classifier  set in \u2026    GPU layers  \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u25cf  auto all   Auto      
+   granite4.1-guardi\u2026                                                           
+ embed       set in \u2026    Effort      default off low medium high max            
    embeddinggemma                                                               
- guard       safety ch\u2026  Temperature \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u25cf\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500   default  Default \u2587\u2587 
+ guard       safety \u2026    Temperature \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u25cf\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500   default  Default \u2587\u2587 
    hal-classifier                                                               
-                         Memory      [\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591|] 11.1 / 24.0 GB  fits   
+ harness     hal/mai\u2026\u2587\u2587  Memory      [\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591|] 11.1 / 24.0 GB  fits   
                                                                                 
  New role...             - weights 5120 MiB + KV 5760 MiB for 40960 tokens +    
  ^s Save  ^z Undo  esc Quit  f1 Help  f2 Roles  f3 Sources  f4 Review           
@@ -31,35 +31,35 @@
 03 _80
 04 _1 f5 _2 x7 _2 x6 _57
 05 x1 a5 x74
-06 _1 X4 _8 X3 _2 X4 _3 X4 _51
-06bg X1 A22 X1 .53 X2 .1
+06 _1 X4 _8 X3 _2 X3 _4 X4 _51
+06bg X1 A20 X3 .53 X2 .1
 07 _3 X14 _63
-07bg X1 A22 X1 .53 X2 .1
-08 _1 F4 _8 x2 _1 x5 _1 x1 _2 x5 _9 F14 _2 F8 _17
+07bg X1 A20 X3 .53 X2 .1
+08 _1 F4 _8 x2 _1 x5 _4 x5 _9 F14 _2 F8 _17
 08bg X24 .14 S39 X2 .1
 09 _3 x1 _76
 09bg X24 .53 X2 .1
-10 _1 F6 _6 x5 _1 x4 _2 x7 _5 x19 F1 _2 f4 _1 f3 _3 F4 _6
+10 _1 F6 _6 x5 _1 x2 _4 x7 _5 x19 F1 _2 f4 _1 f3 _3 F4 _6
 10bg X24 .44 S9 X2 .1
 11 _3 x1 _76
 11bg X24 .53 X2 .1
-12 _1 F6 _6 x3 _1 x2 _1 x3 _2 x2 _1 x5 _5 X4 _1 X5 _3 f3 _3 f4 _3 f4 _12
+12 _1 F6 _6 x3 _1 x2 _1 x1 _4 x2 _1 x5 _5 X4 _1 X5 _3 f3 _3 f4 _3 f4 _12
 12bg X24 .13 F12 .28 X2 .1
 13 _3 f11 _66
 13bg X24 .53 X2 .1
-14 _1 F10 _2 x3 _1 x2 _1 x3 _2 x3 _1 x6 _2 x19 F1 _2 f4 _1 f3 _3 F4 _6
+14 _1 F10 _2 x3 _1 x2 _1 x1 _4 x3 _1 x6 _2 x19 F1 _2 f4 _1 f3 _3 F4 _6
 14bg X24 .44 S9 X2 .1
-15 _3 f20 _57
+15 _3 f18 _59
 15bg X24 .53 X2 .1
-16 _1 F5 _7 x3 _1 x2 _1 x3 _2 x6 _6 X7 _1 f3 _1 f3 _1 f6 _1 f4 _1 f3 _12
+16 _1 F5 _7 x3 _1 x2 _1 x1 _4 x6 _6 X7 _1 f3 _1 f3 _1 f6 _1 f4 _1 f3 _12
 16bg X24 .13 F7 .33 X2 .1
 17 _3 f14 _63
 17bg X24 .53 X2 .1
-18 _1 F5 _7 x6 _1 x3 _2 x11 _1 x7 F1 x12 _3 f7 _2 F7 _1 x2 _1
+18 _1 F5 _7 x6 _1 x1 _4 x11 _1 x7 F1 x12 _3 f7 _2 F7 _1 x2 _1
 18bg X24 .44 S9 X2 .1
 19 _3 f14 _63
 19bg X24 .53 X2 .1
-20 _25 x6 _6 f1 o8 x8 F1 f1 _1 o4 _1 o1 _1 o4 _1 o2 _2 o4 _3
+20 _1 F7 _5 x10 _2 x6 _6 f1 o8 x8 F1 f1 _1 o4 _1 o1 _1 o4 _1 o2 _2 o4 _3
 20bg X24 .53 X2 .1
 21 _80
 21bg .77 X2 .1

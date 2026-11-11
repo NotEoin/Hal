@@ -188,6 +188,9 @@ Plan for  [ This machine ] [ 8 GB ] [ 12 GB ] [ 16 GB ] [ 24 GB ] [ CPU only ]
   click a card or press Enter on it, choose Adjust by hand, or press Esc to leave. With no model
   source at all, the app opens on the Sources tab instead.
 
+The **harness** row sets what `hal/main` and `hal/agent` serve: the names Claude Code and other
+harnesses ask for (see [gateway](gateway.md#halmain-and-halagent)). Each is one of your roles.
+
 The `code` role set straight in `[hal]` to a gateway `backend/model`, such as a llama.cpp router
 preset, is shown but not tuned. The `guard` row is the tool-call safety classifier from
 `policy.toml` (see [security](security.md)); tune shows it and leaves it alone. `GB` here means

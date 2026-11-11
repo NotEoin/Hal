@@ -31,6 +31,9 @@ carries the same version.
 
 ### Changed
 
+- `hal/main` and `hal/agent`, the names Claude Code and other harnesses ask for, serve an alias
+  set by `[gateway] main` and `agent` (default `hal-code`) instead of the router mode's presets,
+  and `hal tune` sets them in its **harness** row. Leave a key empty to follow a mode you wrote.
 - The `fast` role and its alias `hal-fast` are now `classifier` and `hal-classifier`, the
   tool-call risk classifier, with Granite Guardian 4.1 (`granite4.1-guardian:8b`) as the default
   model and answer format. `hal-fast` was only used by the classifier. An old

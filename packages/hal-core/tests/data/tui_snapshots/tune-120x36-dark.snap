@@ -20,8 +20,8 @@
    embeddinggemma                                                                                                       
  guard       safety check, GPU whe\u2026  Temperature \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u25cf\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500   default  Default  
    hal-classifier                                                                                                       
-                                     Memory      [\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591|\u2591\u2591\u2591] 11.1 / 24.0 GB  fits 
-                                                                                                                        
+ harness     hal/main, hal/agent     Memory      [\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591|\u2591\u2591\u2591] 11.1 / 24.0 GB  fits 
+   hal-code, hal-code                                                                                                   
                                      - weights 5120 MiB + KV 5760 MiB for 40960 tokens + runtime 517 MiB                
                                      - 11397 MiB of the 24564 MiB GPU (auto-tune keeps to 22598)                        
                                      - the most context within the 22598 MiB guidance: 40960 tokens (cap 40960)         
@@ -71,9 +71,9 @@
 18bg X36 .74 S9 .1
 19 _3 f14 _103
 19bg X36 .84
-20 _37 x6 _6 f1 o22 x21 F1 x3 f1 _1 o4 _1 o1 _1 o4 _1 o2 _2 o4 _1
+20 _1 F7 _5 x9 _1 x9 _5 x6 _6 f1 o22 x21 F1 x3 f1 _1 o4 _1 o1 _1 o4 _1 o2 _2 o4 _1
 20bg X36 .84
-21 _120
+21 _3 f9 _1 f8 _99
 21bg X36 .84
 22 _37 x1 _1 x7 _1 x4 _1 x3 _1 x1 _1 x2 _1 x4 _1 x3 _1 x3 _1 x5 _1 x6 _1 x1 _1 x7 _1 x3 _1 x3 _16
 22bg X36 .84

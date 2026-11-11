@@ -42,6 +42,9 @@ ROLE_ALIASES = {
     "hal-vision": "vision_model",
 }
 EMPTY_MEANS_CHAT = ("hal-code", "hal-writer")
+# mode alias -> the `[gateway]` key that may point it at another alias (`hal/main = hal-code`)
+MODE_KEYS = {"hal/main": "main", "hal/agent": "agent"}
+MODE_ALIASES = tuple(MODE_KEYS)
 ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # set by the gateway itself for a managed server (docs/design/05-gateway.md "Managed OpenAI server")
 MANAGED_ENV = ("PORT", "HOST")
@@ -165,6 +168,8 @@ GATEWAY_TABLE = config.register(
             K("allow_origins", list, [], check=_strings, doc="Browser origins let in; empty = none"),
             K("allow_hosts", list, [], check=_strings, doc="Extra Host header values"),
             K("default_model", str, "", doc="Model for unknown names; empty = 404"),
+            K("main", str, "hal-code", doc="The alias hal/main serves; empty = the router mode's"),
+            K("agent", str, "hal-code", doc="The alias hal/agent serves (subagents); empty = the mode's"),
             K("models_file", str, "", doc="Model manifest; empty = config_dir()/models.toml"),
             K("max_request_bytes", int, 32 * 1024 * 1024, check=_positive, doc="Body cap for the owner"),
             K("max_header_bytes", int, 65536, check=_positive, doc="Header size cap"),
@@ -440,6 +445,14 @@ def load_config(path: Path | None = None) -> GatewayConfig:
                 path=path,
                 table="hal",
                 key=hal_key,
+            )
+    for key in MODE_KEYS.values():
+        if gateway[key] in MODE_ALIASES:
+            raise config.ConfigError(
+                f"[gateway] {key} = {gateway[key]!r} points a mode alias at itself; name one like hal-code",
+                path=path,
+                table="gateway",
+                key=key,
             )
     for name, alias in aliases.items():
         if name in ROLE_ALIASES:
