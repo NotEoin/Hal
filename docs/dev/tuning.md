@@ -160,7 +160,9 @@ in the tune screen uses.
   the tuned context reaches it. It is a manifest over the same weights, not a copy, and the
   model pickers leave it out. Ollama applies `OLLAMA_KV_CACHE_TYPE` to every model, so the
   role's `kv_type` only sizes the plan;
-- a role on a server-sized model keeps the context the user declared.
+- a role on a server-sized model keeps the context the user declared;
+- every role's `context` is what the gateway reports as the `context_length` of the role's
+  alias, which is the window `hal-agent` (and so `hal code`) works in.
 
 ## Presets
 

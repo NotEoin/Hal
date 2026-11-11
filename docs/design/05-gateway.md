@@ -908,12 +908,14 @@ managed router's main preset.
    "context_length": 32768}]}
 ```
 
-`context_length` comes from, in order: the alias's `context_window` key; for router targets
-the preset's `ctx-size` (the same rule as the mode's `context-window`, "Mode files"); for
-Ollama targets the `num_ctx` parameter of `/api/show` when the model sets one; otherwise it
-is omitted and clients use their own fallback (02 uses 32768). Whether Ollama 0.40.1 reports
-`num_ctx` for models without a Modelfile parameter was not checked [unverified: `curl
-/api/show` on a loaded model]. `meta.hal_profile` is the `profile` key of the model's manifest
+`context_length` comes from, in order: the alias's `context_window` key; for a role alias
+(`hal-ROLE`, including a named role's alias) the `context` of `[models.roles.ROLE]`, which
+`hal tune` writes for every backend and, for Ollama, carries to the server as a derived model's
+`num_ctx` (06, "hal tune"); for router targets the preset's `ctx-size` (the same rule as the
+mode's `context-window`, "Mode files"); otherwise it is omitted and clients use their own
+fallback (02 uses 32768). `hal-code` and `hal-writer` with no model of their own report chat's.
+Test: unit `test_a_role_alias_reports_the_context_hal_tune_set_for_any_backend`.
+`meta.hal_profile` is the `profile` key of the model's manifest
 entry; 03 reads it to pick an agent profile. The Anthropic shape carries the standard fields
 only.
 

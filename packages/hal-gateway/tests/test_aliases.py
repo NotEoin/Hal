@@ -102,6 +102,43 @@ def test_role_alias_reports_the_window_the_active_mode_started_it_with(tmp_path)
     assert listed["hal-code"] == 131072 and listed["hal-fast"] is None
 
 
+ROLES = """
+[models.sources.local]
+kind = "ollama"
+[models.roles.chat]
+source = "local"
+model = "chat-m"
+context = 65536
+[models.roles.fast]
+source = "local"
+model = "fast-m"
+context = 16384
+[models.roles.big]
+source = "local"
+model = "only-a"
+context = 200704
+[gateway.aliases.hal-big]
+backend = "a"
+model = "only-a"
+"""
+
+
+def test_a_role_alias_reports_the_context_hal_tune_set_for_any_backend(tmp_path):
+    # regression: an Ollama or vLLM role reported no context, so hal code assumed 32k
+    resolver = build(tmp_path, BASE + ROLES)
+    assert resolver.resolve("hal-fast").context_length == 16384
+    assert resolver.resolve("hal-code").context_length == 65536  # empty code_model serves chat
+    assert resolver.resolve("hal-big").context_length == 200704  # a named role's alias
+    listed = {e.id: e.context_length for e in resolver.listing()}
+    assert (listed["hal-chat"], listed["hal-embed"]) == (65536, None)
+
+
+def test_the_role_context_wins_over_the_mode_window(tmp_path):
+    resolver = build(tmp_path, BASE + ROLES)
+    resolver.mode_windows[("a", "chat-m")] = 131072
+    assert resolver.resolve("hal-chat").context_length == 65536
+
+
 def test_alias_context_window_wins_over_the_mode_window(tmp_path):
     resolver = build(tmp_path)
     resolver.mode_windows[("a", "coder-up")] = 131072

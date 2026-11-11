@@ -9,6 +9,10 @@ Decisions:
   waits for, or depends on, a server that is stopped.
 - Mode aliases (`hal/main`, preset names) come from the managed router (plan step 11); the
   resolver takes them as a plain mapping so that step only has to fill it.
+- The context a name reports, first found wins: the alias's own `context_window`, then the
+  `context` of the role it serves (`[models.roles.ROLE]`, which `hal tune` writes for every
+  backend), then the `ctx-size` the active mode started the model with. The role comes before
+  the mode because it is what the user chose, and `hal tune` writes the mode from it.
 - A role alias whose model is in no backend list falls back to the only Ollama backend: Ollama
   loads on demand and answers a missing model with its own error, which is clearer than 404 here.
 - Session and client restrictions arrive with their registries (plan steps 19 and 21).
@@ -87,8 +91,20 @@ class Resolver:
         return ids
 
     def _target(self, alias: str, backend: OpenAIBackend, model: str, window: int | None = None) -> Target:
-        window = window or self.mode_windows.get((backend.name, model))
+        window = window or self.role_window(alias) or self.mode_windows.get((backend.name, model))
         return Target(alias, backend, model, backend.remote, window or None)
+
+    def role_window(self, alias: str) -> int | None:
+        """The `context` of the role alias `alias` serves (`hal-code` -> `[models.roles.code]`), else None.
+
+        `hal-code` and `hal-writer` with no model of their own serve chat, so they report its window.
+        """
+        if not alias.startswith("hal-"):
+            return None
+        role = self.cfg.roles.get(alias.removeprefix("hal-"))
+        if role is None and alias in EMPTY_MEANS_CHAT and not str(self.cfg.hal[ROLE_ALIASES[alias]]):
+            role = self.cfg.roles.get("chat")
+        return role.context if role is not None and role.context > 0 else None
 
     def role_value(self, role: str) -> str:
         """The model name `[hal]` gives to role alias `role`."""

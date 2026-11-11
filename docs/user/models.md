@@ -60,6 +60,12 @@ temperature = 0.7      # -1 = the model's default
 auto = true            # true: `hal tune --write` may replace context, kv_type and the offload
 ```
 
+The `context` of a role is the window every client sees: the gateway reports it as the
+`context_length` of the role's alias (`hal-chat`, `hal-code`, `hal-NAME`), and `hal code`
+sizes its conversation to it. For an Ollama model, saving makes `hal-tuned-ROLE` in Ollama
+(the same weights with that `num_ctx`), because Ollama ignores a context sent with a request;
+see [how the settings reach the server](../dev/tuning.md#how-the-settings-reach-the-server).
+
 ### Named roles
 
 You can add your own roles beside the built-in ones. A named role is one model with its own
