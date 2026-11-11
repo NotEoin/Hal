@@ -85,6 +85,9 @@ carries the same version.
 
 ### Fixed
 
+- On Windows, `hal remote status` no longer sends Ctrl+C to the tunnel it checks. It tested
+  whether the supervisor was running with `os.kill(pid, 0)`, which on Windows delivers
+  `CTRL_C_EVENT`; it now asks Windows for the process's exit code.
 - Two GGUF roles that do not fit the GPU together (a coder and a writer) swap instead of running
   out of memory: the `tuned` mode keeps one loaded (`models-max = 1`) when their files do not fit.
 - The gateway re-reads `models.toml` when it changes. A `hal tune` save remakes a role's Ollama

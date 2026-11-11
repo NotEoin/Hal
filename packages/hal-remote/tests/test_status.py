@@ -79,3 +79,26 @@ def test_a_corrupt_or_foreign_file_is_an_error(paths):
     (paths.state / "status.json").write_text('{"schema": "other"}')
     with pytest.raises(status.StatusError):
         status.read(paths)
+
+
+def test_windows_checks_a_pid_without_sending_it_ctrl_c(monkeypatch):
+    # regression: os.kill(pid, 0) is CTRL_C_EVENT on Windows; checking pytest's own pid interrupted CI
+    def no_kill(*_args):
+        raise AssertionError("os.kill must not be called on Windows")
+
+    monkeypatch.setattr(status, "WINDOWS", True)
+    monkeypatch.setattr(status.os, "kill", no_kill)
+    monkeypatch.setattr(status, "_windows_alive", lambda pid: pid == 4242)
+    assert status.pid_alive(4242) and not status.pid_alive(4243)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the Win32 process query exists only on Windows")
+def test_the_windows_check_sees_this_process_and_not_one_that_exited():
+    import subprocess  # noqa: PLC0415 - only this test starts a process
+    import sys  # noqa: PLC0415 - only this test starts a process
+
+    assert status.pid_alive(os.getpid())
+    # Popen keeps the exited process's handle open, so Windows cannot hand its pid to another process
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    child.wait(timeout=60)
+    assert not status.pid_alive(child.pid)
