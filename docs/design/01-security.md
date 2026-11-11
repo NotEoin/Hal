@@ -635,9 +635,11 @@ Test paths are under `packages/<p>/tests/` unless they start with `tests/`.
 
 ### Supply chain
 
-- **REQ-SEC-78** The installer MUST download llama.cpp only as the pinned release (tag
-  `b11512` today) and MUST verify its sha256 from a lock file in the repo before extracting;
-  a mismatch MUST stop the install. Test: unit (`hal-gateway/tests/test_llamacpp_lock.py`).
+- **REQ-SEC-78** The installer (`hal setup`, `halgateway.llamacpp.install`) MUST download
+  llama.cpp only as the pinned release (tag `b12121` today) and MUST verify each archive's
+  sha256 from a lock file in the repo before extracting; a mismatch MUST stop the install and
+  leave nothing installed. Test: unit (`hal-gateway/tests/test_llamacpp_lock.py`,
+  `test_an_archive_that_does_not_match_the_lock_installs_nothing`).
 - **REQ-SEC-79** Every file the gateway loads MUST have an entry in
   `~/.config/hal/models.toml` (05-gateway's model manifest, D2) with `sha256`; the gateway
   MUST verify the hash before the first load and again whenever the file's size, mtime or
@@ -2063,17 +2065,17 @@ approval per lockfile and manifest set (REQ-SEC-97) and is not part of these ses
 - llama.cpp: `packages/hal-gateway/src/halgateway/llamacpp.lock.toml`:
 
   ```toml
-  [release]
-  tag = "b11512"
-  [[release.assets]]
-  platform = "linux-x86_64-cuda-12.8"
-  url = "https://github.com/ggml-org/llama.cpp/releases/download/b11512/<asset>"
-  sha256 = "<64 hex>"
+  tag = "b12121"
+  [assets]                                   # archive name -> sha256
+  "llama-b12121-bin-ubuntu-cuda-12.8-x64.tar.gz" = "628ad671..."
+  [variants]                                 # archives per machine, extracted into one folder
+  cuda = ["llama-b12121-bin-ubuntu-cuda-12.8-x64.tar.gz", "cudart-llama-b12121-bin-ubuntu-cuda-12.8-x64.tar.gz"]
   ```
 
-  The installed build is `b11512` [verified: `~/.local/share/hal/llama.cpp/llama-b11512`];
-  its archive hash is not on disk [unverified: record it from the release when writing the lock].
-  Upgrading is a commit that changes tag and hashes.
+  The archives come from `https://github.com/ggml-org/llama.cpp/releases/download/<tag>/<asset>`.
+  The digests are GitHub's release digests (read 2026-11-11); the CUDA archive was also checked
+  with `sha256sum` against an independent download. Upgrading is a commit that changes the tag
+  and the digests.
 - Models: `~/.config/hal/models.toml` (05-gateway owns the schema, D2; sha256 is mandatory for
   every file the gateway loads). Security fields per entry: `file`, `format` (`gguf` |
   `safetensors`), `sha256`, `source` (`hf:<repo>@<commit>` or `ollama:<name>@sha256:<digest>`

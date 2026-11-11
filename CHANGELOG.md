@@ -18,6 +18,9 @@ carries the same version.
 
 ### Added
 
+- `hal setup` installs the pinned llama.cpp build (now b12121) when a GGUF source or a llama.cpp
+  router needs it, picking CUDA, ROCm or the CPU build for your GPU and checking every archive
+  against the sha256 in the repo before it is extracted. `setup.sh --profile max` did this before.
 - `hal ask`, `index`, `brief`, `summarize`, `import`, `obsidian-key` and `register-repos` hand
   off to the memory pack's `hal-memory`, as the removed bash launcher did.
 - `hal claude` opens Claude Code on your models through the gateway (`hal/main`, `hal/agent`),

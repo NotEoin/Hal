@@ -47,8 +47,10 @@ hal setup             # run it
 
 In order, `hal setup` syncs the workspace, installs the packs and the employment helper it finds
 as sibling checkouts, installs gpu-light from a sibling checkout when it is missing, builds the box
-image when docker exists, writes the hal-* user units and runs `hal doctor`. A missing piece is
-skipped. It downloads no model. Units are written but not enabled; add `--enable` to start them
+image when docker exists, installs the pinned llama.cpp build when a GGUF source or a llama.cpp
+router needs one (CUDA, ROCm or CPU, matched to your GPU, checked against the sha256 in the repo),
+writes the hal-* user units and runs `hal doctor`. A missing piece is skipped. It downloads no
+model. Units are written but not enabled; add `--enable` to start them
 at login. Use `--from DIR` (repeatable) to name the folder that holds the sibling repos, and
 `--replace` only when you mean to replace the units of another install. The step list and its
 rules are in [docs/user/cli.md](docs/user/cli.md#hal-setup).

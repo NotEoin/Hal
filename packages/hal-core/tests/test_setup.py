@@ -331,3 +331,27 @@ def test_setup_says_how_to_skip_the_tune_screen(tmp_path, monkeypatch, capsys):
     hsetup.offer_tuning(dry_run=False)
     said = capsys.readouterr().out
     assert "press Esc to skip" in said and "type quit" not in said
+
+
+def test_llamacpp_is_installed_only_when_a_gguf_source_needs_it(tmp_path, monkeypatch):
+    from halgateway import llamacpp
+    from halkit import hardware
+
+    config = tmp_path / "config.toml"
+    monkeypatch.setenv("HAL_CONFIG", str(config))
+    config.write_text('[models.sources.l]\nkind = "ollama"\n')
+    assert "not needed" in hsetup._llamacpp_step().skip
+    config.write_text(
+        f'[gateway.backends.local]\ntype = "llama-router"\nmodels_dir = "{tmp_path}"\n'
+        f'server = "{tmp_path}/llama-b1/llama-server"\n'
+    )
+    monkeypatch.setattr(hardware, "detect", lambda: hardware.Hardware((hardware.Gpu(0, "nvidia", "g", 8, 8),), 1, 1, 1, False))
+    step = hsetup._llamacpp_step()
+    assert not step.skip and "(cuda:" in step.detail and str(tmp_path) in step.detail
+    installed = []
+    monkeypatch.setattr(llamacpp, "install", lambda root, variant: installed.append((root, variant)) or root)
+    step.run()
+    assert installed == [(tmp_path, "cuda")]
+    (tmp_path / "llama-b1").mkdir()
+    (tmp_path / "llama-b1" / "llama-server").write_text("")
+    assert hsetup._llamacpp_step().skip == "already installed"

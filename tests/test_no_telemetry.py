@@ -26,6 +26,7 @@ NETWORK_MODULES: dict[str, str] = {
     "halcore/brain.py": "host brain talking to the configured model server",
     "halcore/power.py": "status probe of the user's own gateway on localhost",
     "halgateway/client.py": "client of the user's own gateway",
+    "halgateway/llamacpp.py": "the pinned llama.cpp download `hal setup` makes, checked by sha256",
     "halgateway/gpu/peers.py": "probe of gpu-light peers the user configured",
     "halgateway/models/download.py": "model download the user asked for, from the pinned model host",
     "halkit/discovery.py": "lists the models of the sources the user configured",
@@ -41,6 +42,7 @@ NETWORK_MODULES: dict[str, str] = {
 # host -> why Hal may name it. Local addresses are always fine.
 ALLOWED_HOSTS: dict[str, str] = {
     "huggingface.co": "model download the user asked for (halgateway.models)",
+    "github.com": "the pinned llama.cpp release `hal setup` installs (halgateway.llamacpp)",
     "api.anthropic.com": "model list of an `anthropic` source the user added (halkit.discovery)",
     "api.openai.com": "model list of an `openai-cloud` source the user added (halkit.discovery)",
     "ntfy.sh": "default of the optional, off-by-default [notify].ntfy_server key",

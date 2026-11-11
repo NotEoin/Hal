@@ -266,9 +266,10 @@ _COMMON_BACKEND = (
     K("connect_timeout_s", float, 0.0, check=_non_negative, doc="Override of the gateway value; 0 = inherit"),
     K("read_timeout_s", float, 0.0, check=_non_negative, doc="Override of the gateway value; 0 = inherit"),
 )
+LLAMA_SERVER = "~/.local/share/hal/llama.cpp/llama-b12121/llama-server"  # where `hal setup` installs the pin
 _ROUTER_KEYS = (
     K("managed", bool, True, doc="The gateway starts and stops llama-server"),
-    K("server", str, "~/.local/share/hal/llama.cpp/llama-b11512/llama-server", doc="llama-server binary"),
+    K("server", str, LLAMA_SERVER, doc="llama-server binary"),
     K("models_dir", str, "", doc="Directory of model files; required when managed"),
     K("mode", str, "gpu", doc="Mode preset loaded first"),
     K("modes_dirs", list, ["~/.config/hal/modes"], check=_strings, doc="User mode preset directories"),
