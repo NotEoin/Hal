@@ -189,6 +189,15 @@ def test_moved_ollama_tag_is_refused(tmp_path, fake):
     assert resp.status == 503 and "moved" in json.loads(raw)["error"]
 
 
+def test_a_pin_saved_while_the_gateway_runs_is_used_without_a_restart(tmp_path, fake):
+    # regression: a `hal tune` save remade a role's Ollama model and pinned it, and the gateway
+    # kept the pins it read at start, answering 503 until it was restarted
+    gw = make_gateway(tmp_path, fake, pinned=True, digest="e" * 64)
+    assert call(gw, "POST", "/api/chat", {"model": "gemma:1"})[0].status == 503
+    pin(tmp_path, digest="d" * 64)
+    assert call(gw, "POST", "/api/chat", {"model": "gemma:1"})[0].status == 200
+
+
 def test_pinned_ollama_digest_is_read_once_per_30_seconds(gateway):
     for _ in range(3):
         assert call(gateway, "POST", "/api/chat", {"model": "gemma:1"})[0].status == 200

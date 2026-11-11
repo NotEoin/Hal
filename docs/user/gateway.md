@@ -103,7 +103,8 @@ by `packages/hal-gateway/tests/test_backends_managed.py` (a fake server).
 
 Ollama models must be pinned in `models.toml` by digest; an unpinned model or a moved tag
 answers 503 `model_unverified`. Weight files for the router carry a sha256 and are checked
-before they load. See [pin a model](../howto/pin-a-model.md).
+before they load. The gateway re-reads `models.toml` when it changes, so a pin that `hal tune`
+or `hal models` saves counts without a restart. See [pin a model](../howto/pin-a-model.md).
 
 ## Remote backends
 

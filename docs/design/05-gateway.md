@@ -572,8 +572,10 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
   unit `test_health_is_public_and_local`.
 - **REQ-GW-77** A request to an Ollama backend MUST get 503 `model_unverified` unless
   `models.toml` has an `ollama:` entry for the upstream model whose digest equals the digest
-  `/api/tags` reports (cached 30 s). Test: unit `test_unpinned_ollama_model_is_refused`,
-  `test_moved_ollama_tag_is_refused`.
+  `/api/tags` reports (cached 30 s). The gateway MUST re-read `models.toml` when the file
+  changes, so a pin saved while it runs counts at once. Test: unit
+  `test_unpinned_ollama_model_is_refused`, `test_moved_ollama_tag_is_refused`,
+  `test_a_pin_saved_while_the_gateway_runs_is_used_without_a_restart`.
 - **REQ-GW-78** A `chat-template-file` in a rendered mode MUST be a bundled file listed with
   its sha256 in `halgateway/modes/SHA256SUMS`, or match the `template_sha256` of the
   preset's model entry (REQ-SEC-81). Test: unit `test_unpinned_template_is_refused`.

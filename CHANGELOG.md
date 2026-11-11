@@ -83,6 +83,10 @@ carries the same version.
 
 ### Fixed
 
+- The gateway re-reads `models.toml` when it changes. A `hal tune` save remakes a role's Ollama
+  model and pins it; until now that role answered 503 `model_unverified` until the gateway was
+  restarted.
+
 - `[hal] embed_on_cpu` works again: the embed role's Ollama model has no GPU layers, so a vault
   reindex no longer takes VRAM that a model loading beside it needs (a coder load failed on it).
 

@@ -146,6 +146,7 @@ class Gateway:
         self.reqlog = RequestLog(self.state_dir, cfg.log)
         self.clients = ClientTokens(self.state_dir / "tokens.json")
         self.manifest: dict[str, ModelEntry] = {}
+        self._models_stamp: tuple[int, int] | None = None
         self.verifier = Verifier(self.manifest, self.state_dir / VERIFIED_NAME)
         self._digests: dict[str, tuple[float, dict[str, str]]] = {}  # backend -> (time, name -> digest)
         self.backends = {n: make_backend(n, e, cfg.ollama_url) for n, e in cfg.backends.items()}
@@ -295,20 +296,45 @@ class Gateway:
         configured = str(self.router_entry().get("models_dir") or "")
         return Path(configured).expanduser() if configured else Path()
 
+    def _models_path(self) -> Path:
+        configured = str(self.config["models_file"])
+        return Path(configured).expanduser() if configured else paths.config_dir() / "models.toml"
+
     def load_models(self) -> None:
         """Reads `models.toml`; a missing file is an empty manifest, an invalid one raises `StartError`."""
-        configured = str(self.config["models_file"])
-        path = Path(configured).expanduser() if configured else paths.config_dir() / "models.toml"
-        models_dir = self.models_dir()
+        path = self._models_path()
         if not path.exists():
             log.warning("no model manifest at %s; Ollama requests answer 503 model_unverified", path)
             return
         try:
-            entries = load_manifest(path, models_dir)
-        except ManifestError as exc:
+            stamp = (path.stat().st_mtime_ns, path.stat().st_ino)
+            entries = load_manifest(path, self.models_dir())
+        except (ManifestError, OSError) as exc:
             raise StartError(f"invalid model manifest: {exc}") from exc
         self.manifest.clear()
         self.manifest.update(entries)
+        self._models_stamp = stamp
+        self._digests.clear()  # a pin that changed may name a digest the cache does not know yet
+
+    def refresh_models(self) -> None:
+        """Re-reads `models.toml` when it changed, so a `hal tune` save needs no gateway restart.
+
+        A save remakes the role's derived Ollama models with new digests and pins them; with the
+        pins read only at start, those roles answered 503 until a restart. An invalid file is
+        logged and the pins already loaded stay in force.
+        """
+        path = self._models_path()
+        try:
+            st = path.stat()
+        except OSError:
+            return
+        if (st.st_mtime_ns, st.st_ino) == self._models_stamp:
+            return
+        try:
+            self.load_models()
+            log.info("re-read the model pins in %s", path)
+        except StartError as exc:
+            log.warning("keeping the model pins already loaded: %s", exc)
 
     def profile_of(self, model: str) -> str | None:
         """The manifest `profile` of an upstream model name (for `meta.hal_profile`)."""
@@ -317,6 +343,7 @@ class Gateway:
 
     def check_model(self, backend, model: str) -> None:  # type: ignore[no-untyped-def]
         """Refuses an Ollama model that is unpinned or whose tag moved (REQ-GW-77); other backends pass."""
+        self.refresh_models()
         if backend.type != "ollama":
             return
         name = model if model in self.manifest or ":" in model else f"{model}:latest"
