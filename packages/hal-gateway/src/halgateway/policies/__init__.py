@@ -12,11 +12,10 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from ..config import MODE_ALIASES  # the aliases a mode's `[hal]` policies apply to
 from ..modes import HalSettings
 
 log = logging.getLogger(__name__)
-
-MODE_ALIASES = ("hal/main", "hal/agent")  # the aliases that follow the active mode's `[hal]` section
 
 
 @dataclass

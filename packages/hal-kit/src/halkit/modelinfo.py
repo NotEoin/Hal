@@ -37,9 +37,27 @@ class ModelInfo:
     # per-layer (Gemma 4 lists KV heads and the window pattern per layer, with smaller window heads)
     kv_full_width: int | None = None
     kv_window_width: int | None = None
+    vocab: int | None = None  # tokens in the vocabulary; sizes llama.cpp's output buffer
+    experts: int | None = None  # routed experts per layer of a mixture-of-experts model
+    expert_bytes: int | None = None  # bytes of the routed expert tensors over all layers (GGUF)
+    # bytes llama.cpp keeps in RAM whatever the offload: the input embedding, when the model has a
+    # separate output matrix (a tied one is copied to the GPU, so nothing stays behind)
+    host_bytes: int | None = None
+    # bytes llama.cpp does not load unless asked: a multi-token-prediction layer (`nextn`), which
+    # only a draft (`--spec-type draft-mtp`) uses
+    idle_bytes: int | None = None
+    mtp_layers: int | None = None  # how many `nextn` layers that is (each has its own cache)
+    context_served: int | None = None  # the context the server runs it with (Ollama's `num_ctx`)
+    # draft models for speculative decoding found beside a GGUF: (path, bytes), best kind first
+    drafts: tuple[tuple[str, int], ...] = ()
     capabilities: frozenset[str] = field(default_factory=frozenset)
     path: str = ""  # GGUF file path; empty for other kinds
     digest: str = ""  # Ollama digest, when known
+
+    @property
+    def is_moe(self) -> bool:
+        """True for a mixture-of-experts model whose expert tensors are measured."""
+        return bool(self.experts and self.experts > 1 and self.expert_bytes)
 
     @property
     def has_architecture(self) -> bool:

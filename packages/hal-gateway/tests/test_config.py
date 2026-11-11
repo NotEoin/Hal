@@ -19,7 +19,7 @@ def test_empty_file_gives_the_documented_defaults(tmp_path):
     assert cfg.gateway["max_request_bytes"] == 32 * 1024 * 1024
     assert cfg.gateway["upstream_read_timeout_s"] == 3600.0
     assert (cfg.log["requests"], cfg.log["content"], cfg.log["keep"]) == (True, False, 3)
-    assert (cfg.sessions["max_concurrent"], cfg.sessions["max_requests_per_min"]) == (4, 30)
+    assert (cfg.sessions["max_concurrent"], cfg.sessions["max_requests_per_min"]) == (4, 120)
     assert (cfg.gpu["coordinator"], cfg.gpu["on_busy"], cfg.gpu["idle_release_s"]) == (
         "auto",
         "proceed",
@@ -84,6 +84,50 @@ def test_managed_router_with_models_dir_gets_its_defaults(tmp_path):
         "tcp",
         "process",
     )
+
+
+MANAGED = '[gateway.backends.q]\ntype = "managed-openai"\n'
+MANAGED_OK = MANAGED + 'command = ["/opt/serve.sh"]\nserved_models = ["m"]\n'
+
+
+def test_managed_server_gets_its_defaults(tmp_path):
+    q = load_config(write(tmp_path, MANAGED_OK)).backends["q"]
+    assert (q["port"], q["health_path"], q["autostart"], q["idle_stop"], q["exclusive_gpu"]) == (
+        8000,
+        "/health",
+        "on-demand",
+        True,
+        True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        (MANAGED + 'served_models = ["m"]\n', "command is required"),
+        (MANAGED + 'command = ["/opt/serve.sh"]\n', "served_models"),
+        (MANAGED + 'command = ["serve.sh"]\nserved_models = ["m"]\n', "absolute path"),
+        (MANAGED_OK + 'url = "http://127.0.0.1:9"\n', "derived from port"),
+        (MANAGED_OK + 'cwd = "work"\n', "absolute path"),
+        (MANAGED_OK + 'key_env = "not a name"\n', "environment variable name"),
+    ],
+)
+def test_managed_server_needs_a_command_and_its_models(tmp_path, text, message):
+    with pytest.raises(ConfigError, match=message):
+        load_config(write(tmp_path, text))
+
+
+@pytest.mark.parametrize("name", ["HF_TOKEN", "OPENAI_API_KEY", "DB_PASSWORD", "AWS_SECRET_ACCESS_KEY"])
+def test_managed_server_env_refuses_secret_looking_names(tmp_path, name):
+    with pytest.raises(ConfigError, match="looks like a secret"):
+        load_config(write(tmp_path, MANAGED_OK + f'env = {{ {name} = "x" }}\n'))
+
+
+@pytest.mark.parametrize("name", ["PORT", "HOST", "SERVER_KEY"])
+def test_managed_server_env_refuses_names_the_gateway_sets(tmp_path, name):
+    text = MANAGED_OK + f'key_env = "SERVER_KEY"\nenv = {{ {name} = "x" }}\n'
+    with pytest.raises(ConfigError, match="set by the gateway"):
+        load_config(write(tmp_path, text))
 
 
 def test_backend_without_type_is_rejected(tmp_path):

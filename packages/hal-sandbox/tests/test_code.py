@@ -219,3 +219,32 @@ def test_run_code_boxes_an_isolated_copy_and_cleans_up(tmp_path, monkeypatch):
 def test_masked_path_that_leaves_the_work_tree_is_refused(tmp_path):
     with pytest.raises(SandboxError):
         docker_args(tmp_path, rdir(), masked=["../x"])
+
+
+def test_run_code_lets_the_caller_serve_the_model_socket_and_stops_it(tmp_path, monkeypatch):
+    import os
+    import shutil
+    import tempfile
+
+    os.chmod(sockdir := Path(tempfile.mkdtemp(prefix="rc-")), 0o700)
+    fake = tmp_path / "docker"
+    fake.write_text('#!/bin/sh\n[ "$1 $2" = "image inspect" ] && echo "sha256:abc ctx"\nexit 0\n')
+    fake.chmod(0o755)
+    for k, v in (("HAL_DOCKER", fake), ("HAL_RUNTIME_DIR", sockdir), ("HAL_STATE_DIR", tmp_path / "st"),
+                 ("HAL_CONFIG", tmp_path / "none.toml")):  # fmt: skip
+        monkeypatch.setenv(k, str(v))
+    monkeypatch.setattr(
+        detect,
+        "detect",
+        lambda *a, **k: detect.Probe("docker", True, "runc", "rootful", "", "2026-10-30T00:00:00Z"),
+    )
+    project = tmp_path / "proj"
+    project.mkdir()
+    calls = []
+    try:
+        status = run_code(
+            project, serve_model=lambda sock: calls.append(sock) or (lambda: calls.append("stop"))
+        )
+        assert status == 0 and calls[0].name == "model.sock" and calls[-1] == "stop"
+    finally:
+        shutil.rmtree(sockdir, ignore_errors=True)

@@ -133,6 +133,7 @@ def plan(dirs: list[Path], *, enable: bool, image: bool, replace: bool = False,
     steps.append(_gpu_light_step(dirs))
     steps.append(_config_step(replace, migrate_from))
     steps.append(_models_step())
+    steps.append(_llamacpp_step())
     steps.append(_sandbox_step())
     steps.append(_image_step() if image else Step("box image", "--no-image", skip="skipped by option"))
     steps.append(_units_step(enable, replace))
@@ -243,6 +244,29 @@ def _gpu_light_step(dirs: list[Path]) -> Step:
 def _tool_install(repo: Path) -> str:
     _run(["uv", "tool", "install", str(repo)], TOOL_INSTALL_TIMEOUT_S)
     return "installed"
+
+
+def _llamacpp_step() -> Step:
+    """Installs the pinned llama.cpp when a GGUF source or a llama.cpp router needs it."""
+    from halgateway import llamacpp
+    from halgateway.config import LLAMA_SERVER, load_config
+    from halkit import hardware, modelconf
+    from halkit.config import ConfigError
+
+    try:
+        routers = [b for b in load_config().backends.values() if b.get("type") == "llama-router"]
+        gguf = any(src.kind == "gguf" for src in modelconf.load_sources().values())
+    except ConfigError as exc:
+        return Step("llama.cpp", "config unreadable", skip=f"skipped: {exc}")
+    if not routers and not gguf:
+        return Step("llama.cpp", "no GGUF source", skip="no GGUF source or llama.cpp router; not needed")
+    server = Path(str(routers[0].get("server") if routers else LLAMA_SERVER)).expanduser()
+    if server.is_file():
+        return Step("llama.cpp", str(server), skip="already installed")
+    variant = llamacpp.variant_for([g.vendor for g in hardware.detect().gpus])
+    tag, names = llamacpp.files_of(variant)
+    detail = f"download llama.cpp {tag} ({variant}: {', '.join(names)}), check its sha256, install into {server.parent.parent}"
+    return Step("llama.cpp", detail, lambda: f"installed {llamacpp.install(server.parent.parent, variant)}")
 
 
 def _image_step() -> Step:

@@ -11,8 +11,9 @@ Ported from `hal-serve`. Design decisions:
   while a crash restarts on the next request, at most `max_restarts` times in `CRASH_WINDOW_S`.
 - Every load goes through `Verifier.verify_path` (REQ-GW-78): at render for the startup
   presets and again before an admin `load`.
-- The legacy `hal-serve` router blocks a managed start (REQ-GW-37): two routers would fight
-  for the same VRAM and port.
+- A start first calls `before_start`, which the gateway uses to stop managed servers that need
+  the whole card (REQ-GW-95). `yield_gpu` is the other direction: it stops the router without the
+  deliberate-stop mark, so the next request brings it back.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .. import launchers, llamacmd, modes, relay
+from .. import launchers, llamacmd, modes, park, relay
 from ..errors import BadGatewayError, BadRequest, GatewayError, ModelUnverified, RouterBusy, Unavailable
 from ..models.manifest import ManifestError, Verifier
 from ..policies import route, swap
@@ -40,7 +41,6 @@ log = logging.getLogger(__name__)
 RECORD_NAME = "router.json"
 KEY_NAME = "router.key"
 LOG_NAME = "router.log"
-LEGACY_PID_NAME = "router.pid"
 CRASH_WINDOW_S = 600.0  # REQ-GW-39
 POLL_S = 1.0  # REQ-GW-34
 STATUS_TIMEOUT_S = 5.0
@@ -59,15 +59,20 @@ def _now() -> str:
 
 
 def startup_presets(rendered: Path) -> list[str]:
-    """Preset names of a rendered mode that load at start (no `load-on-startup = false`)."""
+    """Preset names of a rendered mode that load at start (no `load-on-startup = false`).
+
+    A preset without the key inherits it from `[*]`, as llama-server does; the `tuned` mode sets
+    it only there, and waiting for a preset the router will not load hung the first request.
+    """
     parser = configparser.ConfigParser(interpolation=None, default_section="")
     parser.optionxform = str  # type: ignore[assignment,method-assign]  # keys are case-sensitive
     parser.read_string(f"[{modes.TOP}]\n{rendered.read_text(encoding='utf-8')}", source=str(rendered))
+    default = parser.get("*", "load-on-startup", fallback="true") if parser.has_section("*") else "true"
     return [
         name
         for name in parser.sections()
         if name not in ("*", modes.TOP)
-        and parser.get(name, "load-on-startup", fallback="true").lower() != "false"
+        and parser.get(name, "load-on-startup", fallback=default).lower() != "false"
     ]
 
 
@@ -77,6 +82,7 @@ class LlamaRouter(OpenAIBackend):
     def __init__(self, name: str, entry: Mapping[str, object], *, ollama_url: str) -> None:
         super().__init__(name, entry, ollama_url=ollama_url)
         self.managed = bool(entry["managed"])
+        self.parking = park.Parking(bool(entry["park"]))
         self.launcher = launchers.ProcessLauncher()
         self.poll_s = POLL_S
         self._lock = threading.RLock()
@@ -93,6 +99,7 @@ class LlamaRouter(OpenAIBackend):
         self._swap: swap.SwapScheduler | None = None
         self.turns = route.TurnMemory()  # the route policy's held choice per conversation
         self.on_mode: Callable[[modes.HalSettings | None], None] = lambda hal: None
+        self.before_start: Callable[[LlamaRouter], None] = lambda router: None
 
     def configure(
         self,
@@ -100,9 +107,16 @@ class LlamaRouter(OpenAIBackend):
         models_dir: Path,
         verifier: Verifier,
         ollama: Callable[[], list],  # type: ignore[type-arg]
+        lock: threading.RLock | None = None,
     ) -> None:
-        """Gives the router the gateway's state directory (`<state>/gateway`), models and Ollama backends."""
+        """Gives the router the gateway's state directory (`<state>/gateway`), models and Ollama backends.
+
+        `lock` is the gateway's lifecycle lock, shared with managed servers so that two starts
+        that each stop the other cannot deadlock.
+        """
         self._state, self._models_dir, self._verifier, self._ollama = state, models_dir, verifier, ollama
+        if lock is not None:
+            self._lock = lock
 
     # --- addressing -------------------------------------------------------------------------
 
@@ -236,11 +250,6 @@ class LlamaRouter(OpenAIBackend):
             raise BadRequest(f"backend {self.name} is not managed by the gateway")
         mode = mode or self._entry_mode()
         with self._lock:
-            legacy = launchers.legacy_router_pid(self._state.parent / LEGACY_PID_NAME)
-            if legacy is not None:
-                raise RouterError(
-                    f"the legacy hal-serve router (pid {legacy}) is running; run `hal-serve stop` first"
-                )
             rendered = self._render(mode)
             if (
                 self.running()
@@ -250,6 +259,7 @@ class LlamaRouter(OpenAIBackend):
                 self._stopped = False
                 return
             self._stop_locked()
+            self.before_start(self)
             self._unload_ollama()
             self._spawn(rendered)
             self._stopped = False
@@ -258,7 +268,7 @@ class LlamaRouter(OpenAIBackend):
     def _spawn(self, rendered: modes.RenderedMode) -> None:
         server = Path(str(self.entry["server"])).expanduser()
         if not (server.is_file() and os.access(server, os.X_OK)):
-            raise RouterError(f"llama-server not found at {server}; run ./setup.sh --profile max")
+            raise RouterError(f"llama-server not found at {server}; `hal setup` installs the pinned build")
         if str(self.entry["launcher"]) != "process":
             raise RouterError("the docker launcher is not available yet")
         if str(self.entry["listen"]) == "unix":
@@ -328,6 +338,7 @@ class LlamaRouter(OpenAIBackend):
     def _wait_loaded(self, rendered: modes.RenderedMode) -> None:
         """REQ-GW-34: poll every `poll_s` until each startup preset is loaded; stop and fail otherwise."""
         deadline = time.monotonic() + float(self.entry["load_timeout_s"])  # type: ignore[arg-type]
+        self._wait_answering(deadline)
         for name in startup_presets(rendered.path):
             seen_loading = False
             while True:
@@ -349,17 +360,41 @@ class LlamaRouter(OpenAIBackend):
                     )
                 time.sleep(self.poll_s)
 
+    def _wait_answering(self, deadline: float) -> None:
+        """Polls until the router answers `/health`: with no startup preset nothing else waits,
+        and a request relayed in the half second before it listens got a 502 (seen 2026-11-11)."""
+        while True:
+            if not self.running():
+                self._drop_record()
+                raise RouterError(f"llama-server exited while starting; see {self.log_path()}")
+            try:
+                relay.call_json(self, "GET", "/health", timeout_s=STATUS_TIMEOUT_S)
+                return
+            except (GatewayError, OSError):
+                pass  # not listening yet
+            if time.monotonic() >= deadline:
+                self._stop_locked()
+                raise RouterError(
+                    f"llama-server did not answer after {self.entry['load_timeout_s']} s; "
+                    f"see {self.log_path()}"
+                )
+            time.sleep(self.poll_s)
+
     def _unload_ollama(self) -> None:
         """REQ-GW-33: free the VRAM Ollama holds before the router loads."""
         for backend in self._ollama():
             try:
-                for model in backend.in_vram():
+                held = backend.in_vram()
+                for model in held:
                     log.info("unloading Ollama model %s to free VRAM", model)
                     backend.unload(model)
+                if held and not backend.wait_unloaded(held):
+                    log.warning("Ollama models %s still hold VRAM; starting anyway", ", ".join(held))
             except (GatewayError, OSError) as exc:
                 log.warning("cannot unload Ollama models of %s: %s", backend.name, exc)
 
     def _stop_locked(self) -> None:
+        self.parking.forget()
         pid, started = self._record.get("pid"), self._record.get("pid_start")
         if isinstance(pid, int) and isinstance(started, int):
             self.launcher.stop(pid, started, float(self.entry["stop_timeout_s"]))  # type: ignore[arg-type]
@@ -371,11 +406,33 @@ class LlamaRouter(OpenAIBackend):
             self._stop_locked()
             self._stopped = True
 
+    def yield_gpu(self) -> None:
+        """Frees the card for another backend: parks llama-server with `park`, else stops it.
+
+        The next request resumes or starts it again.
+        """
+        with self._lock:
+            if self.parking.parked:
+                return
+            pid = self._record.get("pid")
+            if isinstance(pid, int) and self.running() and self.parking.try_park(self.name, pid):
+                return
+            if self._record:
+                log.info("stopping llama-server to free the GPU")
+            self._stop_locked()
+            self._swap = None  # a restarted router has nothing loaded
+
     def ensure(self) -> None:
         """Called before a request is relayed: starts on demand, restarts after a crash within the budget."""
         if not self.managed:
             return
         with self._lock:
+            if self.parking.parked and self.running():
+                self.before_start(self)
+                self._unload_ollama()
+                if self.parking.try_resume(self.name):
+                    return
+                self._stop_locked()
             if self.running():
                 return
             if self._stopped:

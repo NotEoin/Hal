@@ -1,11 +1,11 @@
 """The `hal-gateway` command line; the only module of the package that prints.
 
 Commands: `serve`, `status`, `mode`, `modes`, `models`, `load`, `unload`, `router stop`,
-`release-gpu`, `token`, `render`, `check-config`. Every command that talks to a running gateway
-does so through `GatewayClient`. Exit codes: 0 ok, 2 bad usage, 3 invalid configuration (or a
-token name that exists), 4 a mode, model or token that was refused, 5 the gateway is unreachable
-or failed the call, 6 a conflict (`release-gpu --reclaim` found the gateway busy, or the router
-is busy with a request).
+`backend start|stop|restart`, `release-gpu`, `token`, `render`, `check-config`. Every command
+that talks to a running gateway does so through `GatewayClient`. Exit codes: 0 ok, 2 bad
+usage, 3 invalid configuration (or a token name that exists), 4 a mode, model or token that was
+refused, 5 the gateway is unreachable or failed the call, 6 a conflict (`release-gpu
+--reclaim` found the gateway busy, or the router is busy with a request).
 """
 
 from __future__ import annotations
@@ -49,7 +49,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     release = sub.add_parser("release-gpu", help="unload models and release the GPU claims")
     release.add_argument("--config", type=Path, default=None)
     release.add_argument("--force", action="store_true", help="ignore leases; running requests fail")
-    release.add_argument("--stop-router", action="store_true", help="also stop the managed router")
+    release.add_argument(
+        "--stop-router", action="store_true", help="also stop the managed router and managed servers"
+    )
     release.add_argument(
         "--reclaim", action="store_true", help="as the gpu-light reclaimer: refuse when busy"
     )
@@ -74,6 +76,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     router = sub.add_parser("router", help="the managed router process")
     router.add_argument("action", choices=("stop",))
     router.add_argument("--config", type=Path, default=None)
+    backend = sub.add_parser("backend", help="start, stop or restart a managed-openai server")
+    backend.add_argument("action", choices=("start", "stop", "restart"))
+    backend.add_argument("name")
+    backend.add_argument("--config", type=Path, default=None)
     token = sub.add_parser("token", help="owner and client tokens")
     token.add_argument("--config", type=Path, default=None)
     actions = token.add_subparsers(dest="action", required=True)
@@ -94,7 +100,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _token_command(args)
     if args.command == "serve":
         return _serve(args)
-    if args.command in ("status", "mode", "models", "load", "unload", "router"):
+    if args.command in ("status", "mode", "models", "load", "unload", "router", "backend"):
         return _client_command(args)
     if args.command == "release-gpu":
         return _release_gpu(args)
@@ -157,7 +163,7 @@ def _serve(args: argparse.Namespace) -> int:
 
 
 def _client_command(args: argparse.Namespace) -> int:
-    """Runs `status`, `mode`, `models`, `load`, `unload` and `router stop` through the client."""
+    """Runs `status`, `mode`, `models`, `load`, `unload`, `router stop` and `backend` through the client."""
     try:
         client = GatewayClient.from_config(args.config)
         return _run_client_command(client, args)
@@ -197,6 +203,8 @@ def _run_client_command(client: GatewayClient, args: argparse.Namespace) -> int:
         client.load(args.model)
     elif args.command == "unload":
         client.unload(args.model)
+    elif args.command == "backend":
+        print(json.dumps(client.backend(args.action, args.name)))
     else:
         client.stop_router()
     return EXIT_OK

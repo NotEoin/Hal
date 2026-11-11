@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-from halgateway import launchers
+from halgateway import launchers, park, relay
 from halgateway.backends.llama_router import LlamaRouter, startup_presets
 from halgateway.config import load_config
 from halgateway.errors import ModelUnverified, RouterBusy
@@ -21,7 +21,7 @@ from halgateway.models.manifest import ModelEntry, Verifier
 WEIGHTS = b"synthetic weights"
 FAKE_SERVER = """\
 #!{python}
-import http.server, json, os, signal, sys
+import http.server, json, os, signal, sys, time
 args = sys.argv[1:]
 ctl_path = "{ctl}"
 port = int(args[args.index("--port") + 1])
@@ -29,6 +29,7 @@ key = open(args[args.index("--api-key-file") + 1]).read().strip()
 json.dump({{"argv": args, "env": dict(os.environ)}}, open(ctl_path + ".run", "w"))
 if json.load(open(ctl_path)).get("ignore_term"):
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
+time.sleep(json.load(open(ctl_path)).get("listen_delay_s", 0))
 
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
@@ -39,6 +40,8 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.headers.get("Authorization") != "Bearer " + key:
             return self._send({{}}, 401)
+        if self.path == "/health":
+            return self._send({{"status": "ok"}})
         ctl = json.load(open(ctl_path))
         data = []
         for name, seq in ctl["statuses"].items():
@@ -79,6 +82,9 @@ class FakeOllama:
 
     def in_vram(self):
         return list(self.held)
+
+    def wait_unloaded(self, models):
+        return not set(models) & set(self.held)
 
     def unload(self, model):
         self.order.append(f"unloaded {model}")
@@ -143,6 +149,15 @@ def test_start_waits_for_the_startup_preset_and_writes_the_record(env):
     assert record["mode"] == "one" and launchers.is_alive(record["pid"], record["pid_start"])
     assert oct((env.state / "router.json").stat().st_mode & 0o777) == "0o600"
     assert env.router.status()["state"] == "running"
+
+
+def test_a_router_with_only_on_demand_presets_answers_once_started(env):
+    # regression: with nothing to load at start, a request relayed before the server listened got a 502
+    mode = env.tmp / "modes" / "one.ini"
+    mode.write_text(mode.read_text().replace("[*]\n", "[*]\nload-on-startup = false\n"))
+    env.ctl(listen_delay_s=0.5)
+    env.router.start()
+    assert relay.call_json(env.router, "GET", "/models", timeout_s=2.0)["data"]
 
 
 def test_router_argv_and_env(env):
@@ -227,21 +242,6 @@ def test_router_of_another_mode_is_stopped_at_start(env):
     assert other.adopt() == "stopped" and not launchers.is_alive(pid)
 
 
-def test_legacy_router_blocks_managed_start(env, monkeypatch):
-    monkeypatch.setattr(launchers, "legacy_router_pid", lambda path: 4242)
-    with pytest.raises(Exception, match=r"hal-serve stop"):
-        env.router.start()
-
-
-def test_legacy_pid_file_naming_a_live_llama_server_is_found(tmp_path, monkeypatch):
-    pid_file = tmp_path / "router.pid"
-    pid_file.write_text(str(os.getpid()))
-    monkeypatch.setattr(launchers, "comm", lambda pid: "llama-server")
-    assert launchers.legacy_router_pid(pid_file) == os.getpid()
-    monkeypatch.setattr(launchers, "comm", lambda pid: "python3")
-    assert launchers.legacy_router_pid(pid_file) is None
-
-
 def test_crash_restart_budget(env):
     env.router.ensure()
     for _ in range(2):
@@ -261,6 +261,44 @@ def test_stopped_router_is_not_restarted_by_a_request(env):
     env.router.stop()
     with pytest.raises(Exception, match="was stopped"):
         env.router.ensure()
+
+
+def test_yield_gpu_stops_the_router_without_marking_it_stopped(env):
+    env.router.start()
+    pid = env.router._record["pid"]
+    env.router.yield_gpu()
+    assert not launchers.is_alive(pid) and not env.router.running()
+    env.router.ensure()  # a yield is not `router/stop`: the next request starts it again
+    assert env.router.running()
+
+
+def test_a_parked_router_keeps_its_process_and_resumes_after_making_room(env):
+    calls = []
+
+    class Parker:
+        def park(self, root):
+            calls.append("park")
+            return (root,)
+
+        def resume(self, pids):
+            calls.append("resume")
+
+    env.router.parking = park.Parking(True, Parker())
+    env.router.start()
+    pid = env.router._record["pid"]
+    env.router.yield_gpu()
+    assert launchers.is_alive(pid) and env.router.parking.parked
+    env.router.before_start = lambda router: calls.append("room")
+    env.ollama.held = ["gemma:1"]
+    env.router.ensure()  # the next hal-writer request
+    assert calls == ["park", "room", "resume"] and env.ollama.held == [] and env.router._record["pid"] == pid
+
+
+def test_router_start_calls_before_start_first(env):
+    seen = []
+    env.router.before_start = lambda router: seen.append((router.running(), list(env.order)))
+    env.router.start()
+    assert seen == [(False, [])] and env.order == ["unloaded gemma:1"]
 
 
 def test_mode_switch_waits_for_inflight_requests(env):
@@ -287,6 +325,13 @@ def test_startup_presets_skip_on_demand_presets(tmp_path):
     ini = tmp_path / "x.ini"
     ini.write_text("version = 1\n[*]\nctx-size = 1\n[a]\nmodel = a\n[b]\nload-on-startup = false\n")
     assert startup_presets(ini) == ["a"]
+
+
+def test_a_preset_inherits_load_on_startup_from_the_default_section(tmp_path):
+    # regression: the tuned mode sets it only in [*], and the first request waited for a load that never came
+    ini = tmp_path / "x.ini"
+    ini.write_text("version = 1\n[*]\nload-on-startup = false\n[a]\nmodel = a\n[b]\nload-on-startup = true\n")
+    assert startup_presets(ini) == ["b"]
 
 
 def _unix_connect(conn, path):
@@ -320,6 +365,7 @@ def test_admin_mode_switch_and_status_over_the_unix_socket(env):
         status, doc = admin(gw, "POST", "/hal/v1/mode", {"mode": "two"})
         assert status == 200 and doc["backends"]["local"]["mode"] == "two"
         assert gw.resolver.mode_aliases["hal/main"] == ("local", "m")
+        assert gw.resolver.mode_windows[("local", "m")] == 8192
         status, doc = admin(gw, "GET", "/hal/v1/status")
         assert status == 200 and doc["backends"]["local"]["state"] == "running"
         status, doc = admin(gw, "POST", "/hal/v1/router/stop")

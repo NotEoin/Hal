@@ -163,7 +163,7 @@ def gateway(tmp_path):
     token.chmod(0o600)
     cfg = tmp_path / "c.toml"
     cfg.write_text(
-        f'[gateway]\nunix_path = "{tmp_path}/run/g.sock"\ntoken_file = "{token}"\n'
+        f'[gateway]\nunix_path = "{tmp_path}/run/g.sock"\ntoken_file = "{token}"\nmain = ""\nagent = ""\n'
         f'[gateway.backends.local]\ntype = "llama-router"\nmanaged = false\n'
         f'url = "http://127.0.0.1:{server.server_address[1]}"\n'
     )

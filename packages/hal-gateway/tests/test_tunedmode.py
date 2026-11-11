@@ -62,3 +62,66 @@ def test_an_unpinned_weight_file_is_refused_by_the_mode_checks(tmp_path):
             verifier=verifier,
             user_dirs=[tmp_path / "modes"],
         )
+
+
+def test_read_gives_back_every_preset_render_wrote(tmp_path):
+    presets = [
+        preset(tmp_path, "chat"),
+        preset(
+            tmp_path, "code-128k", context=131072, gpu_layers=30, tensor_split=(0.5, 0.5), temperature=0.2
+        ),
+        preset(tmp_path, "embed", embedding=True, mmproj=tmp_path / "mmproj.gguf"),
+    ]
+    path = tunedmode.write(presets, tmp_path)
+    assert tunedmode.read(path) == presets
+    assert tunedmode.read(tmp_path / "missing.ini") == []
+    path.write_text("version = 1\n[tuned-chat]\nmodel = x\n")
+    with pytest.raises(ValueError, match="not one hal tune writes"):
+        tunedmode.read(path)
+
+
+def test_experts_in_ram_are_written_and_read_back_and_fit_is_off(tmp_path):
+    p = tunedmode.Preset("chat", tmp_path / "moe.gguf", 32768, "q8_0", ALL_LAYERS, cpu_moe=20)
+    text = tunedmode.render([p])
+    assert "n-cpu-moe = 20" in text and "n-gpu-layers = 99" in text
+    assert "fit = off" in text  # llama.cpp must not re-fit numbers the user set past its margin
+    target = tunedmode.write([p], tmp_path)
+    assert tunedmode.read(target)[0].cpu_moe == 20
+
+
+def test_a_draft_model_is_written_and_read_back(tmp_path):
+    draft = write_gguf(tmp_path / "mtp.gguf", llama_like())
+    p = preset(tmp_path, "writer", draft_path=draft, spec_type="draft-mtp", draft_max=5)
+    text = tunedmode.render([p])
+    wanted = (f"model-draft = {draft}", "spec-type = draft-mtp", "spec-draft-n-max = 5")
+    for line in (*wanted, "n-gpu-layers-draft = 99", "cache-type-k-draft = q8_0"):
+        assert line in text
+    back = tunedmode.read(tunedmode.write([p], tmp_path))[0]
+    assert (back.draft_path, back.spec_type, back.draft_max) == (draft, "draft-mtp", 5)
+
+
+def test_parallel_slots_share_one_cache_sized_for_all_of_them(tmp_path):
+    p = preset(tmp_path, "writer", parallel=4)
+    text = tunedmode.render([p])
+    assert "ctx-size = 131072" in text and "parallel = 4" in text and "kv-unified = true" in text
+    back = tunedmode.read(tunedmode.write([p], tmp_path))[0]
+    assert (back.context, back.parallel) == (32768, 4)  # the context is per request again
+
+
+def test_a_model_drafting_with_its_own_mtp_layers_names_no_draft_file(tmp_path):
+    p = preset(tmp_path, "code", spec_type="draft-mtp", draft_max=2)
+    p = tunedmode.Preset(**{**p.__dict__, "draft_path": p.model_path})
+    text = tunedmode.render([p])
+    assert "spec-type = draft-mtp" in text and "spec-draft-n-max = 2" in text and "model-draft" not in text
+    back = tunedmode.read(tunedmode.write([p], tmp_path))[0]
+    assert back.draft_path == p.model_path and back.spec_type == "draft-mtp"
+
+
+def test_presets_that_do_not_fit_together_are_loaded_one_at_a_time(tmp_path):
+    # regression: with the default of 3 the router loaded the writer beside the coder and ran out of memory
+    big = [preset(tmp_path, "code"), preset(tmp_path, "writer")]
+    assert sum(p.model_path.stat().st_size for p in big) < tunedmode.MIB  # so the files count as 1 MiB
+    assert tunedmode.models_max_for(big, budget_mib=1) == 1  # 1 MiB x the margin does not fit
+    assert tunedmode.models_max_for(big, budget_mib=2) == 2
+    assert tunedmode.models_max_for(big, budget_mib=0) == 1  # unknown budget
+    assert "models-max = 1" in tunedmode.write(big, tmp_path, budget_mib=1).read_text()

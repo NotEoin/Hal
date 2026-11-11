@@ -6,8 +6,10 @@ the generated mode) into four steps:
 1. `survey` lists the models of every source;
 2. `build` picks a model per role (an assigned one stays; an empty role gets the best fit among
    local models) and plans its settings on this hardware;
-3. `wire` works out what the gateway needs to serve the plan: `[hal]` model names, backends;
-4. `apply` pins the models, writes the config and the generated mode.
+3. `wire` works out what the gateway needs to serve the plan: `[hal]` model names, backends,
+   a `[gateway.aliases.hal-NAME]` entry per named role, and the Ollama models that carry a
+   role's tuned context;
+4. `apply` creates those Ollama models, pins the models, writes the config and the generated mode.
 
 Design decisions:
 
@@ -17,8 +19,17 @@ Design decisions:
 - Assigning a model pins it (the Ollama digest, or the sha256 of a GGUF file): the user's
   choice is their statement of trust, and the gateway refuses unpinned models.
 - Nothing here downloads a model.
+- A named role (`modelconf.is_custom`) is never chosen automatically: it exists because the
+  user gave it a model. It has no `[hal]` key, so it is served as the gateway alias `hal-NAME`.
 - An Anthropic source can be listed and assigned but the gateway has no Anthropic backend, so
   `wire` leaves such a role out of the gateway and says so in the plan notes.
+- Ollama's OpenAI-compatible route ignores a per-request context (checked with Ollama 0.40.1:
+  `options.num_ctx` on `/v1/chat/completions` left the model at its default), so a tuned
+  context reaches Ollama as a derived model, `hal-tuned-ROLE`, made with `/api/create` from the
+  chosen model plus `num_ctx` (and `num_gpu` when layers are offloaded). It is a manifest over
+  the same weights, not a copy. The role table still names the chosen model; only the gateway
+  serves the derived one. Ollama applies `OLLAMA_KV_CACHE_TYPE` to every model, so a role's
+  `kv_type` only sizes the plan there.
 """
 
 from __future__ import annotations
@@ -49,10 +60,15 @@ LOCAL_KINDS = ("ollama", "openai", "gguf")
 MIN_GOOD_CONTEXT = 16384  # a chat model that fits with less than this ranks below one that does
 CPU_COMFORT_BYTES = 6 * 1024**3  # about an 8B model at Q4: tolerable speed without a GPU
 CODE_NAME = re.compile(r"cod(e|er)\b|codestral|devstral", re.IGNORECASE)
+GUARD_NAME = re.compile(r"guardian|shieldgemma|llama-guard", re.IGNORECASE)  # risk classifiers
 EMBED_NAME = re.compile(r"embed|bge-|e5-|minilm|nomic", re.IGNORECASE)
 ROUTER_BACKEND = "router"
 DEFAULT_OLLAMA = "ollama"
 OPENAI_URL = "https://api.openai.com/v1"
+DEFAULTS = {"draft_max": (0,), "parallel": (1,)}  # role values that mean "the default": not written
+MODEL_KEYS = ("family", "draft", "draft_max")  # describe the old model: dropped when the model changes
+DERIVED_PREFIX = "hal-tuned-"  # Ollama models `apply` makes to carry a role's tuned context
+OLLAMA_CREATE_TIMEOUT_S = 120.0  # a create from an existing model writes a manifest; seconds at most
 
 
 @dataclass
@@ -66,6 +82,9 @@ class RolePlan:
     assigned: bool = False  # True when the config already named this model
     locked: bool = False  # `auto = false`: the user's context, kv_type and gpu_layers stay
     manual: bool = False  # the plan holds numbers the user chose: write them and set `auto = false`
+    declared_context: int = 0  # a server-sized model's context, set by the user (no plan to carry it)
+    draft: tuning.Draft | None = None  # the draft model a GGUF role runs with (speculative decoding)
+    parallel: int = 1  # requests the role's server runs at once, each with the planned context
     settings: dict[str, object] = field(default_factory=dict)  # `effort` and `temperature` to write
     notes: list[str] = field(default_factory=list)
 
@@ -95,6 +114,46 @@ def is_local(source: modelconf.Source) -> bool:
     return source.kind in LOCAL_KINDS and not source.allow_remote
 
 
+def is_derived(name: str) -> bool:
+    """True for an Ollama model `apply` made to carry a role's tuned settings."""
+    return name.startswith(DERIVED_PREFIX)
+
+
+def derived_name(role: str) -> str:
+    """The Ollama model that serves `role` at its tuned context."""
+    return f"{DERIVED_PREFIX}{role}:latest"
+
+
+@dataclass(frozen=True)
+class Derived:
+    """An Ollama model to create: `base` with the role's tuned parameters."""
+
+    role: str
+    source: modelconf.Source
+    base: str
+    name: str
+    parameters: dict[str, int]
+
+
+def derived(rp: RolePlan, *, embed_on_cpu: bool = False) -> Derived | None:
+    """The Ollama model that carries `rp`'s tuned context and offload, or None when the role needs none.
+
+    With `embed_on_cpu` (`[hal] embed_on_cpu`) the embed role's model has no GPU layers, so every
+    embedding through `hal-embed` runs on the CPU and a vault index never takes VRAM a model loading
+    beside it needs.
+    """
+    if rp.model is None or rp.source is None or rp.model.kind != "ollama" or rp.plan is None:
+        return None
+    if rp.plan.status == "does-not-fit" or rp.plan.context < tuning.MIN_CONTEXT:
+        return None
+    params = {"num_ctx": rp.plan.context}
+    if rp.role == "embed" and embed_on_cpu:
+        params["num_gpu"] = 0
+    elif rp.plan.gpu_layers >= 0:  # all layers: Ollama's own placement already puts them on the GPU
+        params["num_gpu"] = rp.plan.gpu_layers
+    return Derived(rp.role, rp.source, rp.model.name, derived_name(rp.role), params)
+
+
 def _usable(model: ModelInfo, role: str) -> bool:
     is_embed = "embedding" in model.capabilities or bool(EMBED_NAME.search(model.name))
     if role == "embed":
@@ -119,16 +178,30 @@ def _rank(model: ModelInfo, plan: tuning.Plan | None) -> tuple[int, int, float]:
     return (-1, tools, size)
 
 
+def draft_of(model: ModelInfo, role: modelconf.Role | None) -> tuning.Draft | None:
+    """The draft a role's GGUF model runs with: the role's choice, else the best one found beside it.
+
+    Only the managed llama.cpp router can run one, so other kinds get none.
+    """
+    if model.kind != "gguf":
+        return None
+    return tuning.choose_draft(model, role.draft if role else "", role.draft_max if role else 0)
+
+
 def _plan(model: ModelInfo, hw: Hardware, role: modelconf.Role | None, limits: Mapping[str, object]) -> tuning.Plan | None:
     if not model.size_bytes or model.kind in ("anthropic", "openai-cloud"):
         return None
     kv = (role.kv_type if role and role.kv_type else "") or str(limits["kv_type"])
+    draft = draft_of(model, role)
     return tuning.plan_model(
         model,
         hw,
         kv_type=kv,
         context_cap=int(limits["context_cap"]),  # type: ignore[call-overload]
         headroom_override_mib=int(limits["headroom_mib"]),  # type: ignore[call-overload]
+        draft_cost_mib=draft.vram_mib if draft else 0,
+        draft_kv_layers=draft.kv_layers if draft else 0,
+        slots=role.parallel if role else 1,
     )
 
 
@@ -149,17 +222,19 @@ def choose(
         if not is_local(src) or name not in found:
             continue
         for model in found[name].models:
-            if not _usable(model, role):
+            if is_derived(model.name) or not _usable(model, role):
                 continue
             if role == "code" and not CODE_NAME.search(model.name):
                 continue
+            if (role == "classifier") != bool(GUARD_NAME.search(model.name)):
+                continue  # only a classifier may be the classifier, and it is no good at anything else
             try:
                 plan = _plan(model, hw, None, limits)
             except ValueError:
                 # a model that cannot be planned for this hardware is not a candidate
                 continue
             rank = _rank(model, plan)
-            if role in ("fast", "embed"):  # the smallest that works
+            if role in ("classifier", "embed"):  # the smallest that works
                 rank = (rank[0] >= 0, rank[1], -(model.size_bytes or 0))  # type: ignore[assignment]
             if rank[0] < 0 or (plan and plan.status == "does-not-fit"):
                 continue
@@ -168,10 +243,7 @@ def choose(
     if best is None:
         return RolePlan(role, notes=[f"no local model found for {role}"])
     _, model, plan = best
-    out = RolePlan(role, sources[model.source], model, plan, notes=["chosen automatically"])
-    if role == "fast" and "chat" in taken and taken["chat"].name == model.name:
-        out.notes.append("same model as chat")
-    return out
+    return RolePlan(role, sources[model.source], model, plan, notes=["chosen automatically"], draft=draft_of(model, None))
 
 
 def build(
@@ -182,11 +254,11 @@ def build(
     """A `RolePlan` per role (or per role in `only`): assigned models are kept unless `reassign`."""
     plans: list[RolePlan] = []
     taken: dict[str, ModelInfo] = {}
-    for role in modelconf.ROLES:
+    for role in modelconf.role_names(roles):
         if only and role not in only:
             continue
         cfg = roles.get(role)
-        if cfg is not None and not reassign:
+        if cfg is not None and (not reassign or modelconf.is_custom(role)):
             model = _find(found, cfg.source, cfg.model)
             rp = RolePlan(role, sources[cfg.source], model, assigned=True, locked=not cfg.auto)
             if model is None:
@@ -195,12 +267,14 @@ def build(
             else:
                 try:
                     rp.plan = _plan(model, hw, cfg, limits)
+                    rp.draft = draft_of(model, cfg)
+                    rp.parallel = cfg.parallel
                 except ValueError as exc:
                     rp.notes.append(str(exc))
             plans.append(rp)
         else:
             rp = choose(role, found, sources, hw, limits, taken)
-            if rp.model and role in ("chat", "fast"):
+            if rp.model and role == "chat":
                 taken[role] = rp.model
             if role == "writer" and cfg is None:
                 continue  # writer falls back to chat unless the user names one
@@ -219,8 +293,22 @@ class Wiring:
 
     hal: dict[str, object] = field(default_factory=dict)
     backends: dict[str, dict[str, object]] = field(default_factory=dict)
+    aliases: dict[str, dict[str, object]] = field(default_factory=dict)  # `[gateway.aliases]` of named roles
     presets: list[tunedmode.Preset] = field(default_factory=list)
+    derived: list[Derived] = field(default_factory=list)  # Ollama models to create before the config is written
     notes: list[str] = field(default_factory=list)
+
+    def share(self, made: Derived) -> Derived:
+        """`made`, or an earlier role's derived model with the same base and parameters.
+
+        Two roles on one model and one context (chat and vision on a model that sees) then
+        serve one Ollama model, which Ollama loads once instead of twice.
+        """
+        for other in self.derived:
+            if (other.source.name, other.base, other.parameters) == (made.source.name, made.base, made.parameters):
+                return other
+        self.derived.append(made)
+        return made
 
 
 def _existing_backends(doc: Mapping[str, object]) -> Mapping[str, Mapping[str, object]]:
@@ -239,15 +327,22 @@ def wire(plans: list[RolePlan], doc: Mapping[str, object]) -> Wiring:  # noqa: C
         if rp.model is None or rp.source is None:
             continue
         src, model = rp.source, rp.model
+        if modelconf.is_custom(rp.role):
+            _wire_named(out, rp, existing, hal_now)  # type: ignore[arg-type]
+            continue
         key = HAL_KEYS[rp.role]
         if src.kind == "ollama":
+            made = derived(rp, embed_on_cpu=bool(hal_now.get("embed_on_cpu", True)))
+            if made:
+                made = out.share(made)
+            served = made.name if made else model.name
             default_ollama = default_ollama or src.name
             if src.name == default_ollama:
-                out.hal[key] = model.name
+                out.hal[key] = served
                 out.hal["ollama_url"] = src.url
                 continue
             out.backends.setdefault(src.name, {"type": "ollama", "url": src.url})
-            out.hal[key] = f"{src.name}/{model.name}"
+            out.hal[key] = f"{src.name}/{served}"
         elif src.kind == "openai":
             entry: dict[str, object] = {"type": "openai", "url": src.url}
             if src.api_key_file:
@@ -288,13 +383,80 @@ def wire(plans: list[RolePlan], doc: Mapping[str, object]) -> Wiring:  # noqa: C
     return out
 
 
+def _ollama_backend(out: Wiring, src: modelconf.Source, existing: Mapping[str, Mapping[str, object]],
+                    hal_now: Mapping[str, object]) -> str:
+    """The backend name that serves Ollama source `src`, adding one to `out` when none does."""
+    url = src.url.rstrip("/")
+    for name, entry in existing.items():
+        if entry.get("type", "ollama") == "ollama" and str(entry.get("url") or hal_now.get("ollama_url") or "").rstrip("/") == url:
+            return name
+    if not existing and url == str(hal_now.get("ollama_url") or modelconf.DEFAULT_URLS["ollama"]).rstrip("/"):
+        return DEFAULT_OLLAMA  # the gateway's implicit backend, or the one `wire` adds beside new ones
+    out.backends.setdefault(src.name, {"type": "ollama", "url": src.url})
+    return src.name
+
+
+def _wire_named(out: Wiring, rp: RolePlan, existing: Mapping[str, Mapping[str, object]], hal_now: Mapping[str, object]) -> None:
+    """Wires a named role as `[gateway.aliases.hal-NAME]`, adding the backend it needs."""
+    assert rp.source is not None and rp.model is not None
+    src, model = rp.source, rp.model
+    if src.kind == "ollama":
+        made = derived(rp)
+        if made:
+            made = out.share(made)
+        backend, upstream = _ollama_backend(out, src, existing, hal_now), made.name if made else model.name
+    elif src.kind in ("openai", "openai-cloud"):
+        entry: dict[str, object] = {"type": "openai", "url": src.url if src.kind == "openai" else OPENAI_URL}
+        if src.kind == "openai-cloud":
+            entry["allow_remote"] = True
+        if src.api_key_file:
+            entry["api_key_file"] = src.api_key_file
+        out.backends.setdefault(src.name, entry)
+        backend, upstream = src.name, model.name
+    elif src.kind == "gguf":
+        if rp.plan is None or rp.plan.status == "does-not-fit":
+            out.notes.append(f"{rp.role}: {model.name} does not fit; not wired")
+            return
+        backend = next((n for n, b in existing.items() if b.get("type") == "llama-router"), None) or ROUTER_BACKEND
+        if backend not in existing:
+            out.backends.setdefault(
+                backend,
+                {"type": "llama-router", "managed": True, "models_dir": str(Path(src.path).expanduser()), "mode": tunedmode.MODE_NAME},
+            )
+        elif existing[backend].get("mode", "gpu") != tunedmode.MODE_NAME:
+            out.notes.append(f"set mode = \"tuned\" in [gateway.backends.{backend}] to serve {rp.role} from the GGUF file")
+        upstream = tunedmode.preset_name(rp.role)
+        out.presets.append(_preset(rp))
+    else:
+        out.notes.append(f"{rp.role}: the gateway has no {src.kind} backend; the role is not wired")
+        return
+    out.aliases[alias_name(rp.role)] = {"backend": backend, "model": upstream}
+
+
+def alias_name(role: str) -> str:
+    """The gateway alias that serves a named role."""
+    return f"hal-{role}"
+
+
 def _preset(rp: RolePlan) -> tunedmode.Preset:
     assert rp.model is not None and rp.plan is not None
     p = rp.plan
     return tunedmode.Preset(
         role=rp.role, model_path=Path(rp.model.path), context=p.context, kv_type=p.kv_type, gpu_layers=p.gpu_layers,
-        tensor_split=p.tensor_split, embedding=rp.role == "embed", mmproj=_mmproj(Path(rp.model.path)) if rp.role == "vision" else None,
+        tensor_split=p.tensor_split, embedding=rp.role == "embed",
+        mmproj=_mmproj(Path(rp.model.path)) if rp.role == "vision" else None, cpu_moe=p.cpu_moe,
+        draft_path=Path(rp.draft.path) if rp.draft else None, spec_type=rp.draft.spec_type if rp.draft else "",
+        draft_max=rp.draft.draft_max if rp.draft else 0, parallel=rp.parallel,
     )
+
+
+def _free_name(entries: Mapping[str, object], name: str) -> str:
+    """`name`, or `name-2`, `name-3`, ... when the manifest already uses it."""
+    taken, n = name, 1
+    while taken in entries:
+        n += 1
+        taken = f"{name}-{n}"
+    return taken
 
 
 def _mmproj(model: Path) -> Path | None:
@@ -309,23 +471,29 @@ def role_table(rp: RolePlan, current: Mapping[str, object]) -> dict[str, object]
     """The `[models.roles.X]` values to write: tuned numbers unless the role is locked."""
     assert rp.source is not None and rp.model is not None
     values: dict[str, object] = {"source": rp.source.name, "model": rp.model.name}
-    for key in ("effort", "temperature", "family"):
-        if current.get(key) not in (None, "", -1.0):
+    same_model = (current.get("source"), current.get("model")) == (rp.source.name, rp.model.name)
+    for key in ("effort", "temperature", "family", "draft", "draft_max", "parallel"):
+        unset = (None, "", modelconf.UNSET_TEMPERATURE) + DEFAULTS.get(key, ())
+        if current.get(key) not in unset and (same_model or key not in MODEL_KEYS):
             values[key] = current[key]
     if rp.model.family and "family" not in values and rp.assigned is False:
         values["family"] = rp.model.family
     for key, value in rp.settings.items():
-        if value in (None, "", modelconf.UNSET_TEMPERATURE):
+        if value in (None, "", modelconf.UNSET_TEMPERATURE) or value in DEFAULTS.get(key, ()):
             values.pop(key, None)
         else:
             values[key] = value
     locked = (rp.locked and not rp.manual) or rp.plan is None
     if rp.plan is not None and not locked:
         values.update(context=rp.plan.context, kv_type=rp.plan.kv_type, gpu_layers=rp.plan.gpu_layers)
+        if rp.plan.cpu_moe:
+            values["cpu_moe"] = rp.plan.cpu_moe
     else:
-        for key in ("context", "kv_type", "gpu_layers"):
+        for key in ("context", "kv_type", "gpu_layers", "cpu_moe"):
             if key in current:
                 values[key] = current[key]
+        if rp.declared_context:
+            values["context"] = rp.declared_context
     if locked or rp.manual:
         values["auto"] = False
     return values
@@ -335,15 +503,28 @@ def edit_config(text: str, plans: list[RolePlan], wiring: Wiring) -> str:
     """The new config text: role tables, `[hal]` model names and any new backends."""
     doc = tomllib.loads(text) if text.strip() else {}
     current_roles = (doc.get("models") or {}).get("roles", {}) if isinstance(doc.get("models"), dict) else {}  # type: ignore[union-attr]
+    renamed = {new: old for old, new in modelconf.RENAMED_ROLES.items()}
     for rp in plans:
         if rp.model is None or rp.source is None:
             continue
-        text = tomledit.set_table(text, f"models.roles.{rp.role}", role_table(rp, current_roles.get(rp.role, {})))
+        current = current_roles.get(rp.role) or current_roles.get(renamed.get(rp.role, ""), {})
+        text = tomledit.set_table(text, f"models.roles.{rp.role}", role_table(rp, current))
+        if rp.role in renamed and renamed[rp.role] in current_roles:
+            text = tomledit.remove_table(text, f"models.roles.{renamed[rp.role]}")  # the table's old name
     if wiring.hal:
         text = tomledit.set_keys(text, "hal", wiring.hal)
     for name, entry in wiring.backends.items():
         text = tomledit.set_table(text, f"gateway.backends.{name}", entry)
+    for name, entry in wiring.aliases.items():
+        text = tomledit.set_table(text, f"gateway.aliases.{name}", entry)
     return text
+
+
+def remove_role(text: str, role: str) -> str:
+    """The config text without named role `role`: its role table and its gateway alias."""
+    if not modelconf.is_custom(role):
+        raise ValueError(f"{role} is a built-in role; it can be cleared, not removed")
+    return tomledit.remove_table(tomledit.remove_table(text, f"models.roles.{role}"), f"gateway.aliases.{alias_name(role)}")
 
 
 class _Tags:
@@ -379,6 +560,11 @@ def pin(plans: list[RolePlan], found: Mapping[str, discovery.Discovery], store: 
         if not rp.model or rp.model.kind != "gguf":
             continue
         path = Path(rp.model.path).resolve()
+        draft = Path(rp.draft.path).resolve() if rp.draft else None
+        if draft is not None and draft != path and not any(e.file == draft for e in entries.values()):
+            pinned = gwmodels.add_local(store, draft, name=_free_name(entries, draft.stem))
+            entries[pinned.name] = pinned
+            lines.append(f"pinned {pinned.name} (draft, sha256 {str(pinned.sha256)[:12]})")
         if any(e.file == path for e in entries.values()):
             continue
         name = rp.model.name if rp.model.name not in entries else f"{rp.source.name}-{rp.model.name}"  # type: ignore[union-attr]
@@ -451,10 +637,13 @@ def apply(
     mode_file = paths.config_dir() / "modes" / f"{tunedmode.MODE_NAME}.ini"
     saved = {store.manifest: _read_bytes(store.manifest), mode_file: _read_bytes(mode_file)}
     done: list[str] = []
+    presets = _merged_presets(wiring.presets, plans, mode_file, new)
     try:
-        done = pin(plans, found, store)
+        done = create_derived(wiring.derived, store)
+        done += pin(plans, found, store)
         if wiring.presets:
-            done.append(f"wrote {tunedmode.write(wiring.presets, mode_file.parent)}")
+            budget = max((rp.plan.budget_mib for rp in plans if rp.plan is not None), default=0)
+            done.append(f"wrote {tunedmode.write(presets, mode_file.parent, budget)}")
         backup = confmigrate.apply(target, new)
     except plain_errors() as exc:
         changed = [p for p, data in saved.items() if _read_bytes(p) != data]
@@ -464,6 +653,52 @@ def apply(
         raise ApplyError(f"nothing was written ({exc}){undone}") from exc
     done.append(f"wrote {target}" + (f" (backup {backup.name})" if old else ""))
     return [*done, *wiring.notes]
+
+
+def _merged_presets(
+    planned: list[tunedmode.Preset], plans: list[RolePlan], mode_file: Path, new_config: str
+) -> list[tunedmode.Preset]:
+    """`planned`, plus the presets already in the tuned mode of roles this write did not plan.
+
+    A kept preset's role must still be in the new config: a removed role loses its preset.
+    """
+    roles = (tomllib.loads(new_config).get("models") or {}).get("roles") or {}
+    touched = {rp.role for rp in plans}
+    kept = [p for p in tunedmode.read(mode_file) if p.role not in touched and p.role in roles]
+    return [*kept, *planned]
+
+
+class _LiveTags:
+    """Gives `record_ollama` the tags Ollama lists now, after `create_derived` added models."""
+
+    def __init__(self, url: str) -> None:
+        self._url = url.rstrip("/")
+
+    def tags(self) -> list[dict[str, str]]:
+        doc = discovery.http_json("GET", f"{self._url}/api/tags", {}, None, discovery.HTTP_TIMEOUT_S)
+        rows = doc.get("models") if isinstance(doc, dict) else None
+        return [r for r in rows or [] if isinstance(r, dict)]
+
+
+def create_derived(models: list[Derived], store: gwmodels.Store) -> list[str]:
+    """Creates each derived Ollama model and pins it; returns one line per model.
+
+    Raises `ManifestError` when Ollama refuses a create or no longer lists the result. A model
+    made before a later failure stays in Ollama: it is a manifest over weights Ollama already
+    has, and the next write replaces it.
+    """
+    lines = []
+    for made in models:
+        body = {"model": made.name, "from": made.base, "parameters": made.parameters, "stream": False}
+        url = made.source.url.rstrip("/")
+        try:
+            discovery.http_json("POST", f"{url}/api/create", {}, body, OLLAMA_CREATE_TIMEOUT_S)
+        except discovery.DiscoveryError as exc:
+            raise ManifestError(f"Ollama could not create {made.name} from {made.base}: {exc}") from exc
+        gwmodels.record_ollama(store, [made.name], _LiveTags(url))
+        shown = ", ".join(f"{k} {v}" for k, v in made.parameters.items())
+        lines.append(f"made Ollama model {made.name} from {made.base} ({shown}) for {made.role}")
+    return lines
 
 
 def plain_errors() -> tuple[type[Exception], ...]:

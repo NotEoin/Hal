@@ -41,6 +41,14 @@ def test_choosing_a_model_shows_a_gpu_fit_on_a_24gb_card(home, server):
     assert fit.status == "gpu" and fit.context >= 16384 and 0 < fit.used_mib <= fit.budget_mib
 
 
+def test_an_ollama_role_cannot_set_parallel_requests(home, server):
+    s = session(home, server)
+    s.choose("chat", s.find("local", "gemma:12b"))
+    assert not s.can_parallel("chat")
+    with pytest.raises(ValueError, match="not a GGUF file"):
+        s.set_parallel("chat", 4)
+
+
 def test_the_same_model_on_a_machine_without_a_gpu_runs_on_the_cpu(home, server):
     s = session(home, server, CPU_ONLY)
     s.choose("chat", s.find("local", "gemma:12b"))
@@ -90,11 +98,11 @@ def test_effort_is_offered_only_for_a_model_the_capability_table_says_can_think(
     assert s.effort_options("chat")[0] == ()
     with pytest.raises(ValueError, match="no thinking control"):
         s.set_effort("chat", "high")
-    s.choose("fast", s.find("local", "qwen3:8b"))
-    assert "high" in s.effort_options("fast")[0]
-    s.set_effort("fast", "high")
-    s.choose("fast", s.find("local", "gemma:12b"))  # switching to a model without support drops the level
-    assert s.drafts["fast"].effort == ""
+    s.choose("writer", s.find("local", "qwen3:8b"))
+    assert "high" in s.effort_options("writer")[0]
+    s.set_effort("writer", "high")
+    s.choose("writer", s.find("local", "gemma:12b"))  # switching to a model without support drops the level
+    assert s.drafts["writer"].effort == ""
 
 
 def test_the_diff_and_the_write_keep_comments_and_use_the_apply_path(home, server):
@@ -122,7 +130,7 @@ def test_an_untouched_session_has_nothing_to_write(home, server):
 def test_auto_tune_fills_every_empty_role_and_resets_a_manual_one(home, server):
     s = session(home, server)
     notes = s.auto_tune()
-    assert s.drafts["chat"].model == "gemma:12b" and s.drafts["fast"].model and notes
+    assert s.drafts["chat"].model == "gemma:12b" and s.drafts["classifier"].model == "guardian:2b" and notes
     s.set_context("chat", 8192)
     s.auto_tune("chat")
     assert not s.drafts["chat"].manual and s.drafts["chat"].context == 0
@@ -273,3 +281,258 @@ def test_snapshot_and_restore_undo_any_change(home, server):
     assert s.has_changes()
     s.restore(snap)
     assert not s.has_changes() and "chat" not in s.drafts
+
+
+def test_a_named_role_is_added_chosen_and_written_with_its_alias(home, server):
+    s = session(home, server)
+    assert s.add_role("Code-128K") == "code-128k"
+    assert s.role_names()[-1] == "code-128k" and not s.has_changes()
+    s.choose("code-128k", s.find("local", "coder:7b"))
+    assert "[gateway.aliases.hal-code-128k]" in s.diff()
+    s.write()
+    cfg = tomllib.loads(home.config.read_text())
+    assert cfg["models"]["roles"]["code-128k"]["model"] == "coder:7b"
+    assert cfg["gateway"]["aliases"]["hal-code-128k"]["model"] == "hal-tuned-code-128k:latest"
+
+
+def test_a_named_role_name_must_be_new_and_alias_safe(home, server):
+    s = session(home, server)
+    for bad in ("chat", "guard", "has space", "9lives"):
+        with pytest.raises(ValueError):
+            s.add_role(bad)
+    s.add_role("mine")
+    with pytest.raises(ValueError, match="already"):
+        s.add_role("mine")
+    with pytest.raises(ValueError, match="built-in"):
+        s.remove_role("chat")
+
+
+def test_removing_a_saved_named_role_is_written_and_can_be_undone(home, server):
+    extra = '[models.roles.code-128k]\nsource = "local"\nmodel = "coder:7b"\n[gateway.aliases.hal-code-128k]\nbackend = "local"\nmodel = "coder:7b"\n'
+    s = session(home, server, extra=extra)
+    assert "code-128k" in s.role_names()
+    snap = s.snapshot()
+    s.remove_role("code-128k")
+    assert "code-128k" not in s.role_names() and s.has_changes()
+    s.restore(snap)
+    assert "code-128k" in s.role_names() and not s.has_changes()
+    s.remove_role("code-128k")
+    s.write()
+    assert "code-128k" not in home.config.read_text()
+
+
+def test_a_context_set_by_hand_may_pass_the_context_cap_up_to_the_model_maximum(home, server):
+    # regression: the slider stopped at [models] context_cap (128000), below the model's own 131072
+    s = session(home, server, extra="[models]\ncontext_cap = 32768\n")
+    s.choose("chat", s.find("local", "gemma:12b"))
+    assert s.fit("chat").context <= 32768  # auto-tune keeps to the cap
+    s.set_context("chat", 131072)
+    assert s.fit("chat").context == 131072 == s.ceiling("chat")
+
+
+def test_settings_made_by_hand_stay_when_other_fields_change(home, server):
+    s = session(home, server)
+    s.choose("chat", s.find("local", "gemma:12b"))
+    s.set_context("chat", 65536)
+    s.set_kv("chat", "q4_0")
+    s.set_gpu_layers("chat", 20)
+    d = s.drafts["chat"]
+    assert (d.context, d.kv_type, d.gpu_layers, d.manual) == (65536, "q4_0", 20, True)
+    s.set_kv("chat", "auto")  # only the cache type goes back to tuning
+    assert (d.context, d.kv_type, d.gpu_layers) == (65536, "", 20)
+    s.auto_context("chat")
+    assert (d.context, d.gpu_layers, d.manual) == (0, None, False)
+
+
+def test_choosing_a_cache_type_keeps_the_tuned_context(home, server):
+    s = session(home, server)
+    s.choose("chat", s.find("local", "gemma:12b"))
+    tuned = s.fit("chat").context
+    s.set_kv("chat", "f16")
+    assert s.drafts["chat"].context == tuned and s.drafts["chat"].manual
+
+
+def test_a_context_past_the_card_spills_to_ram_instead_of_being_refused(home, server):
+    s = session(home, server, {**CARD_24GB, "gpus": [{**CARD_24GB["gpus"][0], "total_mib": 8192, "free_mib": 8192}]})
+    s.choose("chat", s.find("local", "gemma:12b"))
+    s.set_context("chat", 131072)
+    fit = s.fit("chat")
+    assert fit.status == "hybrid" and fit.ram_mib > 0 and fit.used_mib <= 8192
+    assert s.role_plans()[0].plan.status == "hybrid"
+
+
+def test_a_server_sized_model_takes_a_declared_context_that_is_written(home):
+    rows = [{"id": "big-model", "max_model_len": 163840}]
+    with FakeOllama(openai_models=rows) as vllm:
+        home.config.write_text(f'[models.sources.vllm]\nkind = "openai"\nurl = "{vllm.url}/v1"\n')
+        s = tuneui.open_state(hw=hardware.from_dict(CARD_24GB))
+        s.choose("code", s.find("vllm", "big-model"))
+        assert s.fit("code").status == "server" and s.fit("code").context == 163840
+        s.set_context("code", 131072)
+        assert s.fit("code").context == 131072
+        with pytest.raises(ValueError, match="at most 163840"):
+            s.set_context("code", 200000)
+        (rp,) = s.role_plans()
+        assert rp.declared_context == 131072
+
+
+def test_experts_of_a_moe_gguf_can_be_kept_in_ram_by_hand(home, tmp_path):
+    from halkit.testing.gguf import llama_like, write_gguf  # noqa: PLC0415 - only this test writes a GGUF
+
+    mib = 1024 * 1024
+    meta = {**llama_like(layers=8, kv_heads=1), "llama.expert_count": 8}
+    experts = {f"blk.{i}.ffn_up_exps.weight": 8 * mib for i in range(8)}  # 64 MiB of experts
+    write_gguf(tmp_path / "moe.gguf", meta, tensors={"token_embd.weight": mib, **experts, "output.weight": mib})
+    home.config.write_text(f'[models.sources.files]\nkind = "gguf"\npath = "{tmp_path}"\n')
+    small = {**CARD_24GB, "gpus": [{**CARD_24GB["gpus"][0], "total_mib": 240, "free_mib": 240}]}
+    s = tuneui.open_state(hw=hardware.from_dict(small))
+    s.choose("chat", s.find("files", "moe"))
+    assert s.experts_of("chat") == (8, "") and s.layers_of("chat")[0] == 8
+    s.set_context("chat", 2048)  # 184 MiB of runtime + 66 of weights + 8 of cache: past the card
+    assert s.fit("chat").status == "hybrid" and s.fit("chat").cpu_moe > 0  # experts spill, not layers
+    s.set_cpu_moe("chat", 0)
+    assert s.fit("chat").status == "does-not-fit"
+    s.set_cpu_moe("chat", 6)
+    fit = s.fit("chat")
+    assert (fit.status, fit.cpu_moe, fit.gpu_layers) == ("hybrid", 6, -1) and fit.ram_mib >= 48
+    with pytest.raises(ValueError, match="choose 0 to 8"):
+        s.set_cpu_moe("chat", 9)
+    assert s.drafts["chat"].context == 2048  # the hand-set context stays
+
+
+def test_experts_are_refused_on_a_dense_model(home, server):
+    s = session(home, server)
+    s.choose("chat", s.find("local", "gemma:12b"))
+    assert s.experts_of("chat")[1] == "not a mixture-of-experts GGUF model"
+    with pytest.raises(ValueError, match="mixture-of-experts"):
+        s.set_cpu_moe("chat", 2)
+
+
+def test_hal_main_and_agent_point_at_role_aliases_and_are_written(home, server):
+    s = session(home, server)
+    assert s.harness == {"main": "hal-code", "agent": "hal-code"} and not s.has_changes()
+    s.add_role("code-128k")
+    assert "hal-code-128k" in s.alias_names()
+    s.set_harness("agent", "hal-chat")
+    with pytest.raises(ValueError, match="not one of"):
+        s.set_harness("main", "gpu-112k")
+    snap = s.snapshot()
+    s.set_harness("main", "hal-writer")
+    s.restore(snap)
+    assert s.harness == {"main": "hal-code", "agent": "hal-chat"} and s.has_changes()
+    s.write()
+    gateway = tomllib.loads(home.config.read_text())["gateway"]
+    assert gateway["agent"] == "hal-chat" and "main" not in gateway  # only what changed is written
+    assert not s.has_changes()
+
+
+def test_a_draft_beside_a_gguf_is_used_counted_and_written(home, tmp_path):
+    from halkit.testing.gguf import llama_like, write_gguf  # noqa: PLC0415 - only these tests write a GGUF
+
+    mib = 1024 * 1024
+    write_gguf(tmp_path / "big-27b-Q4.gguf", llama_like(layers=8), tensors={"blk.0.attn_q.weight": 64 * mib})
+    (tmp_path / "MTP").mkdir()
+    write_gguf(tmp_path / "MTP" / "mtp-big-27b-Q8_0.gguf", llama_like(layers=1), tensors={"blk.0.attn_q.weight": mib})
+    home.config.write_text(f'[models.sources.files]\nkind = "gguf"\npath = "{tmp_path}"\n')
+    s = tuneui.open_state(hw=hardware.from_dict(CARD_24GB))
+    assert [m.name for m in s.models()] == ["big-27b-Q4"]  # the draft is not offered as a model
+    s.choose("code", s.find("files", "big-27b-Q4"))
+    assert [p.rsplit("/", 1)[-1] for p, _ in s.drafts_of("code")] == ["mtp-big-27b-Q8_0.gguf"]
+    drafted = s.fit("code")
+    assert drafted.draft.endswith("mtp-big-27b-Q8_0.gguf") and drafted.draft_max == 5
+    s.set_draft("code", "off")
+    assert s.fit("code").draft == "" and s.fit("code").used_mib < drafted.used_mib
+    with pytest.raises(ValueError, match="not a draft model"):
+        s.set_draft("code", "/elsewhere.gguf")
+    s.set_draft("code", "")
+    s.set_draft_max("code", 8)
+    s.write()
+    role = tomllib.loads(home.config.read_text())["models"]["roles"]["code"]
+    assert role["draft_max"] == 8 and "draft" not in role  # "" means the best draft found
+    mode = (home.config.parent / "modes" / "tuned.ini").read_text()
+    assert "spec-type = draft-mtp" in mode and "spec-draft-n-max = 8" in mode and "mtp-big-27b-Q8_0.gguf" in mode
+    assert "mtp-big-27b-Q8_0" in (home.config.parent / "models.toml").read_text()  # the draft is pinned too
+
+
+def test_parallel_requests_shrink_the_fit_and_are_written(home, tmp_path):
+    from halkit.testing.gguf import llama_like, write_gguf  # noqa: PLC0415 - only these tests write a GGUF
+
+    write_gguf(tmp_path / "big-27b-Q4.gguf", llama_like(layers=8), tensors={"blk.0.attn_q.weight": 64 * 1024 * 1024})
+    home.config.write_text(f'[models.sources.files]\nkind = "gguf"\npath = "{tmp_path}"\n')
+    s = tuneui.open_state(hw=hardware.from_dict(CARD_24GB))
+    s.choose("writer", s.find("files", "big-27b-Q4"))
+    s.set_context("writer", 32768)
+    one = s.fit("writer").used_mib
+    s.set_parallel("writer", 4)
+    assert s.fit("writer").used_mib > one  # four contexts in the cache
+    with pytest.raises(ValueError, match="1 to 16"):
+        s.set_parallel("writer", 0)
+    s.write()
+    role = tomllib.loads(home.config.read_text())["models"]["roles"]["writer"]
+    assert role["parallel"] == 4 and role["context"] == 32768
+    mode = (home.config.parent / "modes" / "tuned.ini").read_text()
+    assert "parallel = 4" in mode and "ctx-size = 131072" in mode
+
+
+def test_a_new_model_drops_the_family_the_old_model_had(home, server):
+    # regression: an old `fast` table's `family = "qwen35"` stayed on the classifier after granite replaced it
+    old = '[models.roles.fast]\nsource = "local"\nmodel = "tiny:1b"\nfamily = "qwen35"\neffort = "off"\n'
+    s = session(home, server, extra=old)
+    s.choose("classifier", s.find("local", "guardian:2b"))
+    s.write()
+    role = tomllib.loads(home.config.read_text())["models"]["roles"]["classifier"]
+    assert role["model"] == "guardian:2b" and role.get("family") != "qwen35"
+
+
+def test_a_write_gives_an_unchanged_ollama_role_its_tuned_context(home, server):
+    # regression: a chat role saved before derived models ran at the base model's 65K while the gateway said 128K
+    saved = '[hal]\nchat_model = "gemma:12b"\n[models.roles.chat]\nsource = "local"\nmodel = "gemma:12b"\ncontext = 32768\nauto = false\n'
+    s = session(home, server, extra=saved)
+    assert s.changed_roles() == [] and s.stale_roles() == ["chat"] and s.has_changes()
+    s.write()
+    assert tomllib.loads(home.config.read_text())["hal"]["chat_model"] == "hal-tuned-chat:latest"
+    assert {c["model"]: c["parameters"] for c in server.created}["hal-tuned-chat:latest"]["num_ctx"] == 32768
+    assert tuneui.open_state(hw=hardware.from_dict(CARD_24GB)).stale_roles() == []
+
+
+def test_a_model_with_built_in_mtp_layers_drafts_with_them(home, tmp_path):
+    from halcore.tuneview import draft_label  # noqa: PLC0415 - only this test needs the label
+    from halkit.testing.gguf import llama_like, write_gguf  # noqa: PLC0415 - only these tests write a GGUF
+
+    mib = 1024 * 1024
+    meta = {**llama_like(layers=8), "llama.nextn_predict_layers": 1}
+    path = write_gguf(tmp_path / "coder-27b-MTP-Q4.gguf", meta, tensors={f"blk.{i}.attn_q.weight": 8 * mib for i in range(8)})
+    home.config.write_text(f'[models.sources.files]\nkind = "gguf"\npath = "{tmp_path}"\n')
+    s = tuneui.open_state(hw=hardware.from_dict(CARD_24GB))
+    s.choose("code", s.find("files", "coder-27b-MTP-Q4"))
+    fit = s.fit("code")
+    assert fit.draft == str(path) and draft_label(fit.draft, str(path)) == "built-in MTP"
+    assert s.find("files", "coder-27b-MTP-Q4").mtp_layers == 1
+    s.set_draft_max("code", 2)
+    notes = s.write()
+    mode = (home.config.parent / "modes" / "tuned.ini").read_text()
+    assert "spec-type = draft-mtp" in mode and "spec-draft-n-max = 2" in mode and "model-draft" not in mode
+    assert "pinned coder-27b-MTP-Q4 (sha256" in "\n".join(notes)  # pinned once, as the model
+
+
+def test_chat_and_vision_on_one_model_and_context_share_one_ollama_model(home, server):
+    # regression: each role got its own copy of the same model, which Ollama loaded twice
+    s = session(home, server)
+    for role in ("chat", "vision"):
+        s.choose(role, s.find("local", "gemma:12b"))
+        s.set_context(role, 32768)
+    s.write()
+    hal = tomllib.loads(home.config.read_text())["hal"]
+    assert hal["chat_model"] == hal["vision_model"] == "hal-tuned-chat:latest"
+    assert [c["model"] for c in server.created] == ["hal-tuned-chat:latest"]
+    assert tuneui.open_state(hw=hardware.from_dict(CARD_24GB)).stale_roles() == []
+
+
+@pytest.mark.parametrize(("on_cpu", "params"), [("true", {"num_ctx": 2048, "num_gpu": 0}), ("false", {"num_ctx": 2048})])
+def test_embed_on_cpu_keeps_the_embedding_model_off_the_gpu(home, server, on_cpu, params):
+    # regression: `[hal] embed_on_cpu` was read by nothing, and a vault reindex took VRAM a model load needed
+    s = session(home, server, extra=f"[hal]\nembed_on_cpu = {on_cpu}\n")
+    s.choose("embed", s.find("local", "nomic-embed"))
+    s.set_context("embed", 2048)
+    s.write()
+    assert {c["model"]: c["parameters"] for c in server.created}["hal-tuned-embed:latest"] == params

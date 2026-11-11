@@ -21,7 +21,7 @@ import logging
 import os
 import re
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .models.manifest import PICKLE_SUFFIXES, ManifestError, Verifier, sha256_file
@@ -89,6 +89,7 @@ class HalSettings:
     swap_slots: int
     context_window: int
     client_timeout_ms: int | None
+    preset_windows: dict[str, int] = field(default_factory=dict)  # preset name -> its `ctx-size`
 
 
 @dataclass(frozen=True)
@@ -155,22 +156,35 @@ def _int(raw: dict[str, str], key: str, default: int | None, name: str) -> int |
     return int(value)
 
 
+def _preset_windows(parser: configparser.ConfigParser, name: str) -> dict[str, int]:
+    """Each preset's `ctx-size` (with `[*]` defaults); a preset without one is left out."""
+    shared = dict(parser["*"]) if parser.has_section("*") else {}
+    windows = {}
+    for section in parser.sections():
+        if section in (TOP, HAL_SECTION, "*"):
+            continue
+        value = {**shared, **dict(parser[section])}.get("ctx-size")
+        if value is None:
+            continue
+        if not value.isdigit():
+            raise ModeError(f"mode {name}: preset {section} ctx-size {value!r} is not a number")
+        windows[section] = int(value)
+    return windows
+
+
 def _context_window(parser: configparser.ConfigParser, raw: dict[str, str], name: str) -> int:
     """Smallest `ctx-size`, skipping the classifier and, in swap modes, the agent (hal:159-168)."""
     skip = {raw.get("classifier")}
     if _flag(raw, "swap", False, name):
         skip.add(raw.get("agent"))
-    shared = dict(parser["*"]) if parser.has_section("*") else {}
+    windows = _preset_windows(parser, name)
     sizes = []
     for section in parser.sections():
         if section in (TOP, HAL_SECTION, "*") or section in skip:
             continue
-        value = {**shared, **dict(parser[section])}.get("ctx-size")
-        if value is None:
+        if section not in windows:
             raise ModeError(f"mode {name}: preset {section} has no ctx-size and [*] has none")
-        if not value.isdigit():
-            raise ModeError(f"mode {name}: preset {section} ctx-size {value!r} is not a number")
-        sizes.append(int(value))
+        sizes.append(windows[section])
     if not sizes:
         raise ModeError(f"mode {name}: no preset sets ctx-size")
     return min(sizes)
@@ -211,6 +225,7 @@ def _hal_settings(parser: configparser.ConfigParser, name: str) -> HalSettings:
         swap_slots=_int(raw, "swap-slots", DEFAULT_SWAP_SLOTS, name),  # type: ignore[arg-type]
         context_window=window,
         client_timeout_ms=_int(raw, "client-timeout-ms", None, name),
+        preset_windows=_preset_windows(parser, name),
     )
 
 

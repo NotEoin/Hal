@@ -1,8 +1,6 @@
 """Tests for `halgateway.modes`: discovery, the [hal] section, denied keys and the file checks."""
 
 import hashlib
-import os
-import stat
 import textwrap
 from pathlib import Path
 
@@ -56,29 +54,34 @@ MINIMAL = """\
     """
 
 
-def test_every_bundled_mode_renders_with_a_hal_section(tmp_path):
-    names = sorted(modes.discover([]))
-    assert len(names) == 10
-    for name in names:
-        rendered = render(tmp_path, name, AcceptAll(), [])
-        text = rendered.path.read_text()
-        assert "[hal]" not in text and "@HAL@" not in text and "@MODELS@" not in text
-        assert rendered.hal.main and rendered.hal.context_window >= 32768
-        assert stat.S_IMODE(os.stat(rendered.path).st_mode) == 0o600
+def test_no_mode_ships_with_hal(tmp_path):
+    # the old max-profile modes are gone; `hal tune` writes the `tuned` mode into the user's folder
+    assert modes.discover([]) == {}
 
 
-def test_bundled_hal_wiring_matches_the_old_scripts(tmp_path):
-    combined = render(tmp_path, "combined", AcceptAll(), []).hal
-    assert (combined.main, combined.agent, combined.classifier, combined.route) == (
-        "hal-orchestrator",
-        "hal-agent",
-        "hal-router",
-        True,
-    )
-    swap = render(tmp_path, "orchestrate", AcceptAll(), []).hal
-    assert swap.swap and swap.effort and not swap.autoload and swap.models_max == 1
-    assert swap.client_timeout_ms == 7200000 and swap.delegate_note.name == "orchestrate-prompt.txt"
-    assert render(tmp_path, "hybrid-auto", AcceptAll(), []).hal.effort
+def test_a_user_mode_carries_its_hal_wiring(tmp_path):
+    path, verifier = weights(tmp_path)
+    body = f"""\
+        version = 1
+        [hal]
+        main = big
+        agent = small
+        swap = true
+        effort = true
+        autoload = false
+        models-max = 1
+        client-timeout-ms = 7200000
+        [*]
+        ctx-size = 32768
+        [big]
+        model = {path}
+        [small]
+        model = {path}
+        """
+    hal = render(tmp_path, "mine", verifier, user_mode(tmp_path, body)).hal
+    assert (hal.main, hal.agent, hal.swap, hal.effort) == ("big", "small", True, True)
+    assert (hal.autoload, hal.models_max, hal.client_timeout_ms) == (False, 1, 7200000)
+    assert hal.context_window == 32768
 
 
 def test_context_window_ignores_the_classifier_and_the_agent_in_swap_modes(tmp_path):
@@ -99,6 +102,20 @@ def test_context_window_ignores_the_classifier_and_the_agent_in_swap_modes(tmp_p
         """
     dirs = user_mode(tmp_path, body)
     assert render(tmp_path, "mine", AcceptAll(), dirs).hal.context_window == 5000
+
+
+def test_preset_windows_give_each_preset_its_own_ctx_size(tmp_path):
+    body = """\
+        [hal]
+        main = a
+        [*]
+        ctx-size = 1000
+        [a]
+        ctx-size = 131072
+        [b]
+        """
+    dirs = user_mode(tmp_path, body)
+    assert render(tmp_path, "mine", AcceptAll(), dirs).hal.preset_windows == {"a": 131072, "b": 1000}
 
 
 def test_bundled_checksums_match_the_files():
@@ -194,16 +211,23 @@ def test_unknown_mode_names_the_command_that_lists_them(tmp_path):
         render(tmp_path, "nope", AcceptAll(), [])
 
 
-def test_modes_command_lists_the_bundled_modes(tmp_path, monkeypatch, capsys):
+def _router_config(tmp_path, dirs):
     cfg = tmp_path / "c.toml"
-    cfg.write_text("")
+    lines = ["[gateway.backends.local]", 'type = "llama-router"', f'models_dir = "{tmp_path / "models"}"',
+             "modes_dirs = [" + ", ".join(f'"{d}"' for d in dirs) + "]"]  # fmt: skip
+    cfg.write_text("\n".join(lines) + "\n")
+    return cfg
+
+
+def test_modes_command_lists_the_user_modes(tmp_path, capsys):
+    path, _ = weights(tmp_path)
+    cfg = _router_config(tmp_path, user_mode(tmp_path, MINIMAL.format(model=path), name="tuned"))
     assert cli.main(["modes", "--config", str(cfg)]) == cli.EXIT_OK
-    out = capsys.readouterr().out
-    assert "orchestrate-256k" in out and "gpu-112k" in out
+    assert "tuned" in capsys.readouterr().out
 
 
 def test_render_command_refuses_a_mode_whose_weights_are_not_pinned(tmp_path, capsys):
-    cfg = tmp_path / "c.toml"
-    cfg.write_text("")
-    assert cli.main(["render", "gpu", "--config", str(cfg)]) == cli.EXIT_REFUSED
+    path, _ = weights(tmp_path)
+    cfg = _router_config(tmp_path, user_mode(tmp_path, MINIMAL.format(model=path), name="tuned"))
+    assert cli.main(["render", "tuned", "--config", str(cfg)]) == cli.EXIT_REFUSED
     assert "no entry in models.toml" in capsys.readouterr().err

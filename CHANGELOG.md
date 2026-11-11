@@ -3,6 +3,124 @@
 Format: [Keep a Changelog](https://keepachangelog.com/). Versions follow semver; every package
 carries the same version.
 
+## Unreleased
+
+## 0.2.0 - 2026-11-11
+
+### Removed
+
+- The bash launchers `hal`, `hal-serve`, `setup.sh` and `hal-route.py`, the `max` profile, the
+  ten bundled llama.cpp modes (`gpu`, `gpu-112k`, `hybrid*`, `combined`, `orchestrate*`), the
+  `models/` role scripts and `hal configure --profile`. The `hal` command, `scripts/install.sh`
+  and `hal setup` install and run Hal; `hal tune` sets every model, including the choices those
+  modes made (context, cache type, GPU layers, experts in RAM). `hal kill` asks the gateway to
+  stop its model servers instead of running `hal-serve stop`.
+
+### Added
+
+- Speculative decoding for GGUF roles: `hal tune` finds a draft model beside the weights (an MTP
+  head, Gemma's assistant, a DFlash, DSpark or EAGLE drafter), uses the best one, counts it in the
+  memory bar, and writes it into the `tuned` mode; **Speculative** and **Draft tokens** change it.
+  On an RTX 3090 an MTP head took Qwen3.8-27B from 41 to 85 tokens/s and Gemma 4 31B from 39 to
+  100 on code. A model with its own MTP layers drafts with them. Discovery no longer lists draft
+  models or `imatrix` calibration files as models.
+- `hal tune --bench` measures each role's time to first token and decode speed through the
+  gateway, as clients see them.
+- GPU parking: with `park = true` the gateway frees the card by moving a llama-server or vLLM
+  server's VRAM into host RAM (`cuda-checkpoint`) instead of stopping it, and resumes it in
+  seconds on its next request. A `hal-chat` request parks such a server, so voice gets the GPU
+  while hal-code or hal-writer is loaded (`[gateway.gpu].make_room_for`).
+- Parallel requests for GGUF roles: **Parallel** in `hal tune` (`parallel` in the role) serves
+  several requests at once, each with the role's context, for bulk jobs such as vault ingest.
+  The memory bar counts a cache for every slot, and the gateway lists the slots on the alias.
+- `hal setup` installs the pinned llama.cpp build (now b12121) when a GGUF source or a llama.cpp
+  router needs it, picking CUDA, ROCm or the CPU build for your GPU and checking every archive
+  against the sha256 in the repo before it is extracted. `setup.sh --profile max` did this before.
+- `hal ask`, `index`, `brief`, `summarize`, `import`, `obsidian-key` and `register-repos` hand
+  off to the memory pack's `hal-memory`, as the removed bash launcher did.
+- `hal claude` opens Claude Code on your models through the gateway (`hal/main`, `hal/agent`),
+  with its context set from the gateway, every Claude Code service call switched off and a proxy
+  backstop, as the removed bash launcher did. `--cloud` uses your own Anthropic login.
+- The gateway can run an OpenAI-compatible server for you, such as vLLM: a `managed-openai`
+  backend starts at the first request (or `hal-gateway backend start NAME`), is ready when its
+  health path answers and it lists a model of `served_models`, restarts after a crash, frees the
+  GPU by stopping the llama router and emptying Ollama, and stops with its whole process group.
+  A restarted gateway keeps a server whose config did not change; `idle_stop = false` keeps it
+  through the idle unload. See `docs/howto/run-a-vllm-server-under-hal.md`.
+- Named roles: besides `chat`, `code` and the other built-in roles, `hal tune` (**New role...**)
+  and `hal models assign NAME SOURCE MODEL` add a role with its own model and settings, such as
+  `code-128k`. The gateway serves it as `hal-NAME`, so `hal code` can pick it with `/model`.
+  `hal models remove-role NAME` and **Remove role** take it away again. See `docs/user/models.md`.
+
+### Changed
+
+- `hal/main` and `hal/agent`, the names Claude Code and other harnesses ask for, serve an alias
+  set by `[gateway] main` and `agent` (default `hal-code`) instead of the router mode's presets,
+  and `hal tune` sets them in its **harness** row. Leave a key empty to follow a mode you wrote.
+- The `fast` role and its alias `hal-fast` are now `classifier` and `hal-classifier`, the
+  tool-call risk classifier, with Granite Guardian 4.1 (`granite4.1-guardian:8b`) as the default
+  model and answer format. `hal-fast` was only used by the classifier. An old
+  `[models.roles.fast]` table or `[hal] fast_model` still loads and is moved on the next save.
+  The approval reviewer (off by default) now uses `hal-chat`, since a classifier can only score.
+- The per-session model budget of `[gateway.sessions]` now applies to `hal code` and `hal chat`
+  boxes, so its defaults are sized for coding: 120 requests a minute (was 30) and 100,000,000
+  tokens an hour (was 2,000,000, which a 128K-token window used up in about 15 turns).
+- `hal tune` estimates what a model takes on the GPU from the GGUF header and tensor table: the
+  weights there, the cache and llama.cpp's own buffers. Checked against `nvidia-smi` on an RTX
+  3090, the estimate was 6 to 107 MiB high, never low. The memory bar shows that estimate against
+  the card's total; auto-tune keeps to a headroom (marked `|`), and a setting you make may use the
+  whole card. Before, a setting stopped at the card less a hidden 600 MiB (23.4 GB of a 24 GB
+  card) and the estimate left out the runtime buffers.
+- In `hal tune` a field you set stays as you set it until you press its Auto button,
+  Auto-tune or a preset. Auto-tune and the context slider go up to the model's own maximum
+  (262144 for Qwen3.8 27B): `[models] context_cap` is off by default and, when set, limits only
+  auto-tune. A setting past the card spills to RAM instead of
+  being refused, and a model a server sizes (such as vLLM) takes a declared context.
+- A mixture-of-experts GGUF larger than the GPU keeps every layer on the GPU and the routed
+  experts of some layers in RAM (`cpu_moe`, llama.cpp `--n-cpu-moe`), as the `max` profile's
+  hybrid modes do; the tune screen sets it with **RAM experts**. The generated `tuned` mode sets
+  `fit = off` so llama.cpp keeps the planned numbers.
+- Stopping the managed llama router now ends its whole process group and waits for every
+  process in it, not only the leader.
+
+### Fixed
+
+- Two GGUF roles that do not fit the GPU together (a coder and a writer) swap instead of running
+  out of memory: the `tuned` mode keeps one loaded (`models-max = 1`) when their files do not fit.
+- The gateway re-reads `models.toml` when it changes. A `hal tune` save remakes a role's Ollama
+  model and pins it; until now that role answered 503 `model_unverified` until the gateway was
+  restarted.
+- `[hal] embed_on_cpu` works again: the embed role's Ollama model has no GPU layers, so a vault
+  reindex no longer takes VRAM that a model loading beside it needs (a coder load failed on it).
+- The gateway waits for Ollama to free the VRAM before it starts the router or a managed server;
+  vLLM had refused to start because the unloaded model still held 2 GB.
+- A click in a picker (`/model`, `/resume`, Ctrl+R, Ctrl+P) chooses the row under the pointer.
+  Before, the list's focus border appeared between the press and the release and moved every
+  row down one line, so in a long list a click chose the row above (in `/model`, often the first
+  model listed), and a row that wrapped at a narrow width could do the same. Rows are now one
+  line each, cut with an ellipsis.
+- `hal code` now asks the gateway for `hal-code`, the code role with the context and effort
+  `hal tune` set, and `hal chat` for `hal-chat`. Before, both asked Ollama directly for
+  `[hal] chat_model`, so `hal code` ignored the code role and the tuned context. The box gets a
+  gateway session token that cannot reach a remote backend. Without a running gateway it warns
+  and uses Ollama as before; `--upstream` and `--model` still override.
+- A role on an Ollama model now runs at the context `hal tune` set. Ollama ignores a context sent
+  with an OpenAI-style request, so it ran every model at its Modelfile `num_ctx` or its default
+  (`hal-chat` was set to 128000 tokens and served 65536). Saving now makes `hal-tuned-ROLE` in
+  Ollama, the same weights with the tuned `num_ctx` (and `num_gpu` when layers spill), and the
+  gateway serves the role through it.
+- `hal tune` plans RAM from the total, not what is free, so a hybrid plan no longer turns
+  "too big" while Hal's own models are loaded. The hardware line shows totals, with a note when
+  something holds the GPU.
+- Role names such as `hal-code` and `hal-chat`, a named role's `hal-NAME`, and `hal/main` and
+  `hal/agent` now report the context `hal tune` set for the role, on any backend (Ollama,
+  vLLM and other servers included), else the `ctx-size` the active mode started the model with.
+  Before, they reported no context, so `hal code` fell back to 32768 tokens even when `hal tune`
+  had set 128k.
+- A write that plans some roles (`hal tune --write --role`, `hal models assign`, saving the tune
+  screen) keeps the other roles' presets in the generated `tuned` mode. Before, it rewrote the
+  mode with only the planned roles, so the gateway stopped serving the other GGUF roles.
+
 ## 0.1.0 - 2026-11-03
 
 First release of the monorepo (uv workspace on branch `next`).

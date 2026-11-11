@@ -635,9 +635,11 @@ Test paths are under `packages/<p>/tests/` unless they start with `tests/`.
 
 ### Supply chain
 
-- **REQ-SEC-78** The installer MUST download llama.cpp only as the pinned release (tag
-  `b11512` today) and MUST verify its sha256 from a lock file in the repo before extracting;
-  a mismatch MUST stop the install. Test: unit (`hal-gateway/tests/test_llamacpp_lock.py`).
+- **REQ-SEC-78** The installer (`hal setup`, `halgateway.llamacpp.install`) MUST download
+  llama.cpp only as the pinned release (tag `b12121` today) and MUST verify each archive's
+  sha256 from a lock file in the repo before extracting; a mismatch MUST stop the install and
+  leave nothing installed. Test: unit (`hal-gateway/tests/test_llamacpp_lock.py`,
+  `test_an_archive_that_does_not_match_the_lock_installs_nothing`).
 - **REQ-SEC-79** Every file the gateway loads MUST have an entry in
   `~/.config/hal/models.toml` (05-gateway's model manifest, D2) with `sha256`; the gateway
   MUST verify the hash before the first load and again whenever the file's size, mtime or
@@ -999,13 +1001,14 @@ backend = "auto"                   # "auto" | "docker" | "bwrap"
 
 [reviewer]
 enabled = false                    # bool
-model = "hal-fast"                 # gateway role alias
+model = "hal-chat"                 # gateway role alias
 timeout_s = 20                     # int
 when_untrusted = true              # bool: may review while the session is untrusted
 
 [policy]                           # the risk classifier, halhub.classifier (resolution I5)
 paranoia = "balanced"              # "off" | "low" | "balanced" | "high" | "max"
-model = "hal-fast"                 # gateway role alias
+model = "hal-classifier"           # gateway role alias
+model_format = "guardian"          # "guardian" (Granite Guardian) | "json" (a general model)
 timeout_s = 20                     # int
 
 [paths]
@@ -1077,7 +1080,9 @@ Defaults and their reasons:
 | `guard.max_scan_chars` | 24000 | Twice the 12k-character tool output cap (03-agent), so every capped result is scanned in full |
 | `guard.timeout_s` | 15 | A 24k-character text is about 12 windows at about 0.2 s each on 2 threads, with margin |
 | `guard.threads` | 2 | Leaves CPU for STT and the TUI; raise for speed |
-| `reviewer.model` | `hal-fast` | A small model answers a yes/escalate question; it shares the GPU with the main model |
+| `reviewer.model` | `hal-chat` | The reviewer writes a judgement, which needs a chat model; the classifier alias holds a model that only scores risk |
+| `policy.model` | `hal-classifier` | The classifier role, Granite Guardian by default (`[hal].classifier_model`) |
+| `policy.model_format` | `guardian` | Matches the default classifier; set `json` when `hal-classifier` is a general model |
 | `paths.read_roots` | XDG user dirs | Where a person keeps files a desktop assistant should find; excludes dot directories |
 | `paths.write_roots` | `~/Downloads` | The one place moving or saving files is expected (today's `files_tidy_downloads`) |
 | `egress.unlisted` | ask | A web fetch of an unknown site is common and legitimate; the user sees the host before any DNS lookup |
@@ -1800,7 +1805,7 @@ Reviewer:
 - `user_message` is the last text recorded by `on_human_message` for the session; with none
   (for example a `hal-hub mcp` session) the reviewer is not called and the request goes to
   the human.
-- It calls the gateway alias `reviewer.model` (default `hal-fast`, D1) through
+- It calls the gateway alias `reviewer.model` (default `hal-chat`, D1) through
   `halkit.llm.chat`, so it reaches the model only through the gateway (G5), with temperature 0,
   `max_tokens = 200`, and a fixed system prompt that asks whether the call does what the user
   asked and nothing more, and to answer only the JSON object. The arguments are model-written,
@@ -2060,17 +2065,17 @@ approval per lockfile and manifest set (REQ-SEC-97) and is not part of these ses
 - llama.cpp: `packages/hal-gateway/src/halgateway/llamacpp.lock.toml`:
 
   ```toml
-  [release]
-  tag = "b11512"
-  [[release.assets]]
-  platform = "linux-x86_64-cuda-12.8"
-  url = "https://github.com/ggml-org/llama.cpp/releases/download/b11512/<asset>"
-  sha256 = "<64 hex>"
+  tag = "b12121"
+  [assets]                                   # archive name -> sha256
+  "llama-b12121-bin-ubuntu-cuda-12.8-x64.tar.gz" = "628ad671..."
+  [variants]                                 # archives per machine, extracted into one folder
+  cuda = ["llama-b12121-bin-ubuntu-cuda-12.8-x64.tar.gz", "cudart-llama-b12121-bin-ubuntu-cuda-12.8-x64.tar.gz"]
   ```
 
-  The installed build is `b11512` [verified: `~/.local/share/hal/llama.cpp/llama-b11512`];
-  its archive hash is not on disk [unverified: record it from the release when writing the lock].
-  Upgrading is a commit that changes tag and hashes.
+  The archives come from `https://github.com/ggml-org/llama.cpp/releases/download/<tag>/<asset>`.
+  The digests are GitHub's release digests (read 2026-11-11); the CUDA archive was also checked
+  with `sha256sum` against an independent download. Upgrading is a commit that changes the tag
+  and the digests.
 - Models: `~/.config/hal/models.toml` (05-gateway owns the schema, D2; sha256 is mandatory for
   every file the gateway loads). Security fields per entry: `file`, `format` (`gguf` |
   `safetensors`), `sha256`, `source` (`hf:<repo>@<commit>` or `ollama:<name>@sha256:<digest>`

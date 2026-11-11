@@ -430,23 +430,28 @@ class Segmented(Widget, can_focus=True):
 # --- gauge -----------------------------------------------------------------------------------
 
 
+GAUGE_DIVIDER = "|"  # ASCII in both looks: one cell, readable on every terminal
 GAUGE_STYLE = {"gpu": "success", "tight": "warning", "hybrid": "warning", "cpu": "secondary", "does-not-fit": "error"}
 
 
 class FitGauge(Widget):
-    """A memory bar: used against budget, coloured by fit status (never by parsing words)."""
+    """A memory bar: used against the card, coloured by fit status (never by parsing words).
+
+    `mark` draws a divider at the guidance budget: the bar's left part is what auto-tune plans
+    within, the right part what a setting made by hand may still use.
+    """
 
     DEFAULT_CSS = "FitGauge { height: 1; width: 1fr; }"
 
     def __init__(self, **kwargs: object) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]  # Widget's own keywords
-        self.used = self.budget = 0
+        self.used = self.budget = self.mark = 0
         self.status = ""
         self.caption = ""
 
-    def show(self, used: int, budget: int, status: str, caption: str) -> None:
-        """Sets the bar; `status` picks the colour (`gpu`, `tight`, `hybrid`, `cpu`, `does-not-fit`)."""
-        self.used, self.budget, self.status, self.caption = used, budget, status, caption
+    def show(self, used: int, budget: int, status: str, caption: str, *, mark: int = 0) -> None:
+        """Sets the bar; `budget` is its full scale, `mark` the divider (0 = none), `status` the colour."""
+        self.used, self.budget, self.status, self.caption, self.mark = used, budget, status, caption, mark
         self.refresh()
 
     def colour(self) -> str:
@@ -456,16 +461,22 @@ class FitGauge(Widget):
         return variables.get(name, "")
 
     def render(self) -> RenderableType:
-        """`[#######----]  caption`."""
+        """`[#######--|--]  caption`, the bar split at `mark`."""
         caption = clean(self.caption)
         width = max(MIN_TRACK, self.size.width - len(caption) - 3)
         filled = 0 if self.budget <= 0 else min(width, round(width * self.used / self.budget))
         if self.status == "does-not-fit" and self.budget:
             filled = width
+        divider = round(width * self.mark / self.budget) if 0 < self.mark < self.budget else -1
         full, empty = UNICODE_BAR if getattr(self.app, "unicode", False) else tokens.GAUGE_ASCII
         bar = Text("[")
-        bar.append(full * filled, style=self.colour())
-        bar.append(empty * (width - filled), style="dim")
+        for cell in range(width):
+            if cell == divider:
+                bar.append(GAUGE_DIVIDER, style="bold")
+            elif cell < filled:
+                bar.append(full, style=self.colour())
+            else:
+                bar.append(empty, style="dim")
         bar.append("] ")
         bar.append(caption, style=self.colour())
         return bar

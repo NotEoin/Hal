@@ -2,10 +2,13 @@
 
 It answers `GET /api/tags`, `POST /api/show`, `GET /v1/models` and `GET /models` from the
 documents given to the constructor, records every request path, and checks nothing else.
+`POST /api/create` with `from` adds a tag (digest: the sha256 of the new name) and keeps the body in
+`created`, as a create from an existing model does in Ollama.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -27,6 +30,7 @@ class FakeOllama:
         self.show = show or {}
         self.openai_models = openai_models or []
         self.requests: list[tuple[str, str, dict[str, str]]] = []  # method, path, headers
+        self.created: list[dict] = []  # type: ignore[type-arg]  # bodies of `/api/create`
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -66,7 +70,13 @@ class FakeOllama:
                 owner.requests.append(("POST", self.path, dict(self.headers)))
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
                 doc = owner.show.get(body.get("model") or body.get("name") or "")
-                if self.path == "/api/show" and doc is not None:
+                if self.path == "/api/create" and any(t.get("name") == body.get("from") for t in owner.tags):
+                    owner.created.append(body)
+                    owner.tags = [t for t in owner.tags if t.get("name") != body["model"]]
+                    digest = hashlib.sha256(str(body["model"]).encode()).hexdigest()
+                    owner.tags.append({"name": body["model"], "size": 1, "digest": digest})
+                    self._reply(200, {"status": "success"})
+                elif self.path == "/api/show" and doc is not None:
                     self._reply(200, doc)
                 else:
                     self._reply(404, {"error": "model not found"})

@@ -3,7 +3,6 @@
 # its own commit, made only when asked.
 README.md  # public README: emoji headings and badges are allowed
 SETUP.md  # pre-monorepo text, replaced by docs/user in the README rewrite
-setup.sh  # pre-monorepo launcher text, replaced by scripts/install.sh (06-core-cli)
 hal  # pre-monorepo launcher text, replaced by the hal command (06-core-cli)
 .gitignore  # pre-monorepo comment text
 eval/scenarios.toml  # test data: matches the degree sign in model replies

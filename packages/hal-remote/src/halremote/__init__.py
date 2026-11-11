@@ -6,4 +6,4 @@ Linux-only sandbox. Design: docs/design/07-remote.md.
 Importing this package registers the `[remote]` config tables.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

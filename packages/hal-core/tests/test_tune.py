@@ -44,6 +44,7 @@ TAGS = [
     {"name": "tiny:1b", "size": 800 * MIB, "digest": "c" * 64, "details": {"family": "llama", "parameter_size": "1B"}},
     {"name": "coder:7b", "size": 4500 * MIB, "digest": "e" * 64, "details": {"family": "llama", "parameter_size": "7B"}},
     {"name": "nomic-embed", "size": 270 * MIB, "digest": "d" * 64, "details": {"family": "bert"}},
+    {"name": "guardian:2b", "size": 1800 * MIB, "digest": "f" * 64, "details": {"family": "granite"}},
 ]
 SHOW = {
     "big:70b": arch_doc(80, 64, 8, 128, 131072),
@@ -51,6 +52,7 @@ SHOW = {
     "tiny:1b": arch_doc(16, 32, 8, 64, 131072),
     "coder:7b": arch_doc(32, 32, 8, 128, 32768),
     "nomic-embed": {"capabilities": ["embedding"], "model_info": {"general.architecture": "bert"}},
+    "guardian:2b": arch_doc(32, 32, 8, 64, 131072),
 }
 CARD_24GB = {
     "gpus": [{"index": 0, "vendor": "nvidia", "name": "RTX 4090", "total_mib": 24564, "free_mib": 24000, "compute_cap": "8.9"}],
@@ -109,7 +111,7 @@ def test_auto_json_on_a_24gb_card_picks_the_biggest_model_that_fits_for_chat(hom
     chat = roles["chat"]
     assert chat["model"]["name"] == "gemma:12b"  # the 70B does not fit in VRAM; the 12B does, with context
     assert chat["plan"]["status"] == "gpu" and chat["plan"]["context"] >= 16384
-    assert roles["fast"]["model"]["name"] == "tiny:1b"
+    assert roles["classifier"]["model"]["name"] == "guardian:2b"  # only a classifier may be one
     assert roles["embed"]["model"]["name"] == "nomic-embed"
     assert roles["code"]["model"]["name"] == "coder:7b"
     assert roles["vision"]["model"]["name"] == "gemma:12b"
@@ -141,7 +143,13 @@ def test_write_saves_roles_pins_digests_and_names_the_models_for_the_gateway(hom
     chat = cfg["models"]["roles"]["chat"]
     assert (chat["source"], chat["model"], chat["gpu_layers"]) == ("local", "gemma:12b", -1)
     assert chat["context"] >= 16384 and chat["kv_type"] in ("f16", "q8_0", "q4_0")
-    assert cfg["hal"]["chat_model"] == "gemma:12b" and cfg["hal"]["fast_model"] == "tiny:1b"
+    # the gateway serves Ollama roles through the model that carries the tuned context
+    assert cfg["hal"]["chat_model"] == "hal-tuned-chat:latest" and cfg["hal"]["classifier_model"] == "hal-tuned-classifier:latest"
+    made = {c["model"]: c for c in ollama.created}
+    assert made["hal-tuned-chat:latest"]["from"] == "gemma:12b"
+    assert made["hal-tuned-chat:latest"]["parameters"] == {"num_ctx": chat["context"]}
+    pins = (home.config.parent / "models.toml").read_text()
+    assert "hal-tuned-chat:latest" in pins
     assert cfg["hal"]["ollama_url"] == ollama.url
     manifest = (home.config.parent / "models.toml").read_text()
     assert "gemma:12b@sha256:" + "b" * 64 in manifest
@@ -265,9 +273,10 @@ def test_models_list_json_reports_an_unreachable_source(home, capsys):
 def test_models_assign_sets_the_role_pins_it_and_wires_the_gateway(home, ollama, capsys, monkeypatch):
     monkeypatch.setattr(hardware, "default_runner", lambda argv, timeout: (_ for _ in ()).throw(FileNotFoundError()))
     add_ollama(home, ollama)
-    assert modelscmd.main(["assign", "fast", "local", "tiny:1b"]) == 0
+    assert modelscmd.main(["assign", "classifier", "local", "tiny:1b"]) == 0
     cfg = tomllib.loads(home.config.read_text())
-    assert cfg["models"]["roles"]["fast"]["model"] == "tiny:1b" and cfg["hal"]["fast_model"] == "tiny:1b"
+    assert cfg["models"]["roles"]["classifier"]["model"] == "tiny:1b"
+    assert cfg["hal"]["classifier_model"] == "hal-tuned-classifier:latest"
     assert "tiny:1b@sha256:" + "c" * 64 in (home.config.parent / "models.toml").read_text()
 
 
@@ -297,7 +306,7 @@ def test_the_text_plan_shows_hardware_numbers_and_the_write_hint(home, ollama, h
     assert tune.main(["--auto", "--role", "chat", "--hardware", hw_file(CARD_24GB)]) == 0
     out = capsys.readouterr().out
     assert "RTX 4090 24564 MiB (24000 free)" in out and "local/gemma:12b" in out
-    assert "budget" in out and "Run again with --write" in out
+    assert "guidance" in out and "Run again with --write" in out
 
 
 def test_a_failed_pin_rolls_back_earlier_pins_and_writes_no_config(home, ollama, tmp_path, hw_file, capsys, monkeypatch):
@@ -321,3 +330,107 @@ def test_a_failed_pin_rolls_back_earlier_pins_and_writes_no_config(home, ollama,
     assert home.config.read_text() == before
     assert not (home.config.parent / "models.toml").exists()
     assert not list(home.config.parent.glob("config.toml.bak.*"))
+
+
+def no_gpu_probe(monkeypatch):
+    monkeypatch.setattr(hardware, "default_runner", lambda argv, timeout: (_ for _ in ()).throw(FileNotFoundError()))
+
+
+def test_assign_with_a_new_name_adds_a_named_role_served_as_a_gateway_alias(home, ollama, capsys, monkeypatch):
+    from halgateway.config import load_config
+
+    no_gpu_probe(monkeypatch)
+    add_ollama(home, ollama)
+    assert modelscmd.main(["assign", "code-big", "local", "coder:7b"]) == 0
+    cfg = tomllib.loads(home.config.read_text())
+    assert cfg["models"]["roles"]["code-big"]["model"] == "coder:7b"
+    assert cfg["gateway"]["aliases"]["hal-code-big"] == {"backend": "local", "model": "hal-tuned-code-big:latest"}
+    assert "code_model" not in cfg.get("hal", {})
+    assert load_config(home.config).aliases["hal-code-big"]["backend"] == "local"
+
+
+def test_remove_role_drops_the_named_role_and_its_alias_but_not_a_built_in_one(home, ollama, capsys, monkeypatch):
+    no_gpu_probe(monkeypatch)
+    add_ollama(home, ollama)
+    assert modelscmd.main(["assign", "code-big", "local", "coder:7b"]) == 0
+    assert modelscmd.main(["remove-role", "code-big"]) == 0
+    text = home.config.read_text()
+    assert "code-big" not in text
+    assert modelscmd.main(["assign", "classifier", "local", "guardian:2b"]) == 0
+    assert modelscmd.main(["remove-role", "classifier"]) == 1
+
+
+def test_assign_refuses_a_role_name_that_cannot_be_an_alias(home, ollama, capsys):
+    add_ollama(home, ollama)
+    assert modelscmd.main(["assign", "Code 128k", "local", "coder:7b"]) == 1
+    assert "lowercase letters" in capsys.readouterr().err
+
+
+def test_a_named_gguf_role_gets_its_own_preset_in_the_tuned_mode(home, tmp_path, hw_file, capsys):
+    models = tmp_path / "gguf"
+    models.mkdir()
+    write_gguf(models / "chatty-Q4_K_M.gguf", llama_like(), pad_to=3 * MIB)
+    home.config.write_text(
+        f'[models.sources.weights]\nkind = "gguf"\npath = "{models}"\n'
+        '[models.roles.long-code]\nsource = "weights"\nmodel = "chatty-Q4_K_M"\n'
+    )
+    status, doc = run_json(capsys, "--write", "--role", "long-code", "--reassign", "--hardware", hw_file(CARD_24GB))
+    assert status == 0, doc
+    cfg = tomllib.loads(home.config.read_text())
+    assert cfg["gateway"]["aliases"]["hal-long-code"] == {"backend": "router", "model": "tuned-long-code"}
+    assert "[tuned-long-code]" in (home.config.parent / "modes" / "tuned.ini").read_text()
+
+
+def test_tune_refuses_a_role_that_does_not_exist(home, ollama, hw_file, capsys):
+    add_ollama(home, ollama)
+    assert tune.main(["--role", "nope", "--hardware", hw_file(CARD_24GB)]) == tune.EXIT_ERROR
+    assert "no role nope" in capsys.readouterr().err
+
+
+def test_writing_one_gguf_role_keeps_the_presets_of_the_others_in_the_tuned_mode(home, tmp_path, hw_file, capsys):
+    # regression: a write planned for one role rewrote tuned.ini with only that role's preset,
+    # so the gateway lost every other GGUF role
+    models = tmp_path / "gguf"
+    models.mkdir()
+    write_gguf(models / "chatty-Q4_K_M.gguf", llama_like(), pad_to=3 * MIB)
+    home.config.write_text(f'[models.sources.weights]\nkind = "gguf"\npath = "{models}"\n')
+    assert run_json(capsys, "--auto", "--write", "--role", "chat", "--hardware", hw_file(CARD_24GB))[0] == 0
+    text = home.config.read_text() + '[models.roles.long-code]\nsource = "weights"\nmodel = "chatty-Q4_K_M"\n'
+    home.config.write_text(text)
+    assert run_json(capsys, "--write", "--role", "long-code", "--hardware", hw_file(CARD_24GB))[0] == 0
+    mode = (home.config.parent / "modes" / "tuned.ini").read_text()
+    assert "[tuned-chat]" in mode and "[tuned-long-code]" in mode
+
+
+def test_an_offloaded_ollama_role_also_sets_num_gpu(home, ollama, hw_file, capsys):
+    add_ollama(home, ollama)
+    with home.config.open("a") as fh:
+        fh.write('[models.roles.chat]\nsource = "local"\nmodel = "gemma:12b"\n')
+    small = {**CARD_24GB, "gpus": [{**CARD_24GB["gpus"][0], "total_mib": 4096, "free_mib": 4096}]}
+    assert tune.main(["--auto", "--write", "--role", "chat", "--hardware", hw_file(small)]) == 0
+    chat = tomllib.loads(home.config.read_text())["models"]["roles"]["chat"]
+    made = {c["model"]: c for c in ollama.created}["hal-tuned-chat:latest"]
+    assert 0 < chat["gpu_layers"] == made["parameters"]["num_gpu"]
+
+
+def test_models_tune_made_are_not_offered_for_a_role(home, ollama, hw_file, capsys):
+    add_ollama(home, ollama)
+    tune.main(["--auto", "--write", "--hardware", hw_file(CARD_24GB)])
+    found = modelplan.survey(modelconf.load_sources())
+    assert any(modelplan.is_derived(m.name) for d in found.values() for m in d.models)
+    plans = modelplan.build({}, modelconf.load_sources(), found, hardware.from_dict(CARD_24GB), modelconf.limits())
+    assert not any(rp.model and modelplan.is_derived(rp.model.name) for rp in plans)
+
+
+def test_saving_the_classifier_moves_an_old_fast_table_to_its_new_name(home, ollama, hw_file, capsys):
+    add_ollama(home, ollama)
+    with home.config.open("a") as fh:
+        fh.write('[models.roles.fast]\nsource = "local"\nmodel = "guardian:2b"\neffort = "off"\n')
+    assert tune.main(["--auto", "--write", "--role", "classifier", "--hardware", hw_file(CARD_24GB)]) == 0
+    roles = tomllib.loads(home.config.read_text())["models"]["roles"]
+    assert "fast" not in roles and roles["classifier"]["model"] == "guardian:2b"
+
+
+def test_bench_of_a_role_that_is_not_configured_is_an_error(home, capsys):
+    assert tune.main(["--bench", "--role", "nope"]) == tune.EXIT_ERROR
+    assert "no role nope" in capsys.readouterr().err

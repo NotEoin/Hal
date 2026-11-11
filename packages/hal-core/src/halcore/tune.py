@@ -1,6 +1,7 @@
 """`hal tune`: detect the hardware, look at the models you have, and work out the settings.
 
     hal tune [--auto] [--write] [--json] [--role ROLE ...] [--reassign] [--hardware FILE]
+    hal tune --bench [--role ROLE ...] [--json]
 
 Without `--write` nothing is changed; the plan shows, per role, the model, the context length,
 the KV cache type and how many layers go on the GPU, with the numbers behind each choice.
@@ -8,7 +9,8 @@ the KV cache type and how many layers go on the GPU, with the numbers behind eac
 (with a backup), and generates the llama.cpp mode `tuned` for GGUF roles. Nothing is downloaded.
 On a terminal, a bare `hal tune` (or `-i`) opens the interactive screen instead: the full-screen
 app (`halcore.tuneapp`) where the terminal can run it, else the line screen (`halcore.tuneui`);
-off a terminal, or with any flag, it shows the `--auto` plan.
+off a terminal, or with any flag, it shows the `--auto` plan. `--bench` measures how fast each
+configured role answers through the running gateway (`halcore.tunebench`).
 
 Exit status: 0 done, 1 error, 2 usage, 3 nothing to tune (no source, or no usable model).
 """
@@ -22,10 +24,11 @@ import os
 import sys
 from pathlib import Path
 
+from halgateway import client as gwclient
 from halkit import config as kitconfig
 from halkit import hardware, modelconf, paths
 
-from . import modelplan
+from . import modelplan, tunebench
 
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_NOTHING = 0, 1, 2, 3
 log = logging.getLogger(__name__)
@@ -132,17 +135,41 @@ def run_screen(hw: hardware.Hardware | None = None) -> int:
     return status if isinstance(status, int) else EXIT_OK
 
 
+def run_bench(only: list[str], *, as_json: bool) -> int:
+    """`hal tune --bench`: times each role (or `only`) through the gateway and prints the table."""
+    try:
+        configured = modelconf.load_roles()
+        names = only or [r for r in configured if r not in tunebench.SKIPPED]
+        unknown = [r for r in names if r not in configured]
+        if unknown:
+            raise ValueError(f"no role {', '.join(unknown)} is configured")
+        client = gwclient.GatewayClient.from_config()
+    except (OSError, ValueError, gwclient.ClientError, *modelplan.plain_errors()) as exc:
+        print(f"hal tune: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    print(f"Measuring {', '.join(names)} through the gateway; each model loads in turn.", file=sys.stderr)
+    results = tunebench.bench(client, names)
+    if as_json:
+        print(json.dumps([r.__dict__ for r in results], indent=2))
+    else:
+        print(tunebench.render(results))
+    return EXIT_ERROR if any(r.error for r in results) else EXIT_OK
+
+
 def main(argv: list[str]) -> int:
     """Entry point of `hal tune`."""
     ap = argparse.ArgumentParser(prog="hal tune", description="Detect hardware and tune the model settings.")
     ap.add_argument("--auto", action="store_true", help="choose and plan without questions")
     ap.add_argument("--write", action="store_true", help="pin the models and write the config")
     ap.add_argument("--json", action="store_true", help="print the plan as JSON")
-    ap.add_argument("--role", action="append", choices=modelconf.ROLES, default=[], help="only this role (repeatable)")
+    ap.add_argument("--role", action="append", default=[], help="only this role, built-in or named (repeatable)")
     ap.add_argument("--reassign", action="store_true", help="choose again for roles that already have a model")
     ap.add_argument("--hardware", metavar="FILE", help="plan for the machine described in this JSON file")
     ap.add_argument("-i", "--interactive", action="store_true", help="open the interactive screen (the default on a terminal with no flags)")
+    ap.add_argument("--bench", action="store_true", help="measure each role's speed through the gateway (loads each model in turn)")
     args = ap.parse_args(argv)
+    if args.bench:
+        return run_bench(args.role, as_json=args.json)
     if args.interactive or (not argv and is_interactive()):
         try:
             hw = hardware.from_dict(json.loads(Path(args.hardware).read_text(encoding="utf-8"))) if args.hardware else None
@@ -154,6 +181,9 @@ def main(argv: list[str]) -> int:
         sources = modelconf.load_sources()
         roles = modelconf.load_roles()
         limits = modelconf.limits()
+        unknown = [r for r in args.role if r not in modelconf.role_names(roles)]
+        if unknown:
+            raise ValueError(f"no role {', '.join(unknown)}; add a named role with `hal models assign NAME SOURCE MODEL`")
         hw = hardware.from_dict(json.loads(Path(args.hardware).read_text(encoding="utf-8"))) if args.hardware else hardware.detect()
     except (OSError, ValueError, json.JSONDecodeError, *modelplan.plain_errors()) as exc:
         print(f"hal tune: {exc}", file=sys.stderr)

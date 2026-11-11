@@ -18,11 +18,13 @@ from halkit.config import ConfigError
 BASE = """
 [hal]
 chat_model = "chat-m"
-fast_model = "fast-m"
+classifier_model = "fast-m"
 code_model = ""
 embed_model = "embed-m"
 [gateway]
 default_model = ""
+main = ""
+agent = ""
 [gateway.backends.a]
 type = "openai"
 url = "http://127.0.0.1:1"
@@ -59,7 +61,7 @@ def pair(target):
     [
         ("coder", ("a", "coder-up")),  # 1 user alias
         ("hal-chat", ("a", "chat-m")),  # 2 role alias via the model lists
-        ("hal-fast", ("b", "fast-m")),
+        ("hal-classifier", ("b", "fast-m")),
         ("b/anything", ("b", "anything")),  # 4 backend/model
         ("only-a", ("a", "only-a")),  # 5 bare name in one list
         ("claude-sonnet-x", ("b", "catch-up")),  # 6 pattern
@@ -93,6 +95,65 @@ def test_mode_aliases_resolve_before_backend_slash_names(tmp_path):
     assert pair(resolver.resolve("hal/main")) == ("a", "main-preset")
 
 
+def test_role_alias_reports_the_window_the_active_mode_started_it_with(tmp_path):
+    # regression: `hal-code` reported no context, so hal-agent fell back to 32k under a 128k mode
+    resolver = build(tmp_path)
+    resolver.mode_windows[("a", "chat-m")] = 131072
+    assert resolver.resolve("hal-code").context_length == 131072
+    listed = {e.id: e.context_length for e in resolver.listing()}
+    assert listed["hal-code"] == 131072 and listed["hal-classifier"] is None
+
+
+ROLES = """
+[models.sources.local]
+kind = "ollama"
+[models.roles.chat]
+source = "local"
+model = "chat-m"
+context = 65536
+[models.roles.classifier]
+source = "local"
+model = "fast-m"
+context = 16384
+[models.roles.big]
+source = "local"
+model = "only-a"
+context = 200704
+[gateway.aliases.hal-big]
+backend = "a"
+model = "only-a"
+"""
+
+
+def test_a_role_alias_reports_the_context_hal_tune_set_for_any_backend(tmp_path):
+    # regression: an Ollama or vLLM role reported no context, so hal code assumed 32k
+    resolver = build(tmp_path, BASE + ROLES)
+    assert resolver.resolve("hal-classifier").context_length == 16384
+    assert resolver.resolve("hal-code").context_length == 65536  # empty code_model serves chat
+    assert resolver.resolve("hal-big").context_length == 200704  # a named role's alias
+    listed = {e.id: e.context_length for e in resolver.listing()}
+    assert (listed["hal-chat"], listed["hal-embed"]) == (65536, None)
+
+
+def test_a_role_with_parallel_requests_lists_its_slots(tmp_path):
+    resolver = build(tmp_path, BASE + ROLES.replace("context = 65536", "context = 65536\nparallel = 4"))
+    entries = {e.id: e for e in resolver.listing()}
+    assert entries["hal-chat"].slots == 4 and entries["hal-chat"].context_length == 65536  # per request
+    assert entries["hal-classifier"].slots == 0  # one request: unknown, as before
+
+
+def test_the_role_context_wins_over_the_mode_window(tmp_path):
+    resolver = build(tmp_path, BASE + ROLES)
+    resolver.mode_windows[("a", "chat-m")] = 131072
+    assert resolver.resolve("hal-chat").context_length == 65536
+
+
+def test_alias_context_window_wins_over_the_mode_window(tmp_path):
+    resolver = build(tmp_path)
+    resolver.mode_windows[("a", "coder-up")] = 131072
+    assert resolver.resolve("coder").context_length == 4096
+
+
 def test_role_aliases_follow_hal_table(tmp_path):
     resolver = build(tmp_path, BASE.replace('chat_model = "chat-m"', 'chat_model = "only-a"'))
     assert pair(resolver.resolve("hal-chat")) == ("a", "only-a")
@@ -103,8 +164,8 @@ def test_empty_code_model_means_chat_model(tmp_path):
 
 
 def test_role_alias_cannot_name_role_alias(tmp_path):
-    with pytest.raises(ConfigError, match="hal-fast"):
-        build(tmp_path, BASE.replace('chat_model = "chat-m"', 'chat_model = "hal-fast"'))
+    with pytest.raises(ConfigError, match="hal-classifier"):
+        build(tmp_path, BASE.replace('chat_model = "chat-m"', 'chat_model = "hal-classifier"'))
 
 
 def test_user_alias_cannot_shadow_a_role_alias(tmp_path):
@@ -120,7 +181,7 @@ def test_unlisted_role_model_falls_back_to_the_only_ollama_backend(tmp_path):
 
 def test_role_aliases_are_listed(tmp_path):
     ids = [e.id for e in build(tmp_path).listing()]
-    assert {"hal-chat", "hal-fast", "hal-code", "hal-embed", "coder"} <= set(ids)
+    assert {"hal-chat", "hal-classifier", "hal-code", "hal-embed", "coder"} <= set(ids)
 
 
 def test_models_listing_has_no_duplicates_and_carries_context_length(tmp_path):
@@ -206,3 +267,25 @@ def test_openai_row_carries_meta_slots_next_to_the_profile():
     row = handler._openai_entry(ModelEntry("m", "a", 4096, "gemma4", 3))
     assert row["meta"] == {"hal_profile": "gemma4", "slots": 3}
     assert "meta" not in handler._openai_entry(ModelEntry("m", "a", None))
+
+
+def test_an_old_fast_model_still_feeds_the_classifier_alias(tmp_path):
+    # 0.2.0 renamed hal-fast to hal-classifier; a config from before keeps working
+    text = BASE.replace('classifier_model = "fast-m"', 'classifier_model = ""\nfast_model = "fast-m"')
+    assert pair(build(tmp_path, text).resolve("hal-classifier")) == ("b", "fast-m")
+
+
+def test_hal_main_and_agent_serve_the_aliases_the_gateway_names(tmp_path):
+    # hal/main and hal/agent follow the roles hal tune sets, not a bundled mode
+    text = BASE.replace('main = ""\nagent = ""', 'main = "hal-code"\nagent = "coder"') + ROLES
+    resolver = build(tmp_path, text)
+    main, agent = resolver.resolve("hal/main"), resolver.resolve("hal/agent")
+    assert (main.alias, pair(main), main.context_length) == ("hal/main", ("a", "chat-m"), 65536)
+    assert (agent.alias, pair(agent), agent.context_length) == ("hal/agent", ("a", "coder-up"), 4096)
+    listed = {e.id: e.context_length for e in resolver.listing()}
+    assert listed["hal/main"] == 65536 and listed["hal/agent"] == 4096
+
+
+def test_a_mode_alias_cannot_point_at_itself(tmp_path):
+    with pytest.raises(ConfigError, match="points a mode alias at itself"):
+        build(tmp_path, BASE.replace('main = ""', 'main = "hal/agent"'))

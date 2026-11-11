@@ -137,6 +137,21 @@ def fetch_model_ids(backend) -> list[str]:  # type: ignore[no-untyped-def]  # an
         return []
 
 
+def probe(backend, path: str, timeout_s: float = LIST_TIMEOUT_S) -> tuple[int, bytes]:  # type: ignore[no-untyped-def]
+    """GETs `path` from `backend`; returns `(status, body)`, or `(0, b"")` while it does not answer."""
+    try:
+        conn = connect(backend.address(), timeout_s, timeout_s)
+    except GatewayError:
+        return 0, b""
+    try:
+        resp = open_response(conn, "GET", path, None, backend.auth_headers())
+        return resp.status, resp.read(MAX_LIST_BYTES)
+    except (GatewayError, OSError, http.client.HTTPException):
+        return 0, b""
+    finally:
+        conn.close()
+
+
 def call_json(backend, method: str, path: str, body: dict | None = None, timeout_s: float = LIST_TIMEOUT_S):  # type: ignore[no-untyped-def,type-arg]
     """Calls a backend's JSON route and returns the parsed reply; raises `GatewayError` on failure."""
     conn = connect(backend.address(), timeout_s, timeout_s)

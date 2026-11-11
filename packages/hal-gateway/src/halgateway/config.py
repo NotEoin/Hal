@@ -12,18 +12,19 @@ The schema is the one in docs/design/05-gateway.md "Configuration". Decisions:
 from __future__ import annotations
 
 import ipaddress
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from halkit import config, modelconf, paths
+from halkit import config, modelconf, paths, redact
 
 from .gpu.peers import PeerConfigError, parse_peers
 
 OWNER = "hal-gateway"
 LOOPBACK_HOSTS = ("127.0.0.1", "::1")
-BACKEND_TYPES = ("llama-router", "ollama", "openai")
+BACKEND_TYPES = ("llama-router", "managed-openai", "ollama", "openai")
 RESERVED_BACKEND_NAMES = ("hal",)  # the slash alias form `hal/main` needs the name free
 BACKEND_APIS = ("chat", "responses", "messages", "models", "embeddings", "native")
 COORDINATORS = ("auto", "gpu-light-v2", "gpu-light-v1", "none")
@@ -34,13 +35,19 @@ MAX_PORT = 65535
 # role alias -> the `[hal]` key that names its model (REQ-GW-26)
 ROLE_ALIASES = {
     "hal-chat": "chat_model",
-    "hal-fast": "fast_model",
+    "hal-classifier": "classifier_model",
     "hal-code": "code_model",
     "hal-writer": "writer_model",
     "hal-embed": "embed_model",
     "hal-vision": "vision_model",
 }
 EMPTY_MEANS_CHAT = ("hal-code", "hal-writer")
+# mode alias -> the `[gateway]` key that may point it at another alias (`hal/main = hal-code`)
+MODE_KEYS = {"hal/main": "main", "hal/agent": "agent"}
+MODE_ALIASES = tuple(MODE_KEYS)
+ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# set by the gateway itself for a managed server (docs/design/05-gateway.md "Managed OpenAI server")
+MANAGED_ENV = ("PORT", "HOST")
 
 
 def _positive(value: object) -> str | None:
@@ -96,6 +103,40 @@ def _loopback_http_url(value: object) -> str | None:
     return "must be empty or http://127.0.0.1:PORT or http://[::1]:PORT (the tunnel end)"
 
 
+def _command(value: object) -> str | None:
+    if not (isinstance(value, list) and value and all(isinstance(item, str) and item for item in value)):
+        return "must be a non-empty list of non-empty strings (the server's argv)"
+    if not Path(value[0]).expanduser().is_absolute():
+        return f"{value[0]!r} must be an absolute path; the server gets no shell and no PATH search"
+    return None
+
+
+def _absolute_or_empty(value: object) -> str | None:
+    return None if value == "" or Path(str(value)).expanduser().is_absolute() else "must be an absolute path"
+
+
+def _env_name_or_empty(value: object) -> str | None:
+    return None if value == "" or ENV_NAME.match(str(value)) else "must be an environment variable name"
+
+
+def _child_env(value: object) -> str | None:
+    """REQ-GW-90: a managed server's extra environment holds settings, never secrets."""
+    if not isinstance(value, dict):
+        return 'must be a table of NAME = "value"'
+    for name, item in value.items():
+        if not ENV_NAME.match(name) or not isinstance(item, str):
+            return f"{name!r} must be an environment variable name with a string value"
+        if name in MANAGED_ENV:
+            return f"{name} is set by the gateway (from port); remove it"
+        if redact.is_secret_key(name):
+            return f"{name} looks like a secret; the config holds no secrets, use key_env for the API key"
+    return None
+
+
+def _http_path(value: object) -> str | None:
+    return None if str(value).startswith("/") else "must start with /"
+
+
 def _vram_map(value: object) -> str | None:
     ok = isinstance(value, dict) and all(isinstance(v, int) and v > 0 for v in value.values())
     return None if ok else "must map names to MiB integers above 0"
@@ -127,6 +168,8 @@ GATEWAY_TABLE = config.register(
             K("allow_origins", list, [], check=_strings, doc="Browser origins let in; empty = none"),
             K("allow_hosts", list, [], check=_strings, doc="Extra Host header values"),
             K("default_model", str, "", doc="Model for unknown names; empty = 404"),
+            K("main", str, "hal-code", doc="The alias hal/main serves; empty = the router mode's"),
+            K("agent", str, "hal-code", doc="The alias hal/agent serves (subagents); empty = the mode's"),
             K("models_file", str, "", doc="Model manifest; empty = config_dir()/models.toml"),
             K("max_request_bytes", int, 32 * 1024 * 1024, check=_positive, doc="Body cap for the owner"),
             K("max_header_bytes", int, 65536, check=_positive, doc="Header size cap"),
@@ -171,9 +214,9 @@ SESSIONS_TABLE = config.register(
             K("max_request_bytes", int, 8 * 1024 * 1024, check=_positive, doc="Body cap for a boxed session"),
             K("max_concurrent", int, 4, check=_positive, doc="Sessions at once"),
             K("ttl_s", int, 86400, check=_positive, doc="Session token lifetime"),
-            K("max_requests_per_min", int, 30, check=_positive, doc="Rate cap per session"),
+            K("max_requests_per_min", int, 120, check=_positive, doc="Rate cap per session"),
             K("max_output_tokens", int, 16384, check=_positive, doc="Clamp on max_tokens"),
-            K("max_tokens_per_hour", int, 2_000_000, check=_positive, doc="Token budget per session"),
+            K("max_tokens_per_hour", int, 100_000_000, check=_positive, doc="Token budget per session"),
         ),
     )
 )
@@ -206,6 +249,13 @@ GPU_TABLE = config.register(
             K("v1_dir", str, "", doc="gpu-light v1 directory; empty = its own resolution order"),
             K("vram_mib", dict, {}, check=_vram_map, doc="Model or preset -> MiB for admission"),
             K("peers", list, [], check=_peers, doc="Peer GPU servers to check before loading"),
+            K(
+                "make_room_for",
+                list,
+                ["hal-chat"],
+                check=_strings,
+                doc="Aliases whose Ollama requests park a server with `park` when the model is not loaded",
+            ),
         ),
     )
 )
@@ -223,9 +273,10 @@ _COMMON_BACKEND = (
     K("connect_timeout_s", float, 0.0, check=_non_negative, doc="Override of the gateway value; 0 = inherit"),
     K("read_timeout_s", float, 0.0, check=_non_negative, doc="Override of the gateway value; 0 = inherit"),
 )
+LLAMA_SERVER = "~/.local/share/hal/llama.cpp/llama-b12121/llama-server"  # where `hal setup` installs the pin
 _ROUTER_KEYS = (
     K("managed", bool, True, doc="The gateway starts and stops llama-server"),
-    K("server", str, "~/.local/share/hal/llama.cpp/llama-b11512/llama-server", doc="llama-server binary"),
+    K("server", str, LLAMA_SERVER, doc="llama-server binary"),
     K("models_dir", str, "", doc="Directory of model files; required when managed"),
     K("mode", str, "gpu", doc="Mode preset loaded first"),
     K("modes_dirs", list, ["~/.config/hal/modes"], check=_strings, doc="User mode preset directories"),
@@ -240,6 +291,30 @@ _ROUTER_KEYS = (
     K("launcher", str, "process", choices=LAUNCHERS, doc="Run llama-server as a process or in docker"),
     K("container_image", str, "", doc="Docker image for the docker launcher"),
     K("container_runtime", str, "nvidia", choices=("nvidia", "runc", "runsc-gpu"), doc="Docker runtime"),
+    K("park", bool, False, doc="Free the GPU by parking llama-server in host RAM instead of stopping it"),
+)
+_MANAGED_KEYS = (
+    K("command", list, [], check=_command, doc="argv of the server; the first item is an absolute path"),
+    K("cwd", str, "", check=_absolute_or_empty, doc="Working directory; empty = the command's directory"),
+    K("env", dict, {}, check=_child_env, doc="Extra environment for the server; no secrets"),
+    K("port", int, 8000, check=_port, doc="Loopback TCP port, passed to the server as PORT"),
+    K(
+        "key_env",
+        str,
+        "",
+        check=_env_name_or_empty,
+        doc="Variable for the generated API key; empty = none",
+    ),
+    K("served_models", list, [], check=_strings, doc="Model ids the server serves; required"),
+    K("health_path", str, "/health", check=_http_path, doc="GET path that answers 200 when ready"),
+    K("startup_timeout_s", float, 300.0, check=_positive, doc="Wait for the server to become ready"),
+    K("stop_timeout_s", float, 60.0, check=_positive, doc="Wait after SIGTERM before SIGKILL"),
+    K("autostart", str, "on-demand", choices=("on-demand", "with-gateway"), doc="When the server starts"),
+    K("max_restarts", int, 3, check=_non_negative, doc="Crash restarts before giving up"),
+    K("exclusive_gpu", bool, True, doc="Stop other managed GPU servers and empty Ollama before a start"),
+    K("unload_ollama", list, ["ollama"], check=_strings, doc="Ollama backends emptied before a start"),
+    K("idle_stop", bool, True, doc="The idle unload ([gateway.gpu].idle_unload_s) stops the server"),
+    K("park", bool, False, doc="Free the GPU by parking the server in host RAM instead of stopping it"),
 )
 _OLLAMA_KEYS = (K("unload_offloaded_on_claim", bool, True, doc="Unload partly offloaded models on a claim"),)
 _ALIAS_KEYS = (
@@ -298,7 +373,9 @@ def _backend(name: str, raw: object, path: Path, *, default_type: str = "") -> M
     if name in RESERVED_BACKEND_NAMES:
         raise config.ConfigError(f"backend name {name!r} is reserved", path=path, table=table)
     kind = raw.get("type", default_type) if isinstance(raw, dict) else None
-    extra = {"llama-router": _ROUTER_KEYS, "ollama": _OLLAMA_KEYS}.get(str(kind), ())
+    extra = {"llama-router": _ROUTER_KEYS, "managed-openai": _MANAGED_KEYS, "ollama": _OLLAMA_KEYS}.get(
+        str(kind), ()
+    )
     cli = {"type": default_type} if default_type else None
     entry = dict(_entry("backends", name, raw, _COMMON_BACKEND + extra, path, cli))
     if not entry["type"]:
@@ -320,7 +397,33 @@ def _backend(name: str, raw: object, path: Path, *, default_type: str = "") -> M
         raise config.ConfigError(
             f"[{table}] models_dir is required when managed = true", path=path, table=table, key="models_dir"
         )
+    if kind == "managed-openai":
+        _check_managed(table, entry, path)
     return entry
+
+
+def _check_managed(table: str, entry: Mapping[str, object], path: Path) -> None:
+    """A managed server needs a command and its model list, and listens where the gateway says."""
+    if not entry["command"]:
+        raise config.ConfigError(f"[{table}] command is required", path=path, table=table, key="command")
+    if not entry["served_models"]:
+        raise config.ConfigError(
+            f"[{table}] served_models must name at least one model",
+            path=path,
+            table=table,
+            key="served_models",
+        )
+    if entry["url"]:
+        raise config.ConfigError(
+            f"[{table}] url is derived from port for a managed server; remove it",
+            path=path,
+            table=table,
+            key="url",
+        )
+    if entry["key_env"] and entry["key_env"] in dict(entry["env"]):  # type: ignore[call-overload]
+        raise config.ConfigError(
+            f"[{table}] {entry['key_env']} is key_env, set by the gateway", path=path, table=table, key="env"
+        )
 
 
 def _is_loopback(host: str) -> bool:
@@ -352,6 +455,14 @@ def load_config(path: Path | None = None) -> GatewayConfig:
                 path=path,
                 table="hal",
                 key=hal_key,
+            )
+    for key in MODE_KEYS.values():
+        if gateway[key] in MODE_ALIASES:
+            raise config.ConfigError(
+                f"[gateway] {key} = {gateway[key]!r} points a mode alias at itself; name one like hal-code",
+                path=path,
+                table="gateway",
+                key=key,
             )
     for name, alias in aliases.items():
         if name in ROLE_ALIASES:

@@ -39,45 +39,6 @@ elif cmd == "claim":
     sys.exit(int(os.environ.get("FAKE_GPU_LIGHT_CLAIM_EXIT", "0")))
 """
 
-# Stands in for llama-server: logs that it started, then idles until hal-serve stops it
-FAKE_ROUTER = """#!/bin/sh
-echo "router start" >> "$FAKE_GPU_LIGHT_LOG"
-exec sleep 60
-"""
-# Every preset name in the bundled modes, so the fake server reports each mode's models as loaded;
-# `[hal]` is the gateway's own section, not a preset
-MODES_DIR = ROOT / "packages" / "hal-gateway" / "src" / "halgateway" / "modes"
-PRESETS = sorted({name for ini in MODES_DIR.glob("*.ini")
-                  for name in re.findall(r"^\[([^]*][^]]*)\]$", ini.read_text(), re.M) if name != "hal"})
-
-
-class FakeModelServer(BaseHTTPRequestHandler):
-    """Answers the llama.cpp router's /models and Ollama's /api/version and /api/ps."""
-
-    def do_GET(self):
-        if self.path == "/models":
-            body = {"data": [{"id": n, "status": {"value": "loaded"}} for n in PRESETS]}
-        elif self.path == "/api/ps":
-            body = {"models": []}
-        else:
-            body = {"version": "0.0.0"}
-        data = json.dumps(body).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
-
-    def log_message(self, *args):
-        pass
-
-
-def serve_models() -> ThreadingHTTPServer:
-    server = ThreadingHTTPServer(("127.0.0.1", 0), FakeModelServer)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    return server
-
-
 class LightCase(unittest.TestCase):
     """Puts a fake gpu-light in a fresh folder and records its calls next to systemctl's."""
 

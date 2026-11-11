@@ -2,7 +2,8 @@
 
     [models]                       # tuning limits
     [models.sources.NAME]          # where models come from (kind: ollama, openai, gguf, ...)
-    [models.roles.ROLE]            # which model plays chat, fast, code, writer, vision or embed
+    [models.roles.ROLE]            # which model plays chat, fast, code, writer, vision or embed,
+                                   # or a role the user named (a setup such as `code-128k`)
 
 `MODELS_TABLE` is a registered halkit table. Sources and roles are user-named entries, so each
 is validated on its own, as `halgateway.config` does for backends: errors name file, table and
@@ -13,13 +14,19 @@ key (REQ-SYS-06). Design decisions:
 - A non-loopback `ollama` or `openai` URL needs `allow_remote = true` and https, the same rule as
   a remote gateway backend.
 - `anthropic` and `openai-cloud` sources talk to fixed hosts and need only a key file.
-- A role's `context`, `kv_type` and `gpu_layers` are filled in by `hal tune --write` while
-  `auto = true`; `auto = false` keeps the user's values.
+- A role's `context`, `kv_type`, `gpu_layers` and `cpu_moe` are filled in by `hal tune --write`
+  while `auto = true`; `auto = false` keeps the user's values. Auto-tune aims for the model's
+  own maximum context; `context_cap`, off by default, is an optional lower limit on what it
+  picks. A context set by hand may always go up to the model's maximum.
+- Besides the built-in `ROLES`, a role may have any name `CUSTOM_ROLE` matches: a named setup
+  (one model with its own context and settings) that the gateway serves as `hal-NAME`. The name
+  is lowercase and short because it becomes part of that alias and of a llama.cpp preset name.
 """
 
 from __future__ import annotations
 
 import ipaddress
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,14 +38,17 @@ OWNER = "hal-kit"
 SOURCE_KINDS = ("ollama", "openai", "gguf", "anthropic", "openai-cloud")
 URL_KINDS = ("ollama", "openai")
 KEY_FILE_KINDS = ("anthropic", "openai-cloud")
-ROLES = ("chat", "fast", "code", "writer", "vision", "embed")
+ROLES = ("chat", "code", "writer", "vision", "classifier", "embed")
+RENAMED_ROLES = {"fast": "classifier"}  # 0.2.0: an old table under the old name still loads
+CUSTOM_ROLE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")  # becomes the alias `hal-NAME`
+RESERVED_ROLE_NAMES = ("guard",)  # the tune screens list the guardian under this name
 KV_CHOICES = ("auto", "f16", "q8_0", "q4_0")
 EFFORT_CHOICES = ("off", "low", "medium", "high", "max")
 INLINE_KEY_NAMES = ("api_key", "key", "token", "secret", "password")
 UNSET_TEMPERATURE = -1.0
 MAX_TEMPERATURE = 2.0  # the OpenAI-compatible APIs reject more
 AUTO_LAYERS = -1  # `gpu_layers` value that means "decided by tuning"
-DEFAULT_CONTEXT_CAP = 131072  # the common native maximum of current models; see docs/dev/tuning.md
+NO_CONTEXT_CAP = 0  # auto-tune aims for each model's own maximum context
 DEFAULT_URLS = {"ollama": "http://127.0.0.1:11434", "openai": "http://127.0.0.1:1234/v1"}
 
 
@@ -68,9 +78,9 @@ MODELS_TABLE = config.register(
             K(
                 "context_cap",
                 int,
-                DEFAULT_CONTEXT_CAP,
-                check=_positive,
-                doc="Largest context `hal tune` plans",
+                NO_CONTEXT_CAP,
+                check=_non_negative,
+                doc="Largest context auto-tune picks; 0 = the model's own maximum",
             ),
             K(
                 "headroom_mib",
@@ -99,6 +109,22 @@ _ROLE_KEYS = (
     K("context", int, 0, check=_non_negative, doc="Context tokens; 0 = decided by tuning"),
     K("kv_type", str, "", choices=("", *KV_CHOICES), doc="KV cache type; empty = [models] kv_type"),
     K("gpu_layers", int, AUTO_LAYERS, check=_gpu_layers, doc="Layers on the GPU; -1 = decided by tuning"),
+    K("parallel", int, 1, check=_positive, doc="Requests served at once, each with the role's context"),
+    K("draft", str, "", doc='Draft model for speculative decoding: "" = the best found, "off", or a file'),
+    K(
+        "draft_max",
+        int,
+        0,
+        check=_non_negative,
+        doc="Tokens drafted per step; 0 = the default for the draft kind",
+    ),
+    K(
+        "cpu_moe",
+        int,
+        0,
+        check=_non_negative,
+        doc="Layers whose routed experts stay in RAM (mixture-of-experts GGUF models)",
+    ),
     K("effort", str, "", choices=("", *EFFORT_CHOICES), doc="Default effort level; empty = none"),
     K(
         "temperature",
@@ -138,6 +164,32 @@ class Role:
     temperature: float = UNSET_TEMPERATURE
     family: str = ""
     auto: bool = True
+    cpu_moe: int = 0
+    draft: str = ""
+    draft_max: int = 0
+    parallel: int = 1
+
+
+def is_custom(name: str) -> bool:
+    """True when `name` is a role the user named, not one of the built-in `ROLES`."""
+    return name not in ROLES
+
+
+def check_role_name(name: str) -> str | None:
+    """Why `name` cannot be a new role, or None when it can."""
+    if name in ROLES or name in RESERVED_ROLE_NAMES:
+        return f"{name!r} is already a role name"
+    if not CUSTOM_ROLE.match(name):
+        return (
+            f"role name {name!r} must be lowercase letters, digits and '-', "
+            "start with a letter, at most 32 characters"
+        )
+    return None
+
+
+def role_names(roles: Mapping[str, object]) -> list[str]:
+    """The built-in roles in their order, then the named ones in `roles`, sorted."""
+    return [*ROLES, *sorted(n for n in roles if is_custom(n))]
 
 
 def _is_loopback(host: str) -> bool:
@@ -220,11 +272,16 @@ def load_roles(path: Path | None = None) -> dict[str, Role]:
     sources = load_sources(path)
     raw = dict(config.load(MODELS_TABLE, path=path)["roles"])  # type: ignore[call-overload]
     roles = {}
+    stored = {name: name for name in raw}  # role -> its table name in the file
+    for old, new in RENAMED_ROLES.items():
+        if old in raw and new not in raw:
+            raw[new] = raw.pop(old)
+            stored[new] = stored.pop(old)
     for name, body in raw.items():
-        table = f"models.roles.{name}"
-        if name not in ROLES:
-            raise _fail(f"[{table}] is not a role; use one of {', '.join(ROLES)}", path, "models.roles", name)
-        e = _entry("roles", name, body, _ROLE_KEYS, path)
+        table = f"models.roles.{stored[name]}"
+        if name not in ROLES and check_role_name(name):
+            raise _fail(f"[{table}] {check_role_name(name)}", path, "models.roles", name)
+        e = _entry("roles", stored[name], body, _ROLE_KEYS, path)
         if e["source"] not in sources:
             raise _fail(f"[{table}] source {e['source']!r} is not in [models.sources]", path, table, "source")
         if not e["model"]:
@@ -240,6 +297,10 @@ def load_roles(path: Path | None = None) -> dict[str, Role]:
             float(e["temperature"]),
             str(e["family"]),
             bool(e["auto"]),
+            int(e["cpu_moe"]),
+            str(e["draft"]),
+            int(e["draft_max"]),
+            int(e["parallel"]),
         )  # type: ignore[call-overload]  # validated above
     return roles
 

@@ -2,7 +2,7 @@
 
 It speaks `/hal/v1/*` as the owner over the gateway's unix socket, the only place where admin
 routes are served. Every call has a timeout; calls that wait for a model (`set_mode`, `load`,
-`unload`, `release_gpu`) widen it by the wait they ask for, so a slow load is not reported as a
+`unload`, `release_gpu`, `backend`) widen it by the wait they ask for, so a slow load is not reported as a
 dead gateway. A refusal raises `ClientError` carrying the HTTP status and the server's error
 type, so callers can tell a busy router (409) from a missing one (404).
 """
@@ -12,7 +12,7 @@ from __future__ import annotations
 import http.client
 import json
 import socket
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -114,6 +114,33 @@ class GatewayClient:
             )
         return doc  # type: ignore[no-any-return]
 
+    def stream(self, path: str, body: dict, *, timeout_s: float) -> Iterator[bytes]:  # type: ignore[type-arg]
+        """POSTs `body` to `path` and yields the answer line by line (server-sent events).
+
+        Raises `ClientError` when the gateway is unreachable or answers with an error.
+        """
+        conn = _UnixConnection(self.socket_path, timeout_s)
+        try:
+            headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
+            conn.request("POST", path, body=json.dumps(body), headers=headers)
+            resp = conn.getresponse()
+            if resp.status >= 400:
+                raw = resp.read()
+                try:
+                    err = json.loads(raw or b"{}").get("error", {})
+                except (ValueError, AttributeError):
+                    err = {}
+                raise ClientError(
+                    f"gateway answered {resp.status}: {err.get('message', '')}",
+                    resp.status,
+                    str(err.get("type", "")),
+                )
+            yield from resp
+        except OSError as exc:  # includes socket timeouts
+            raise ClientError(f"cannot reach the gateway at {self.socket_path}: {exc}") from exc
+        finally:
+            conn.close()
+
     def health(self) -> bool:
         """True when `/health` answers; never raises."""
         conn = _UnixConnection(self.socket_path, self.timeout_s)
@@ -145,6 +172,12 @@ class GatewayClient:
     def stop_router(self) -> None:
         """Stops the managed router process."""
         self.admin("POST", "/hal/v1/router/stop", timeout_s=RELEASE_TIMEOUT_S)
+
+    def backend(
+        self, action: Literal["start", "stop", "restart"], name: str, *, wait_s: float = 900.0
+    ) -> dict[str, Any]:
+        """Starts, stops or restarts managed server `name`; a start waits up to `wait_s` for it."""
+        return self.admin("POST", f"/hal/v1/backend/{action}", {"name": name}, timeout_s=wait_s + MARGIN_S)
 
     def load(self, model: str, wait_s: float = 900.0) -> None:
         """Loads one router preset."""

@@ -63,3 +63,26 @@ def test_help_and_unknown_flags_do_not_kill_anything(monkeypatch, capsys):
         with pytest.raises(SystemExit):
             killcmd.main(argv)
     assert called == []
+
+
+def test_kill_asks_a_running_gateway_to_stop_its_model_servers(monkeypatch, tmp_path):
+    # the old launcher ran `hal-serve stop`; the gateway now owns the router and managed servers
+    from halcore import modellink
+    from halgateway import client as gwclient
+
+    calls = []
+
+    class Owner:
+        def __init__(self, sock, token):
+            calls.append(sock)
+
+        def release_gpu(self, force=False, *, stop_router=False, reclaim=False):
+            calls.append((force, stop_router))
+
+    monkeypatch.setattr(gwclient, "GatewayClient", Owner)
+    monkeypatch.setattr(modellink, "gateway_socket", lambda: None)
+    killcmd.stop_model_servers()
+    assert calls == []
+    monkeypatch.setattr(modellink, "gateway_socket", lambda: tmp_path / "gateway.sock")
+    killcmd.stop_model_servers()
+    assert calls == [tmp_path / "gateway.sock", (True, True)]

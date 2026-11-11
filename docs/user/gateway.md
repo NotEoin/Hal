@@ -1,11 +1,10 @@
 # The model gateway
 
 `hal-gateway` is the one local endpoint for model requests. Harnesses, the agent, tool packs and
-the box talk to it; it forwards to Ollama, a managed `llama-server` router or a cloud backend
-you opted into. It also owns the GPU claims, the mode presets and the model manifest.
+the box talk to it; it forwards to Ollama, a managed `llama-server` router, an OpenAI-compatible
+server it runs for you (such as vLLM), or a cloud backend you opted into. It also owns the GPU claims, the mode presets and the model manifest.
 
-Status: the package is built and tested with fake backends. The launcher (`hal serve`, `hal
-connect`) still calls the old `hal-serve`; until it switches, run `hal-gateway` directly.
+Status: the package is built and tested with fake backends, and runs as `hal-gateway serve`.
 Nothing here has run against a live llama-server in this checkout (unverified; check with
 `hal-gateway status` after `hal-gateway serve`).
 
@@ -26,13 +25,27 @@ Nothing here has run against a live llama-server in this checkout (unverified; c
 | `hal-gateway mode [NAME] [--force] [--no-wait]` | Show or switch the router mode |
 | `hal-gateway models [--json]` | What `/v1/models` returns to the owner |
 | `hal-gateway load` / `unload` / `router stop` | Control the managed router |
-| `hal-gateway release-gpu` | Unload models and release the GPU claims |
+| `hal-gateway backend start\|stop\|restart NAME` | Control a `managed-openai` server |
+| `hal-gateway release-gpu` | Unload models and release the GPU claims; `--stop-router` also stops the router and managed servers |
 | `hal-gateway token show\|rotate\|issue\|revoke\|list` | Owner and client tokens |
 | `hal-gateway modes` / `render` | List and render the mode presets (see [modes](modes.md)) |
 | `hal-gateway check-config` | Validate `[gateway]` and exit |
 
 Exit codes: 0 ok, 3 bad config, 4 refused, 5 gateway down or failed, 6 conflict (HTTP 409 or a
 busy reclaim).
+
+## hal/main and hal/agent
+
+Claude Code and other harnesses ask for two names: `hal/main` for the conversation and
+`hal/agent` for subagents and side requests. Each serves one of your aliases, `hal-code` by
+default, with that role's model and context. Point them elsewhere with the **harness** row of
+`hal tune`, or in the config:
+
+```toml
+[gateway]
+main = "hal-code"        # what hal/main serves
+agent = "hal-code-fast"  # what hal/agent serves: a named role, here
+```
 
 ## Sharing the GPU with gpu-light
 
@@ -52,11 +65,46 @@ settings (`HAL_LLAMA_SERVER`, `HAL_MODELS_DIR`, `HAL_LLAMA_URL`, `HAL_MODE`, `HA
 map to `[gateway.backends.local]` and `[hal].ollama_url`; `halgateway.legacy.import_hal_conf`
 reads them without running the file, and `hal configure` will offer to write them.
 
+## A server the gateway runs
+
+A `managed-openai` backend is any OpenAI-compatible server that reads its port from `PORT`,
+such as a vLLM launch script. The gateway starts it at the first request (or at `hal-gateway
+backend start NAME`), waits until `health_path` answers and `/v1/models` lists a model in
+`served_models`, restarts it after a crash (at most `max_restarts` in 10 minutes) and stops its
+whole process group on `backend stop`. A restarted gateway keeps a server whose command, `env`
+and port did not change.
+
+- It gets `PORT`, `HOST=127.0.0.1`, the few variables of the environment allowlist and your
+  `env` table. Your shell's tokens never reach it. With `key_env` set, the gateway generates an
+  API key in `~/.local/state/hal/gateway/<name>.key` and passes it in that variable.
+- With `exclusive_gpu = true` (the default), starting it stops the llama router and empties
+  Ollama first; starting the router stops it again. Neither is marked stopped, so the next
+  request to either brings it back. A backend busy with a request is never stopped under it.
+- `idle_stop = false` keeps it running through the idle unload (`[gateway.gpu].idle_unload_s`);
+  `release-gpu` still stops it.
+- `park = true` (also on a `llama-router` backend) frees the card by parking the server instead
+  of stopping it: `cuda-checkpoint` moves its VRAM into host RAM and the process waits with its
+  model loaded. The next request to it makes room again and resumes it in seconds instead of a
+  cold start. On an RTX 3090 a 21.4 GB llama-server parked in 11.4 s and resumed in 5.3 s
+  (2026-11-11). A park needs `cuda-checkpoint` (NVIDIA driver 550 or later) and enough free RAM
+  for the VRAM plus 4 GB; otherwise the server is stopped as before.
+- A request for an alias in `[gateway.gpu].make_room_for` (default `["hal-chat"]`) that goes to
+  Ollama parks every idle server with `park = true` when its model is not already wholly on the
+  GPU, so voice and chat get the card instead of running in system RAM. A server busy with a
+  request is left alone.
+- `/v1/models` lists `served_models` from the config, so a listing never waits for a cold start.
+- Its output goes to `~/.local/state/hal/gateway/<name>.log`; every start failure names it.
+
+Steps and a symptom table are in [run a vLLM server under Hal](../howto/run-a-vllm-server-under-hal.md);
+the keys and defaults are in [design 05](../design/05-gateway.md) under "Configuration". Verified
+by `packages/hal-gateway/tests/test_backends_managed.py` (a fake server).
+
 ## Models and pinning
 
 Ollama models must be pinned in `models.toml` by digest; an unpinned model or a moved tag
 answers 503 `model_unverified`. Weight files for the router carry a sha256 and are checked
-before they load. See [pin a model](../howto/pin-a-model.md).
+before they load. The gateway re-reads `models.toml` when it changes, so a pin that `hal tune`
+or `hal models` saves counts without a restart. See [pin a model](../howto/pin-a-model.md).
 
 ## Remote backends
 

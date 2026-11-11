@@ -1,7 +1,19 @@
 # Pinned llama.cpp release (REQ-SEC-78). The installer downloads only this tag and refuses any
-# archive whose sha256 is missing here or differs. Fill `sha256` from a download you trust:
-#   sha256sum llama-b11512-bin-ubuntu-cuda-12.8-x64.tar.gz
-# Unverified: the digests are not recorded yet, so the installer refuses until they are.
-tag = "b11512"
+# archive whose sha256 is missing here or differs. The digests are GitHub's release digests,
+# read with `gh release view b12121 -R ggml-org/llama.cpp --json assets` on 2026-11-11; the
+# CUDA archive was also checked with sha256sum against an independent download.
+tag = "b12121"
 
 [assets]
+"llama-b12121-bin-ubuntu-cuda-12.8-x64.tar.gz" = "628ad6714bd6a0d5b61315e36023c3ab3f1f212d3af7f9f4889e5140d4e727d8"
+"cudart-llama-b12121-bin-ubuntu-cuda-12.8-x64.tar.gz" = "bdcee8540810018ea22757d49a366edcc5dd18d1e7eaa0e09ff3a80d82058bf0"
+"llama-b12121-bin-ubuntu-rocm-10.0-x64.tar.gz" = "83cc6fa6c831f74277e554856b5ba38c979c4de5c45acd3518e6636784b5d502"
+"llama-b12121-bin-ubuntu-vulkan-x64.tar.gz" = "1ae84bf3709b3f7ccbf15dde485b62910e2e4869a880ba3b5a20d8a31c90dfbf"
+"llama-b12121-bin-ubuntu-x64.tar.gz" = "462cdbf73907c799bd29c02799af7cee6bf2ca1257a206c2797846e5db004b86"
+
+# The archives each kind of machine needs, extracted into one folder in this order
+[variants]
+cuda = ["llama-b12121-bin-ubuntu-cuda-12.8-x64.tar.gz", "cudart-llama-b12121-bin-ubuntu-cuda-12.8-x64.tar.gz"]
+rocm = ["llama-b12121-bin-ubuntu-rocm-10.0-x64.tar.gz"]
+vulkan = ["llama-b12121-bin-ubuntu-vulkan-x64.tar.gz"]
+cpu = ["llama-b12121-bin-ubuntu-x64.tar.gz"]

@@ -1,7 +1,7 @@
 """Generic OpenAI-compatible backend: address, API support and credentials from the config.
 
-Used as is for `openai` backends and as the base of the Ollama and llama-router backends,
-which add their own routes and lifecycle in later plan steps. Decisions:
+Used as is for `openai` backends and as the base of the Ollama, llama-router and managed-openai
+backends, which add their own routes and lifecycle. Decisions:
 
 - Credentials come from `api_key_file` or `api_key_env`, read on each request so a rotated key
   needs no restart; a configured key that cannot be read is an error, not a silent no-key call.
@@ -10,8 +10,9 @@ which add their own routes and lifecycle in later plan steps. Decisions:
 
 from __future__ import annotations
 
+import contextlib
 import os
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -26,6 +27,7 @@ DEFAULT_APIS: dict[str, frozenset[Api]] = {
     "llama-router": ALL_APIS - {Api.OLLAMA_NATIVE},
     "ollama": ALL_APIS - {Api.RESPONSES_COUNT},
     "openai": frozenset({Api.CHAT, Api.MODELS, Api.EMBEDDINGS}),
+    "managed-openai": frozenset({Api.CHAT, Api.MODELS, Api.EMBEDDINGS}),
 }
 API_NAMES = {
     "chat": Api.CHAT,
@@ -85,6 +87,14 @@ class OpenAIBackend:
     def supports(self, api: Api) -> bool:
         """True when the backend serves `api`."""
         return api in self.apis
+
+    def ensure(self) -> None:
+        """Makes the backend ready for a request; a backend without a process has nothing to do."""
+
+    @contextlib.contextmanager
+    def request(self) -> Iterator[None]:
+        """Marks one request in flight; the base backend does not count."""
+        yield
 
     def clean_ids(self, ids: list[str]) -> list[str]:
         """Returns the model ids worth listing; the generic backend keeps all of them."""

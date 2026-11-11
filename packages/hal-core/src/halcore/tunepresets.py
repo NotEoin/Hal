@@ -48,15 +48,15 @@ GUARDIAN_MODEL = "granite4.1-guardian:8b"  # Q6_K; Q4_K_M missed dangerous calls
 _EMBED = "embeddinggemma"
 # preset key -> role -> Ollama tag; vision and writer share the chat model (Gemma 4 sees images)
 _SETS = {
-    "cpu": ("gemma4:e4b-it-qat", "qwen3.5:2b", "qwen3.5:4b"),
-    "gpu-8": ("gemma4:e4b-it-qat", "qwen3.5:2b", "qwen3.5:9b"),
-    "gpu-12": ("gemma4:12b-it-qat", "qwen3.5:4b", "qwen3.5:9b"),
-    "gpu-16": ("gemma4:12b-it-qat", "qwen3.5:4b", "gpt-oss:20b"),
-    "gpu-24": ("gemma4:26b-a4b-it-qat", "qwen3.5:4b", "qwen3.8:27b"),
+    "cpu": ("gemma4:e4b-it-qat", "qwen3.5:4b"),
+    "gpu-8": ("gemma4:e4b-it-qat", "qwen3.5:9b"),
+    "gpu-12": ("gemma4:12b-it-qat", "qwen3.5:9b"),
+    "gpu-16": ("gemma4:12b-it-qat", "gpt-oss:20b"),
+    "gpu-24": ("gemma4:26b-a4b-it-qat", "qwen3.8:27b"),
 }
 RECOMMENDED: Mapping[str, Mapping[str, str]] = {
-    key: {"chat": chat, "vision": chat, "writer": chat, "fast": fast, "code": code, "embed": _EMBED}
-    for key, (chat, fast, code) in _SETS.items()
+    key: {"chat": chat, "vision": chat, "writer": chat, "classifier": GUARDIAN_MODEL, "code": code, "embed": _EMBED}
+    for key, (chat, code) in _SETS.items()
 }
 
 

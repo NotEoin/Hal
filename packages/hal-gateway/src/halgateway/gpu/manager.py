@@ -3,7 +3,10 @@
 Decisions: the manager counts requests per GPU backend and per claim class itself, so it does
 not depend on the router's own counter; a request is counted from the gate to its end, which
 covers a swap wait (a reclaim then answers `busy`). The off flag is a `stat` per request with
-no cache, so `hal on` takes effect at once. Peers are checked by the peer guard (step 17).
+no cache, so `hal on` takes effect at once. Peers are checked by the peer guard (step 17). The
+idle unload skips a backend whose `idle_free` is false (a managed server with `idle_stop =
+false`, REQ-GW-96): its cold start costs a minute or more, which a quiet quarter hour does not
+justify. An explicit release or a reclaim still frees it.
 """
 
 from __future__ import annotations
@@ -213,7 +216,7 @@ class GpuManager:
             quiet = now - self._last_any >= idle_unload
             if idle_unload > 0 and self._dirty and not self.in_flight() and quiet:
                 log.info("GPU idle for %.0f s: unloading", now - self._last_any)
-                self._free(stop_router=False)
+                self._free(stop_router=False, idle=True)
 
     def _release_idle_claims(self, now: float) -> None:
         """v2: give a claim back `idle_release_s` after its class went quiet; models stay loaded."""
@@ -226,11 +229,13 @@ class GpuManager:
                 self.coordinator.release(self._claim_name(cls))  # type: ignore[union-attr]
                 self._held.discard(cls)
 
-    def _free(self, *, stop_router: bool) -> tuple[tuple[str, ...], bool]:
+    def _free(self, *, stop_router: bool, idle: bool = False) -> tuple[tuple[str, ...], bool]:
         unloaded: list[str] = []
         with self._lock:
             for name, backend in self.backends.items():
                 if not getattr(backend, "gpu", False) or not hasattr(backend, "free_vram"):
+                    continue
+                if idle and not getattr(backend, "idle_free", True):
                     continue
                 try:
                     unloaded += backend.free_vram(self._served.get(name, ()))

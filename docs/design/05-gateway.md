@@ -20,7 +20,7 @@ In scope:
   `/v1/responses/input_tokens`, `/v1/messages`, `/v1/messages/count_tokens`, `/v1/models`,
   `/v1/embeddings`, a subset of the Ollama native API, and a health route, with streaming (SSE
   and NDJSON) and backpressure.
-- Model aliases: the six role aliases (`hal-chat`, `hal-fast`, `hal-code`, `hal-writer`,
+- Model aliases: the six role aliases (`hal-chat`, `hal-classifier`, `hal-code`, `hal-writer`,
   `hal-embed`, `hal-vision`) resolved from `[hal].*_model`, the mode aliases `hal/main` and
   `hal/agent`, and user aliases that map a public name to a backend and an upstream model.
 - Three backend types: a managed or external llama.cpp router (`llama-router`), Ollama
@@ -72,7 +72,7 @@ Non-goals:
 
 | Owner | Interface | Used for |
 | --- | --- | --- |
-| 00-overview | `halkit.paths.runtime_dir/state_dir/config_dir/ensure_private_dir/check_socket_path` (one runtime-dir rule, resolution F6), `halkit.config`, the `[hal]` table (`chat_model`, `fast_model`, `code_model`, `writer_model`, `embed_model`, `vision_model`, `ollama_url`), REQ-SYS-09 to REQ-SYS-12, the ports table | paths, role aliases, listener rules |
+| 00-overview | `halkit.paths.runtime_dir/state_dir/config_dir/ensure_private_dir/check_socket_path` (one runtime-dir rule, resolution F6), `halkit.config`, the `[hal]` table (`chat_model`, `classifier_model`, `code_model`, `writer_model`, `embed_model`, `vision_model`, `ollama_url`), REQ-SYS-09 to REQ-SYS-12, the ports table | paths, role aliases, listener rules |
 | 01-security | REQ-SEC-66 (forwarder route allowlist), REQ-SEC-75 (TCP listener), REQ-SEC-76 and `llama_server_command(...)` (managed llama-server argv and environment), REQ-SEC-78 (llama.cpp lock), REQ-SEC-79 to REQ-SEC-82 (model manifest, pickle refusal, templates, downloads), ATK-09, ATK-32, ATK-33 | security requirements this spec implements |
 | 02-sandbox | the session socket directory, the bind mount of `model.sock` at `/run/hal`, `hal-relay`, and the `start_model` callable that halcore supplies (02 "Model socket and forwarder") | where the forwarder listens |
 | 03-agent | treats 403 like 404 on count endpoints; reads `context_length` and `meta.hal_profile` from `/v1/models`; agent profiles live in `~/.config/hal/model-profiles.toml` (not this spec's `models.toml`) | agent client behaviour |
@@ -245,10 +245,12 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
 - **REQ-GW-25** Session principals MUST get 403 on every `/api/*` route, matching the
   forwarder allowlist of 01-security REQ-SEC-66 (no Ollama native route from a box). Test:
   unit `test_session_cannot_use_ollama_native_routes`.
-- **REQ-GW-26** The role aliases `hal-chat`, `hal-fast`, `hal-code`, `hal-writer`,
-  `hal-embed` and `hal-vision` MUST resolve from `[hal].chat_model`, `fast_model`,
+- **REQ-GW-26** The role aliases `hal-chat`, `hal-classifier`, `hal-code`, `hal-writer`,
+  `hal-embed` and `hal-vision` MUST resolve from `[hal].chat_model`, `classifier_model`,
   `code_model`, `writer_model`, `embed_model` and `vision_model` (00-overview, "The `[hal]`
-  table"); an empty `code_model` or `writer_model` MUST mean `chat_model`. The configured value
+  table"); an empty `code_model` or `writer_model` MUST mean `chat_model`, and an empty
+  `classifier_model` MUST fall back to the `fast_model` of a config from before 0.2.0
+  (`test_an_old_fast_model_still_feeds_the_classifier_alias`). The configured value
   MUST resolve through steps 3 to 5 of "Alias resolution", and a value that names a role alias
   MUST be a config error. Test: unit `test_role_aliases_follow_hal_table`,
   `test_empty_code_model_means_chat_model`, `test_role_alias_cannot_name_role_alias`.
@@ -273,9 +275,11 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
   0600 key, and `--no-webui`, with the environment allowlist of 01-security and nothing else.
   Test: unit `test_llama_args.py` (01 names it); integration `test_router_argv_and_env` (fake
   llama-server records argv and env).
-- **REQ-GW-33** Before starting the router, the gateway MUST unload every Ollama model with
-  `size_vram > 0` on the Ollama backends listed in `unload_ollama`. Test: unit
-  `test_ollama_models_are_unloaded_before_router_start` (fake Ollama).
+- **REQ-GW-33** Before starting the router or a `managed-openai` server, the gateway MUST unload
+  every Ollama model with `size_vram > 0` on the Ollama backends listed in `unload_ollama`, and
+  MUST wait (up to 30 s) until `/api/ps` shows them gone: Ollama answers the unload before its
+  runner frees the VRAM. Test: unit `test_ollama_models_are_unloaded_before_router_start`
+  (fake Ollama), `test_an_unload_waits_until_the_runner_has_left_vram`.
 - **REQ-GW-34** After starting, the gateway MUST poll `/models` every second until every
   startup preset reports `loaded`, and MUST stop the router and fail with the log path when a
   preset reports `failed`, drops from `loading` to `unloaded`, the process exits, or
@@ -287,15 +291,87 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
 - **REQ-GW-36** On gateway start, a running router recorded in the pid file with the same
   mode and render hash MUST be adopted, and one with a different mode or hash MUST be stopped.
   Test: integration `test_router_is_adopted_across_gateway_restart`.
-- **REQ-GW-37** While `~/.local/state/hal/router.pid` names a live `llama-server` process
-  (the legacy `hal-serve`), the gateway MUST refuse to start its own router with an error that
-  says to run `hal-serve stop`. Test: unit `test_legacy_router_blocks_managed_start`.
+- **REQ-GW-97** `hal/main` and `hal/agent` MUST serve the aliases `[gateway] main` and `agent`
+  name (default `hal-code`), keeping their own name and reporting that alias's context; an empty
+  key MUST fall back to the active router mode, and a key naming `hal/main` or `hal/agent` MUST
+  be a config error. Test: unit `test_hal_main_and_agent_serve_the_aliases_the_gateway_names`,
+  `test_a_mode_alias_cannot_point_at_itself`.
+- **REQ-GW-37** Withdrawn (0.2.0): the `hal-serve` launcher is gone, so there is no legacy router
+  to guard against.
 - **REQ-GW-38** A mode switch MUST wait up to `drain_s` (30) for in-flight requests to the
   router and then fail with 409 unless `force` is set. Test: unit
   `test_mode_switch_waits_for_inflight_requests`.
 - **REQ-GW-39** After a router crash, the next request MUST restart it, at most
   `max_restarts` (3) times in 600 s; beyond that requests MUST get 503 naming the log. Test:
   unit `test_crash_restart_budget`.
+
+### Managed OpenAI-compatible servers (REQ-GW-9x)
+
+- **REQ-GW-90** A `managed-openai` backend MUST name a non-empty `command` whose first item is
+  an absolute path and a non-empty `served_models`, MUST NOT set `url` (it is derived from
+  `port`), and its `env` table MUST refuse a name that looks like a secret under 01-security's
+  key rule, `PORT`, `HOST` and the `key_env` name. Test: unit
+  `test_managed_server_needs_a_command_and_its_models`,
+  `test_managed_server_env_refuses_secret_looking_names`.
+- **REQ-GW-91** The managed server's environment MUST be exactly the 01-security allowlist,
+  the configured `env`, `HOST=127.0.0.1`, `PORT` and, when `key_env` is set, the generated key
+  from `<state>/gateway/<name>.key` (mode 0600). The key MUST NOT appear in argv. Test:
+  integration `test_child_gets_only_allowlisted_env_plus_port_host_and_key`,
+  `test_shell_secrets_never_reach_the_child`, `test_key_is_never_in_the_argv`.
+- **REQ-GW-92** After a start, the gateway MUST poll `health_path` and `/v1/models` every
+  second until the first answers 200 and the second lists a served model, and MUST stop the
+  process group and fail with the log path when the process exits or `startup_timeout_s` (300)
+  passes. Test: integration `test_start_waits_for_health_and_writes_the_record`,
+  `test_exit_during_startup_fails_with_the_log_path`,
+  `test_startup_timeout_stops_the_process_group`.
+- **REQ-GW-93** Stopping a managed process (router or server) MUST signal its whole process
+  group, `SIGTERM` then `SIGKILL` after `stop_timeout_s`, and wait until no process of the group
+  is left, including children whose leader already exited; a group whose leader pid now has
+  another start time MUST NOT be signalled. On gateway start a recorded server with the same
+  argv, cwd, env and port hash MUST be adopted, and any other stopped. Test: integration
+  `test_stop_ends_the_whole_process_group`, `test_stop_escalates_to_sigkill`,
+  `test_stop_ends_children_left_after_the_leader_exited`,
+  `test_server_is_adopted_across_gateway_restart_when_config_is_unchanged`,
+  `test_changed_config_stops_the_old_server_at_start`.
+- **REQ-GW-94** A request to a managed server MUST start it on demand, restart it after a crash
+  at most `max_restarts` times in 600 s, and get 503 after `backend/stop` until the next start;
+  `/v1/models` MUST list `served_models` without contacting or starting it, and effort hints
+  MUST map as for an `openai` backend. Test: integration
+  `test_request_starts_the_server_on_demand_and_carries_its_key`, `test_crash_restart_budget`,
+  `test_stopped_server_is_not_restarted_by_a_request`,
+  `test_model_listing_shows_served_models_without_starting_the_server`,
+  `test_effort_off_disables_thinking_on_a_managed_server`.
+- **REQ-GW-95** Before a managed server with `exclusive_gpu` starts, the gateway MUST stop the
+  router and other managed GPU servers without the deliberate-stop mark (the next request to
+  them starts them again) and unload the Ollama models of `unload_ollama`; a router start MUST
+  stop an exclusive managed server the same way. A backend with requests in flight MUST NOT be
+  stopped: the start fails with 503. Test: integration
+  `test_managed_start_yields_the_router_and_empties_ollama`,
+  `test_managed_start_refuses_to_stop_a_backend_with_requests_running`,
+  `test_router_start_stops_the_managed_server_without_marking_it_stopped`, unit
+  `test_yield_gpu_stops_the_router_without_marking_it_stopped`,
+  `test_router_start_calls_before_start_first`.
+- **REQ-GW-98** A router or managed server with `park = true` MUST be parked rather than stopped
+  when it yields the GPU: every CUDA process under it locked, then checkpointed with
+  `cuda-checkpoint`, and refused (falling back to a stop) when `cuda-checkpoint` is missing, a
+  step fails, or the move would leave less than 4 GB of available RAM. The next request to a
+  parked backend MUST make room as a start does, then restore and unlock it; a failed resume
+  MUST stop and start it. Test: unit
+  `test_park_locks_every_cuda_process_then_checkpoints_and_resume_reverses_it`,
+  `test_a_failed_lock_unlocks_what_was_locked`, `test_park_is_refused_when_the_vram_would_not_fit_in_ram`,
+  `test_a_parked_router_keeps_its_process_and_resumes_after_making_room`, integration
+  `test_a_parked_server_stays_alive_and_resumes_after_making_room`,
+  `test_a_server_that_cannot_be_parked_is_stopped`.
+- **REQ-GW-99** Before relaying to Ollama a request for an alias in `[gateway.gpu].make_room_for`,
+  the gateway MUST park every idle backend with `park = true` unless the model is already wholly
+  in VRAM, then unload Ollama models that sit partly in RAM. Test: integration
+  `test_a_hal_chat_request_parks_the_server_unless_the_model_is_on_the_gpu`.
+- **REQ-GW-96** The idle unload MUST NOT stop a managed server with `idle_stop = false`; a GPU
+  release (`release-gpu`, a reclaim) MUST stop it and report its models, and `release-gpu
+  --stop-router` MUST stop it with the deliberate-stop mark. Test: integration
+  `test_idle_unload_keeps_a_server_with_idle_stop_false`,
+  `test_free_vram_stops_the_server_and_returns_its_models`,
+  `test_release_gpu_stop_router_stops_managed_servers`.
 
 ### Router policies (REQ-GW-4x)
 
@@ -445,11 +521,11 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
   `test_serve_refuses_in_client_mode`, `test_gateway_url_must_be_loopback`.
 - **REQ-GW-69** `SessionForwarder` MUST enforce a per-session model budget on the host, so a
   process in the box that bypasses the agent's own budgets (03 REQ-AGT-16) by calling
-  `/run/hal/model.sock` directly is still bounded: at most `max_requests_per_min` (30)
+  `/run/hal/model.sock` directly is still bounded: at most `max_requests_per_min` (120)
   requests in any 60 s window; a `max_tokens`, `max_completion_tokens` or
   `max_output_tokens` value above `max_output_tokens` (16384), or a missing one, MUST be set
   to `max_output_tokens` before the body is relayed (with `Content-Length` recomputed); and at most `max_tokens_per_hour`
-  (2,000,000) input plus output tokens in any 3600 s window, counted from the response
+  (100,000,000) input plus output tokens in any 3600 s window, counted from the response
   `usage` (the JSON body, or the final SSE usage event), or as the clamped output cap plus
   the request body length / 4 when a response carries no usage. Over a limit the forwarder
   MUST answer 429 `budget_exceeded` with `Retry-After` set to the seconds until the window
@@ -496,8 +572,10 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
   unit `test_health_is_public_and_local`.
 - **REQ-GW-77** A request to an Ollama backend MUST get 503 `model_unverified` unless
   `models.toml` has an `ollama:` entry for the upstream model whose digest equals the digest
-  `/api/tags` reports (cached 30 s). Test: unit `test_unpinned_ollama_model_is_refused`,
-  `test_moved_ollama_tag_is_refused`.
+  `/api/tags` reports (cached 30 s). The gateway MUST re-read `models.toml` when the file
+  changes, so a pin saved while it runs counts at once. Test: unit
+  `test_unpinned_ollama_model_is_refused`, `test_moved_ollama_tag_is_refused`,
+  `test_a_pin_saved_while_the_gateway_runs_is_used_without_a_restart`.
 - **REQ-GW-78** A `chat-template-file` in a rendered mode MUST be a bundled file listed with
   its sha256 in `halgateway/modes/SHA256SUMS`, or match the `template_sha256` of the
   preset's model entry (REQ-SEC-81). Test: unit `test_unpinned_template_is_refused`.
@@ -515,10 +593,12 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
   header, else the `hal_effort` body field; `off|low|medium|high|max`), merge the matching request
   fields for the model family and backend without overwriting a field the client set, remove
   `hal_effort` before forwarding, and ignore the hint with a log line for a model that cannot think
-  or an unknown level. A role alias without a hint MUST use the role's `effort` and `temperature`.
+  or an unknown level. A role alias without a hint MUST use the role's `effort` and `temperature`;
+  so MUST an alias `hal-NAME` when `[models.roles.NAME]` is a named role (06-core-cli REQ-CLI-121).
   Test: unit `test_header_beats_the_body_field_and_the_field_never_goes_upstream`,
   `test_a_model_that_cannot_think_is_left_alone_with_a_note`,
-  `test_role_default_effort_and_temperature_apply_to_a_role_alias_only`; integration
+  `test_role_default_effort_and_temperature_apply_to_a_role_alias_only`,
+  `test_a_named_role_alias_names_its_role`; integration
   `test_gateway_header_overrides_the_role_default_and_is_not_forwarded`.
 - **REQ-GW-82** The generated mode `tuned` MUST pass the same checks as any mode (pinned weight
   files, no forbidden key) and MUST take context, KV cache type, GPU layers and tensor split from
@@ -615,6 +695,7 @@ packages/hal-gateway/
       openai.py                  generic OpenAI-compatible backend (local or remote)
       ollama.py                  Ollama backend, ps/unload/tags helpers (ported from power.py)
       llama_router.py            router backend: external or managed (process supervisor)
+      managed.py                 managed-openai backend: a server the gateway starts and stops
       llama_args.py              llama_server_command (01 REQ-SEC-76)
       launchers.py               process launcher and docker launcher for the managed router
     policies/
@@ -757,7 +838,7 @@ Every secret comparison uses `hmac.compare_digest` on the hashes.
 | GET | `/api/tags`, `/api/version` | ollama_native | ollama | yes | yes (tags filtered) | no |
 | GET | `/api/ps` | ollama_native | ollama | yes | no | no |
 | GET | `/hal/v1/status`, `/hal/v1/aliases`, `/hal/v1/sessions`, `/hal/v1/leases` | admin | openai | yes | no | no |
-| POST | `/hal/v1/mode`, `/hal/v1/router/stop`, `/hal/v1/models/load`, `/hal/v1/models/unload`, `/hal/v1/gpu/release`, `/hal/v1/sessions` | admin | openai | unix only | no | no |
+| POST | `/hal/v1/mode`, `/hal/v1/router/stop`, `/hal/v1/models/load`, `/hal/v1/models/unload`, `/hal/v1/gpu/release`, `/hal/v1/sessions`, `/hal/v1/backend/start`, `/hal/v1/backend/stop`, `/hal/v1/backend/restart` | admin | openai | unix only | no | no |
 | DELETE | `/hal/v1/sessions/{id}` | admin | openai | unix only | no | no |
 
 The session column equals 01-security REQ-SEC-66 plus `GET /health`, which the forwarder
@@ -816,13 +897,14 @@ class Resolver:
 Order (first match wins):
 
 1. An alias from `[gateway.aliases.<name>]`.
-2. A role alias (`hal-chat`, `hal-fast`, `hal-code`, `hal-writer`, `hal-embed`,
+2. A role alias (`hal-chat`, `hal-classifier`, `hal-code`, `hal-writer`, `hal-embed`,
    `hal-vision`): its `[hal]` value is resolved with steps 3 to 5 (REQ-GW-26). User aliases
    in step 1 may not use these six names (config error), so the role table stays the single
    source of truth (00-overview).
-3. A mode alias of the active mode of a router backend: `hal/main`, `hal/agent`,
-   `hal/classifier` (when set), and every preset name of the active mode (`hal-gpu`,
-   `hal-hybrid`, ...), so today's names keep working.
+3. `hal/main` and `hal/agent` serve the alias `[gateway] main` and `agent` name (default
+   `hal-code`), under their own name and with that alias's context. With the key empty they
+   follow the active router mode instead, as does `hal/classifier` (when set) and every preset
+   name of the active mode.
 4. `<backend>/<model>` for a backend with `expose_models = true`. The backend name `hal` is
    reserved.
 5. A bare name present in the model list of exactly one backend with `expose_models = true`
@@ -852,12 +934,14 @@ managed router's main preset.
    "context_length": 32768}]}
 ```
 
-`context_length` comes from, in order: the alias's `context_window` key; for router targets
-the preset's `ctx-size` (the same rule as the mode's `context-window`, "Mode files"); for
-Ollama targets the `num_ctx` parameter of `/api/show` when the model sets one; otherwise it
-is omitted and clients use their own fallback (02 uses 32768). Whether Ollama 0.40.1 reports
-`num_ctx` for models without a Modelfile parameter was not checked [unverified: `curl
-/api/show` on a loaded model]. `meta.hal_profile` is the `profile` key of the model's manifest
+`context_length` comes from, in order: the alias's `context_window` key; for a role alias
+(`hal-ROLE`, including a named role's alias) the `context` of `[models.roles.ROLE]`, which
+`hal tune` writes for every backend and, for Ollama, carries to the server as a derived model's
+`num_ctx` (06, "hal tune"); for router targets the preset's `ctx-size` (the same rule as the
+mode's `context-window`, "Mode files"); otherwise it is omitted and clients use their own
+fallback (02 uses 32768). `hal-code` and `hal-writer` with no model of their own report chat's.
+Test: unit `test_a_role_alias_reports_the_context_hal_tune_set_for_any_backend`.
+`meta.hal_profile` is the `profile` key of the model's manifest
 entry; 03 reads it to pick an agent profile. The Anthropic shape carries the standard fields
 only.
 
@@ -896,13 +980,41 @@ class Backend(Protocol):
 | `llama-router` | all except `ollama_native` | true | true | `[<reclaimer_name>]` | `/v1/models` of the router lists presets; `free_vram` posts `/models/unload` for each loaded preset |
 | `ollama` | all except `responses_count` | true | true | `[<reclaimer_name>]` | `count_tokens` is estimated (REQ-GW-18); `free_vram` posts `/api/generate {"model", "keep_alive": 0}` for the models this gateway served; `/v1/models` duplicates and `llamacpp:<sha>` ids are dropped; digests checked (REQ-GW-77) |
 | `openai` | `chat`, `models`, `embeddings` | false | true when local, false when remote | `[]` | `apis` must be set to add `responses`, `responses_count` or `messages` |
+| `managed-openai` | `chat`, `models`, `embeddings` | true | true | `[]` | The gateway runs the server (see "Managed OpenAI-compatible server"); `/v1/models` lists `served_models`; `free_vram` stops the process |
 
-Upstream credentials: `llama-router` managed uses the generated key; external routers,
+Upstream credentials: `llama-router` managed and `managed-openai` with `key_env` use their
+generated key; external routers,
 `openai` backends and remote backends use `api_key_file` or `api_key_env`; Ollama has none
 (it has no auth built in; research-interop section 6).
 
 External routers and `openai` backends load their own files, so the gateway cannot verify
 them; `hal-gateway status` and `hal doctor` show them as `verified: false` (Decision 22).
+
+### Managed OpenAI-compatible server
+
+`ManagedServer` (`backends/managed.py`) runs any OpenAI-compatible server that takes its
+port from `PORT` and an API key from an environment variable: a vLLM launch script, SGLang,
+a llama-server wrapper. It shares the launcher, the record format and the crash rules with the
+router.
+
+- Files in `<state>/gateway/`: `<name>.json` (0600: `pid`, `pid_start`, `boot_id`,
+  `config_sha256`, `address`, `started`), `<name>.key` (0600, generated once) and `<name>.log`.
+- `config_sha256` is the sha256 of the argv, cwd, `env`, `port` and `key_env`. A gateway
+  restart adopts a live server with the same hash; any other recorded server is stopped.
+- Child: `Popen(command, cwd=cwd or dirname(command[0]), env=<REQ-GW-91>,
+  start_new_session=True)`, output appended to the log. No shell, no `PATH` lookup.
+- Ready: `GET <health_path>` answers 200, then `GET /v1/models` lists one of `served_models`.
+  vLLM answers `/health` before it lists its models, so both are checked.
+- Stop: the whole process group (vLLM's `EngineCore` is a child of the API server and holds
+  the VRAM), `SIGTERM`, `stop_timeout_s`, `SIGKILL`.
+- `autostart = "on-demand"` (default) starts it at the first request or at `hal-gateway backend
+  start`; `"with-gateway"` at gateway start.
+- GPU: with `exclusive_gpu` (default) a start first stops the router and other managed GPU
+  servers (`yield_gpu`, no deliberate-stop mark) and unloads Ollama (`unload_ollama`). The router
+  and every managed server share one lifecycle lock, so two starts that each stop the other run
+  one after the other instead of deadlocking.
+- `idle_stop = false` keeps the server through the idle unload; a cold start of a 27B model
+  under vLLM took 57 to 138 s on the reference machine (RTX 3090, 2026-11-05).
 
 ### Managed llama-server router
 
@@ -968,10 +1080,10 @@ against REQ-GW-78 before it writes the file, so a refused mode never reaches lla
 
 #### Mode files
 
-Modes are the INI files of today's `modes/` plus one Hal section. Discovery order:
-`router.modes_dirs` (default `["~/.config/hal/modes"]`), then the bundled
-`halgateway/modes/`. A user file with the same name replaces the bundled one, which is how a
-second install swaps models without a fork (as an earlier private fork did). A mode is
+Modes are INI files of llama-server presets plus one Hal section. Hal ships none since 0.2.0:
+`hal tune` writes `tuned` (06), and a user may write others. Discovery looks in
+`router.modes_dirs` (default `["~/.config/hal/modes"]`); the bundled `halgateway/modes/` keeps
+only the files a mode may reference (the chat template, the policy prompts, `SHA256SUMS`). A mode is
 what 06 and 00 call a preset in `hal serve [PRESET]`; inside a mode, each INI section is a
 llama-server preset.
 
@@ -1452,9 +1564,9 @@ class ForwarderLimits:
     max_request_bytes: int = 8 * 2**20
     max_concurrent: int = 4
     read_timeout_s: float = 30.0
-    max_requests_per_min: int = 30          # REQ-GW-69
+    max_requests_per_min: int = 120         # REQ-GW-69
     max_output_tokens: int = 16384          # REQ-GW-69: larger requested caps are clamped
-    max_tokens_per_hour: int = 2_000_000    # REQ-GW-69: input plus output, sliding hour
+    max_tokens_per_hour: int = 100_000_000  # REQ-GW-69: input plus output, sliding hour
 
 @dataclass(frozen=True)
 class ForwarderEvent:
@@ -1620,9 +1732,8 @@ def record_ollama(names: Sequence[str]) -> list[ModelEntry]: ...   # pins curren
 - `add_local` hashes an existing file and records it with `source = "local"`;
   `record_ollama` reads `/api/tags` and pins the current digests. 06's `hal models` shows the
   entries and asks before either writes, because pinning is a statement of trust.
-- `hal configure` (06) offers `record_ollama` for the models `[hal]` names and `add_local` for
-  the files the bundled modes reference, so an existing install keeps working after the
-  update (Migration).
+- `hal configure` (06) offers `record_ollama` for the models `[hal]` names, so an existing
+  install keeps working after the update (Migration).
 
 ### Admin status and aliases
 
@@ -1662,6 +1773,8 @@ replacing the env block of `hal:124-178`):
 `POST /hal/v1/mode` body `{"mode": "gpu", "wait_s": 900, "force": false}`; answers 200 with
 the status when loaded, 409 `router_busy` when draining failed, 4xx/5xx with the log path on
 load failure. `POST /hal/v1/models/load` and `/unload` body `{"model": "<preset>"}`.
+`POST /hal/v1/backend/start`, `/stop` and `/restart` body `{"name": "<backend>"}` act on a
+`managed-openai` backend and answer `{"backends": {"<name>": <status>}}`; an unknown name is 404.
 
 ### CLI
 
@@ -1673,8 +1786,10 @@ hal-gateway modes                            list modes with descriptions and so
 hal-gateway models [--json]                  what /v1/models returns to the owner
 hal-gateway load MODEL | unload MODEL        load or unload a router preset
 hal-gateway router stop                      stop the managed router process
+hal-gateway backend start|stop|restart NAME  control a managed-openai server
 hal-gateway release-gpu [--force] [--stop-router] [--reclaim]
-                                             unload and release the GPU (gpu-light's reclaimer uses --reclaim)
+                                             unload and release the GPU (gpu-light's reclaimer uses --reclaim);
+                                             --stop-router also stops managed servers
 hal-gateway token show | rotate              print or replace the owner token
 hal-gateway token issue --name NAME [--allow-remote] [--class C] [--rotate] [--json]
 hal-gateway token revoke --name NAME
@@ -1707,6 +1822,8 @@ token_file = "~/.config/hal/gateway-token"   # owner token; in client mode, the 
 allow_origins = []          # browsers have no business here (REQ-SEC-75)
 allow_hosts = []            # extra Host values, e.g. a tailnet name in front of loopback (07)
 default_model = ""          # "" = unknown names are 404
+main = "hal-code"           # the alias hal/main serves; "" = the active router mode's main preset
+agent = "hal-code"          # the alias hal/agent serves (subagents, side requests); "" = the mode's
 models_file = ""            # "" = config_dir()/models.toml
 max_request_bytes = 33554432  # 32 MiB: a 256K-token prompt is about 1 MiB of JSON; the rest is images
 max_header_bytes = 65536    # http.server's own line limit
@@ -1726,9 +1843,9 @@ keep = 3
 max_request_bytes = 8388608   # 8 MiB: 8x a full 256K-token prompt; caps what a rogue box can push
 max_concurrent = 4            # an agent plus three subagents
 ttl_s = 86400                 # one day; hal re-mints per session anyway
-max_requests_per_min = 30     # REQ-GW-69: an agent turn is a few requests; stops a tight loop
+max_requests_per_min = 120    # REQ-GW-69: a fast agent with subagents; stops a tight loop
 max_output_tokens = 16384     # REQ-GW-69: clamp on max_tokens and its aliases
-max_tokens_per_hour = 2000000 # REQ-GW-69: about 8 full 256K-token prompts an hour
+max_tokens_per_hour = 100000000 # REQ-GW-69: about 13 full 128K-token turns a minute
 
 [gateway.gpu]
 coordinator = "auto"        # "auto" | "gpu-light-v2" | "gpu-light-v1" | "none"
@@ -1746,6 +1863,7 @@ reclaimer_timeout_s = 60.0  # unloading two presets
 v1_claim_name = "hal-gateway"
 v1_claim_wait_s = 120.0     # hal-serve LIGHT_WAIT: 30 s release deadline plus a late job
 v1_dir = ""                 # "" = gpu-light protocol 1 resolution order
+make_room_for = ["hal-chat"]  # REQ-GW-99: these aliases park `park = true` servers to reach the GPU
 
 [gateway.gpu.vram_mib]      # upstream model or preset -> MiB for GL admission; absent = not sent
 # "hal-gpu" = 22000
@@ -1758,7 +1876,7 @@ v1_dir = ""                 # "" = gpu-light protocol 1 resolution order
 type = "llama-router"
 url = ""                    # "" when managed: derived from listen/port
 managed = true
-server = "~/.local/share/hal/llama.cpp/llama-b11512/llama-server"
+server = "~/.local/share/hal/llama.cpp/llama-b12121/llama-server"
 models_dir = ""             # required when managed (was HAL_MODELS_DIR)
 mode = "gpu"                # was HAL_MODE
 modes_dirs = ["~/.config/hal/modes"]
@@ -1769,6 +1887,7 @@ load_timeout_s = 900.0      # hal-serve: 50 GB from a cold disk takes minutes
 stop_timeout_s = 60.0       # hal-serve stop loop
 max_restarts = 3
 unload_ollama = ["ollama"]  # Ollama backends to empty before a router load
+park = false                # REQ-GW-98: true parks llama-server in host RAM instead of stopping it
 launcher = "process"        # "process" | "docker"
 container_image = ""
 container_runtime = "nvidia"  # "nvidia" | "runc" (CPU-only modes) | "runsc-gpu" (fails here today)
@@ -1784,6 +1903,24 @@ gpu = true
 expose_models = true
 unload_offloaded_on_claim = true
 gpu_light_uses = ["hal-gateway"]  # default [reclaimer_name]: the gateway reclaimer frees Ollama too (GL "Hal gateway", step 4)
+
+# [gateway.backends.qwen]
+# type = "managed-openai"
+# command = ["/opt/qwen/start-vllm.sh"]  # argv, no shell; the first item is an absolute path
+# cwd = ""                  # "" = the command's directory
+# env = {}                  # extra variables; names that look like secrets are refused
+# port = 8000               # passed as PORT, with HOST = "127.0.0.1"
+# key_env = ""              # e.g. "VLLM_API_KEY": gets the generated <state>/gateway/<name>.key
+# served_models = []        # required: what /v1/models lists, and what readiness waits for
+# health_path = "/health"
+# startup_timeout_s = 300.0
+# stop_timeout_s = 60.0
+# autostart = "on-demand"   # "on-demand" | "with-gateway"
+# max_restarts = 3
+# exclusive_gpu = true      # stop the router and other managed servers, empty Ollama, before a start
+# unload_ollama = ["ollama"]
+# idle_stop = true          # false: the idle unload leaves it running
+# park = false              # true: yielding the GPU parks the server in host RAM (REQ-GW-98)
 
 # [gateway.backends.openrouter]
 # type = "openai"
@@ -1943,8 +2080,6 @@ the managed router die with the gateway and keeps it in the cgroup gpu-light's
 
 Keeping existing users working:
 
-- While a legacy `hal-serve` router lives, it and the gateway must not run routers on the same port;
-  REQ-GW-37 makes the gateway refuse while the legacy router lives.
 - Preset names (`hal-gpu`, `hal-hybrid`, `hal-agent`, ...) stay valid model names through
   alias step 3, so a Claude Code config that names them keeps working once its base URL points
   at the gateway.
@@ -1988,8 +2123,8 @@ Fakes (in `tests/fakes/`):
 Unit tests per module (each REQ names its tests above): `test_config.py`, `test_auth.py`,
 `test_sessions.py`, `test_clienttokens.py`, `test_routes.py`, `test_aliases.py`,
 `test_relay.py`, `test_errors.py`, `test_estimate.py`, `test_reqlog.py`, `test_modes.py`
-(every bundled mode parses and renders; `context_window` matches the old awk rule for all 10
-modes; bundled templates match `SHA256SUMS`), `test_model_manifest.py`,
+(a user mode parses and renders with its `[hal]` wiring; no mode ships with Hal; bundled
+templates match `SHA256SUMS`), `test_model_manifest.py`,
 `test_model_download.py`, `test_models.py`, `test_llama_args.py`,
 `test_policies_text.py` (ported decision-point cases), `test_policies_route.py`,
 `test_policies_delegate.py`, `test_policies_effort.py`, `test_policies_swap.py`,
@@ -2117,7 +2252,7 @@ gpu-light v2's daemon only for its manual check; its tests use `FakeGpuLightV2`.
    01-security names the check]).
 4. **Modes carry their own policy wiring** in a `[hal]` section, so `hal-serve`'s and `hal`'s
    case statements (`hal-serve:142-145, 180-191`, `hal:127-139`, `hal:159-168`) become data.
-   A user mode file in `~/.config/hal/modes/` replaces the bundled one of the same name.
+   Since 0.2.0 no mode ships with Hal: `hal tune` writes `tuned` into `~/.config/hal/modes/`.
 5. **Two kinds of built-in alias.** Role aliases (`hal-chat` ... `hal-vision`) follow the
    `[hal]` table, which stays the single source of truth for model roles (resolution D1);
    mode aliases (`hal/main`, `hal/agent`) follow the active router mode. The slash form cannot

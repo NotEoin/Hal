@@ -336,9 +336,9 @@ def test_hal_set_role_is_read_only_with_reason(home, server):
     home.config.write_text(home.config.read_text() + '[hal]\ncode_model = "llamacpp/hal-code"\n')
 
     async def script(pilot, app):
-        app.query_one("#roles", OptionList).highlighted = 2  # code
+        app.query_one("#roles", OptionList).highlighted = 1  # code
         await settle(pilot)
-        row = app.query_one("#roles", OptionList)._options[2].prompt.plain
+        row = app.query_one("#roles", OptionList)._options[1].prompt.plain
         return row, bool(app.query("#ctx"))
 
     (row, has_slider), _, _ = drive(state, script)
@@ -352,7 +352,8 @@ def test_guard_row_shows_safety_check_cpu(home, server):
     policy.chmod(0o600)
 
     async def script(pilot, app):
-        return app.query_one("#roles", OptionList)._options[-1].prompt.plain
+        options = app.query_one("#roles", OptionList)._options
+        return next(o.prompt.plain for o in options if o.id == tuneapp.GUARD)
 
     row, _, _ = drive(state, script)
     assert row.startswith("guard") and "safety check, CPU" in row
@@ -366,7 +367,7 @@ def test_busy_warning_is_shown(home, server):
         return str(app.query_one("#hw").render())
 
     shown, _, _ = drive(state, script)
-    assert "another program is using" in shown
+    assert "in use right now" in shown
 
 
 def test_real_model_labels_show_base_and_tag(home):
@@ -498,3 +499,106 @@ def test_role_rows_never_wrap_a_model_name(home, server):
     (css, lines), _, _ = drive(state, script, size=(80, 24))
     assert css == ("nowrap", "ellipsis")  # OptionList wraps a prompt whatever the Text says
     assert lines[0].startswith("chat") and "qwen3:8b" in lines[1]
+
+
+def test_new_role_names_a_setup_opens_its_model_picker_and_lists_it(home, server):
+    state = open_state(home, server, roles=CHAT_ROLE)
+
+    async def script(pilot, app):
+        await pilot.click("#role-new")
+        await settle(pilot)
+        name = app.screen.query_one("#role-name")
+        name.value = "chat"
+        await pilot.press("enter")  # a taken name keeps the form open with the reason
+        await settle(pilot)
+        refused = isinstance(app.screen, tuneapp.RoleNameModal), str(app.screen.query_one("#error").render())
+        app.screen.query_one("#role-name").value = "code-128k"
+        await pilot.press("enter")
+        await settle(pilot, 10)
+        picker_open = not isinstance(app.screen, tuneapp.RoleNameModal) and app.screen is not app.screen_stack[0]
+        await pilot.press("escape")
+        await settle(pilot)
+        ids = [o.id for o in app.query_one("#roles", OptionList)._options]
+        return refused, picker_open, ids, app.role, [b.id for b in app.editor().query(Button)]
+
+    (refused, picker_open, ids, role, buttons), _, _ = drive(state, script)
+    assert refused[0] and "already a role name" in refused[1]
+    assert picker_open and "code-128k" in ids and role == "code-128k"
+    assert "remove-role" in buttons and "clear-role" not in buttons
+
+
+def test_the_new_role_button_is_on_screen_at_60_by_20(home, server):
+    state = open_state(home, server, roles=CHAT_ROLE)
+
+    async def script(pilot, app):
+        await settle(pilot)
+        button = app.query_one("#role-new", Button)
+        return button.region.right <= 60 and 0 < button.region.bottom <= 20
+
+    assert drive(state, script, size=(60, 20))[0]
+
+
+def test_the_gauge_spans_the_whole_card_and_marks_the_guidance(home, server):
+    state = open_state(home, server, roles=CHAT_ROLE)
+
+    async def script(pilot, app):
+        await settle(pilot)
+        gauge = app.query_one(FitGauge)
+        return gauge.budget, gauge.mark, str(gauge.render())
+
+    (scale, mark, drawn), _, _ = drive(state, script)
+    assert scale == CARD_24GB["gpus"][0]["total_mib"] and 0 < mark < scale
+    assert drawn.count("|") == 1 and "/ 24.0 GB" in drawn
+
+
+def test_a_context_past_the_guidance_stays_on_the_gpu_and_says_so(home, server):
+    state = open_state(home, server, roles=CHAT_ROLE.replace("qwen3:8b", "gemma:12b"))  # 128K native
+    ctx = state.fit("chat").context
+    while not state.try_context("chat", ctx).above_guidance:
+        ctx += 1024
+        assert state.try_context("chat", ctx).status == "gpu", "passed the card before the guidance"
+    state.set_context("chat", ctx)
+    fit = state.fit("chat")
+    assert fit.above_guidance and tuneapp.gauge_caption(fit, LOOK).endswith("above guidance")
+    assert state.role_plans()[0].plan.gpu_layers == -1  # written all on the GPU
+
+
+def test_the_harness_row_points_hal_main_and_agent_at_roles(home, server):
+    state = open_state(home, server, roles=CHAT_ROLE)
+
+    async def script(pilot, app):
+        roles = app.query_one("#roles", OptionList)
+        roles.highlighted = [o.id for o in roles._options].index(tuneapp.HARNESS)
+        await settle(pilot)
+        main = app.query_one("#harness-main", Segmented)
+        assert main.selected == "hal-code" and "hal-chat" in [s.value for s in main.segments]
+        main.selected = "hal-chat"
+        main.post_message(Segmented.Changed(main, "hal-chat"))
+        await settle(pilot)
+        return state.harness["main"], roles._options[-1].prompt.plain
+
+    (main, row), _, _ = drive(state, script)
+    assert main == "hal-chat" and "hal-chat, hal-code" in row
+
+
+def test_the_speculative_row_lists_the_drafts_and_turns_them_off(home, tmp_path):
+    from halkit.testing.gguf import llama_like, write_gguf  # noqa: PLC0415 - only this test writes a GGUF
+
+    write_gguf(tmp_path / "big-27b-Q4.gguf", llama_like(layers=8), tensors={"blk.0.attn_q.weight": 1 << 20})
+    write_gguf(tmp_path / "mtp-big-27b-Q8_0.gguf", llama_like(layers=1), tensors={"blk.0.attn_q.weight": 1 << 16})
+    home.config.write_text(
+        f'[models.sources.files]\nkind = "gguf"\npath = "{tmp_path}"\n'
+        '[models.roles.chat]\nsource = "files"\nmodel = "big-27b-Q4"\n'
+    )
+    state = tunestate.open_state(hw=hardware.from_dict(CARD_24GB))
+
+    async def script(pilot, app):
+        picker = app.query_one("#draft", Segmented)
+        labels = [s.label for s in picker.segments]
+        picker.selected = "off"
+        picker.post_message(Segmented.Changed(picker, "off"))
+        await settle(pilot)
+        return labels, state.drafts["chat"].draft
+
+    (labels, draft), _, _ = drive(state, script)
+    assert labels == ["auto", "off", "MTP Q8_0"] and draft == "off"

@@ -235,7 +235,7 @@ schema_version = 1
 
 # [reviewer]
 # enabled = false
-# model = "hal-fast"                 # gateway role alias
+# model = "hal-classifier"           # gateway role alias
 # timeout_s = 20
 # when_untrusted = true              # may review while the session is untrusted
 

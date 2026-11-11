@@ -11,6 +11,7 @@ from typing import Protocol
 
 from ..routes import Api
 from .llama_router import LlamaRouter
+from .managed import ManagedServer
 from .ollama import OllamaBackend
 from .openai import OpenAIBackend, UpstreamAddress, parse_address
 
@@ -35,13 +36,15 @@ class Backend(Protocol):
 
 def make_backend(name: str, entry: Mapping[str, object], ollama_url: str) -> OpenAIBackend:
     """Builds the backend for config `entry`; `ollama_url` is `[hal].ollama_url`."""
-    cls = {"ollama": OllamaBackend, "llama-router": LlamaRouter}.get(str(entry["type"]), OpenAIBackend)
+    kinds = {"ollama": OllamaBackend, "llama-router": LlamaRouter, "managed-openai": ManagedServer}
+    cls = kinds.get(str(entry["type"]), OpenAIBackend)
     return cls(name, entry, ollama_url=ollama_url)
 
 
 __all__ = [
     "Backend",
     "LlamaRouter",
+    "ManagedServer",
     "OllamaBackend",
     "OpenAIBackend",
     "UpstreamAddress",

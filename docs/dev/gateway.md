@@ -59,7 +59,8 @@ Each `GatewayError` subclass owns one HTTP status. `error_body(err, fmt)` render
 - A role alias whose model is in no list falls back to the only Ollama backend (it loads on demand).
 - `GET /v1/models` lists aliases, role aliases and `backend/model` names without duplicates, in the
   OpenAI shape, or the Anthropic shape with an `anthropic-version` header. `context_length` is
-  the alias `context_window` for now; router and Ollama sources come with steps 5 and 11.
+  the alias `context_window`, else the role's `[models.roles]` `context`, else the `ctx-size` of
+  the active mode's preset (`Resolver.role_window`, `Resolver.mode_windows`).
   An alias key `slots` (set it to the server's `--parallel`) is listed as `meta.slots`; the agent
   caps concurrent subagents by it. Unset or 0 means unknown.
 - Remote backends are marked `owned_by: "remote:<host>"` and replies carry `X-Hal-Remote`.
@@ -116,12 +117,12 @@ Each `GatewayError` subclass owns one HTTP status. `error_body(err, fmt)` render
 
 ## Mode presets (`modes`, `modes/`)
 
-- `halgateway/modes/` holds the ten INI modes, the prompt and template files, `effort-xhigh.txt`
-  and `SHA256SUMS` (the bundled files a preset may reference as a chat template). A file of the
-  same name in `[router].modes_dirs` wins.
-- Each mode has a `[hal]` block before `[*]` (keys in the design). `hal-serve` drops that block
-  with `sed` until the gateway renders modes itself; `hal-gateway render MODE` does it and
-  checks the mode first.
+- `halgateway/modes/` holds no mode since 0.2.0, only the files a mode may reference: the
+  Qwen3.8 chat template, the prompt files of the delegate and effort policies, `effort-xhigh.txt`
+  and `SHA256SUMS` (the bundled files a preset may use as a chat template). Modes live in
+  `[router].modes_dirs`; `hal tune` writes `tuned` there (`halgateway.tunedmode`).
+- Each mode has a `[hal]` block before `[*]` (keys in the design); `hal-gateway render MODE`
+  drops it and checks the mode first.
 - `render_mode` refuses a mode that sets a denied key (`host`, `api-key`, `tools`, `hf-repo`,
   any `*-default`, ...), names a weight file the manifest does not pin or whose sha256 differs,
   names a pickle format, or uses a `chat-template-file` that is neither bundled (name and hash in
@@ -134,10 +135,9 @@ Each `GatewayError` subclass owns one HTTP status. `error_body(err, fmt)` render
 ## Managed router (`backends/llama_router`, `launchers`, `llamacmd`)
 
 `LlamaRouter` is the `llama-router` backend. A managed entry owns one `llama-server` process.
-It replaces `hal-serve start|stop|status`.
+It replaced the `hal-serve start|stop|status` launcher, removed in 0.2.0.
 
-- **Start** (`start(mode)`): refuse while the legacy `hal-serve` router lives
-  (`<state>/router.pid` names a `llama-server`), render the mode (which verifies weights),
+- **Start** (`start(mode)`): render the mode (which verifies weights),
   unload Ollama models that hold VRAM (`unload_ollama`), spawn, then poll `GET /models` every
   second until every startup preset is `loaded`. A `failed` preset, `unloaded` after `loading`,
   a process exit or `load_timeout_s` stops the router and raises 503 `router_failed` with the
@@ -157,6 +157,38 @@ It replaces `hal-serve start|stop|status`.
   claims. `listen = "unix"` is implemented but untested against a real server.
 
 Tests use a fake `llama-server` script (`tests/test_llama_router.py`); no real model is loaded.
+
+## Managed OpenAI server (`backends/managed`, `launchers`)
+
+`ManagedServer` is the `managed-openai` backend: one process from `command`, which takes its
+port from `PORT`. It follows the router's pattern (record, adopt, crash budget, deliberate stop)
+with its own files `<state>/gateway/<name>.json|.key|.log`.
+
+- **Identity**: `fingerprint()` hashes argv, cwd, `env`, `port` and `key_env`; `adopt()` keeps a
+  live server with the same hash and stops any other.
+- **Environment**: `child_env()` is `llamacmd.ENV_ALLOWLIST` from the gateway's environment, the
+  configured `env`, `HOST`, `PORT` and the key (`halkit.secrets.generate_token`). The config
+  check refuses secret-looking `env` names with `halkit.redact.is_secret_key`.
+- **Ready**: `ready()` needs `health_path` at 200 and a served model in `/v1/models`.
+  `_wait_ready()` polls every `poll_s` (1 s; tests set 0.05) up to `startup_timeout_s`.
+- **Stop**: `launchers.ProcessLauncher.stop` signals the process group (`os.killpg`) and waits
+  for `launchers.group_members(pid)` to be empty, so a child such as vLLM's `EngineCore` is
+  gone before the VRAM is counted free. A group that still has a process with the leader's pid
+  but another start time belongs to someone else and is left alone.
+- **Lifecycle hooks**: both `ManagedServer` and `LlamaRouter` have `before_start`, `yield_gpu()`,
+  `running()` and `in_flight()`. `Gateway._make_room` is the `before_start` of each: it yields the
+  other GPU backends (refusing with 503 when one has requests running) and, for an exclusive
+  server, unloads Ollama. `Gateway.lifecycle_lock` is shared by all of them.
+- **Request path**: `OpenAIBackend.ensure()` and `request()` are no-ops, so the handler calls
+  them on every backend; `aliases.Resolver.models_of` uses `static_models()` when a backend
+  has it. `hints.BACKEND_KINDS` maps `managed-openai` to `openai`.
+- **GPU manager**: the idle unload skips a backend whose `idle_free` is false (`idle_stop =
+  false`); `free_vram()` is `yield_gpu()` plus the served models.
+- **Admin**: `POST /hal/v1/backend/start|stop|restart` with `{"name"}` (owner on the unix socket),
+  `GatewayClient.backend(action, name)`, `hal-gateway backend ACTION NAME`.
+
+Tests use a fake server script (`tests/test_backends_managed.py`) that forks a child into its
+process group to stand in for `EngineCore`.
 
 ## Policies (`policies/`)
 
@@ -334,9 +366,8 @@ re-reads it on a changed mtime or inode. `[gateway].url` must be `http://127.0.0
   returns a `config.toml`-shaped dict (`[gateway.backends.local]` `server`, `models_dir`, `mode`,
   `port` from `HAL_LLAMA_URL`, and `[hal].ollama_url`). A non-loopback `HAL_LLAMA_URL` raises
   `LegacyImportError`. Nothing calls it yet: `hal configure` (design 06) will show and write it.
-- User docs: `docs/user/gateway.md`, `docs/user/modes.md` (the former root `MODES.md`, moved
-  unchanged except one link; its `hal-serve` sections describe the old router until plan step 29)
-  and four how-tos. They mark the live behaviour unverified.
-- Not built: the launcher
-  switch and removal of `hal-serve` (28, 29), and the docker launcher (30). sha256 values and
+- User docs: `docs/user/gateway.md`, `docs/user/modes.md` (modes, now written by `hal tune`, and
+  the GGUF measurements of the old bundled modes) and four how-tos. They mark the live behaviour
+  unverified.
+- Not built: the docker launcher (30). sha256 values and
   commit pins are left for the maintainer.

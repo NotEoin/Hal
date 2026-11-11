@@ -88,6 +88,14 @@ def test_llama_router_gets_template_kwargs_and_a_reasoning_budget():
     assert body["reasoning_budget"] == 1024 and body["chat_template_kwargs"] == {"enable_thinking": True}
 
 
+def test_effort_off_disables_thinking_on_a_managed_openai_server():
+    body = {"messages": []}
+    decided = apply(
+        body, header="off", alias="qwen/qwen3.8-27b", model="qwen3.8-27b", backend="managed-openai"
+    )
+    assert body["chat_template_kwargs"] == {"enable_thinking": False} and decided == {"effort": "off"}
+
+
 def test_role_family_overrides_name_detection():
     body = {}
     apply(body, header="high", model="my-finetune", roles={"chat": role(family="qwen3")})
@@ -166,3 +174,12 @@ def test_gateway_applies_the_role_default_when_the_request_has_no_hint(gateway):
 def test_gateway_header_overrides_the_role_default_and_is_not_forwarded(gateway):
     assert post(gateway, {"model": "hal-chat", "messages": []}, {"X-Hal-Effort": "off"}) == 200
     assert Upstream.seen[-1]["think"] is False and "hal_effort" not in Upstream.seen[-1]
+
+
+def test_a_named_role_alias_names_its_role():
+    assert hints.role_of("hal-code-128k") == "code-128k"
+    assert hints.role_of("hal-chat") == "chat"
+    assert hints.role_of("coder") is None
+    body = {}
+    apply(body, alias="hal-code-128k", roles={"code-128k": role(temperature=0.3)})
+    assert body == {"temperature": 0.3}

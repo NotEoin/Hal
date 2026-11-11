@@ -7,4 +7,4 @@ stdlib client (resolution A6). Design: docs/design/05-gateway.md.
 Built up in the order of the implementation plan; see docs/dev/gateway.md for what exists.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

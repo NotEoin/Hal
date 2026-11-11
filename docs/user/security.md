@@ -71,9 +71,11 @@ classified on its own when it is called.
 
 ### A purpose-built classifier: IBM Granite Guardian
 
-By default the classifier asks a general model (`hal-fast`) for a JSON answer, which is slow on
-a CPU. `[policy].model_format = "guardian"` instead asks IBM Granite Guardian 4.1 8B on Ollama,
-a model built to judge whether a tool call is dangerous. It answers `<score> yes </score>` or
+By default the classifier asks `hal-classifier`, the classifier role, which is IBM Granite
+Guardian 4.1 8B on Ollama (`[hal].classifier_model = "granite4.1-guardian:8b"`): a model built to
+judge whether a tool call is dangerous. Pull it into Ollama yourself; Hal does not. To use a
+general model instead, point the role at it and set `[policy].model_format = "json"`; it answers
+with JSON, which is slower on a CPU. Granite Guardian answers `<score> yes </score>` or
 `<score> no </score>`, and Hal turns the probability of `yes` (read from the token logprobs) into
 a risk:
 
@@ -93,15 +95,13 @@ score text decides (`yes` is `high`, `no` is `low`). Anything else, or a timeout
 
 ```toml
 [policy]
-model = "ollama/granite4.1-guardian:8b"  # backend/model: the gateway sends it to the "ollama" backend
-model_format = "guardian"
+model = "hal-classifier"                 # the default; any alias or backend/model works
+model_format = "guardian"                # the default
 gpu = false                              # always run on the CPU, so it never takes VRAM
 ```
 
-- `model` must name the gateway backend and the model, as `ollama/granite4.1-guardian:8b`
-  (`backend/model` is resolved by the gateway, so the model need not be an alias). A bare
-  `granite4.1-guardian:8b` also works when exactly one backend serves it. Pull the model into
-  Ollama yourself; Hal does not.
+- `model` names what the gateway serves: the `hal-classifier` alias (change its model in
+  `hal tune`), or a `backend/model` name such as `ollama/granite4.1-guardian:8b`.
 - `gpu = false` sends `num_gpu` 0 on every classifier call, whatever `gpu-light` says. The default
   is `true`: use the GPU while the light is green. It applies to the classifier only; the
   reviewer keeps following `gpu-light`.

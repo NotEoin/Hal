@@ -236,3 +236,29 @@ def test_palette_notes_line_up_in_one_column():
 
     run(CommandPalette(load), script)
     assert len(rows) == 3 and len({row.index("does a thing") for row in rows}) == 1
+
+
+def test_a_click_in_a_long_picker_chooses_the_row_under_the_pointer():
+    # regression: the focus border appeared between mouse down and click, so clicking hal-code
+    # chose the row above it (and in a real session, granite guardian at the top of the list)
+    items = [PickItem("ollama/granite4.1-guardian:8b", "guard"), PickItem("local/hal-chat", "hal-chat"),
+             PickItem("local/hal-code", "hal-code"), *(PickItem(f"local/m{i}", f"m{i}") for i in range(30))]  # fmt: skip
+
+    async def script(pilot, screen):
+        options = screen.query_one(OptionList)
+        assert screen.focused is not options  # the filter has focus, so the click moves it
+        await pilot.click(OptionList, offset=(6, 2))
+
+    for size in ((50, 20), (80, 24), (200, 60)):
+        assert run(screens.PickerModal("model", items, "hal-chat"), script, size=size) == "hal-code"
+
+
+def test_picker_rows_never_wrap_at_a_narrow_width():
+    items = [PickItem("local/hal-code", "hal-code", note="a very long note " * 6)]
+
+    async def script(pilot, screen):
+        options = screen.query_one(OptionList)
+        assert options.virtual_size.height == 1
+        await pilot.press("escape")
+
+    run(screens.PickerModal("model", items), script, size=(50, 20))

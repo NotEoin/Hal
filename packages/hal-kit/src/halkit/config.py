@@ -286,7 +286,13 @@ HAL_TABLE = register(
         keys=(
             Key("vault", str, "~/notes", doc="Obsidian vault the memory tools read"),
             Key("chat_model", str, "gemma4:12b-it-qat", doc="Model for chat and assistant turns"),
-            Key("fast_model", str, "qwen3.5:4b", doc="Small model for classifying and titling"),
+            Key(
+                "classifier_model",
+                str,
+                "granite4.1-guardian:8b",
+                doc="The tool-call risk classifier, served as hal-classifier",
+            ),
+            Key("fast_model", str, "", doc="Deprecated (0.2.0): read as classifier_model when that is empty"),
             Key("code_model", str, "", doc="Model for `hal code`; empty means chat_model"),
             Key("writer_model", str, "", doc="Model for prose; empty means chat_model"),
             Key("embed_model", str, "embeddinggemma", doc="Embedding model for vault search"),

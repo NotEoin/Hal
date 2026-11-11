@@ -617,9 +617,8 @@ wraps it.
 - **REQ-CLI-82** (MUST) `hal configure` MUST create `config.toml` (0600) only when it is
   missing, and MUST never overwrite an existing key; `--fix-modes` MUST set 0600 on Hal's
   config and secret files. Test: unit `test_configure_never_overwrites_keys`.
-- **REQ-CLI-83** (MUST) The profile detector MUST map VRAM and RAM to `max`, `24gb`, `12gb` or
-  `cloud` with the thresholds of `setup.sh` (`profile_for_hardware`). Test: unit
-  `test_profile_thresholds_match_setup_sh`.
+- **REQ-CLI-83** Withdrawn (0.2.0): the hardware profiles are gone; `hal tune` sizes every role
+  from the detected hardware (REQ-CLI-112, REQ-CLI-122).
 - **REQ-CLI-112** (MUST) `hal tune` MUST detect the hardware (GPUs, RAM, CPU threads, WSL2) without
   raising, list the models of every `[models.sources]` entry, plan context, KV cache type and GPU
   layers per role, and change nothing without `--write`; `--write` MUST pin each chosen model and
@@ -664,15 +663,68 @@ wraps it.
   existing next-step text. Test: unit
   `test_setup_opens_the_tune_screen_on_a_terminal_when_no_chat_model_is_assigned`,
   `test_setup_off_a_terminal_only_prints_the_next_step`.
-- **REQ-CLI-113** (MUST) `hal configure` MUST NOT name or pull a model; it MUST accept `--profile
-  max|24gb|12gb|cloud` as a preset for `[models] context_cap` and `kv_type` with a deprecation
-  note, and print the `hal tune` plan. Test: unit
-  `test_configure_records_the_detected_profile_and_names_no_model`,
-  `test_an_old_profile_name_is_a_preset_with_a_deprecation_note`.
-- **REQ-CLI-114** (MUST) `setup.sh`, `hal setup` and `hal configure` MUST NOT download a model;
-  `setup.sh --pull-suggested` is the only opt-in. With no chat model assigned, `hal setup` and
-  `hal doctor` MUST say so and print the command to run. Test: unit
-  `test_ollama_pull_appears_only_inside_the_opt_in_function`,
+- **REQ-CLI-121** (MUST) Besides the built-in roles, `[models.roles.NAME]` MUST accept a named role
+  whose name matches `halkit.modelconf.CUSTOM_ROLE` and is not `guard`; any other name MUST be
+  refused with the rule. A write (`hal models assign NAME ...`, `hal tune --write`, the tune
+  screens' New role) MUST wire a named role as `[gateway.aliases.hal-NAME]` (a GGUF role as preset
+  `tuned-NAME` of the generated mode) and MUST NOT add a `[hal]` key for it. Auto-tune, presets
+  and `--reassign` MUST keep a named role's model. `hal models remove-role NAME` and the screens'
+  Remove role MUST delete the role table and its alias, and MUST refuse a built-in role. Test: unit
+  `test_assign_with_a_new_name_adds_a_named_role_served_as_a_gateway_alias`,
+  `test_remove_role_drops_the_named_role_and_its_alias_but_not_a_built_in_one`,
+  `test_a_named_gguf_role_gets_its_own_preset_in_the_tuned_mode`,
+  `test_a_named_role_is_added_chosen_and_written_with_its_alias`,
+  `test_new_role_names_a_setup_opens_its_model_picker_and_lists_it`.
+- **REQ-CLI-122** (MUST) The tune plan MUST count what a model takes on the GPU (the weights
+  there, the cache and the runtime buffers of `halkit.tuning.overhead_mib`) and MUST plan on total
+  VRAM and RAM, never free memory. Auto-tune MUST stay within total less the headroom; a context,
+  cache type, GPU layer count or expert count the user sets MUST be checked against the whole card,
+  MUST stay as set until the user presses its Auto, Auto-tune or a preset, and MUST spill to RAM
+  rather than be refused when it passes the card. A context set by hand MUST be allowed up to the
+  model's own maximum. Test: unit `test_the_estimate_matches_a_measured_llama_31_8b`,
+  `test_a_setting_by_hand_may_fill_the_whole_card_past_the_guidance`,
+  `test_ram_is_planned_from_the_total_not_what_is_free_now`,
+  `test_settings_made_by_hand_stay_when_other_fields_change`,
+  `test_a_context_set_by_hand_may_pass_the_context_cap_up_to_the_model_maximum`.
+- **REQ-CLI-123** (MUST) A write MUST make every role's tuned context reach its server: a GGUF role
+  through the `tuned` mode, an Ollama role through a derived Ollama model `hal-tuned-ROLE` with the
+  tuned `num_ctx` (and `num_gpu` when layers spill), pinned like any model and left out of the
+  model pickers. A write MUST also repair an unchanged Ollama role whose saved context its
+  model does not serve. Roles on one Ollama model with the same parameters MUST share one
+  derived model. The gateway MUST report a role's `context` as its alias's
+  `context_length` (05). Test: unit `test_write_saves_roles_pins_digests_and_names_the_models_for_the_gateway`,
+  `test_an_offloaded_ollama_role_also_sets_num_gpu`, `test_a_write_gives_an_unchanged_ollama_role_its_tuned_context`,
+  `test_chat_and_vision_on_one_model_and_context_share_one_ollama_model`,
+  `test_a_role_alias_reports_the_context_hal_tune_set_for_any_backend`.
+- **REQ-CLI-124** (MUST) With the gateway running, a `hal code` box (and a job box) MUST ask for
+  `hal-code` and a `hal chat` box for `hal-chat`, through a `halgateway.forwarder.SessionForwarder`
+  holding a session token minted with `allow_remote = false`, revoked when the box closes and
+  replaced when the gateway rejects it. Without the gateway, or with `--upstream`, the box MUST use
+  that server directly and say so. Test: unit
+  `test_with_the_gateway_a_code_box_asks_for_hal_code_and_a_chat_box_for_hal_chat`,
+  `test_a_gateway_link_mints_a_session_that_cannot_reach_a_remote_backend_and_revokes_it`,
+  `test_without_the_gateway_the_box_uses_the_hal_model_at_ollama_and_says_so`.
+- **REQ-CLI-125** (MUST) A GGUF role with `parallel = N` MUST be planned and checked with a cache
+  of N times its context, MUST be written into the `tuned` mode as `parallel = N`, `kv-unified`
+  and a `ctx-size` of N times the context, and its alias MUST report the per-request context and
+  `slots = N`. An Ollama role MUST refuse the setting. Test: unit
+  `test_parallel_slots_hold_one_context_each_in_the_cache`,
+  `test_parallel_requests_shrink_the_fit_and_are_written`,
+  `test_parallel_slots_share_one_cache_sized_for_all_of_them`,
+  `test_a_role_with_parallel_requests_lists_its_slots`, `test_an_ollama_role_cannot_set_parallel_requests`.
+- **REQ-CLI-126** (MUST) `hal tune --bench` MUST send each configured role except `embed` and
+  `classifier` (or each `--role`) two streamed requests through the gateway as `hal-ROLE`, and
+  MUST report the time to the first token and the decode speed with reasoning tokens counted; a
+  failed request MUST be reported in the table, not raised, and make the exit status 1. Test:
+  unit `test_decode_speed_counts_reasoning_tokens_from_the_first_to_the_last`,
+  `test_a_refusal_or_an_empty_answer_is_reported_not_raised`,
+  `test_bench_runs_every_role_twice_and_render_lists_failures`,
+  `test_bench_of_a_role_that_is_not_configured_is_an_error`.
+- **REQ-CLI-113** (MUST) `hal configure` MUST NOT name or pull a model, and MUST print the
+  `hal tune` plan. Test: unit `test_configure_names_no_model_and_prints_the_plan`.
+- **REQ-CLI-114** (MUST) `scripts/install.sh`, `hal setup` and `hal configure` MUST NOT download
+  a model. With no chat model assigned, `hal setup` and `hal doctor` MUST say so and print the
+  command to run. Test: unit
   `test_setup_has_a_models_step_that_names_the_next_command_and_never_pulls`,
   `test_doctor_warns_when_no_model_is_assigned_and_names_hal_tune`.
 - **REQ-CLI-84** (MUST) `hal configure --migrate` MUST read `hal.conf` as `KEY="value"` lines
@@ -848,7 +900,8 @@ hal claude [--preset NAME] [--model NAME] [--vault | --dir DIR] [--cloud] [CLAUD
 hal gateway ARGS...                  delegates to hal-gateway (05-gateway "CLI")
 hal models [list|sources] [--source S] [--json]
 hal models add-source KIND [LOCATION] [--name N] [--key-file F] [--allow-remote] | remove-source NAME
-hal models assign ROLE SOURCE MODEL
+hal models assign ROLE SOURCE MODEL     ROLE may be a new name: a named role (REQ-CLI-121)
+hal models remove-role NAME
 hal tune [--auto] [--write] [--json] [--role R]... [--reassign] [--hardware FILE]
 hal models pull NAME... | --profile P | --preset P [--yes] [--dry-run]   (planned, explicit opt-in)
 hal models verify [NAME...] [--full] [--json]
@@ -1488,7 +1541,7 @@ harness (`hal gateway token revoke`). `--write` writes the harness's own config 
 real token after a diff and y/N, backing up the old file as `<file>.hal.bak`. The snippet text
 comes from `halkit.harness` (C6), shared with 07.
 
-`hal claude` (legacy, from `hal:123-276`):
+`hal claude` (from the removed bash launcher, `hal:123-302`; built in `halcore.claude`):
 
 1. Print `hal: Claude Code runs unsandboxed on your host; the network block below is advisory
    and Hal's approvals are advisory. Use 'hal box -- claude' for the sandboxed version.` on
@@ -1497,13 +1550,13 @@ comes from `halkit.harness` (C6), shared with 07.
    `--preset`), and turn on its TCP listener with a notice (REQ-CLI-104).
 3. Environment: `ANTHROPIC_BASE_URL=http://127.0.0.1:8741` (gateway root, F7),
    `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_API_KEY` = the named client token `claude`;
-   `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL` = the
-   mode's main alias; `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`,
-   `CLAUDE_CODE_SUBAGENT_MODEL` = the mode's agent alias (both from
-   `GatewayClient.aliases()` `roles`); `CLAUDE_CODE_MAX_CONTEXT_TOKENS` = the mode's
-   `context_window` (replacing the awk over `modes/<mode>.ini`); `API_TIMEOUT_MS` = the
-   mode's `client_timeout_ms` (7200000 for the swap modes); `CLAUDE_CODE_MAX_OUTPUT_TOKENS`
-   = `[claude].max_output_tokens`.
+   `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL` =
+   `hal/main`; `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`,
+   `CLAUDE_CODE_SUBAGENT_MODEL` = `hal/agent` (05 REQ-GW-97: each serves an alias `hal tune`
+   sets); `CLAUDE_CODE_MAX_CONTEXT_TOKENS` = the `context_window` `GatewayClient.aliases()`
+   reports for `hal/main`; `API_TIMEOUT_MS` = `[claude].api_timeout_ms` (default 3600000, so a
+   long local prefill or a model server's cold start does not time out);
+   `CLAUDE_CODE_MAX_OUTPUT_TOKENS` = `[claude].max_output_tokens` (default 32000).
 4. The privacy block of `hal:247-268` verbatim (all `DISABLE_*` and `CLAUDE_CODE_DISABLE_*`
    names), then the proxy backstop `HTTP(S)_PROXY`/`ALL_PROXY` = `http://127.0.0.1:9`,
    `NO_PROXY=localhost,127.0.0.1,::1`, unless `[claude].allow_network`.
@@ -1938,16 +1991,10 @@ coding runner, statistics and report contents are 03's. halcore adds:
 
 ### Configure, profiles and migration
 
-`hal configure` on a missing file: detect the profile for the record (`[hal].profile`,
-informational), write the template with `[hal]`, `[models]` (the profile as a preset of
-`context_cap` and `kv_type`), `[hub]` and `[notify]` with a new private ntfy topic, then run the
-`hal tune --auto` plan without writing. The template names no model. Thresholds from `setup.sh`
-`profile_for_hardware`: VRAM >= 22000 MiB and RAM >= 60 GiB -> `max`; VRAM >= 22000 -> `24gb`;
-VRAM >= 11000 -> `12gb`; else `cloud` (a nominal 24 GB card reports 24564 MiB and the desktop
-holds about 1 GB).
-
-The profile names are deprecated presets: `max` is `context_cap` 131072 with `kv_type` auto,
-`24gb` 65536 with q8_0, `12gb` 32768 with q8_0, `cloud` 8192 with q8_0. Models come from the
+`hal configure` on a missing file: write the template with `[hal]`, `[models]` (`kv_type`
+auto), `[hub]` and `[notify]` with a new private ntfy topic, then run the `hal tune --auto` plan
+without writing. The template names no model. The hardware profiles (`max`, `24gb`, `12gb`,
+`cloud`) were removed in 0.2.0: `hal tune` sizes each role from the detected hardware. Models come from the
 user's own sources (`hal models`, `hal tune`, the user page `docs/user/models.md`); the sizing
 formula is in `docs/dev/tuning.md`. Nothing in `hal configure` or `hal setup` downloads a model.
 

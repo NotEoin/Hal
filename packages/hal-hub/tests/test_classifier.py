@@ -61,7 +61,9 @@ class Chat:
 
 
 def classifier(paranoia: str = "balanced", chat=None, floor: str | None = None) -> Classifier:
-    settings = ClassifierSettings(paranoia=paranoia, model="hal-fast", timeout_s=9, classify_reads=True)
+    settings = ClassifierSettings(
+        paranoia=paranoia, model="hal-classifier", timeout_s=9, model_format="json", classify_reads=True
+    )
     return Classifier(settings, chat, floor=floor)
 
 
@@ -101,7 +103,7 @@ def test_a_forced_ask_names_the_risk_and_paranoia_in_its_reason():
 
 
 def fast_classifier(chat=None) -> Classifier:
-    return Classifier(ClassifierSettings(model="hal-fast", timeout_s=9), chat)
+    return Classifier(ClassifierSettings(model="hal-classifier", timeout_s=9, model_format="json"), chat)
 
 
 def test_an_unflagged_read_is_low_without_calling_the_model():
@@ -119,7 +121,7 @@ def test_an_unflagged_read_is_low_even_with_no_model_reachable():
 def test_a_read_that_a_rule_flags_still_goes_to_the_model(path):
     chat = Chat(reply("medium"))
     c = fast_classifier(chat).classify(req({"text": path}))
-    assert c.risk == "high" and len(chat.calls) == 1 and c.model == "hal-fast"
+    assert c.risk == "high" and len(chat.calls) == 1 and c.model == "hal-classifier"
 
 
 def test_a_send_tool_always_goes_to_the_model_on_the_fast_path():
@@ -245,9 +247,9 @@ def test_json_mode_is_unchanged_and_never_asks_for_logprobs():
 def test_strict_json_answer_is_used_and_the_request_is_enveloped():
     chat = Chat(reply("medium", "changes a file"))
     c = classifier(chat=chat).classify(req({"text": "hello\x1b[31m red"}))
-    assert (c.risk, c.reason, c.model, c.error) == ("medium", "changes a file", "hal-fast", None)
+    assert (c.risk, c.reason, c.model, c.error) == ("medium", "changes a file", "hal-classifier", None)
     model, msgs, kwargs = chat.calls[0]
-    assert model == "hal-fast" and kwargs == {"temperature": 0.0, "max_tokens": 120, "timeout_s": 9}
+    assert model == "hal-classifier" and kwargs == {"temperature": 0.0, "max_tokens": 120, "timeout_s": 9}
     user = msgs[1]["content"]
     assert "say hi" in user and 'trust="untrusted"' in user and "\x1b" not in user
 
@@ -279,7 +281,7 @@ def test_a_timeout_or_error_counts_as_high(exc):
 
 def test_no_model_counts_as_high_and_says_so():
     c = classifier().classify(req())
-    assert c.risk == "high" and c.error == "no classifier model reachable" and c.model == "hal-fast"
+    assert c.risk == "high" and c.error == "no classifier model reachable" and c.model == "hal-classifier"
 
 
 def test_a_model_cannot_lower_what_the_rules_found():
@@ -559,9 +561,9 @@ def load_policy_text(hal_home, body: str):
     return policy.load_policy(hal_home.policy).classifier
 
 
-def test_policy_defaults_keep_json_mode_and_the_documented_guardian_bounds(hal_home):
+def test_policy_defaults_to_the_guardian_classifier_and_its_documented_bounds(hal_home):
     c = load_policy_text(hal_home, "")
-    assert (c.model_format, c.classify_reads, c.gpu) == ("json", False, True)
+    assert (c.model, c.model_format, c.classify_reads, c.gpu) == ("hal-classifier", "guardian", False, True)
     assert (c.guardian_medium, c.guardian_high, c.guardian_critical) == (0.2, 0.5, 0.9)
 
 

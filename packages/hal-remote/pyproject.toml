@@ -11,6 +11,10 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = ["hal-kit"]
 
+[dependency-groups]
+# the Windows CI job installs only hal-kit and hal-remote, and uv takes `--group` from the package
+dev = ["pytest>=8"]
+
 [project.scripts]
 hal-remote = "halremote.cli:main"
 

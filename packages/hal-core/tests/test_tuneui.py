@@ -73,7 +73,7 @@ def test_the_summary_shows_hardware_and_roles_within_80_columns(home, server):
     screen.state.auto_tune()
     screen.console.print(tuneui.render_summary(screen.state, screen.look))
     text = out.getvalue()
-    assert "RTX 4090  24000 / 24564 MiB free" in text and "gemma:12b" in text and "GB" in text
+    assert "RTX 4090  24.0 GB" in text and "gemma:12b" in text and "GB" in text
     assert max(len(line) for line in text.splitlines()) <= 80
 
 
@@ -215,8 +215,8 @@ def test_a_gpu_held_by_another_program_shows_a_warning_line():
     # regression: sizing used free VRAM, so a busy card silently gave tiny contexts
     busy = hardware.from_dict({**CARD_24GB, "gpus": [{**CARD_24GB["gpus"][0], "free_mib": 2000}]})
     lines = tuneui.hardware_lines(busy)
-    assert sum("another program is using" in line for line in lines) == 1
-    assert not any("another program" in line for line in tuneui.hardware_lines(hardware.from_dict(CARD_24GB)))
+    assert sum("in use right now" in line for line in lines) == 1
+    assert not any("in use right now" in line for line in tuneui.hardware_lines(hardware.from_dict(CARD_24GB)))
 
 
 def test_the_menus_choose_a_model_and_context_and_save_without_typing(home, server):
@@ -274,15 +274,16 @@ def test_the_summary_fits_80_columns_in_ascii_and_lists_every_role(home, server)
     screen.console.print(tuneui.render_summary(screen.state, screen.look))
     text = out.getvalue()
     assert text.isascii() and max(len(line) for line in text.splitlines()) <= 80
-    assert all(role in text for role in ("chat", "fast", "code", "writer", "vision", "embed"))
+    assert all(role in text for role in ("chat", "code", "writer", "vision", "classifier", "embed"))
     assert len(text.splitlines()) + len(tuneui.MAIN_ITEMS) + 2 <= 24
 
 
 def test_fit_words_say_fits_tight_or_too_big():
     fit = tuneui.tunestate.Fit
-    assert tuneui.fit_word(fit("gpu", used_mib=5000, budget_mib=20000)) == "fits"
-    assert tuneui.fit_word(fit("gpu", used_mib=19000, budget_mib=20000)) == "tight"
-    assert tuneui.fit_word(fit("hybrid")) == "tight, uses RAM"
+    assert tuneui.fit_word(fit("gpu", used_mib=5000, budget_mib=22000, total_mib=24000)) == "fits"
+    assert tuneui.fit_word(fit("gpu", used_mib=23000, budget_mib=23500, total_mib=24000)) == "tight"
+    assert tuneui.fit_word(fit("gpu", used_mib=23000, budget_mib=22000, total_mib=24000)) == "above guidance"
+    assert tuneui.fit_word(fit("hybrid")) == "uses RAM"
     assert tuneui.fit_word(fit("does-not-fit")) == "too big"
 
 
@@ -389,3 +390,24 @@ def test_tune_effort_menu_can_clear_the_effort(home, server):
                                       picks=["local\nqwen3:8b", "medium", "default"])
     screen.run_commands()
     assert prompter.seen[-1][1][0] == "default" and screen.state.drafts["chat"].effort == ""
+
+
+def test_newrole_adds_a_named_setup_with_its_own_context_and_delrole_drops_it(home, server):
+    screen, out, prompter = open_screen(
+        home, server,
+        asks=["newrole code-128k", "context 32768", "write", "delrole code-128k", "write", "quit"],
+        picks=["local\nqwen3:8b", "yes", "yes"],
+    )
+    assert screen.run_commands() == 0
+    titles = [t for t, _ in prompter.seen]
+    assert titles == ["code-128k model", "Write these changes?", "Write these changes?"]
+    assert "hal-code-128k" in out.getvalue() and "at most" not in out.getvalue()
+    assert "code-128k" not in home.config.read_text()
+
+
+def test_newrole_through_the_menus_then_saving_writes_the_role_and_its_alias(home, server):
+    screen, _, _ = open_screen(home, server, asks=["code-big"], picks=["role", "\n", "local\ncoder:7b", None, None, "save", "yes"])
+    screen.run()
+    cfg = tomllib.loads(home.config.read_text())
+    assert cfg["models"]["roles"]["code-big"]["model"] == "coder:7b"
+    assert cfg["gateway"]["aliases"]["hal-code-big"] == {"backend": "local", "model": "hal-tuned-code-big:latest"}

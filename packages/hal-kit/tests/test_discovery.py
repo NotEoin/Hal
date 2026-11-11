@@ -220,3 +220,79 @@ def test_an_ollama_tag_records_the_model_it_was_built_from():
     with FakeOllama(tags, {}) as server:
         model = discovery.discover(Source("l", "ollama", server.url)).models[0]
     assert model.base == "qwen3.5:4b"
+
+
+def test_ollama_reads_the_served_context_vocab_and_experts():
+    show = {
+        "parameters": "temperature                    1\nnum_ctx                        65536",
+        "model_info": {
+            "general.architecture": "qwen3moe",
+            "qwen3moe.vocab_size": 151936,
+            "qwen3moe.expert_count": 128,
+        },
+    }
+    with FakeOllama([{"name": "moe:1", "size": 1}], {"moe:1": show}) as server:
+        model = discovery.discover(Source("l", "ollama", server.url)).models[0]
+    assert (model.context_served, model.vocab, model.experts) == (65536, 151936, 128)
+
+
+def test_gguf_measures_expert_and_host_bytes_across_shards(tmp_path):
+    meta = {**llama_like(), "llama.expert_count": 8}
+    write_gguf(
+        tmp_path / "moe-00001-of-00002.gguf",
+        meta,
+        tensors={"token_embd.weight": 640, "blk.0.ffn_up_exps.weight": 320},
+    )
+    write_gguf(
+        tmp_path / "moe-00002-of-00002.gguf",
+        meta,
+        tensors={"blk.1.ffn_up_exps.weight": 320, "output.weight": 64},
+    )
+    model = discovery.discover(Source("w", "gguf", path=str(tmp_path))).models[0]
+    assert (model.experts, model.expert_bytes, model.host_bytes, model.vocab) == (8, 640, 640, 2000)
+    assert model.is_moe
+
+
+def test_a_tied_embedding_is_not_counted_as_host_memory(tmp_path):
+    write_gguf(
+        tmp_path / "tied.gguf", llama_like(), tensors={"token_embd.weight": 640, "blk.0.attn_q.weight": 64}
+    )
+    model = discovery.discover(Source("w", "gguf", path=str(tmp_path))).models[0]
+    assert (model.host_bytes, model.expert_bytes, model.is_moe) == (0, None, False)
+
+
+def test_draft_models_attach_to_the_model_of_their_size_and_are_not_listed(tmp_path):
+    for name in ("gemma-31b-Q4_0", "gemma-e2b-Q4_0", "gemma-31b-assistant-Q8_0", "imatrix_unsloth"):
+        write_gguf(tmp_path / f"{name}.gguf", llama_like())
+    (tmp_path / "DFLASH2").mkdir()
+    write_gguf(tmp_path / "DFLASH2" / "block-Q4_K_M.gguf", llama_like())
+    found = {m.name: m for m in discovery.discover(Source("w", "gguf", path=str(tmp_path))).models}
+    assert sorted(found) == ["gemma-31b-Q4_0", "gemma-e2b-Q4_0"]  # drafts and calibration data are not models
+    assert [p.rsplit("/", 1)[-1] for p, _ in found["gemma-31b-Q4_0"].drafts] == [
+        "gemma-31b-assistant-Q8_0.gguf",  # an MTP head first: the fastest kind measured
+        "block-Q4_K_M.gguf",
+    ]
+    assert [p.rsplit("/", 1)[-1] for p, _ in found["gemma-e2b-Q4_0"].drafts] == ["block-Q4_K_M.gguf"]
+
+
+def test_a_model_with_its_own_mtp_layers_is_listed_and_drafts_with_them(tmp_path):
+    # regression: a whole model named `...-MTP-Q4_K_M` was taken for a draft file and hidden
+    meta = {**llama_like(layers=3), "llama.nextn_predict_layers": 1}
+    whole = {f"blk.{i}.attn_q.weight": 64 for i in range(3)}
+    write_gguf(tmp_path / "coder-27b-MTP-Q4_K_M.gguf", meta, tensors=whole)
+    (tmp_path / "MTP").mkdir()
+    write_gguf(tmp_path / "MTP" / "mtp-coder-27b-Q4_0.gguf", meta, tensors={"blk.2.attn_q.weight": 64})
+    [model] = discovery.discover(Source("w", "gguf", path=str(tmp_path))).models
+    assert model.name == "coder-27b-MTP-Q4_K_M" and model.idle_bytes == 64
+    assert [p.rsplit("/", 1)[-1] for p, _ in model.drafts] == [
+        "coder-27b-MTP-Q4_K_M.gguf",
+        "mtp-coder-27b-Q4_0.gguf",
+    ]
+
+
+def test_a_folder_named_drafts_in_its_path_does_not_hide_models(tmp_path):
+    # regression: any folder whose name contained "draft" made every model in it a draft
+    folder = tmp_path / "my-draft-models"
+    folder.mkdir()
+    write_gguf(folder / "m-7b.gguf", llama_like())
+    assert [m.name for m in discovery.discover(Source("w", "gguf", path=str(folder))).models] == ["m-7b"]

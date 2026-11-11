@@ -183,7 +183,7 @@ Cross-spec decisions this overview fixes, which the owners must not contradict:
   checkpoint refs, the ACP `sessionId` and the transcript directory (E2).
 - `hal-relay` on `127.0.0.1:8741` inside the box.
 - Entry-point group `hal.packs` (C2).
-- Model role aliases `hal-chat`, `hal-fast`, `hal-code`, `hal-writer`, `hal-embed`,
+- Model role aliases `hal-chat`, `hal-classifier`, `hal-code`, `hal-writer`, `hal-embed`,
   `hal-vision`, resolved by the gateway from the `[hal]` model keys (resolution D1).
 - Broker approvals reach ACP clients as host-originated `session/request_permission` with
   `_meta` `hal/origin = "broker"`.
@@ -1060,7 +1060,8 @@ selected profile and can only tighten it. A pack's own `mcp` command run without
 | --- | --- | --- | --- |
 | `vault` | str | `"~/notes"` | Default notes folder; hal-memory and the briefing read it |
 | `chat_model` | str | `"gemma4:12b-it-qat"` | Chosen by `hal eval` on 2026-10-10: 33/38 and 74/76, the best of 6 models (measured during development, 2026-10); single runs, assistant scenarios only |
-| `fast_model` | str | `"qwen3.5:4b"` | Existing default for classifying and titling |
+| `classifier_model` | str | `"granite4.1-guardian:8b"` | The tool-call risk classifier (`hal-classifier`); a model built for that judgement (01-security) |
+| `fast_model` | str | `""` | Deprecated (0.2.0): read as `classifier_model` when that is empty |
 | `code_model` | str | `""` (means `chat_model`) | Role for `hal code`; empty keeps one model loaded on a 12 GB card. The coding eval (03-agent) picks the shipped default; until then this alias |
 | `writer_model` | str | `""` (means `chat_model`) | Prose role; also feeds `HAL_WRITER_MODEL` in the compat file |
 | `embed_model` | str | `"embeddinggemma"` | Existing default for vault search |
@@ -1071,7 +1072,7 @@ selected profile and can only tighten it. A pack's own `mcp` command run without
 | `profile` | str | `""` | Informational: the hardware profile last chosen by `hal configure` (06-core-cli), migrated from `HAL_PROFILE`; nothing reads it to change behaviour |
 
 These keys are the single source of truth for model roles. The gateway resolves the aliases
-`hal-chat`, `hal-fast`, `hal-code`, `hal-writer`, `hal-embed`, `hal-vision` from them
+`hal-chat`, `hal-classifier`, `hal-code`, `hal-writer`, `hal-embed`, `hal-vision` from them
 (05-gateway); `hal/main` and `hal/agent` stay for router modes. The defaults that
 `halcore/config.py:16-22`, the scaffold template and `install.sh` each repeat today are
 deleted; packs read `[hal]` through `halkit.config.hal()`.

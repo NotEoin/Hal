@@ -5,8 +5,16 @@ The order is the one in docs/design/05-gateway.md "Alias resolution": user alias
 Decisions:
 
 - Backend model lists are cached for `LIST_TTL_S` seconds, so a request does not cost a list call.
-- Mode aliases (`hal/main`, preset names) come from the managed router (plan step 11); the
-  resolver takes them as a plain mapping so that step only has to fill it.
+  A backend with `static_models` (a managed server) lists those instead, so a listing never
+  waits for, or depends on, a server that is stopped.
+- `hal/main` and `hal/agent` serve the aliases `[gateway] main` and `agent` name (default
+  `hal-code`), so Claude Code and other harnesses follow the roles `hal tune` sets. With the key
+  empty they follow the active router mode's `[hal]` section instead, which a hand-written mode
+  may use; the resolver takes those mode aliases as a plain mapping the router fills.
+- The context a name reports, first found wins: the alias's own `context_window`, then the
+  `context` of the role it serves (`[models.roles.ROLE]`, which `hal tune` writes for every
+  backend), then the `ctx-size` the active mode started the model with. The role comes before
+  the mode because it is what the user chose, and `hal tune` writes the mode from it.
 - A role alias whose model is in no backend list falls back to the only Ollama backend: Ollama
   loads on demand and answers a missing model with its own error, which is clearer than 404 here.
 - Session and client restrictions arrive with their registries (plan steps 19 and 21).
@@ -17,10 +25,10 @@ from __future__ import annotations
 import fnmatch
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .backends import OpenAIBackend
-from .config import EMPTY_MEANS_CHAT, ROLE_ALIASES, GatewayConfig
+from .config import EMPTY_MEANS_CHAT, MODE_KEYS, ROLE_ALIASES, GatewayConfig
 from .errors import Conflict, NotFound
 
 LIST_TTL_S = 30.0  # REQ design: lists cached for 30 s
@@ -67,10 +75,16 @@ class Resolver:
         self._list_models = list_models
         self._profile_of = profile_of
         self.mode_aliases = dict(mode_aliases or {})  # name -> (backend name, upstream model)
+        # (backend name, upstream model) -> context the active mode started it with; lets roles
+        # such as `hal-code` report the window `hal tune` chose instead of none
+        self.mode_windows: dict[tuple[str, str], int] = {}
         self._cache: dict[str, tuple[float, list[str]]] = {}
 
     def models_of(self, backend: OpenAIBackend) -> list[str]:
         """The backend's model ids, cached for `LIST_TTL_S`; empty when it cannot answer."""
+        static = getattr(backend, "static_models", None)
+        if static is not None:
+            return list(static())
         hit = self._cache.get(backend.name)
         if hit and time.monotonic() - hit[0] < LIST_TTL_S:
             return hit[1]
@@ -79,12 +93,32 @@ class Resolver:
         return ids
 
     def _target(self, alias: str, backend: OpenAIBackend, model: str, window: int | None = None) -> Target:
+        window = window or self.role_window(alias) or self.mode_windows.get((backend.name, model))
         return Target(alias, backend, model, backend.remote, window or None)
+
+    def role_slots(self, alias: str) -> int:
+        """The `parallel` of the role alias `alias` serves when above 1 (`meta.slots`), else 0 (unknown)."""
+        role = self.cfg.roles.get(alias.removeprefix("hal-")) if alias.startswith("hal-") else None
+        return role.parallel if role is not None and role.parallel > 1 else 0
+
+    def role_window(self, alias: str) -> int | None:
+        """The `context` of the role alias `alias` serves (`hal-code` -> `[models.roles.code]`), else None.
+
+        `hal-code` and `hal-writer` with no model of their own serve chat, so they report its window.
+        """
+        if not alias.startswith("hal-"):
+            return None
+        role = self.cfg.roles.get(alias.removeprefix("hal-"))
+        if role is None and alias in EMPTY_MEANS_CHAT and not str(self.cfg.hal[ROLE_ALIASES[alias]]):
+            role = self.cfg.roles.get("chat")
+        return role.context if role is not None and role.context > 0 else None
 
     def role_value(self, role: str) -> str:
         """The model name `[hal]` gives to role alias `role`."""
         hal = self.cfg.hal
         value = str(hal[ROLE_ALIASES[role]])
+        if not value and role == "hal-classifier":
+            value = str(hal["fast_model"])  # the key's name before 0.2.0
         if not value and role in EMPTY_MEANS_CHAT:
             value = str(hal["chat_model"])
         return value
@@ -115,6 +149,10 @@ class Resolver:
         )  # type: ignore[arg-type]
 
     def _by_name(self, name: str) -> Target | None:
+        pointed = str(self.cfg.gateway[MODE_KEYS[name]]) if name in MODE_KEYS else ""
+        if pointed:  # `hal/main` -> `hal-code`: serve that alias under this name
+            found = self._by_name(pointed)
+            return replace(found, alias=name) if found is not None else None
         if name in self.cfg.aliases:  # step 1
             return self._from_alias(name)
         if name in ROLE_ALIASES:  # step 2
@@ -163,9 +201,9 @@ class Resolver:
             add(
                 name,
                 self.backends[str(alias["backend"])],
-                alias["context_window"] or None,
+                alias["context_window"] or self.role_window(name),
                 str(alias["model"]),
-                int(alias["slots"]),  # type: ignore[call-overload]  # validated non-negative
+                int(alias["slots"]) or self.role_slots(name),  # type: ignore[call-overload]  # validated
             )  # type: ignore[arg-type]
         for role in ROLE_ALIASES:
             try:
@@ -174,7 +212,11 @@ class Resolver:
                 # an ambiguous role has no alias to list
                 continue
             if target is not None:
-                add(role, target.backend, target.context_length, target.model)
+                add(role, target.backend, target.context_length, target.model, self.role_slots(role))
+        for name in MODE_KEYS:
+            target = self._by_name(name) if self.cfg.gateway[MODE_KEYS[name]] else None
+            if target is not None:
+                add(name, target.backend, target.context_length, target.model)
         for backend in self.backends.values():
             if backend.expose_models:
                 for model in self.models_of(backend):

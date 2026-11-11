@@ -1,20 +1,39 @@
-"""Verify a downloaded llama.cpp archive against the repo's lock file (REQ-SEC-78).
+"""Install the pinned llama.cpp release, checking each archive against the lock file (REQ-SEC-78).
 
-Standard library only, so `setup.sh` can run it with the system `python3` before any virtual
-environment exists. An archive with no entry in the lock, or with a different sha256, is
-refused: the installer must stop before extracting it.
+`install` downloads the archives of one variant (`cuda`, `rocm`, `vulkan` or `cpu`) of the tag
+in `llamacpp.lock.toml` from GitHub, refuses any archive with no entry in the lock or a different
+sha256 before it is extracted, and puts the result in `<root>/llama-<tag>/`, the folder the
+router's `server` default names. Decisions:
+
+- Standard library only, so it runs before any optional dependency is installed.
+- Extraction uses the tarfile `data` filter: no absolute paths, no `..`, no device files, no
+  links that leave the folder. A leading `llama-<tag>/` folder in an archive is stripped, so the
+  binary and the CUDA runtime archive land side by side.
+- The folder appears in one rename after every archive is in, so a failed install leaves none.
+- `variant_for` picks the variant from the GPUs Hal detects: NVIDIA gets CUDA, AMD gets ROCm,
+  no GPU gets the CPU build; Vulkan is for the user to ask for.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 import re
+import shutil
 import sys
+import tarfile
+import tempfile
 import tomllib
+import urllib.request
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 LOCK_PATH = Path(__file__).with_name("llamacpp.lock.toml")
 HASH_CHUNK = 1 << 20  # archives are ~750 MB; hash in 1 MiB chunks
+RELEASE_URL = "https://github.com/ggml-org/llama.cpp/releases/download/{tag}/{name}"
+DOWNLOAD_TIMEOUT_S = 60.0  # per read; a stalled download fails instead of hanging
+VARIANTS = ("cuda", "rocm", "vulkan", "cpu")
+Opener = Callable[..., object]
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
@@ -51,6 +70,74 @@ def verify_archive(archive: Path, tag: str, lock: Path = LOCK_PATH) -> None:
             h.update(chunk)
     if h.hexdigest() != expected:
         raise LockError(f"{archive.name}: sha256 mismatch, refusing to extract")
+
+
+def variant_for(vendors: Sequence[str]) -> str:
+    """The build for GPUs of these vendors (`nvidia`, `amd`): CUDA, ROCm, else the CPU build."""
+    if "nvidia" in vendors:
+        return "cuda"
+    return "rocm" if "amd" in vendors else "cpu"
+
+
+def files_of(variant: str, lock: Path = LOCK_PATH) -> tuple[str, list[str]]:
+    """`(tag, archive names)` of `variant`; raises `LockError` for an unknown variant."""
+    tag, _ = load_lock(lock)
+    data = tomllib.loads(lock.read_text(encoding="utf-8"))
+    names = (data.get("variants") or {}).get(variant)
+    if not isinstance(names, list) or not names:
+        raise LockError(f"no llama.cpp {variant} build is pinned; choose one of {', '.join(VARIANTS)}")
+    return tag, [str(n) for n in names]
+
+
+def _download(url: str, target: Path, opener: Opener) -> None:
+    with opener(url, timeout=DOWNLOAD_TIMEOUT_S) as resp, target.open("wb") as out:  # type: ignore[attr-defined]
+        shutil.copyfileobj(resp, out, HASH_CHUNK)
+
+
+def _extract(archive: Path, into: Path) -> None:
+    """Extracts `archive` into `into`, dropping a single top folder.
+
+    The libraries must sit beside `llama-server`: `libggml-cuda.so` finds `libcudart` only there,
+    and without it llama.cpp falls back to the CPU without an error. The release archives wrap
+    their files in `llama-<tag>/` and `cudart-llama-<tag>-bin-.../` (checked on b12121).
+    """
+    with tarfile.open(archive) as tar:
+        staging = into.parent / f".{archive.name}.x"
+        tar.extractall(staging, filter="data")
+    top = list(staging.iterdir())
+    source = top[0] if len(top) == 1 and top[0].is_dir() else staging
+    for item in source.iterdir():
+        os.replace(item, into / item.name)
+    shutil.rmtree(staging)
+
+
+def install(
+    root: Path, variant: str, *, opener: Opener = urllib.request.urlopen, lock: Path = LOCK_PATH
+) -> Path:
+    """Installs the pinned `variant` into `<root>/llama-<tag>/` and returns that folder.
+
+    Does nothing when `llama-server` is already there. Raises `LockError` for an archive that
+    does not match the lock and `OSError` for a failed download or extraction; nothing is left
+    behind on failure.
+    """
+    tag, names = files_of(variant, lock)
+    target = Path(root) / f"llama-{tag}"
+    if (target / "llama-server").is_file():
+        return target
+    Path(root).mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=root, prefix=".llama-install-") as tmp:
+        work = Path(tmp)
+        folder = work / f"llama-{tag}"
+        folder.mkdir()
+        for name in names:
+            archive = work / name
+            _download(RELEASE_URL.format(tag=tag, name=name), archive, opener)
+            verify_archive(archive, tag, lock)
+            _extract(archive, folder)
+        if not (folder / "llama-server").is_file():
+            raise LockError(f"the {variant} archives of {tag} hold no llama-server")
+        os.replace(folder, target)
+    return target
 
 
 def main(argv: list[str]) -> int:

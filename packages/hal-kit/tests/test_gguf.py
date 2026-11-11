@@ -70,3 +70,26 @@ def test_a_huge_key_count_is_refused_without_looping(tmp_path):
     path.write_bytes(b"GGUF" + struct.pack("<IQQ", 3, 0, 10**12))
     with pytest.raises(gguf.GgufError, match="metadata keys"):
         gguf.read_header(path)
+
+
+def test_a_skipped_array_keeps_its_length(tmp_path):
+    header = gguf.read_header(write_gguf(tmp_path / "m.gguf", llama_like()))
+    assert header.array_lengths["tokenizer.ggml.tokens"] == 2000
+
+
+def test_tensor_sizes_come_from_the_offsets(tmp_path):
+    tensors = {"token_embd.weight": 1000, "blk.0.ffn_up_exps.weight": 64, "output.weight": 40}
+    header = gguf.read_header(write_gguf(tmp_path / "m.gguf", llama_like(), tensors=tensors))
+    # each size is rounded up to the 32-byte alignment except the last, which runs to the end
+    assert header.tensor_bytes == {
+        "token_embd.weight": 1024,
+        "blk.0.ffn_up_exps.weight": 64,
+        "output.weight": 40,
+    }
+
+
+def test_a_tensor_offset_past_the_end_is_refused(tmp_path):
+    path = write_gguf(tmp_path / "m.gguf", llama_like(), tensors={"a": 64, "b": 64})
+    path.write_bytes(path.read_bytes()[:-100])
+    with pytest.raises(gguf.GgufError, match="past the end"):
+        gguf.read_header(path)

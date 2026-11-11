@@ -10,10 +10,8 @@ lockdown and paranoia settings.
 
 | Version | Supported |
 | --- | --- |
-| `main` and the latest `0.1.x` release | yes |
-| earlier commits and the pre-monorepo launchers | no |
-
-There is no `0.1.0` tag yet; until it exists, `main` and the `next` branch are what is supported.
+| `main` and the latest `0.2.x` release | yes |
+| `0.1.x`, earlier commits and the pre-monorepo launchers | no |
 
 ## Report a vulnerability
 

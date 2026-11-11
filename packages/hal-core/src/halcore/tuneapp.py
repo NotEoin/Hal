@@ -5,16 +5,22 @@ drags and keys into its edits, exactly like the line screen (`halcore.tuneui`), 
 the fallback. Nothing is written until Save, which shows the diff, asks with Cancel focused and
 then writes through `TuneSession.write` (the `modelplan.apply` path of `hal tune --write`).
 
-Layout: a hardware line, a preset row ("Plan for"), then tabs. Roles: a role list on the left and
-the editor of the chosen role on the right (model, context, KV cache, GPU layers, effort,
-temperature, a VRAM gauge and the reasoning). Sources: the model sources, add and remove.
+Layout: a hardware line, a preset row ("Plan for"), then tabs. Roles: a role list on the left
+(with "New role..." for a named setup such as `code-128k`) and the editor of the chosen role on
+the right (model, context, KV cache, GPU layers or experts in RAM, effort, temperature, a VRAM
+gauge and the reasoning). Sources: the model sources, add and remove.
 Review: the config diff and Save. A first run (no role assigned) opens Quick start, which
 previews what each preset would choose.
 
 Design decisions:
 
-- Sliders preview with `try_context` / `try_layers` while they move (pure maths, cheap) and edit
-  the draft only on release or a key step (`Slider.Changed.final`), so a drag is one undo step.
+- Sliders preview with `try_context` / `try_layers` / `try_experts` while they move (pure maths,
+  cheap) and edit the draft only on release or a key step (`Slider.Changed.final`), so a drag is
+  one undo step.
+- A field changes only when the user moves it or presses its Auto button; Auto-tune and the
+  presets are the only actions that change several fields at once.
+- The gauge's full scale is the cards' total memory, and its divider marks the auto-tune
+  guidance: a setting made by hand may use the whole card.
 - The editor is rebuilt only when the role or its model changes; other edits update the widgets
   in place, so keyboard focus stays where the user is.
 - `[hal]` and `policy.toml` are read once when the app opens, not on every redraw.
@@ -43,7 +49,8 @@ from .tui.slash import PickItem
 from .tui.theme import Look, textual_themes
 from .tui.widgets import FitGauge, SafeStatic, Segment, Segmented, Slider, toast
 from .tuneview import (
-    TIGHT_FRACTION, fit_line, fit_word, gib, guard_line, hal_models, hardware_lines, model_label, parse_tokens,
+    ROLE_WIDTH, TIGHT_FRACTION, draft_label, fit_line, fit_word, gib, guard_line, hal_models, hardware_lines,
+    model_label, parse_tokens,
 )
 
 PRESET_SHORT = {"auto": "This machine", "cpu": "CPU only"}  # other presets show their label
@@ -53,6 +60,8 @@ MAX_UNDO = 100
 TOAST_READ_S = 10.0  # a note with several lines (a preset's changes, why nothing was written)
 EXIT_OK = 0
 GUARD = "guard"
+HARNESS = "harness"  # the role list row for `hal/main` and `hal/agent`
+HARNESS_ROWS = (("main", "hal/main"), ("agent", "hal/agent"))
 
 
 def preset_label(preset: tunepresets.Preset) -> str:
@@ -66,16 +75,19 @@ def tokens_label(value: float) -> str:
 
 
 def gauge_status(fit: tunestate.Fit) -> str:
-    """The gauge colour key of a fit: `tight` for a GPU fit above `TIGHT_FRACTION` of the budget."""
-    if fit.status == "gpu" and fit.budget_mib and fit.used_mib > TIGHT_FRACTION * fit.budget_mib:
+    """The gauge colour key of a fit: `tight` for a GPU fit above `TIGHT_FRACTION` of the card."""
+    if fit.status == "gpu" and fit.total_mib and fit.used_mib > TIGHT_FRACTION * fit.total_mib:
         return "tight"
     return fit.status
 
 
 def gauge_caption(fit: tunestate.Fit, look: Look) -> str:
-    """`9.4 / 22.1 GB  fits` for a sized fit; the fit line otherwise."""
-    if fit.status in ("gpu", "hybrid", "cpu", "does-not-fit") and fit.budget_mib:
-        return f"{gib(fit.used_mib)} / {gib(fit.budget_mib)} GB  {fit_word(fit)}"
+    """`9.4 / 24.0 GB  fits` of the whole card, `+ 20.1 GB RAM` when part runs from RAM; the fit line otherwise."""
+    if fit.status in ("gpu", "hybrid", "does-not-fit") and fit.total_mib:
+        ram = f" + {gib(fit.ram_mib)} RAM" if fit.ram_mib else ""
+        return f"{gib(fit.used_mib)} / {gib(fit.total_mib)} GB{ram}  {fit_word(fit)}"
+    if fit.status == "cpu":
+        return f"{gib(fit.ram_mib)} GB RAM  {fit_word(fit)}"
     if fit.status in ("gpu", "hybrid", "cpu", "does-not-fit"):
         return f"{gib(fit.used_mib)} GB  {fit_word(fit)}"
     return fit_line(fit, None, look)[1]
@@ -109,6 +121,18 @@ class RoleEditor(VerticalScroll, can_focus=False):
             yield SafeStatic(Text(f"guard  {model}"), classes="title")
             yield SafeStatic(Text(f"{note}. Set in policy.toml; hal tune does not change it."), classes="why")
             return
+        if role == HARNESS:
+            yield SafeStatic(Text("harness  hal/main and hal/agent"), classes="title")
+            segments = [Segment(alias.removeprefix("hal-"), alias) for alias in state.alias_names()]
+            for key, name in HARNESS_ROWS:
+                with Horizontal(classes="row"):
+                    yield SafeStatic(Text(name), classes="label")
+                    yield Segmented(segments, state.harness[key], id=f"harness-{key}")
+            yield SafeStatic(Text(
+                "What Claude Code and other harnesses get when they ask for hal/main (the conversation) and "
+                "hal/agent (subagents and side requests). Each serves one of your roles, with its model, "
+                "context and speed."), classes="why")  # fmt: skip
+            return
         d = state.drafts.get(role)
         direct = self.tune.direct.get(role, "")
         if (d is None or not d.model) and direct:
@@ -124,12 +148,10 @@ class RoleEditor(VerticalScroll, can_focus=False):
             yield SafeStatic(Text("No model yet: choose one, or Auto-tune this role.", style="dim"), classes="why")
             with Horizontal(classes="actions"):
                 yield Button("Auto-tune this role", id="auto-role")
+                if modelconf.is_custom(role):  # a named role can be dropped before it has a model
+                    yield Button("Remove role", id="remove-role")
             return
-        model = state.model_of(role)
-        ceiling = int(state.limits["context_cap"])  # type: ignore[call-overload]  # validated config
-        if model is not None and model.context_native:
-            ceiling = min(ceiling, model.context_native)
-        ceiling = max(ceiling, tuning.MIN_CONTEXT * 2)
+        ceiling = max(state.ceiling(role), tuning.MIN_CONTEXT * 2)
         with Horizontal(classes="row"):
             yield SafeStatic(Text("Context"), classes="label")
             yield Slider(tuning.MIN_CONTEXT, tuning.MIN_CONTEXT, ceiling, tuning.CONTEXT_STEP, log=True,
@@ -140,13 +162,42 @@ class RoleEditor(VerticalScroll, can_focus=False):
         with Horizontal(classes="row"):
             yield SafeStatic(Text("KV cache"), classes="label")
             yield Segmented([Segment(k, k) for k in tunestate.KV_OPTIONS], "auto", id="kv")
-        total, reason = state.layers_of(role)
-        with Horizontal(classes="row"):
-            yield SafeStatic(Text("GPU layers"), classes="label")
-            yield Slider(total, 0, max(total, 1), 1, fmt=lambda v: "all" if int(v) == total else f"{int(v)}",
-                         allow_auto=True, auto_label=lambda v: "auto all" if int(v) == total else f"auto {int(v)}",
-                         reason=reason, disabled=not total, title=f"{role} GPU layers", id="layers")  # fmt: skip
-            yield Button("Auto", id="layers-auto", disabled=not total)
+        experts, _ = state.experts_of(role)
+        if experts:  # a mixture-of-experts GGUF spills experts, not layers (tuning module docstring)
+            with Horizontal(classes="row"):
+                yield SafeStatic(Text("RAM experts"), classes="label")
+                yield Slider(0, 0, experts, 1, fmt=lambda v: f"{int(v)} of {experts} layers",
+                             allow_auto=True, auto_label=lambda v: f"auto {int(v)}",
+                             title=f"{role} layers whose experts stay in RAM", id="experts")  # fmt: skip
+                yield Button("Auto", id="experts-auto")
+        else:
+            total, reason = state.layers_of(role)
+            with Horizontal(classes="row"):
+                yield SafeStatic(Text("GPU layers"), classes="label")
+                yield Slider(total, 0, max(total, 1), 1, fmt=lambda v: "all" if int(v) == total else f"{int(v)}",
+                             allow_auto=True, auto_label=lambda v: "auto all" if int(v) == total else f"auto {int(v)}",
+                             reason=reason, disabled=not total, title=f"{role} GPU layers", id="layers")  # fmt: skip
+                yield Button("Auto", id="layers-auto", disabled=not total)
+        if state.can_parallel(role):  # slots share one cache: each request gets the whole context
+            with Horizontal(classes="row"):
+                yield SafeStatic(Text("Parallel"), classes="label")
+                yield Slider(1, 1, tunestate.MAX_SLOTS, 1, fmt=lambda v: "1 request" if int(v) == 1 else f"{int(v)} requests",
+                             title=f"{role} requests served at once", id="parallel")  # fmt: skip
+                yield Button("One", id="parallel-one")
+        drafts = state.drafts_of(role)
+        if drafts:  # speculative decoding: a draft model guesses tokens the model then checks in one pass
+            options = [Segment("auto", ""), Segment("off", tuning.DRAFT_OFF)]
+            own = getattr(state.model_of(role), "path", "") or ""
+            options += [Segment(draft_label(path, own), path) for path, _ in drafts]
+            with Horizontal(classes="row"):
+                yield SafeStatic(Text("Speculative"), classes="label")
+                yield Segmented(options, "", id="draft")
+            with Horizontal(classes="row"):
+                yield SafeStatic(Text("Draft tokens"), classes="label")
+                yield Slider(5, 1, tunestate.MAX_DRAFT_TOKENS, 1, allow_auto=True, fmt=lambda v: f"{int(v)}",
+                             auto_label=lambda v: f"auto {int(v)}", title=f"{role} tokens drafted per step",
+                             id="draft-max")  # fmt: skip
+                yield Button("Auto", id="draft-max-auto")
         levels, why_not = state.effort_options(role)
         segments = [Segment(tunestate.DEFAULT_EFFORT, tunestate.DEFAULT_EFFORT)]
         segments += [Segment(lv, lv, "" if lv in levels else (why_not or "not for this model")) for lv in modelconf.EFFORT_CHOICES]
@@ -165,7 +216,10 @@ class RoleEditor(VerticalScroll, can_focus=False):
         yield SafeStatic("", classes="why", id="why")
         with Horizontal(classes="actions"):
             yield Button("Auto-tune this role", id="auto-role")
-            yield Button("Clear role", id="clear-role")
+            if modelconf.is_custom(role):
+                yield Button("Remove role", id="remove-role")
+            else:
+                yield Button("Clear role", id="clear-role")
 
     def model_text(self) -> Text:
         """The model button's label: the real model behind the role, then `change`."""
@@ -187,19 +241,32 @@ class RoleEditor(VerticalScroll, can_focus=False):
         fit = state.fit(role)
         sized = fit.status in ("gpu", "hybrid", "cpu", "does-not-fit")
         ctx = self.query_one("#ctx", Slider)
-        ctx.disabled = not sized
-        ctx.reason = "" if sized else (fit.notes[0] if fit.notes else "the server decides")
+        settable = sized or (fit.status == "server" and fit.context > 0)
+        ctx.disabled = not settable
+        ctx.reason = "" if settable else (fit.notes[0] if fit.notes else "the server decides")
         _quiet(ctx, float(d.context or fit.context or tuning.MIN_CONTEXT), auto=not d.context)
         kv = self.query_one("#kv", Segmented)
         auto_kv = fit.kv_type if not d.kv_type and fit.kv_type else ""
         kv.segments = [Segment(f"auto ({auto_kv})" if k == "auto" and auto_kv else k, k) for k in tunestate.KV_OPTIONS]
         kv.selected = d.kv_type or "auto"
         kv.refresh(layout=True)
-        layers = self.query_one("#layers", Slider)
-        total, _ = state.layers_of(role)
-        if total:
-            shown = d.gpu_layers if d.gpu_layers is not None else (total if fit.gpu_layers < 0 else fit.gpu_layers)
-            _quiet(layers, float(shown), auto=d.gpu_layers is None)
+        if self.query("#experts"):
+            _quiet(self.query_one("#experts", Slider), float(d.cpu_moe if d.cpu_moe is not None else fit.cpu_moe),
+                   auto=d.cpu_moe is None)  # fmt: skip
+        else:
+            layers = self.query_one("#layers", Slider)
+            total, _ = state.layers_of(role)
+            if total:
+                shown = d.gpu_layers if d.gpu_layers is not None else (total if fit.gpu_layers < 0 else fit.gpu_layers)
+                _quiet(layers, float(shown), auto=d.gpu_layers is None)
+        if self.query("#parallel"):
+            _quiet(self.query_one("#parallel", Slider), float(d.parallel), auto=False)
+        if self.query("#draft"):
+            picker = self.query_one("#draft", Segmented)
+            picker.selected = d.draft
+            picker.refresh(layout=True)
+            shown = d.draft_max or fit.draft_max or tunestate.MAX_DRAFT_TOKENS // 3
+            _quiet(self.query_one("#draft-max", Slider), float(shown), auto=not d.draft_max)
         effort = self.query_one("#effort", Segmented)
         effort.selected = d.effort or tunestate.DEFAULT_EFFORT
         temp = self.query_one("#temp", Slider)
@@ -209,7 +276,8 @@ class RoleEditor(VerticalScroll, can_focus=False):
 
     def show_fit(self, fit: tunestate.Fit) -> None:
         """The gauge and the reasoning for `fit` (the draft's, or a preview while a slider moves)."""
-        self.query_one("#gauge", FitGauge).show(fit.used_mib, fit.budget_mib, gauge_status(fit), gauge_caption(fit, self.tune.look))
+        gauge = self.query_one("#gauge", FitGauge)
+        gauge.show(fit.used_mib, fit.total_mib, gauge_status(fit), gauge_caption(fit, self.tune.look), mark=fit.budget_mib)
         notes = list(fit.notes)
         self.query_one("#why", SafeStatic).update(Text("\n".join(f"- {clean(n)}" for n in notes), style="dim"))
 
@@ -272,6 +340,56 @@ class SourceModal(ModalScreen[str | None]):
             self.query_one("#error", SafeStatic).update(Text(clean(error)))
             return
         self.dismiss(kind)
+
+    def action_cancel(self) -> None:
+        """Esc closes without adding."""
+        self.dismiss(None)
+
+
+class RoleNameModal(ModalScreen[str | None]):
+    """Names a new role; an error shows inline and keeps the text."""
+
+    DEFAULT_CSS = screens.MODAL_CSS + "RoleNameModal { align: center middle; } RoleNameModal .error { color: $error; height: auto; }"
+    BINDINGS = [Binding("escape", "cancel", "cancel")]
+
+    def __init__(self, submit: Callable[[str], str]) -> None:
+        super().__init__()
+        self.submit = submit  # returns an error message, or "" when the role was added
+
+    def compose(self) -> ComposeResult:
+        """Title, name, error line and buttons."""
+        with Vertical(classes="modal-box"):
+            yield SafeStatic(Text("New role: a model with its own settings, served as hal-NAME"), classes="modal-title")
+            yield Input(placeholder="name, such as code-128k", id="role-name")
+            yield SafeStatic("", classes="error", id="error")
+            with Horizontal(classes="modal-buttons"):
+                yield Button("Cancel", id="cancel")
+                yield Button("Add", id="add", variant="primary")
+
+    def on_mount(self) -> None:
+        """Focus on the name."""
+        self.query_one("#role-name", Input).focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Enter adds."""
+        self.try_add()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Add or Cancel."""
+        event.stop()
+        if event.button.id == "add":
+            self.try_add()
+        else:
+            self.dismiss(None)
+
+    def try_add(self) -> None:
+        """Adds the role, or shows why not and stays open."""
+        name = self.query_one("#role-name", Input).value.strip().lower()
+        error = self.submit(name)
+        if error:
+            self.query_one("#error", SafeStatic).update(Text(clean(error)))
+            return
+        self.dismiss(name)
 
     def action_cancel(self) -> None:
         """Esc closes without adding."""
@@ -361,7 +479,8 @@ class TuneApp(App[int]):
     #presets { height: 1; padding: 0 1; margin-bottom: 1; }
     #presets Segmented { width: 1fr; }
     #presets .label { width: 10; color: $text-muted; }
-    #roles { width: 30%; min-width: 20; max-width: 40; height: 1fr; border: none; text-wrap: nowrap; text-overflow: ellipsis; }
+    #role-side { width: 30%; min-width: 20; max-width: 40; height: 1fr; }
+    #roles { height: 1fr; border: none; text-wrap: nowrap; text-overflow: ellipsis; }
     Button#model-btn { width: 1fr; content-align: left middle; text-align: left; }
     #role-pane { height: 1fr; }
     #sources { height: auto; max-height: 12; border: none; }
@@ -414,7 +533,10 @@ class TuneApp(App[int]):
             yield Segmented([Segment(preset_label(p), p.key) for p in tunepresets.PRESETS], current, id="preset")
         with TabbedContent(initial="tab-roles", id="tabs"):
             with TabPane("Roles", id="tab-roles"), Horizontal(id="role-pane"):
-                yield OptionList(markup=False, id="roles")
+                with Vertical(id="role-side"):
+                    yield OptionList(markup=False, id="roles")
+                    with Horizontal(classes="bar"):
+                        yield Button("New role...", id="role-new")
                 self._editor = RoleEditor(self, self.role)
                 yield self._editor
             with TabPane("Sources", id="tab-sources"), Vertical():
@@ -462,7 +584,12 @@ class TuneApp(App[int]):
         broken across lines (`gemma4:26b-a4b` / `-it-qat`) reads as two different things.
         """
         row = Text(no_wrap=True, overflow="ellipsis")
-        row.append(f"{role:<7}", style="bold")
+        row.append(f"{role:<{ROLE_WIDTH}}", style="bold")
+        if role == HARNESS:
+            harness = self.state.harness
+            row.append(" hal/main, hal/agent", style="dim")
+            row.append(f"\n  {harness['main']}, {harness['agent']}")
+            return row
         if role == GUARD:
             model, note = self.guard
             row.append(f" {clean(note)}", style="dim")
@@ -487,9 +614,11 @@ class TuneApp(App[int]):
         """Redraws the role list, keeping the highlight."""
         roles = self.query_one("#roles", OptionList)
         keep = roles.highlighted
-        names = [*modelconf.ROLES, GUARD]
+        names = [*self.state.role_names(), GUARD, HARNESS]
         roles.set_options([Option(self.role_row(r), id=r) for r in names])
-        roles.highlighted = keep if keep is not None else names.index(self.role)
+        if self.role not in names:  # a named role was removed (or its add undone)
+            self.role, keep = "chat", None
+        roles.highlighted = keep if keep is not None and keep < len(names) else names.index(self.role)
         changes = len(self.state.changed_roles()) + (1 if self.state.has_changes() and not self.state.changed_roles() else 0)
         self.query_one("#tabs", TabbedContent).get_tab("tab-review").label = f"Review {changes}" if changes else "Review"
 
@@ -543,7 +672,7 @@ class TuneApp(App[int]):
         role, state, which = self.role, self.state, event.slider.id
         if which == "ctx":
             if event.auto:
-                self.change(lambda: state.set_kv(role, "auto"))
+                self.change(lambda: state.auto_context(role))
             elif event.final:
                 self.change(lambda: state.set_context(role, int(event.value)))
             else:
@@ -555,6 +684,18 @@ class TuneApp(App[int]):
                 self.change(lambda: state.set_gpu_layers(role, int(event.value)))
             else:
                 self.editor().show_fit(state.try_layers(role, int(event.value)))
+        elif which == "experts":
+            if event.auto:
+                self.change(lambda: state.set_cpu_moe(role, None))
+            elif event.final:
+                self.change(lambda: state.set_cpu_moe(role, int(event.value)))
+            else:
+                self.editor().show_fit(state.try_experts(role, int(event.value)))
+        elif which == "parallel" and event.final:
+            self.change(lambda: state.set_parallel(role, int(event.value)))
+        elif which == "draft-max" and (event.final or event.auto):
+            tokens = 0 if event.auto else int(event.value)
+            self.change(lambda: state.set_draft_max(role, tokens))
         elif which == "temp" and (event.final or event.auto):
             value = modelconf.UNSET_TEMPERATURE if event.auto else event.value
             self.change(lambda: state.set_temperature(role, value))
@@ -566,6 +707,11 @@ class TuneApp(App[int]):
             self.change(lambda: state.set_kv(role, event.value))
         elif event.segmented.id == "effort":
             self.change(lambda: state.set_effort(role, event.value))
+        elif event.segmented.id == "draft":
+            self.change(lambda: state.set_draft(role, event.value))
+        elif event.segmented.id in ("harness-main", "harness-agent"):
+            key = event.segmented.id.removeprefix("harness-")
+            self.change(lambda: state.set_harness(key, event.value))
         elif event.segmented.id == "preset":
             self.take_preset(event.value)
 
@@ -589,9 +735,15 @@ class TuneApp(App[int]):
         if which == "model-btn":
             self.run_worker(self.pick_model(), exclusive=True, group="pick")
         elif which == "ctx-auto":
-            self.change(lambda: state.set_kv(role, "auto"))
+            self.change(lambda: state.auto_context(role))
         elif which == "layers-auto":
             self.change(lambda: state.set_gpu_layers(role, None))
+        elif which == "experts-auto":
+            self.change(lambda: state.set_cpu_moe(role, None))
+        elif which == "parallel-one":
+            self.change(lambda: state.set_parallel(role, 1))
+        elif which == "draft-max-auto":
+            self.change(lambda: state.set_draft_max(role, 0))
         elif which == "temp-default":
             self.change(lambda: state.set_temperature(role, modelconf.UNSET_TEMPERATURE))
         elif which == "auto-role":
@@ -600,12 +752,36 @@ class TuneApp(App[int]):
                 toast(self, "\n".join(map(str, notes)), title=f"Tuned {role}")  # type: ignore[arg-type]
         elif which == "clear-role":
             self.change(lambda: state.clear(role), rebuild=True)
+        elif which == "remove-role":
+            self.change(lambda: state.remove_role(role), rebuild=True)
+        elif which == "role-new":
+            self.push_screen(RoleNameModal(self.add_role), self.role_added)
         elif which == "source-add":
             self.push_screen(SourceModal(self.add_source), lambda _: self.after_sources())
         elif which == "source-remove":
             self.remove_source()
         elif which == "save":
             self.action_save()
+
+    def add_role(self, name: str) -> str:
+        """Adds a named role as one undo step; returns why not, or ""."""
+        snap = self.state.snapshot()
+        try:
+            self.state.add_role(name)
+        except ValueError as exc:
+            return str(exc)
+        self.undo = [*self.undo[-MAX_UNDO:], snap]
+        return ""
+
+    def role_added(self, name: str | None) -> None:
+        """Opens the new role and its model picker."""
+        if not name:
+            return
+        self.role = name
+        self.fill_roles()
+        self.query_one("#roles", OptionList).highlighted = self.state.role_names().index(name)
+        self.rebuild_editor()
+        self.run_worker(self.pick_model(), exclusive=True, group="pick")
 
     async def pick_model(self) -> None:
         """The model picker: usable models for the role, each with its size, quant and fit."""
@@ -839,7 +1015,7 @@ class TuneApp(App[int]):
                     if d is None or not d.model:
                         continue
                     word = fit_word(self.state.fit(role))
-                    line = Text(f"{role:<7}", style="dim")
+                    line = Text(f"{role:<{ROLE_WIDTH}}", style="dim")
                     line.append(clean(model_label(self.state, d.source, d.model)))
                     line.append(f"  {word}", style="dim")
                     lines.append(line)
