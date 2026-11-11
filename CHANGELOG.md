@@ -42,6 +42,11 @@ carries the same version.
 
 ### Fixed
 
+- A click in a picker (`/model`, `/resume`, Ctrl+R, Ctrl+P) chooses the row under the pointer.
+  Before, the list's focus border appeared between the press and the release and moved every
+  row down one line, so in a long list a click chose the row above (in `/model`, often the first
+  model listed), and a row that wrapped at a narrow width could do the same. Rows are now one
+  line each, cut with an ellipsis.
 - `hal code` now asks the gateway for `hal-code`, the code role with the context and effort
   `hal tune` set, and `hal chat` for `hal-chat`. Before, both asked Ollama directly for
   `[hal] chat_model`, so `hal code` ignored the code role and the tuned context. The box gets a

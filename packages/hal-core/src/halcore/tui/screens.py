@@ -71,12 +71,15 @@ class PickerModal(ModalScreen[str | None]):
     """A list to choose from: type to filter, Up/Down and Enter or a click choose, Esc cancels.
 
     Disabled rows show why and cannot be chosen. `items` may be a coroutine factory: a loading
-    row shows until it returns, so a slow listing never blocks the screen.
+    row shows until it returns, so a slow listing never blocks the screen. Every row is one line,
+    cut with an ellipsis, and the list has no border even when focused: Textual's `OptionList:focus`
+    border appeared between mouse down and click, moving every row down one line, so a click
+    chose the row above the one under the pointer.
     """
 
     DEFAULT_CSS = MODAL_CSS + """
     PickerModal { align: center middle; }
-    PickerModal OptionList { height: auto; max-height: 50vh; border: none; }
+    PickerModal OptionList, PickerModal OptionList:focus { height: auto; max-height: 50vh; border: none; text-wrap: nowrap; text-overflow: ellipsis; }
     PickerModal Input { margin-bottom: 1; }
     """
     BINDINGS = [Binding("escape", "cancel", "cancel")]
@@ -185,7 +188,7 @@ class HistorySearch(PickerModal):
     DEFAULT_CSS = MODAL_CSS + """
     HistorySearch { align: center bottom; }
     HistorySearch .modal-box { margin-bottom: 3; }
-    HistorySearch OptionList { height: auto; max-height: 12; border: none; text-wrap: nowrap; text-overflow: ellipsis; }
+    HistorySearch OptionList, HistorySearch OptionList:focus { height: auto; max-height: 12; border: none; text-wrap: nowrap; text-overflow: ellipsis; }
     HistorySearch #history-input { height: 1; }
     HistorySearch #history-input SafeStatic { width: 2; }
     HistorySearch Input, HistorySearch Input:focus { border: none; height: 1; padding: 0; width: 1fr; }
@@ -223,7 +226,7 @@ class CommandPalette(PickerModal):
     DEFAULT_CSS = MODAL_CSS + """
     CommandPalette { align: center top; }
     CommandPalette .modal-box { margin-top: 2; }
-    CommandPalette OptionList { height: auto; max-height: 14; border: none; text-wrap: nowrap; text-overflow: ellipsis; }
+    CommandPalette OptionList, CommandPalette OptionList:focus { height: auto; max-height: 14; border: none; text-wrap: nowrap; text-overflow: ellipsis; }
     CommandPalette #palette-input { height: 1; }
     CommandPalette #palette-input SafeStatic { width: 2; }
     CommandPalette Input, CommandPalette Input:focus { border: none; height: 1; padding: 0; width: 1fr; }
