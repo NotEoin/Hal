@@ -47,7 +47,7 @@ CONTEXT_PRESETS = (8192, 16384, 32768, 65536, 131072, 262144)
 KV_OPTIONS = modelconf.KV_CHOICES
 OPTIONAL_ROLES = ("writer",)  # empty by design: falls back to chat
 DEFAULT_EFFORT = "default"  # the word the screens show for "no effort set"
-ROLE_KINDS = {"code": "coding model", "vision": "vision model", "embed": "embedding model"}
+ROLE_KINDS = {"code": "coding model", "vision": "vision model", "embed": "embedding model", "classifier": "safety classifier"}
 
 
 @dataclass

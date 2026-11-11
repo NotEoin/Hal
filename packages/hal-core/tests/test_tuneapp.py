@@ -336,9 +336,9 @@ def test_hal_set_role_is_read_only_with_reason(home, server):
     home.config.write_text(home.config.read_text() + '[hal]\ncode_model = "llamacpp/hal-code"\n')
 
     async def script(pilot, app):
-        app.query_one("#roles", OptionList).highlighted = 2  # code
+        app.query_one("#roles", OptionList).highlighted = 1  # code
         await settle(pilot)
-        row = app.query_one("#roles", OptionList)._options[2].prompt.plain
+        row = app.query_one("#roles", OptionList)._options[1].prompt.plain
         return row, bool(app.query("#ctx"))
 
     (row, has_slider), _, _ = drive(state, script)

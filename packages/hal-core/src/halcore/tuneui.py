@@ -44,7 +44,7 @@ from rich.text import Text
 
 from . import modelplan, tunepresets, tunestate
 from .tuneview import (  # noqa: F401 - re-exported: the screen's helpers moved to `tuneview`
-    MIB_PER_GIB, TIGHT_FRACTION, TOKENS, fit_line, fit_text, fit_word, gib, guard_line, hardware_lines, model_label,
+    MIB_PER_GIB, ROLE_WIDTH, TIGHT_FRACTION, TOKENS, fit_line, fit_text, fit_word, gib, guard_line, hardware_lines, model_label,
     open_state, parse_tokens, role_line, short,
 )
 from .tui.mentions import fuzzy
@@ -74,7 +74,7 @@ ROLE_ITEMS = (
     ("Back", "back"),
 )
 YES_NO = (("Yes", "yes"), ("No", "no"))
-SUMMARY_MODEL_WIDTH = 40  # role 7 + model 40 + mark 2 + context 6 + longest fit text 24 = 79 columns
+SUMMARY_MODEL_WIDTH = 36  # role 11 + model 36 + mark 2 + context 6 + longest fit text 24 = 79 columns
 COMMANDS = {
     "role": "choose which role the other commands change",
     "model": "choose a model from your sources",
@@ -119,7 +119,7 @@ def render_summary(state: tunestate.TuneSession, look: Look) -> Group:
         star = " *" if role in changed else "  "
         rows.append(
             Text.assemble(
-                (f"{role:<7}", ""),
+                (f"{role:<{ROLE_WIDTH}}", ""),
                 (f"{short(model, SUMMARY_MODEL_WIDTH):<{SUMMARY_MODEL_WIDTH}}{star} ", ""),
                 (f"{ctx:>4}  ", ""),
                 (fit, style),
@@ -128,7 +128,7 @@ def render_summary(state: tunestate.TuneSession, look: Look) -> Group:
     guard, note = guard_line()
     rows.append(
         Text.assemble(
-            (f"{'guard':<7}", ""),
+            (f"{'guard':<{ROLE_WIDTH}}", ""),
             (f"{short(guard, SUMMARY_MODEL_WIDTH):<{SUMMARY_MODEL_WIDTH}}   ", ""),
             (f"{'':>4}  ", ""),
             (note, pal.muted),
@@ -383,7 +383,7 @@ class TuneScreen:
             items = []
             for role in self.state.role_names():
                 model, ctx, fit = role_line(self.state, role, self.look)
-                items.append((f"{role:<7} {short(model, SUMMARY_MODEL_WIDTH)}  {ctx}", role))
+                items.append((f"{role:<{ROLE_WIDTH}}{short(model, SUMMARY_MODEL_WIDTH)}  {ctx}", role))
             items.append(("New role...", NEW_ROLE))
             role = self.prompter.pick("Adjust which role?", items, self.role, filterable=False)
             if role is None:

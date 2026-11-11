@@ -43,7 +43,7 @@ missing program, or is failed or restarting after a crash (with the `journalctl`
 ```
 [FAIL] runtime dir  /run/user/1000/hal has mode 0755, it must be 0700: run `chmod 700 /run/user/1000/hal`
 [warn] runtime      runc shares the host kernel; install gVisor (docs/howto/install-gvisor.md)
-[ok  ] model server 2 model(s): hal-fast, hal-code
+[ok  ] model server 2 model(s): hal-classifier, hal-code
 ```
 
 Verified by `packages/hal-core/tests/test_doctor.py`.

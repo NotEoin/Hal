@@ -136,3 +136,12 @@ def test_a_named_role_loads_and_is_listed_after_the_built_in_ones(tmp_path):
     roles = modelconf.load_roles(path)
     assert roles["code-128k"].context == 131072 and modelconf.is_custom("code-128k")
     assert modelconf.role_names(roles) == [*modelconf.ROLES, "code-128k"]
+
+
+def test_an_old_fast_role_table_loads_as_the_classifier(tmp_path):
+    # 0.2.0 renamed the fast role (hal-fast) to classifier (hal-classifier)
+    path = tmp_path / "config.toml"
+    old = '[models.roles.fast]\nsource = "l"\nmodel = "g:8b"\n'
+    path.write_text('[models.sources.l]\nkind = "ollama"\n' + old)
+    roles = modelconf.load_roles(path)
+    assert list(roles) == ["classifier"] and roles["classifier"].model == "g:8b"

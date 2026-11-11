@@ -21,10 +21,10 @@ def set_lockdown(home, level):
 
 def test_default_report_shows_standard_lockdown_and_balanced_paranoia(home):
     with FakeModelServer(home.runtime / "gateway.sock") as server:
-        server.models = ["hal-fast"]
+        server.models = ["hal-classifier"]
         report = security.collect(check_runtime=True)
     assert report.lines[:2] == ["lockdown: standard", "paranoia: balanced"]
-    assert report.lines[2] == "classifier: reachable (hal-fast)"
+    assert report.lines[2] == "classifier: reachable (hal-classifier)"
     assert report.problems == [] and report.warnings == []
 
 
@@ -36,7 +36,7 @@ def test_strict_lockdown_raises_paranoia_to_high_and_says_so(home):
 
 def test_an_unreachable_classifier_warns_that_every_call_asks(home):
     report = security.collect(check_runtime=False)
-    assert "classifier: UNREACHABLE (hal-fast)" in report.lines
+    assert "classifier: UNREACHABLE (hal-classifier)" in report.lines
     assert "every boxed call counts as high risk and asks" in report.warnings[0]
 
 

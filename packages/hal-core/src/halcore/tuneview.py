@@ -23,6 +23,7 @@ MIB_PER_GIB = 1024
 # a model that takes more than this share of the card leaves little room for anything else on it;
 # a judgement, not a measured limit
 TIGHT_FRACTION = 0.92
+ROLE_WIDTH = max(len(r) for r in (*modelconf.ROLES, "guard")) + 1  # the role column of both screens
 TOKENS = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kKmM]?)\s*$")
 
 

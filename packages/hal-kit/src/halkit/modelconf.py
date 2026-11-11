@@ -37,7 +37,8 @@ OWNER = "hal-kit"
 SOURCE_KINDS = ("ollama", "openai", "gguf", "anthropic", "openai-cloud")
 URL_KINDS = ("ollama", "openai")
 KEY_FILE_KINDS = ("anthropic", "openai-cloud")
-ROLES = ("chat", "fast", "code", "writer", "vision", "embed")
+ROLES = ("chat", "code", "writer", "vision", "classifier", "embed")
+RENAMED_ROLES = {"fast": "classifier"}  # 0.2.0: an old table under the old name still loads
 CUSTOM_ROLE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")  # becomes the alias `hal-NAME`
 RESERVED_ROLE_NAMES = ("guard",)  # the tune screens list the guardian under this name
 KV_CHOICES = ("auto", "f16", "q8_0", "q4_0")
@@ -258,11 +259,16 @@ def load_roles(path: Path | None = None) -> dict[str, Role]:
     sources = load_sources(path)
     raw = dict(config.load(MODELS_TABLE, path=path)["roles"])  # type: ignore[call-overload]
     roles = {}
+    stored = {name: name for name in raw}  # role -> its table name in the file
+    for old, new in RENAMED_ROLES.items():
+        if old in raw and new not in raw:
+            raw[new] = raw.pop(old)
+            stored[new] = stored.pop(old)
     for name, body in raw.items():
-        table = f"models.roles.{name}"
+        table = f"models.roles.{stored[name]}"
         if name not in ROLES and check_role_name(name):
             raise _fail(f"[{table}] {check_role_name(name)}", path, "models.roles", name)
-        e = _entry("roles", name, body, _ROLE_KEYS, path)
+        e = _entry("roles", stored[name], body, _ROLE_KEYS, path)
         if e["source"] not in sources:
             raise _fail(f"[{table}] source {e['source']!r} is not in [models.sources]", path, table, "source")
         if not e["model"]:

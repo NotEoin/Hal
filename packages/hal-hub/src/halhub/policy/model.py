@@ -263,7 +263,7 @@ class ReviewerSettings:
     """`[reviewer]`."""
 
     enabled: bool = False
-    model: str = "hal-fast"
+    model: str = "hal-chat"  # the reviewer writes a judgement, so it needs a chat model, not a classifier
     timeout_s: int = 20
     when_untrusted: bool = True
 
@@ -276,13 +276,13 @@ class ClassifierSettings:
     """`[policy]`: the risk classifier (RESOLUTIONS I5); `halhub.classifier` maps risk to effect."""
 
     paranoia: Paranoia = "balanced"
-    model: str = "hal-fast"
+    model: str = "hal-classifier"
     timeout_s: int = 20
     # False skips the model for a read-tier call that no deterministic rule flagged (the name says
     # "classify reads with the model": the default is the fast path)
     classify_reads: bool = False
     # "json": the model answers {"risk", "reason"}; "guardian": IBM Granite Guardian's yes/no score
-    model_format: Literal["json", "guardian"] = "json"
+    model_format: Literal["json", "guardian"] = "guardian"  # hal-classifier is a Granite Guardian by default
     # guardian only: P(yes) at or above each bound gives that risk; below `guardian_medium` is low.
     # 0.2 comes from a local trial on 2026-11-02: two dangerous calls scored 0.25 and 0.45, safe
     # calls scored at most 0.004.

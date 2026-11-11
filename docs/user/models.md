@@ -44,8 +44,11 @@ Rules:
 
 ## Roles
 
-A role names the job a model does: `chat` (core Hal), `fast`, `code`, `writer`, `vision`
-and `embed`. Each role has a source, a model and settings.
+A role names the job a model does: `chat` (core Hal, hal-voice and `hal chat`), `code`
+(`hal code`), `writer` (prose), `vision`, `classifier` (the tool-call risk check, Granite
+Guardian by default) and `embed` (vault search). The gateway serves each as `hal-ROLE`, and
+every Hal service asks for one of those names, never for a model. `fast` was renamed
+`classifier` in 0.2.0; an old `[models.roles.fast]` or `[hal] fast_model` still loads. Each role has a source, a model and settings.
 
 ```toml
 [models.roles.chat]
@@ -133,7 +136,7 @@ Plan for  [ This machine ] [ 8 GB ] [ 12 GB ] [ 16 GB ] [ 24 GB ] [ CPU only ]
  Roles | Sources | Review 1
  chat   local/gemma3:12b (hal-chat) *  | chat
         32K  fits                      | Model        local/gemma3:12b (hal-chat)  (change)
- fast   local/qwen3:8b                 | Context      =========O--------------     32K  [Auto]
+ code   local/qwen3:8b                 | Context      =========O--------------     32K  [Auto]
  code   llamacpp/hal-code              | KV cache     [ auto (q8_0) ] [ f16 ] [ q8_0 ] [ q4_0 ]
         set in [hal] (not tuned)       | GPU layers   ======================O     48  [Auto]
  ...                                   | Effort       [ default ] [ off ] [ low ] [ medium ] ...

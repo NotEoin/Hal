@@ -60,6 +60,7 @@ LOCAL_KINDS = ("ollama", "openai", "gguf")
 MIN_GOOD_CONTEXT = 16384  # a chat model that fits with less than this ranks below one that does
 CPU_COMFORT_BYTES = 6 * 1024**3  # about an 8B model at Q4: tolerable speed without a GPU
 CODE_NAME = re.compile(r"cod(e|er)\b|codestral|devstral", re.IGNORECASE)
+GUARD_NAME = re.compile(r"guardian|shieldgemma|llama-guard", re.IGNORECASE)  # risk classifiers
 EMBED_NAME = re.compile(r"embed|bge-|e5-|minilm|nomic", re.IGNORECASE)
 ROUTER_BACKEND = "router"
 DEFAULT_OLLAMA = "ollama"
@@ -200,13 +201,15 @@ def choose(
                 continue
             if role == "code" and not CODE_NAME.search(model.name):
                 continue
+            if (role == "classifier") != bool(GUARD_NAME.search(model.name)):
+                continue  # only a classifier may be the classifier, and it is no good at anything else
             try:
                 plan = _plan(model, hw, None, limits)
             except ValueError:
                 # a model that cannot be planned for this hardware is not a candidate
                 continue
             rank = _rank(model, plan)
-            if role in ("fast", "embed"):  # the smallest that works
+            if role in ("classifier", "embed"):  # the smallest that works
                 rank = (rank[0] >= 0, rank[1], -(model.size_bytes or 0))  # type: ignore[assignment]
             if rank[0] < 0 or (plan and plan.status == "does-not-fit"):
                 continue
@@ -215,10 +218,7 @@ def choose(
     if best is None:
         return RolePlan(role, notes=[f"no local model found for {role}"])
     _, model, plan = best
-    out = RolePlan(role, sources[model.source], model, plan, notes=["chosen automatically"])
-    if role == "fast" and "chat" in taken and taken["chat"].name == model.name:
-        out.notes.append("same model as chat")
-    return out
+    return RolePlan(role, sources[model.source], model, plan, notes=["chosen automatically"])
 
 
 def build(
@@ -247,7 +247,7 @@ def build(
             plans.append(rp)
         else:
             rp = choose(role, found, sources, hw, limits, taken)
-            if rp.model and role in ("chat", "fast"):
+            if rp.model and role == "chat":
                 taken[role] = rp.model
             if role == "writer" and cfg is None:
                 continue  # writer falls back to chat unless the user names one
@@ -451,10 +451,14 @@ def edit_config(text: str, plans: list[RolePlan], wiring: Wiring) -> str:
     """The new config text: role tables, `[hal]` model names and any new backends."""
     doc = tomllib.loads(text) if text.strip() else {}
     current_roles = (doc.get("models") or {}).get("roles", {}) if isinstance(doc.get("models"), dict) else {}  # type: ignore[union-attr]
+    renamed = {new: old for old, new in modelconf.RENAMED_ROLES.items()}
     for rp in plans:
         if rp.model is None or rp.source is None:
             continue
-        text = tomledit.set_table(text, f"models.roles.{rp.role}", role_table(rp, current_roles.get(rp.role, {})))
+        current = current_roles.get(rp.role) or current_roles.get(renamed.get(rp.role, ""), {})
+        text = tomledit.set_table(text, f"models.roles.{rp.role}", role_table(rp, current))
+        if rp.role in renamed and renamed[rp.role] in current_roles:
+            text = tomledit.remove_table(text, f"models.roles.{renamed[rp.role]}")  # the table's old name
     if wiring.hal:
         text = tomledit.set_keys(text, "hal", wiring.hal)
     for name, entry in wiring.backends.items():

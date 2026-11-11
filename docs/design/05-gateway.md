@@ -20,7 +20,7 @@ In scope:
   `/v1/responses/input_tokens`, `/v1/messages`, `/v1/messages/count_tokens`, `/v1/models`,
   `/v1/embeddings`, a subset of the Ollama native API, and a health route, with streaming (SSE
   and NDJSON) and backpressure.
-- Model aliases: the six role aliases (`hal-chat`, `hal-fast`, `hal-code`, `hal-writer`,
+- Model aliases: the six role aliases (`hal-chat`, `hal-classifier`, `hal-code`, `hal-writer`,
   `hal-embed`, `hal-vision`) resolved from `[hal].*_model`, the mode aliases `hal/main` and
   `hal/agent`, and user aliases that map a public name to a backend and an upstream model.
 - Three backend types: a managed or external llama.cpp router (`llama-router`), Ollama
@@ -72,7 +72,7 @@ Non-goals:
 
 | Owner | Interface | Used for |
 | --- | --- | --- |
-| 00-overview | `halkit.paths.runtime_dir/state_dir/config_dir/ensure_private_dir/check_socket_path` (one runtime-dir rule, resolution F6), `halkit.config`, the `[hal]` table (`chat_model`, `fast_model`, `code_model`, `writer_model`, `embed_model`, `vision_model`, `ollama_url`), REQ-SYS-09 to REQ-SYS-12, the ports table | paths, role aliases, listener rules |
+| 00-overview | `halkit.paths.runtime_dir/state_dir/config_dir/ensure_private_dir/check_socket_path` (one runtime-dir rule, resolution F6), `halkit.config`, the `[hal]` table (`chat_model`, `classifier_model`, `code_model`, `writer_model`, `embed_model`, `vision_model`, `ollama_url`), REQ-SYS-09 to REQ-SYS-12, the ports table | paths, role aliases, listener rules |
 | 01-security | REQ-SEC-66 (forwarder route allowlist), REQ-SEC-75 (TCP listener), REQ-SEC-76 and `llama_server_command(...)` (managed llama-server argv and environment), REQ-SEC-78 (llama.cpp lock), REQ-SEC-79 to REQ-SEC-82 (model manifest, pickle refusal, templates, downloads), ATK-09, ATK-32, ATK-33 | security requirements this spec implements |
 | 02-sandbox | the session socket directory, the bind mount of `model.sock` at `/run/hal`, `hal-relay`, and the `start_model` callable that halcore supplies (02 "Model socket and forwarder") | where the forwarder listens |
 | 03-agent | treats 403 like 404 on count endpoints; reads `context_length` and `meta.hal_profile` from `/v1/models`; agent profiles live in `~/.config/hal/model-profiles.toml` (not this spec's `models.toml`) | agent client behaviour |
@@ -245,10 +245,12 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
 - **REQ-GW-25** Session principals MUST get 403 on every `/api/*` route, matching the
   forwarder allowlist of 01-security REQ-SEC-66 (no Ollama native route from a box). Test:
   unit `test_session_cannot_use_ollama_native_routes`.
-- **REQ-GW-26** The role aliases `hal-chat`, `hal-fast`, `hal-code`, `hal-writer`,
-  `hal-embed` and `hal-vision` MUST resolve from `[hal].chat_model`, `fast_model`,
+- **REQ-GW-26** The role aliases `hal-chat`, `hal-classifier`, `hal-code`, `hal-writer`,
+  `hal-embed` and `hal-vision` MUST resolve from `[hal].chat_model`, `classifier_model`,
   `code_model`, `writer_model`, `embed_model` and `vision_model` (00-overview, "The `[hal]`
-  table"); an empty `code_model` or `writer_model` MUST mean `chat_model`. The configured value
+  table"); an empty `code_model` or `writer_model` MUST mean `chat_model`, and an empty
+  `classifier_model` MUST fall back to the `fast_model` of a config from before 0.2.0
+  (`test_an_old_fast_model_still_feeds_the_classifier_alias`). The configured value
   MUST resolve through steps 3 to 5 of "Alias resolution", and a value that names a role alias
   MUST be a config error. Test: unit `test_role_aliases_follow_hal_table`,
   `test_empty_code_model_means_chat_model`, `test_role_alias_cannot_name_role_alias`.
@@ -871,7 +873,7 @@ class Resolver:
 Order (first match wins):
 
 1. An alias from `[gateway.aliases.<name>]`.
-2. A role alias (`hal-chat`, `hal-fast`, `hal-code`, `hal-writer`, `hal-embed`,
+2. A role alias (`hal-chat`, `hal-classifier`, `hal-code`, `hal-writer`, `hal-embed`,
    `hal-vision`): its `[hal]` value is resolved with steps 3 to 5 (REQ-GW-26). User aliases
    in step 1 may not use these six names (config error), so the role table stays the single
    source of truth (00-overview).

@@ -23,7 +23,7 @@ SHARED = {
     "vault": "~/notes",
     "ollama_url": "http://localhost:11434",
     "chat_model": "gemma4:12b-it-qat",
-    "fast_model": "qwen3.5:4b",
+    "classifier_model": "granite4.1-guardian:8b",
     "embed_model": "embeddinggemma",
 }
 

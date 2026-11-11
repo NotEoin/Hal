@@ -110,6 +110,8 @@ class Resolver:
         """The model name `[hal]` gives to role alias `role`."""
         hal = self.cfg.hal
         value = str(hal[ROLE_ALIASES[role]])
+        if not value and role == "hal-classifier":
+            value = str(hal["fast_model"])  # the key's name before 0.2.0
         if not value and role in EMPTY_MEANS_CHAT:
             value = str(hal["chat_model"])
         return value

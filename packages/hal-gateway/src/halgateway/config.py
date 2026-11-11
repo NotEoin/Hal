@@ -35,7 +35,7 @@ MAX_PORT = 65535
 # role alias -> the `[hal]` key that names its model (REQ-GW-26)
 ROLE_ALIASES = {
     "hal-chat": "chat_model",
-    "hal-fast": "fast_model",
+    "hal-classifier": "classifier_model",
     "hal-code": "code_model",
     "hal-writer": "writer_model",
     "hal-embed": "embed_model",

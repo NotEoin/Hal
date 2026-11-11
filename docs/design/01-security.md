@@ -999,13 +999,14 @@ backend = "auto"                   # "auto" | "docker" | "bwrap"
 
 [reviewer]
 enabled = false                    # bool
-model = "hal-fast"                 # gateway role alias
+model = "hal-chat"                 # gateway role alias
 timeout_s = 20                     # int
 when_untrusted = true              # bool: may review while the session is untrusted
 
 [policy]                           # the risk classifier, halhub.classifier (resolution I5)
 paranoia = "balanced"              # "off" | "low" | "balanced" | "high" | "max"
-model = "hal-fast"                 # gateway role alias
+model = "hal-classifier"           # gateway role alias
+model_format = "guardian"          # "guardian" (Granite Guardian) | "json" (a general model)
 timeout_s = 20                     # int
 
 [paths]
@@ -1077,7 +1078,9 @@ Defaults and their reasons:
 | `guard.max_scan_chars` | 24000 | Twice the 12k-character tool output cap (03-agent), so every capped result is scanned in full |
 | `guard.timeout_s` | 15 | A 24k-character text is about 12 windows at about 0.2 s each on 2 threads, with margin |
 | `guard.threads` | 2 | Leaves CPU for STT and the TUI; raise for speed |
-| `reviewer.model` | `hal-fast` | A small model answers a yes/escalate question; it shares the GPU with the main model |
+| `reviewer.model` | `hal-chat` | The reviewer writes a judgement, which needs a chat model; the classifier alias holds a model that only scores risk |
+| `policy.model` | `hal-classifier` | The classifier role, Granite Guardian by default (`[hal].classifier_model`) |
+| `policy.model_format` | `guardian` | Matches the default classifier; set `json` when `hal-classifier` is a general model |
 | `paths.read_roots` | XDG user dirs | Where a person keeps files a desktop assistant should find; excludes dot directories |
 | `paths.write_roots` | `~/Downloads` | The one place moving or saving files is expected (today's `files_tidy_downloads`) |
 | `egress.unlisted` | ask | A web fetch of an unknown site is common and legitimate; the user sees the host before any DNS lookup |
@@ -1800,7 +1803,7 @@ Reviewer:
 - `user_message` is the last text recorded by `on_human_message` for the session; with none
   (for example a `hal-hub mcp` session) the reviewer is not called and the request goes to
   the human.
-- It calls the gateway alias `reviewer.model` (default `hal-fast`, D1) through
+- It calls the gateway alias `reviewer.model` (default `hal-chat`, D1) through
   `halkit.llm.chat`, so it reaches the model only through the gateway (G5), with temperature 0,
   `max_tokens = 200`, and a fixed system prompt that asks whether the call does what the user
   asked and nothing more, and to answer only the JSON object. The arguments are model-written,

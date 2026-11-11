@@ -90,11 +90,11 @@ def test_effort_is_offered_only_for_a_model_the_capability_table_says_can_think(
     assert s.effort_options("chat")[0] == ()
     with pytest.raises(ValueError, match="no thinking control"):
         s.set_effort("chat", "high")
-    s.choose("fast", s.find("local", "qwen3:8b"))
-    assert "high" in s.effort_options("fast")[0]
-    s.set_effort("fast", "high")
-    s.choose("fast", s.find("local", "gemma:12b"))  # switching to a model without support drops the level
-    assert s.drafts["fast"].effort == ""
+    s.choose("writer", s.find("local", "qwen3:8b"))
+    assert "high" in s.effort_options("writer")[0]
+    s.set_effort("writer", "high")
+    s.choose("writer", s.find("local", "gemma:12b"))  # switching to a model without support drops the level
+    assert s.drafts["writer"].effort == ""
 
 
 def test_the_diff_and_the_write_keep_comments_and_use_the_apply_path(home, server):
@@ -122,7 +122,7 @@ def test_an_untouched_session_has_nothing_to_write(home, server):
 def test_auto_tune_fills_every_empty_role_and_resets_a_manual_one(home, server):
     s = session(home, server)
     notes = s.auto_tune()
-    assert s.drafts["chat"].model == "gemma:12b" and s.drafts["fast"].model and notes
+    assert s.drafts["chat"].model == "gemma:12b" and s.drafts["classifier"].model == "guardian:2b" and notes
     s.set_context("chat", 8192)
     s.auto_tune("chat")
     assert not s.drafts["chat"].manual and s.drafts["chat"].context == 0

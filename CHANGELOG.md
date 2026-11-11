@@ -31,6 +31,11 @@ carries the same version.
 
 ### Changed
 
+- The `fast` role and its alias `hal-fast` are now `classifier` and `hal-classifier`, the
+  tool-call risk classifier, with Granite Guardian 4.1 (`granite4.1-guardian:8b`) as the default
+  model and answer format. `hal-fast` was only used by the classifier. An old
+  `[models.roles.fast]` table or `[hal] fast_model` still loads and is moved on the next save.
+  The approval reviewer (off by default) now uses `hal-chat`, since a classifier can only score.
 - The per-session model budget of `[gateway.sessions]` now applies to `hal code` and `hal chat`
   boxes, so its defaults are sized for coding: 120 requests a minute (was 30) and 100,000,000
   tokens an hour (was 2,000,000, which a 128K-token window used up in about 15 turns).

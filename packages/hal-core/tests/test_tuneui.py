@@ -274,7 +274,7 @@ def test_the_summary_fits_80_columns_in_ascii_and_lists_every_role(home, server)
     screen.console.print(tuneui.render_summary(screen.state, screen.look))
     text = out.getvalue()
     assert text.isascii() and max(len(line) for line in text.splitlines()) <= 80
-    assert all(role in text for role in ("chat", "fast", "code", "writer", "vision", "embed"))
+    assert all(role in text for role in ("chat", "code", "writer", "vision", "classifier", "embed"))
     assert len(text.splitlines()) + len(tuneui.MAIN_ITEMS) + 2 <= 24
 
 

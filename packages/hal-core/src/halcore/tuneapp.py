@@ -49,7 +49,8 @@ from .tui.slash import PickItem
 from .tui.theme import Look, textual_themes
 from .tui.widgets import FitGauge, SafeStatic, Segment, Segmented, Slider, toast
 from .tuneview import (
-    TIGHT_FRACTION, fit_line, fit_word, gib, guard_line, hal_models, hardware_lines, model_label, parse_tokens,
+    ROLE_WIDTH, TIGHT_FRACTION, fit_line, fit_word, gib, guard_line, hal_models, hardware_lines, model_label,
+    parse_tokens,
 )
 
 PRESET_SHORT = {"auto": "This machine", "cpu": "CPU only"}  # other presets show their label
@@ -541,7 +542,7 @@ class TuneApp(App[int]):
         broken across lines (`gemma4:26b-a4b` / `-it-qat`) reads as two different things.
         """
         row = Text(no_wrap=True, overflow="ellipsis")
-        row.append(f"{role:<7}", style="bold")
+        row.append(f"{role:<{ROLE_WIDTH}}", style="bold")
         if role == GUARD:
             model, note = self.guard
             row.append(f" {clean(note)}", style="dim")
@@ -953,7 +954,7 @@ class TuneApp(App[int]):
                     if d is None or not d.model:
                         continue
                     word = fit_word(self.state.fit(role))
-                    line = Text(f"{role:<7}", style="dim")
+                    line = Text(f"{role:<{ROLE_WIDTH}}", style="dim")
                     line.append(clean(model_label(self.state, d.source, d.model)))
                     line.append(f"  {word}", style="dim")
                     lines.append(line)

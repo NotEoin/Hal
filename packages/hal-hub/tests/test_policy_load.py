@@ -54,7 +54,7 @@ def test_every_setting_defaults_to_the_spec_value(tmp_path):
         ApprovalSettings(120, 600, 12, 90, True),
         AuditSettings(False, True, 90, 64),
         GuardSettings(False, "prompt-guard-2-86m", 0.5, 24000, 15, 2, "ask", "auto"),
-        ReviewerSettings(False, "hal-fast", 20, True),
+        ReviewerSettings(False, "hal-chat", 20, True),
     )
     assert policy.paths == PathSettings(
         ("~/Documents", "~/Downloads", "~/Desktop", "~/Pictures", "~/Music", "~/Videos"), ("~/Downloads",), ()
