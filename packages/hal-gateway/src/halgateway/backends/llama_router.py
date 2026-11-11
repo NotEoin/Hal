@@ -337,6 +337,7 @@ class LlamaRouter(OpenAIBackend):
     def _wait_loaded(self, rendered: modes.RenderedMode) -> None:
         """REQ-GW-34: poll every `poll_s` until each startup preset is loaded; stop and fail otherwise."""
         deadline = time.monotonic() + float(self.entry["load_timeout_s"])  # type: ignore[arg-type]
+        self._wait_answering(deadline)
         for name in startup_presets(rendered.path):
             seen_loading = False
             while True:
@@ -357,6 +358,26 @@ class LlamaRouter(OpenAIBackend):
                         f"see {self.log_path()}"
                     )
                 time.sleep(self.poll_s)
+
+    def _wait_answering(self, deadline: float) -> None:
+        """Polls until the router answers `/health`: with no startup preset nothing else waits,
+        and a request relayed in the half second before it listens got a 502 (seen 2026-11-11)."""
+        while True:
+            if not self.running():
+                self._drop_record()
+                raise RouterError(f"llama-server exited while starting; see {self.log_path()}")
+            try:
+                relay.call_json(self, "GET", "/health", timeout_s=STATUS_TIMEOUT_S)
+                return
+            except (GatewayError, OSError):
+                pass  # not listening yet
+            if time.monotonic() >= deadline:
+                self._stop_locked()
+                raise RouterError(
+                    f"llama-server did not answer after {self.entry['load_timeout_s']} s; "
+                    f"see {self.log_path()}"
+                )
+            time.sleep(self.poll_s)
 
     def _unload_ollama(self) -> None:
         """REQ-GW-33: free the VRAM Ollama holds before the router loads."""

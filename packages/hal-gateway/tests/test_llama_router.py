@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-from halgateway import launchers
+from halgateway import launchers, relay
 from halgateway.backends.llama_router import LlamaRouter, startup_presets
 from halgateway.config import load_config
 from halgateway.errors import ModelUnverified, RouterBusy
@@ -21,7 +21,7 @@ from halgateway.models.manifest import ModelEntry, Verifier
 WEIGHTS = b"synthetic weights"
 FAKE_SERVER = """\
 #!{python}
-import http.server, json, os, signal, sys
+import http.server, json, os, signal, sys, time
 args = sys.argv[1:]
 ctl_path = "{ctl}"
 port = int(args[args.index("--port") + 1])
@@ -29,6 +29,7 @@ key = open(args[args.index("--api-key-file") + 1]).read().strip()
 json.dump({{"argv": args, "env": dict(os.environ)}}, open(ctl_path + ".run", "w"))
 if json.load(open(ctl_path)).get("ignore_term"):
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
+time.sleep(json.load(open(ctl_path)).get("listen_delay_s", 0))
 
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
@@ -39,6 +40,8 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.headers.get("Authorization") != "Bearer " + key:
             return self._send({{}}, 401)
+        if self.path == "/health":
+            return self._send({{"status": "ok"}})
         ctl = json.load(open(ctl_path))
         data = []
         for name, seq in ctl["statuses"].items():
@@ -146,6 +149,15 @@ def test_start_waits_for_the_startup_preset_and_writes_the_record(env):
     assert record["mode"] == "one" and launchers.is_alive(record["pid"], record["pid_start"])
     assert oct((env.state / "router.json").stat().st_mode & 0o777) == "0o600"
     assert env.router.status()["state"] == "running"
+
+
+def test_a_router_with_only_on_demand_presets_answers_once_started(env):
+    # regression: with nothing to load at start, a request relayed before the server listened got a 502
+    mode = env.tmp / "modes" / "one.ini"
+    mode.write_text(mode.read_text().replace("[*]\n", "[*]\nload-on-startup = false\n"))
+    env.ctl(listen_delay_s=0.5)
+    env.router.start()
+    assert relay.call_json(env.router, "GET", "/models", timeout_s=2.0)["data"]
 
 
 def test_router_argv_and_env(env):
