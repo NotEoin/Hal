@@ -63,6 +63,15 @@ Then run `hal doctor`. Verified by `packages/hal-core/tests/test_install_script.
 
 ## hal connect
 
+`hal claude [--cloud] [--vault | --dir DIR] [ARGS...]` opens Claude Code in the current folder
+on your own models: it asks the gateway for `hal/main` and `hal/agent` (see
+[gateway](gateway.md#halmain-and-halagent)), sets Claude Code's context to what `hal/main`
+reports, switches off every Claude Code feature that talks to a service, points HTTP(S) at a
+proxy that refuses connections (`[claude] allow_network = true` lifts it), and asks before edits
+unless you pass `--permission-mode`. It runs unsandboxed on your host and says so; `hal box --
+claude` is the sandboxed version. `--cloud` opens Claude Code with your own Anthropic login.
+`[claude]` also takes `max_output_tokens`, `api_timeout_ms` and an `env` table.
+
 `hal connect HARNESS` prints the environment and MCP entry that point an outside tool (claude,
 qwen, opencode, codex, crush, goose, cline) at the Hal gateway. The first line says the tool runs
 unsandboxed. `--list` shows the harnesses, `--issue` mints the token `connect-<harness>` into

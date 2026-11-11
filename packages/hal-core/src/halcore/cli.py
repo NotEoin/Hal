@@ -57,6 +57,7 @@ COMMANDS: dict[str, Command] = {
     "deny": Command("halhub.cli", "deny a pending request", ("deny",)),
     "gateway": Command("halgateway.cli", "model gateway admin (hal-gateway passthrough)"),
     "box": Command("halsandbox.cli", "run an agent CLI in the box, build box images"),
+    "claude": Command("claude", "Claude Code on your models through the gateway (unsandboxed)"),
     "kill": Command("killcmd", "stop everything Hal started"),
     "scratch": Command("scratch", "inspect and clean box scratchpads"),
     "security": Command("security", "security status and doctor"),
@@ -121,7 +122,7 @@ def resolve(argv: list[str]) -> tuple[Command, list[str]] | None:
 
 # Groups for `hal --help`; a test keeps every command in exactly one group.
 GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("work", ("code", "chat", "acp", "jobs", "sessions", "box", "connect", "ide")),
+    ("work", ("code", "chat", "acp", "jobs", "sessions", "box", "claude", "connect", "ide")),
     ("safety", ("lockdown", "paranoia", "policy", "audit", "guard", "approvals", "approve", "deny", "scratch", "security")),
     ("system", ("doctor", "status", "kill", "power", "gpulight", "setup", "units", "gateway", "migrate", "configure", "tune", "models", "console", "eval", "packs")),
 )

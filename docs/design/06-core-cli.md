@@ -1522,7 +1522,7 @@ harness (`hal gateway token revoke`). `--write` writes the harness's own config 
 real token after a diff and y/N, backing up the old file as `<file>.hal.bak`. The snippet text
 comes from `halkit.harness` (C6), shared with 07.
 
-`hal claude` (legacy, from `hal:123-276`):
+`hal claude` (from the removed bash launcher, `hal:123-302`; built in `halcore.claude`):
 
 1. Print `hal: Claude Code runs unsandboxed on your host; the network block below is advisory
    and Hal's approvals are advisory. Use 'hal box -- claude' for the sandboxed version.` on
@@ -1531,13 +1531,13 @@ comes from `halkit.harness` (C6), shared with 07.
    `--preset`), and turn on its TCP listener with a notice (REQ-CLI-104).
 3. Environment: `ANTHROPIC_BASE_URL=http://127.0.0.1:8741` (gateway root, F7),
    `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_API_KEY` = the named client token `claude`;
-   `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL` = the
-   mode's main alias; `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`,
-   `CLAUDE_CODE_SUBAGENT_MODEL` = the mode's agent alias (both from
-   `GatewayClient.aliases()` `roles`); `CLAUDE_CODE_MAX_CONTEXT_TOKENS` = the mode's
-   `context_window` (replacing the awk over `modes/<mode>.ini`); `API_TIMEOUT_MS` = the
-   mode's `client_timeout_ms` (7200000 for the swap modes); `CLAUDE_CODE_MAX_OUTPUT_TOKENS`
-   = `[claude].max_output_tokens`.
+   `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL` =
+   `hal/main`; `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`,
+   `CLAUDE_CODE_SUBAGENT_MODEL` = `hal/agent` (05 REQ-GW-97: each serves an alias `hal tune`
+   sets); `CLAUDE_CODE_MAX_CONTEXT_TOKENS` = the `context_window` `GatewayClient.aliases()`
+   reports for `hal/main`; `API_TIMEOUT_MS` = `[claude].api_timeout_ms` (default 3600000, so a
+   long local prefill or a model server's cold start does not time out);
+   `CLAUDE_CODE_MAX_OUTPUT_TOKENS` = `[claude].max_output_tokens` (default 32000).
 4. The privacy block of `hal:247-268` verbatim (all `DISABLE_*` and `CLAUDE_CODE_DISABLE_*`
    names), then the proxy backstop `HTTP(S)_PROXY`/`ALL_PROXY` = `http://127.0.0.1:9`,
    `NO_PROXY=localhost,127.0.0.1,::1`, unless `[claude].allow_network`.

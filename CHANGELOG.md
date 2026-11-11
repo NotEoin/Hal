@@ -18,6 +18,9 @@ carries the same version.
 
 ### Added
 
+- `hal claude` opens Claude Code on your models through the gateway (`hal/main`, `hal/agent`),
+  with its context set from the gateway, every Claude Code service call switched off and a proxy
+  backstop, as the removed bash launcher did. `--cloud` uses your own Anthropic login.
 - The gateway can run an OpenAI-compatible server for you, such as vLLM: a `managed-openai`
   backend starts at the first request (or `hal-gateway backend start NAME`), is ready when its
   health path answers and it lists a model of `served_models`, restarts after a crash, frees the
