@@ -5,6 +5,8 @@ carries the same version.
 
 ## Unreleased
 
+## 0.2.0 - 2026-11-11
+
 ### Added
 
 - The gateway can run an OpenAI-compatible server for you, such as vLLM: a `managed-openai`
