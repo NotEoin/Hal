@@ -1,6 +1,6 @@
 # Design specs
 
-Specs for the Hal 0.1.0 release. Each states numbered requirements (`REQ-<PREFIX>-<nn>`), the
+Specs for the Hal 0.2.0 release. Each states numbered requirements (`REQ-<PREFIX>-<nn>`), the
 design, a test plan and an implementation plan. The topic each spec owns, and the requirement
 prefix it uses, are listed once in the "Requirements index" of
 [00-overview.md](00-overview.md); this page only lists the files.

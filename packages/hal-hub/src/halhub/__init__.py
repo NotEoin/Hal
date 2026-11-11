@@ -17,7 +17,7 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 if TYPE_CHECKING:  # the lazy names, for type checkers and editors
     from .api import all_tools, call, default_hub, find, function_specs, get, ollama_tools
