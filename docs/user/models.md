@@ -69,8 +69,9 @@ auto = true            # true: `hal tune --write` may replace context, kv_type a
 The `context` of a role is the window every client sees: the gateway reports it as the
 `context_length` of the role's alias (`hal-chat`, `hal-code`, `hal-NAME`), and `hal code`
 sizes its conversation to it. For an Ollama model, saving makes `hal-tuned-ROLE` in Ollama
-(the same weights with that `num_ctx`), because Ollama ignores a context sent with a request;
-see [how the settings reach the server](../dev/tuning.md#how-the-settings-reach-the-server).
+(the same weights with that `num_ctx`), because Ollama ignores a context sent with a request.
+Roles on the same model with the same context (chat and vision, say) share one, so Ollama loads
+it once; see [how the settings reach the server](../dev/tuning.md#how-the-settings-reach-the-server).
 
 ### Named roles
 

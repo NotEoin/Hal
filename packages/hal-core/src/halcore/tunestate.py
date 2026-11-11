@@ -648,7 +648,7 @@ class TuneSession:
             if saved is None or not saved.context or role in self.changed_roles() or model is None or key is None:
                 continue  # an auto role with no saved context has no number to carry yet
             plan = self.plan(role) if model.kind == "ollama" else None
-            if plan is None or plan.context == model.context_served or named.get(key) == modelplan.derived_name(role):
+            if plan is None or plan.context == model.context_served or modelplan.is_derived(str(named.get(key, ""))):
                 continue
             out.append(role)
         return out

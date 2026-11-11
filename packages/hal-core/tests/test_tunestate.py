@@ -512,3 +512,16 @@ def test_a_model_with_built_in_mtp_layers_drafts_with_them(home, tmp_path):
     mode = (home.config.parent / "modes" / "tuned.ini").read_text()
     assert "spec-type = draft-mtp" in mode and "spec-draft-n-max = 2" in mode and "model-draft" not in mode
     assert "pinned coder-27b-MTP-Q4 (sha256" in "\n".join(notes)  # pinned once, as the model
+
+
+def test_chat_and_vision_on_one_model_and_context_share_one_ollama_model(home, server):
+    # regression: each role got its own copy of the same model, which Ollama loaded twice
+    s = session(home, server)
+    for role in ("chat", "vision"):
+        s.choose(role, s.find("local", "gemma:12b"))
+        s.set_context(role, 32768)
+    s.write()
+    hal = tomllib.loads(home.config.read_text())["hal"]
+    assert hal["chat_model"] == hal["vision_model"] == "hal-tuned-chat:latest"
+    assert [c["model"] for c in server.created] == ["hal-tuned-chat:latest"]
+    assert tuneui.open_state(hw=hardware.from_dict(CARD_24GB)).stale_roles() == []

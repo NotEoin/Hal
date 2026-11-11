@@ -290,6 +290,18 @@ class Wiring:
     derived: list[Derived] = field(default_factory=list)  # Ollama models to create before the config is written
     notes: list[str] = field(default_factory=list)
 
+    def share(self, made: Derived) -> Derived:
+        """`made`, or an earlier role's derived model with the same base and parameters.
+
+        Two roles on one model and one context (chat and vision on a model that sees) then
+        serve one Ollama model, which Ollama loads once instead of twice.
+        """
+        for other in self.derived:
+            if (other.source.name, other.base, other.parameters) == (made.source.name, made.base, made.parameters):
+                return other
+        self.derived.append(made)
+        return made
+
 
 def _existing_backends(doc: Mapping[str, object]) -> Mapping[str, Mapping[str, object]]:
     gateway = doc.get("gateway")
@@ -313,9 +325,9 @@ def wire(plans: list[RolePlan], doc: Mapping[str, object]) -> Wiring:  # noqa: C
         key = HAL_KEYS[rp.role]
         if src.kind == "ollama":
             made = derived(rp)
-            served = made.name if made else model.name
             if made:
-                out.derived.append(made)
+                made = out.share(made)
+            served = made.name if made else model.name
             default_ollama = default_ollama or src.name
             if src.name == default_ollama:
                 out.hal[key] = served
@@ -383,7 +395,7 @@ def _wire_named(out: Wiring, rp: RolePlan, existing: Mapping[str, Mapping[str, o
     if src.kind == "ollama":
         made = derived(rp)
         if made:
-            out.derived.append(made)
+            made = out.share(made)
         backend, upstream = _ollama_backend(out, src, existing, hal_now), made.name if made else model.name
     elif src.kind in ("openai", "openai-cloud"):
         entry: dict[str, object] = {"type": "openai", "url": src.url if src.kind == "openai" else OPENAI_URL}
