@@ -14,8 +14,9 @@ key (REQ-SYS-06). Design decisions:
 - A non-loopback `ollama` or `openai` URL needs `allow_remote = true` and https, the same rule as
   a remote gateway backend.
 - `anthropic` and `openai-cloud` sources talk to fixed hosts and need only a key file.
-- A role's `context`, `kv_type` and `gpu_layers` are filled in by `hal tune --write` while
-  `auto = true`; `auto = false` keeps the user's values.
+- A role's `context`, `kv_type`, `gpu_layers` and `cpu_moe` are filled in by `hal tune --write`
+  while `auto = true`; `auto = false` keeps the user's values. `context_cap` limits only what
+  auto-tune picks: a context set by hand may go up to the model's own maximum.
 - Besides the built-in `ROLES`, a role may have any name `CUSTOM_ROLE` matches: a named setup
   (one model with its own context and settings) that the gateway serves as `hal-NAME`. The name
   is lowercase and short because it becomes part of that alias and of a llama.cpp preset name.
@@ -77,7 +78,7 @@ MODELS_TABLE = config.register(
                 int,
                 DEFAULT_CONTEXT_CAP,
                 check=_positive,
-                doc="Largest context `hal tune` plans",
+                doc="Largest context auto-tune picks; a context set by hand may be larger",
             ),
             K(
                 "headroom_mib",
@@ -106,6 +107,13 @@ _ROLE_KEYS = (
     K("context", int, 0, check=_non_negative, doc="Context tokens; 0 = decided by tuning"),
     K("kv_type", str, "", choices=("", *KV_CHOICES), doc="KV cache type; empty = [models] kv_type"),
     K("gpu_layers", int, AUTO_LAYERS, check=_gpu_layers, doc="Layers on the GPU; -1 = decided by tuning"),
+    K(
+        "cpu_moe",
+        int,
+        0,
+        check=_non_negative,
+        doc="Layers whose routed experts stay in RAM (mixture-of-experts GGUF models)",
+    ),
     K("effort", str, "", choices=("", *EFFORT_CHOICES), doc="Default effort level; empty = none"),
     K(
         "temperature",
@@ -145,6 +153,7 @@ class Role:
     temperature: float = UNSET_TEMPERATURE
     family: str = ""
     auto: bool = True
+    cpu_moe: int = 0
 
 
 def is_custom(name: str) -> bool:
@@ -269,6 +278,7 @@ def load_roles(path: Path | None = None) -> dict[str, Role]:
             float(e["temperature"]),
             str(e["family"]),
             bool(e["auto"]),
+            int(e["cpu_moe"]),
         )  # type: ignore[call-overload]  # validated above
     return roles
 

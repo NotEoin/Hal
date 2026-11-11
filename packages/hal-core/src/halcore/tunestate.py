@@ -8,13 +8,20 @@ and comment-preserving edits are the ones `hal tune --write` uses.
 Design decisions:
 
 - A draft with `manual` false is re-planned from the hardware on every change (context 0 means
-  "decided by tuning"). Setting a context or a KV type by hand makes the draft manual: the plan
-  is then `tuning.fit_context` at exactly that context, and the role is written with `auto = false`.
+  "decided by tuning"); only Auto (a field's Auto button, Auto-tune, a preset) makes it so.
+  Setting a context, a KV type, GPU layers or experts by hand makes the draft manual: the plan is
+  then `tuning.place` with exactly those numbers, checked against the whole card rather than the
+  auto-tune guidance, and the role is written with `auto = false`. Nothing the user set is
+  changed for them; a setting that spills to RAM is allowed and shown as such.
+- A context set by hand may go up to the model's own maximum; `[models] context_cap` only
+  limits what auto-tune picks.
+- A model the server sizes (an OpenAI-compatible server such as vLLM) cannot be planned, but its
+  context can still be declared, so the gateway reports the window the server really has.
 - Source changes are kept as edits to the config text and applied with the roles, so the diff
   and the write see one change set.
-- GPU layers set by hand (`Draft.gpu_layers`, None = decided by tuning) also make the draft
-  manual; the plan is then `tuning.fit_layers` at the draft's context. A count equal to the
-  model's layers means all of them, written as `-1` like a tuned plan.
+- GPU layers set by hand (`Draft.gpu_layers`, None = decided by tuning) and, for a
+  mixture-of-experts GGUF, layers whose experts stay in RAM (`Draft.cpu_moe`) work the same way.
+  A layer count equal to the model's layers means all of them, written as `-1` like a tuned plan.
 - `snapshot` and `restore` copy every draft and the source edits, so the screen can undo any
   change, including a preset.
 - Named roles (`modelconf.is_custom`) are added empty and written once they have a model.
@@ -36,7 +43,7 @@ from halkit.modelinfo import ModelInfo
 
 from . import modelplan, tunepresets
 
-CONTEXT_PRESETS = (8192, 16384, 32768, 65536, 131072)
+CONTEXT_PRESETS = (8192, 16384, 32768, 65536, 131072, 262144)
 KV_OPTIONS = modelconf.KV_CHOICES
 OPTIONAL_ROLES = ("writer",)  # empty by design: falls back to chat
 DEFAULT_EFFORT = "default"  # the word the screens show for "no effort set"
@@ -56,6 +63,7 @@ class Draft:
     family: str = ""
     manual: bool = False
     gpu_layers: int | None = None  # None = decided by tuning; else 0 to the model's layer count
+    cpu_moe: int | None = None  # None = decided by tuning; else layers whose experts stay in RAM
 
 
 @dataclass(frozen=True)
@@ -81,17 +89,18 @@ class Fit:
     context: int = 0
     kv_type: str = ""
     gpu_layers: int = 0
-    used_mib: int = 0
+    used_mib: int = 0  # VRAM the model takes: weights there, cache and runtime overhead
     budget_mib: int = 0  # the guidance: what auto-tune plans within
     estimated: bool = False
     notes: tuple[str, ...] = ()
-    card_mib: int = 0  # what a setting made by hand may use
-    total_mib: int = 0  # the cards' total memory
+    total_mib: int = 0  # the cards' total memory: the limit of a setting made by hand
+    ram_mib: int = 0  # weights (and cache) in system RAM
+    cpu_moe: int = 0
 
     @property
     def above_guidance(self) -> bool:
-        """True when the model is all on the GPU but past the guidance budget."""
-        return self.status == "gpu" and 0 < self.budget_mib < self.used_mib
+        """True when the model is on the GPU but past the auto-tune guidance budget."""
+        return self.status in ("gpu", "hybrid") and 0 < self.budget_mib < self.used_mib
 
     @property
     def ok(self) -> bool:
@@ -101,8 +110,9 @@ class Fit:
 
 def _draft_of(role: modelconf.Role) -> Draft:
     layers = role.gpu_layers if not role.auto and role.gpu_layers >= 0 else None
+    moe = role.cpu_moe if not role.auto and role.cpu_moe > 0 else None
     return Draft(role.source, role.model, 0 if role.auto else role.context, role.kv_type, role.effort,
-                 role.temperature, role.family, manual=not role.auto, gpu_layers=layers)
+                 role.temperature, role.family, manual=not role.auto, gpu_layers=layers, cpu_moe=moe)
 
 
 class TuneSession:
@@ -150,21 +160,30 @@ class TuneSession:
         return modelconf.Role(role, d.source, d.model, d.context, d.kv_type, effort=d.effort, temperature=d.temperature, family=d.family)
 
     def plan(self, role: str) -> tuning.Plan | None:
-        """The plan for a role's draft: auto from the hardware, or the chosen context checked."""
+        """The plan for a role's draft: auto from the hardware, or the user's numbers placed on it.
+
+        None for a model Hal cannot size (the server decides its memory).
+        """
         d, model = self.drafts.get(role), self.model_of(role)
-        if d is None or model is None:
+        if d is None or model is None or not self.sized(model):
             return None
-        if d.manual and d.gpu_layers is not None and d.context > 0 and self.sized(model):
-            kv = d.kv_type if d.kv_type in tuning.KV_TYPES else self._auto_kv(model)
-            return tuning.fit_layers(model, self.hw, kv_type=kv, context=d.context, gpu_layers=d.gpu_layers,
-                                     headroom_override_mib=int(self.limits["headroom_mib"]))  # type: ignore[call-overload]
         if d.manual and d.context > 0:
-            if not model.size_bytes or model.kind in ("anthropic", "openai-cloud"):
-                return None
             kv = d.kv_type if d.kv_type in tuning.KV_TYPES else self._auto_kv(model)
-            return tuning.fit_context(model, self.hw, kv_type=kv, context=d.context,
-                                      headroom_override_mib=int(self.limits["headroom_mib"]))  # type: ignore[call-overload]
+            return tuning.place(
+                model, self.hw, kv_type=kv, context=d.context, gpu_layers=d.gpu_layers,
+                cpu_moe=d.cpu_moe if model.is_moe else None, headroom_override_mib=self._headroom(),
+            )  # fmt: skip
         return modelplan._plan(model, self.hw, self._role_cfg(role), self.limits)  # noqa: SLF001 - same package
+
+    def _headroom(self) -> int:
+        return int(self.limits["headroom_mib"])  # type: ignore[call-overload]  # validated config
+
+    def ceiling(self, role: str) -> int:
+        """The largest context the role's model takes by hand: its own maximum, or what the server serves."""
+        model = self.model_of(role)
+        if model is None:
+            return tuning.DEFAULT_CONTEXT_CAP
+        return tuning.ceiling(model)
 
     @staticmethod
     def sized(model: ModelInfo) -> bool:
@@ -184,6 +203,16 @@ class TuneSession:
             return 0, "no GPU in this plan: every layer runs on the CPU"
         return int(model.layers), ""
 
+    def experts_of(self, role: str) -> tuple[int, str]:
+        """`(layer count, reason)` when experts can be kept in RAM by hand, else 0 and why not."""
+        total, reason = self.layers_of(role)
+        model = self.model_of(role)
+        if not total or model is None:
+            return 0, reason
+        if not model.is_moe:
+            return 0, "not a mixture-of-experts GGUF model"
+        return total, ""
+
     def _auto_kv(self, model: ModelInfo) -> str:
         plan = modelplan._plan(model, self.hw, None, self.limits)  # noqa: SLF001 - same package
         return plan.kv_type if plan else "f16"
@@ -200,9 +229,12 @@ class TuneSession:
         except ValueError as exc:
             return Fit("missing", notes=(str(exc),))
         if plan is None:
-            return Fit("server", notes=("the server decides context and offload",))
-        return Fit(plan.status, plan.context, plan.kv_type, plan.gpu_layers, plan.weights_mib + plan.kv_mib,
-                   plan.budget_mib, plan.estimated, plan.reasoning, plan.card_mib, plan.total_mib)
+            model = self.model_of(role)
+            served = d.context or (model.context_served or model.context_native or 0 if model else 0)
+            why = "the server decides offload; the context is the window it serves" if served else "the server decides context and offload"
+            return Fit("server", context=served, notes=(why,))
+        return Fit(plan.status, plan.context, plan.kv_type, plan.gpu_layers, plan.vram_mib, plan.budget_mib,
+                   plan.estimated, plan.reasoning, plan.total_mib, plan.ram_mib, plan.cpu_moe)
 
     def try_context(self, role: str, tokens: int) -> Fit:
         """The fit `role` would have with `tokens` of context; the draft is not changed."""
@@ -211,6 +243,10 @@ class TuneSession:
     def try_layers(self, role: str, layers: int | None) -> Fit:
         """The fit `role` would have with this many GPU layers; the draft is not changed."""
         return self._try(role, lambda: self.set_gpu_layers(role, layers))
+
+    def try_experts(self, role: str, layers: int | None) -> Fit:
+        """The fit `role` would have with the experts of this many layers in RAM; the draft is not changed."""
+        return self._try(role, lambda: self.set_cpu_moe(role, layers))
 
     def try_kv(self, role: str, kv_type: str) -> Fit:
         """The fit `role` would have with this KV type; the draft is not changed."""
@@ -238,25 +274,51 @@ class TuneSession:
         self._fix_effort(role)
 
     def set_context(self, role: str, tokens: int) -> None:
-        """Sets the context by hand; raises `ValueError` outside what the model and tuning allow."""
+        """Sets the context by hand; raises `ValueError` below the floor or past the model's own maximum.
+
+        The KV type and any GPU layers or experts the user set stay as they are; a context that
+        no longer fits the card spills to RAM rather than being refused.
+        """
         d, model = self._need(role)
-        ceiling = min(int(self.limits["context_cap"]), model.context_native or int(self.limits["context_cap"]))  # type: ignore[call-overload]
+        ceiling = self.ceiling(role)
         if tokens < tuning.MIN_CONTEXT:
             raise ValueError(f"the context must be at least {tuning.MIN_CONTEXT} tokens")
         if tokens > ceiling:
-            raise ValueError(f"{model.name} takes at most {ceiling} tokens (its own limit or [models] context_cap)")
+            raise ValueError(f"{model.name} takes at most {ceiling} tokens")
         d.context, d.manual = tuning.round_context(tokens), True
-        if d.kv_type in ("", "auto"):
+        if d.kv_type in ("", "auto") and self.sized(model):
             d.kv_type = self._auto_kv(model)
 
     def set_kv(self, role: str, kv_type: str) -> None:
-        """Sets the KV cache type; `auto` returns the role to automatic tuning."""
+        """Sets the KV cache type by hand; `auto` lets tuning choose the type again.
+
+        Choosing a type by hand keeps the context: the current one (tuned or set) becomes the
+        user's, so changing the cache never moves the context under them. `auto` changes only
+        the type; the context and offload stay as they are.
+        """
         d, _ = self._need(role)
         if kv_type not in KV_OPTIONS:
             raise ValueError(f"KV type must be one of {', '.join(KV_OPTIONS)}")
-        d.kv_type = "" if kv_type == "auto" else kv_type
         if kv_type == "auto":
-            d.manual, d.context, d.gpu_layers = False, 0, None
+            d.kv_type = ""
+            return
+        self._pin_context(role)
+        d.kv_type, d.manual = kv_type, True
+
+    def auto_context(self, role: str) -> None:
+        """Returns the context (and the cache type and offload) of `role` to automatic tuning."""
+        d, _ = self._need(role)
+        d.manual, d.context, d.kv_type, d.gpu_layers, d.cpu_moe = False, 0, "", None, None
+
+    def _pin_context(self, role: str) -> None:
+        """Makes the current context the user's, so a later edit leaves it alone."""
+        d = self.drafts[role]
+        if d.context <= 0:
+            current = self.fit(role)
+            d.context = current.context if current.context >= tuning.MIN_CONTEXT else tuning.MIN_CONTEXT
+        model = self.model_of(role)
+        if d.kv_type in ("", "auto") and model is not None and self.sized(model):
+            d.kv_type = self._auto_kv(model)
 
     def set_gpu_layers(self, role: str, layers: int | None) -> None:
         """Puts `layers` layers on the GPU by hand; None returns the layers to tuning.
@@ -266,19 +328,31 @@ class TuneSession:
         d, model = self._need(role)
         if layers is None:
             d.gpu_layers = None
-            d.manual = d.context > 0
             return
         total, reason = self.layers_of(role)
         if not total:
             raise ValueError(reason)
         if not 0 <= layers <= total:
             raise ValueError(f"{model.name} has {total} layers; choose 0 to {total}")
-        if d.context <= 0:
-            current = self.fit(role)
-            d.context = current.context if current.context >= tuning.MIN_CONTEXT else tuning.MIN_CONTEXT
-        if d.kv_type in ("", "auto"):
-            d.kv_type = self._auto_kv(model)
+        self._pin_context(role)
         d.gpu_layers, d.manual = layers, True
+
+    def set_cpu_moe(self, role: str, layers: int | None) -> None:
+        """Keeps the routed experts of `layers` layers in RAM by hand; None returns them to tuning.
+
+        Raises `ValueError` when the model is not a mixture-of-experts GGUF or the count is out of range.
+        """
+        d, model = self._need(role)
+        if layers is None:
+            d.cpu_moe = None
+            return
+        total, reason = self.experts_of(role)
+        if not total:
+            raise ValueError(reason)
+        if not 0 <= layers <= total:
+            raise ValueError(f"{model.name} has {total} layers; choose 0 to {total}")
+        self._pin_context(role)
+        d.cpu_moe, d.manual = layers, True
 
     def snapshot(self) -> Snapshot:
         """A copy of the drafts, sources and source edits, for `restore`."""
@@ -351,7 +425,7 @@ class TuneSession:
                 self.choose(name, rp.model)
                 notes.append(f"{name}: chose {rp.model.name}")
             elif d is not None:
-                d.context, d.kv_type, d.manual, d.gpu_layers = 0, "", False, None
+                self.auto_context(name)
                 notes.append(f"{name}: tuned for this hardware")
         return notes
 
@@ -367,9 +441,8 @@ class TuneSession:
         notes = []
         for role in [r for r in modelconf.ROLES if r not in OPTIONAL_ROLES or r in self.drafts]:
             if self.fit(role).status in (keep, "server"):
-                d = self.drafts[role]
-                d.context, d.kv_type, d.manual, d.gpu_layers = 0, "", False, None
-                notes.append(f"{role}: {d.model} fits {preset.label}")
+                self.auto_context(role)
+                notes.append(f"{role}: {self.drafts[role].model} fits {preset.label}")
                 continue
             rp = modelplan.choose(role, self.found, self.sources, self.hw, self.limits, {})
             if rp.model is None:
@@ -497,6 +570,8 @@ class TuneSession:
             if plan is not None and plan.status == "does-not-fit":
                 raise ValueError(f"{role}: {model.name} does not fit this machine; choose a smaller model or context")
             rp = modelplan.RolePlan(role, self.sources[d.source], model, plan, assigned=role in self._original, manual=d.manual)
+            if plan is None and d.manual and d.context:
+                rp.declared_context = d.context
             rp.settings = {"effort": d.effort, "temperature": d.temperature}
             if d.family:
                 rp.settings["family"] = d.family

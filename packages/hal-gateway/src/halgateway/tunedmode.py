@@ -8,7 +8,9 @@ user's modes directory, beside the bundled modes (which keep working). Decisions
   must be pinned in the model manifest, and no forbidden key is written.
 - Presets load on demand (`load-on-startup = false`) because the roles are planned one at a
   time, not as a set that fits in memory together.
-- `n-gpu-layers = 99` means "all layers" (the value existing bundled modes use).
+- `n-gpu-layers = 99` means "all layers" (the value existing bundled modes use). A
+  mixture-of-experts role that does not fit keeps every layer on the GPU and the routed experts
+  of `n-cpu-moe` layers in RAM (llama-server `--n-cpu-moe`), as the bundled hybrid modes do.
 - A write often plans only some roles (`hal tune --role`, `hal models assign`, the screens write
   the changed ones), so `read` gives back the presets already in the file for the caller to keep.
 - The `embeddings` key for the embed role and `tensor-split` follow llama-server's argument
@@ -27,6 +29,9 @@ from halkit.tuning import ALL_LAYERS
 MODE_NAME = "tuned"
 ALL_LAYERS_VALUE = 99
 PARALLEL_SLOTS = 1  # one slot per preset: the context is sized for a single conversation
+# llama-server's `--fit` (on by default in b11512) moves unset settings to keep a 1 GiB margin;
+# the tuned numbers are already sized, and a setting the user made past the guidance must stay
+FIT = "off"
 
 
 @dataclass(frozen=True)
@@ -42,6 +47,7 @@ class Preset:
     temperature: float = -1.0  # -1 = leave the model's default
     embedding: bool = False
     mmproj: Path | None = None
+    cpu_moe: int = 0  # layers whose routed experts stay in RAM
 
 
 def preset_name(role: str) -> str:
@@ -59,6 +65,8 @@ def _section(p: Preset) -> list[str]:
         f"cache-type-k = {p.kv_type}",
         f"cache-type-v = {p.kv_type}",
     ]
+    if p.cpu_moe:
+        lines.append(f"n-cpu-moe = {p.cpu_moe}")
     if p.tensor_split:
         lines.append("tensor-split = " + ",".join(f"{share:g}" for share in p.tensor_split))
     if p.temperature >= 0:
@@ -87,6 +95,7 @@ def render(presets: list[Preset]) -> str:
         "[*]",
         "jinja = true",
         "flash-attn = on",
+        f"fit = {FIT}",
         f"parallel = {PARALLEL_SLOTS}",
         "load-on-startup = false",
         "",
@@ -128,6 +137,7 @@ def read(path: Path) -> list[Preset]:
                     temperature=float(sec.get("temp", "-1")),
                     embedding=sec.get("embeddings") == "true",
                     mmproj=Path(sec["mmproj"]) if "mmproj" in sec else None,
+                    cpu_moe=int(sec.get("n-cpu-moe", "0")),
                 )
             )
         except (KeyError, ValueError) as exc:

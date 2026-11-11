@@ -518,7 +518,7 @@ class TuneScreen:
         value = rest
         if not value:
             items = [("Auto: let tuning decide", "auto")]
-            for tokens in tunestate.CONTEXT_PRESETS:
+            for tokens in [t for t in tunestate.CONTEXT_PRESETS if t <= self.state.ceiling(role)]:
                 fit = self.state.try_context(role, tokens)
                 items.append((f"{tokens // 1024:>3}K  {self._fit_text(fit)}", str(tokens)))
             items.append(("Custom...", CUSTOM))
@@ -528,7 +528,7 @@ class TuneScreen:
         if not value:
             return
         if value == "auto":
-            self.state.set_kv(role, "auto")
+            self.state.auto_context(role)
         else:
             self.state.set_context(role, parse_tokens(value))
         self.dirty = True

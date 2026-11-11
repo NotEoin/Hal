@@ -54,9 +54,10 @@ model = "gemma3:12b"
 context = 76800        # tokens; 0 = decided by tuning
 kv_type = "f16"        # f16, q8_0, q4_0 or auto
 gpu_layers = -1        # -1 = all on the GPU, or decided by tuning
+cpu_moe = 0            # mixture-of-experts GGUF: layers whose experts stay in RAM
 effort = "medium"      # default effort: off, low, medium, high, max
 temperature = 0.7      # -1 = the model's default
-auto = true            # true: `hal tune --write` may replace context, kv_type and gpu_layers
+auto = true            # true: `hal tune --write` may replace context, kv_type and the offload
 ```
 
 ### Named roles
@@ -85,9 +86,9 @@ characters. Add one in the tune screen (**New role...**), or with
 choose a model for a named role: it keeps the model you gave it. A named role on a GGUF file
 gets its own preset (`tuned-NAME`) in the generated mode.
 
-`[models]` itself takes `context_cap` (largest context tuning plans, default 131072),
-`headroom_mib` (VRAM kept free per GPU, 0 = the larger of 1 GiB and 8 percent) and
-`kv_type` (default `auto`).
+`[models]` itself takes `context_cap` (largest context auto-tune picks, default 131072; a
+context you set yourself may go up to the model's own maximum), `headroom_mib` (VRAM auto-tune
+leaves free per GPU, 0 = the larger of 1 GiB and 8 percent) and `kv_type` (default `auto`).
 
 ## Commands
 
@@ -120,7 +121,8 @@ Exit status of `hal tune`: 0 done, 1 error, 2 usage, 3 nothing to tune (no sourc
 Nothing is written until you save.
 
 ```text
-RTX 4090  24000 / 24564 MiB free     RAM 24576 / 32768 MiB free   CPU 16 threads
+GPU 0  RTX 4090  24.0 GB
+RAM  32.0 GB   CPU  16 threads
 Plan for  [ This machine ] [ 8 GB ] [ 12 GB ] [ 16 GB ] [ 24 GB ] [ CPU only ]
  Roles | Sources | Review 1
  chat   local/gemma3:12b (hal-chat) *  | chat
@@ -130,7 +132,7 @@ Plan for  [ This machine ] [ 8 GB ] [ 12 GB ] [ 16 GB ] [ 24 GB ] [ CPU only ]
         set in [hal] (not tuned)       | GPU layers   ======================O     48  [Auto]
  ...                                   | Effort       [ default ] [ off ] [ low ] [ medium ] ...
  guard  ollama/granite4.1-guardian:8b  | Temperature  ==========O-----------    auto  [Default]
-        (safety check, CPU)            | Memory       [##############-------] 9.4 / 22.1 GB  fits
+        (safety check, CPU)            | Memory       [##############----|--] 9.4 / 24.0 GB  fits
  ^s Save  ^z Undo  esc Quit  f1 Help  f2 Roles  f3 Sources  f4 Review
 ```
 
@@ -148,15 +150,25 @@ Plan for  [ This machine ] [ 8 GB ] [ 12 GB ] [ 16 GB ] [ 24 GB ] [ CPU only ]
   to type an exact value (`48k` for a context); a value outside the range is refused with the
   range. The memory bar moves while you drag; the change lands when you let go. `Auto` (or `a`)
   hands the value back to tuning; `Default` leaves the temperature to the model.
+- Every field is yours once you move it: nothing you set changes unless you press its `Auto`
+  button, **Auto-tune this role** or a preset. A setting that no longer fits the card is not
+  refused; the rest spills to RAM and the memory bar says how much.
+- **Context** goes up to the model's own maximum. For a model the server sizes (vLLM and other
+  OpenAI-compatible servers) it declares the window the server serves, so clients see it.
 - **GPU layers** puts that many layers on the GPU by hand. It is off, with the reason, when the
   model's layer count is unknown, when the server sizes the model, or when the plan has no GPU.
+- **RAM experts** replaces GPU layers for a mixture-of-experts GGUF (the kind the `max` profile
+  runs): every layer stays on the GPU and the routed experts of that many layers stay in RAM,
+  which is much faster than moving whole layers. Use it to run a model larger than your VRAM.
 - **KV cache** and **Effort** are rows of buttons. `auto` shows what tuning picks now. Effort
   levels the model cannot use are struck through; `default` clears the effort.
-- **Memory** spans the whole card, with a `|` at the budget (the guidance). Auto-tune stays left of
-  it. A context or layer count you set may go past it, up to the card less 600 MiB for the runtime:
-  fine on a headless GPU, risky with a desktop on the card. The bar is green when the role fits,
-  amber when it is tight (over 85 percent of the budget), past the guidance or spilling into RAM,
-  and red when it does not fit; the lines below it give the numbers.
+- **Memory** is what the model takes on the card (weights, cache and llama.cpp's own buffers)
+  against the card's total, with a `|` at the auto-tune guidance. Auto-tune stays left of it. A
+  setting you make may use the whole card: fine on a headless GPU, risky with a desktop on the
+  card. `+ N RAM` is the part in system RAM. The bar is green when the role fits, amber when it
+  is tight (over 92 percent of the card), past the guidance or spilling into RAM, and red when
+  it does not fit; the lines below it give the numbers. It does not change with what is loaded
+  right now: plans count the whole card, and a note says when something holds part of it.
 - **Sources** adds a source (the form keeps what you typed and shows any error in place) or
   removes one; Remove is off, with the reason, while a role uses the source.
 - **Review** shows the diff of `config.toml`. **Save** (Ctrl+S) shows the diff again and asks,
@@ -195,20 +207,20 @@ a role: `model code`.
 
 ## Tuning
 
-For each GPU Hal keeps the larger of 1 GiB and 8 percent free, and 600 MiB for the runtime.
-What is left, over all GPUs, is the budget. It starts from the card's total memory, not what is
-free at that moment, so a program that holds the card today does not shrink the plan; if one does,
-`hal tune` warns that another program is using N GB and that the plan assumes it is free.
-The weights come out of the budget; the rest holds
-the KV cache, which costs `2 x layers x kv_heads x head_dim x bytes` per token (f16 2 bytes,
-q8_0 about 1.06, q4_0 about 0.56). The context is what fits, rounded down to a multiple of 1024
-and capped at the model's native maximum and at `[models] context_cap`. Example: a 24 GB card
-and a 12B Q4 model give 79872 tokens at f16. If the weights do not fit, layers move to system
-RAM (hybrid); with no GPU the model runs on the CPU. With `kv_type = auto` Hal keeps the most
-precise cache that still gives 32768 tokens. If a model's architecture is not known (a server
-that does not say), Hal assumes a pessimistic KV size and the plan says so.
+Hal estimates what a model takes on the GPU: the weights there, the KV cache
+(`2 x layers x kv_heads x head_dim x bytes` per token: f16 2 bytes, q8_0 about 1.06, q4_0 about
+0.56) and llama.cpp's own buffers. Checked against `nvidia-smi` on an RTX 3090, the estimate was
+6 to 107 MiB high, never low. Auto-tune picks the most context that fits the card less a headroom
+(the larger of 1 GiB and 8 percent), rounded down to 1024 and capped at the model's maximum and
+`[models] context_cap`; a 24 GB card and a 12B Q4 model get 79872 tokens at f16. If the weights
+do not fit, a dense model moves layers to RAM and a mixture-of-experts model moves experts; with
+no GPU the model runs on the CPU. With `kv_type = auto` Hal keeps the most precise cache that
+still gives 32768 tokens. Plans use the total VRAM and RAM, not what is free while Hal or
+another program runs. If a model's architecture is not known (a server that does not say), Hal
+assumes a pessimistic KV size and the plan says so.
 
-The formula, a full worked example and the limits are in [../dev/tuning.md](../dev/tuning.md).
+The formula, the measurements, a worked example and the limits are in
+[../dev/tuning.md](../dev/tuning.md).
 
 ## Effort
 

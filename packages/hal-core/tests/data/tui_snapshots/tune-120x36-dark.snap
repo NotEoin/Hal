@@ -1,7 +1,7 @@
 # hal tui snapshot: screen=tune size=120x36 theme=dark look=unicode textual=8.2.8
 ## text
- GPU 0  RTX 4090  24000 / 24564 MiB free                                                                                
- RAM  24576 / 32768 MiB free   CPU  16 threads                                                                          
+ GPU 0  RTX 4090  24.0 GB                                                                                               
+ RAM  32.0 GB   CPU  16 threads                                                                                         
  Plan for   This machine   8 GB   12 GB   16 GB   24 GB   CPU only                                                      
                                                                                                                         
  Roles  Sources  Review                                                                                                 
@@ -20,13 +20,13 @@
    embeddinggemma                                                                                                       
  guard   safety check, GPU when fr\u2026  Temperature \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u25cf\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500   default  Default  
    hal-fast                                                                                                             
-                                     Memory      [\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591|\u2591\u2591\u2591\u2591] 10.6 / 24.0 GB  fits 
+                                     Memory      [\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591|\u2591\u2591\u2591] 11.1 / 24.0 GB  fits 
                                                                                                                         
-                                     - budget 21998 MiB - weights 5120 MiB = 16878 MiB for the KV cache                 
-                                     - 16878 MiB / 144.0 KiB per token = 40960 tokens (cap 40960)                       
+                                     - weights 5120 MiB + KV 5760 MiB for 40960 tokens + runtime 517 MiB                
+                                     - 11397 MiB of the 24564 MiB GPU (auto-tune keeps to 22598)                        
+                                     - the most context within the 22598 MiB guidance: 40960 tokens (cap 40960)         
                                                                                                                         
                                       Auto-tune this role    Clear role                                                 
-                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         
@@ -37,8 +37,8 @@
  New role...                                                                                                            
  ^s Save  ^z Undo  esc Quit  f1 Help  f2 Roles  f3 Sources  f4 Review                                                   
 ## roles
-00 _1 x3 _1 x1 _2 x3 _1 x4 _2 x5 _1 x1 _1 x5 _1 x3 _1 x4 _80
-01 _1 x3 _2 x5 _1 x1 _1 x5 _1 x3 _1 x4 _3 x3 _2 x2 _1 x7 _74
+00 _1 x3 _1 x1 _2 x3 _1 x4 _2 x4 _1 x2 _95
+01 _1 x3 _2 x4 _1 x2 _3 x3 _2 x2 _1 x7 _89
 02 _1 x4 _1 x3 _3 f4 _1 f7 _3 f1 _1 f2 _3 f2 _1 f2 _3 f2 _1 f2 _3 f2 _1 f2 _3 f3 _1 f4 _54
 03 _120
 04 _1 f5 _2 x7 _2 x6 _97
@@ -71,20 +71,20 @@
 18bg X36 .74 S9 .1
 19 _3 f8 _109
 19bg X36 .84
-20 _37 x6 _6 f1 o21 x21 F1 x4 f1 _1 o4 _1 o1 _1 o4 _1 o2 _2 o4 _1
+20 _37 x6 _6 f1 o22 x21 F1 x3 f1 _1 o4 _1 o1 _1 o4 _1 o2 _2 o4 _1
 20bg X36 .84
 21 _120
 21bg X36 .84
-22 _37 x1 _1 x6 _1 x5 _1 x3 _1 x1 _1 x7 _1 x4 _1 x3 _1 x1 _1 x5 _1 x3 _1 x3 _1 x3 _1 x2 _1 x5 _17
+22 _37 x1 _1 x7 _1 x4 _1 x3 _1 x1 _1 x2 _1 x4 _1 x3 _1 x3 _1 x5 _1 x6 _1 x1 _1 x7 _1 x3 _1 x3 _16
 22bg X36 .84
-23 _37 x1 _1 x5 _1 x3 _1 x1 _1 x5 _1 x3 _1 x3 _1 x5 _1 x1 _1 x5 _1 x6 _1 x4 _1 x6 _23
+23 _37 x1 _1 x5 _1 x3 _1 x2 _1 x3 _1 x5 _1 x3 _1 x3 _1 x10 _1 x5 _1 x2 _1 x6 _24
 23bg X36 .84
-24 _120
+24 _37 x1 _1 x3 _1 x4 _1 x7 _1 x6 _1 x3 _1 x5 _1 x3 _1 x9 _1 x5 _1 x6 _1 x4 _1 x6 _9
 24bg X36 .84
-25 _38 F9 _1 F4 _1 F4 _4 F5 _1 F4 _49
-25bg X36 .1 S21 .2 S12 .48
-26 _120
-26bg X36 .84
+25 _120
+25bg X36 .84
+26 _38 F9 _1 F4 _1 F4 _4 F5 _1 F4 _49
+26bg X36 .1 S21 .2 S12 .48
 27 _120
 27bg X36 .84
 28 _120

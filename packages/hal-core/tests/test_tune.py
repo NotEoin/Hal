@@ -297,7 +297,7 @@ def test_the_text_plan_shows_hardware_numbers_and_the_write_hint(home, ollama, h
     assert tune.main(["--auto", "--role", "chat", "--hardware", hw_file(CARD_24GB)]) == 0
     out = capsys.readouterr().out
     assert "RTX 4090 24564 MiB (24000 free)" in out and "local/gemma:12b" in out
-    assert "budget" in out and "Run again with --write" in out
+    assert "guidance" in out and "Run again with --write" in out
 
 
 def test_a_failed_pin_rolls_back_earlier_pins_and_writes_no_config(home, ollama, tmp_path, hw_file, capsys, monkeypatch):

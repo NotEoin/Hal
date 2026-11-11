@@ -6,15 +6,21 @@ the fallback. Nothing is written until Save, which shows the diff, asks with Can
 then writes through `TuneSession.write` (the `modelplan.apply` path of `hal tune --write`).
 
 Layout: a hardware line, a preset row ("Plan for"), then tabs. Roles: a role list on the left
-(with "New role..." for a named setup such as `code-128k`) and the editor of the chosen role on the right (model, context, KV cache, GPU layers, effort,
-temperature, a VRAM gauge and the reasoning). Sources: the model sources, add and remove.
+(with "New role..." for a named setup such as `code-128k`) and the editor of the chosen role on
+the right (model, context, KV cache, GPU layers or experts in RAM, effort, temperature, a VRAM
+gauge and the reasoning). Sources: the model sources, add and remove.
 Review: the config diff and Save. A first run (no role assigned) opens Quick start, which
 previews what each preset would choose.
 
 Design decisions:
 
-- Sliders preview with `try_context` / `try_layers` while they move (pure maths, cheap) and edit
-  the draft only on release or a key step (`Slider.Changed.final`), so a drag is one undo step.
+- Sliders preview with `try_context` / `try_layers` / `try_experts` while they move (pure maths,
+  cheap) and edit the draft only on release or a key step (`Slider.Changed.final`), so a drag is
+  one undo step.
+- A field changes only when the user moves it or presses its Auto button; Auto-tune and the
+  presets are the only actions that change several fields at once.
+- The gauge's full scale is the cards' total memory, and its divider marks the auto-tune
+  guidance: a setting made by hand may use the whole card.
 - The editor is rebuilt only when the role or its model changes; other edits update the widgets
   in place, so keyboard focus stays where the user is.
 - `[hal]` and `policy.toml` are read once when the app opens, not on every redraw.
@@ -66,18 +72,19 @@ def tokens_label(value: float) -> str:
 
 
 def gauge_status(fit: tunestate.Fit) -> str:
-    """The gauge colour key of a fit: `tight` for a GPU fit above `TIGHT_FRACTION` of the budget."""
-    if fit.status == "gpu" and fit.budget_mib and fit.used_mib > TIGHT_FRACTION * fit.budget_mib:
+    """The gauge colour key of a fit: `tight` for a GPU fit above `TIGHT_FRACTION` of the card."""
+    if fit.status == "gpu" and fit.total_mib and fit.used_mib > TIGHT_FRACTION * fit.total_mib:
         return "tight"
     return fit.status
 
 
 def gauge_caption(fit: tunestate.Fit, look: Look) -> str:
-    """`9.4 / 24.0 GB  fits` for a sized fit (of the whole card; the gauge marks the guidance); the fit line otherwise."""
-    if fit.status in ("gpu", "hybrid", "cpu", "does-not-fit") and fit.total_mib:
-        return f"{gib(fit.used_mib)} / {gib(fit.total_mib)} GB  {fit_word(fit)}"
-    if fit.status in ("gpu", "hybrid", "cpu", "does-not-fit") and fit.budget_mib:
-        return f"{gib(fit.used_mib)} / {gib(fit.budget_mib)} GB  {fit_word(fit)}"
+    """`9.4 / 24.0 GB  fits` of the whole card, `+ 20.1 GB RAM` when part runs from RAM; the fit line otherwise."""
+    if fit.status in ("gpu", "hybrid", "does-not-fit") and fit.total_mib:
+        ram = f" + {gib(fit.ram_mib)} RAM" if fit.ram_mib else ""
+        return f"{gib(fit.used_mib)} / {gib(fit.total_mib)} GB{ram}  {fit_word(fit)}"
+    if fit.status == "cpu":
+        return f"{gib(fit.ram_mib)} GB RAM  {fit_word(fit)}"
     if fit.status in ("gpu", "hybrid", "cpu", "does-not-fit"):
         return f"{gib(fit.used_mib)} GB  {fit_word(fit)}"
     return fit_line(fit, None, look)[1]
@@ -129,11 +136,7 @@ class RoleEditor(VerticalScroll, can_focus=False):
                 if modelconf.is_custom(role):  # a named role can be dropped before it has a model
                     yield Button("Remove role", id="remove-role")
             return
-        model = state.model_of(role)
-        ceiling = int(state.limits["context_cap"])  # type: ignore[call-overload]  # validated config
-        if model is not None and model.context_native:
-            ceiling = min(ceiling, model.context_native)
-        ceiling = max(ceiling, tuning.MIN_CONTEXT * 2)
+        ceiling = max(state.ceiling(role), tuning.MIN_CONTEXT * 2)
         with Horizontal(classes="row"):
             yield SafeStatic(Text("Context"), classes="label")
             yield Slider(tuning.MIN_CONTEXT, tuning.MIN_CONTEXT, ceiling, tuning.CONTEXT_STEP, log=True,
@@ -144,13 +147,22 @@ class RoleEditor(VerticalScroll, can_focus=False):
         with Horizontal(classes="row"):
             yield SafeStatic(Text("KV cache"), classes="label")
             yield Segmented([Segment(k, k) for k in tunestate.KV_OPTIONS], "auto", id="kv")
-        total, reason = state.layers_of(role)
-        with Horizontal(classes="row"):
-            yield SafeStatic(Text("GPU layers"), classes="label")
-            yield Slider(total, 0, max(total, 1), 1, fmt=lambda v: "all" if int(v) == total else f"{int(v)}",
-                         allow_auto=True, auto_label=lambda v: "auto all" if int(v) == total else f"auto {int(v)}",
-                         reason=reason, disabled=not total, title=f"{role} GPU layers", id="layers")  # fmt: skip
-            yield Button("Auto", id="layers-auto", disabled=not total)
+        experts, _ = state.experts_of(role)
+        if experts:  # a mixture-of-experts GGUF spills experts, not layers (tuning module docstring)
+            with Horizontal(classes="row"):
+                yield SafeStatic(Text("RAM experts"), classes="label")
+                yield Slider(0, 0, experts, 1, fmt=lambda v: f"{int(v)} of {experts} layers",
+                             allow_auto=True, auto_label=lambda v: f"auto {int(v)}",
+                             title=f"{role} layers whose experts stay in RAM", id="experts")  # fmt: skip
+                yield Button("Auto", id="experts-auto")
+        else:
+            total, reason = state.layers_of(role)
+            with Horizontal(classes="row"):
+                yield SafeStatic(Text("GPU layers"), classes="label")
+                yield Slider(total, 0, max(total, 1), 1, fmt=lambda v: "all" if int(v) == total else f"{int(v)}",
+                             allow_auto=True, auto_label=lambda v: "auto all" if int(v) == total else f"auto {int(v)}",
+                             reason=reason, disabled=not total, title=f"{role} GPU layers", id="layers")  # fmt: skip
+                yield Button("Auto", id="layers-auto", disabled=not total)
         levels, why_not = state.effort_options(role)
         segments = [Segment(tunestate.DEFAULT_EFFORT, tunestate.DEFAULT_EFFORT)]
         segments += [Segment(lv, lv, "" if lv in levels else (why_not or "not for this model")) for lv in modelconf.EFFORT_CHOICES]
@@ -194,19 +206,24 @@ class RoleEditor(VerticalScroll, can_focus=False):
         fit = state.fit(role)
         sized = fit.status in ("gpu", "hybrid", "cpu", "does-not-fit")
         ctx = self.query_one("#ctx", Slider)
-        ctx.disabled = not sized
-        ctx.reason = "" if sized else (fit.notes[0] if fit.notes else "the server decides")
+        settable = sized or (fit.status == "server" and fit.context > 0)
+        ctx.disabled = not settable
+        ctx.reason = "" if settable else (fit.notes[0] if fit.notes else "the server decides")
         _quiet(ctx, float(d.context or fit.context or tuning.MIN_CONTEXT), auto=not d.context)
         kv = self.query_one("#kv", Segmented)
         auto_kv = fit.kv_type if not d.kv_type and fit.kv_type else ""
         kv.segments = [Segment(f"auto ({auto_kv})" if k == "auto" and auto_kv else k, k) for k in tunestate.KV_OPTIONS]
         kv.selected = d.kv_type or "auto"
         kv.refresh(layout=True)
-        layers = self.query_one("#layers", Slider)
-        total, _ = state.layers_of(role)
-        if total:
-            shown = d.gpu_layers if d.gpu_layers is not None else (total if fit.gpu_layers < 0 else fit.gpu_layers)
-            _quiet(layers, float(shown), auto=d.gpu_layers is None)
+        if self.query("#experts"):
+            _quiet(self.query_one("#experts", Slider), float(d.cpu_moe if d.cpu_moe is not None else fit.cpu_moe),
+                   auto=d.cpu_moe is None)  # fmt: skip
+        else:
+            layers = self.query_one("#layers", Slider)
+            total, _ = state.layers_of(role)
+            if total:
+                shown = d.gpu_layers if d.gpu_layers is not None else (total if fit.gpu_layers < 0 else fit.gpu_layers)
+                _quiet(layers, float(shown), auto=d.gpu_layers is None)
         effort = self.query_one("#effort", Segmented)
         effort.selected = d.effort or tunestate.DEFAULT_EFFORT
         temp = self.query_one("#temp", Slider)
@@ -217,7 +234,7 @@ class RoleEditor(VerticalScroll, can_focus=False):
     def show_fit(self, fit: tunestate.Fit) -> None:
         """The gauge and the reasoning for `fit` (the draft's, or a preview while a slider moves)."""
         gauge = self.query_one("#gauge", FitGauge)
-        gauge.show(fit.used_mib, fit.total_mib or fit.budget_mib, gauge_status(fit), gauge_caption(fit, self.tune.look), mark=fit.budget_mib)
+        gauge.show(fit.used_mib, fit.total_mib, gauge_status(fit), gauge_caption(fit, self.tune.look), mark=fit.budget_mib)
         notes = list(fit.notes)
         self.query_one("#why", SafeStatic).update(Text("\n".join(f"- {clean(n)}" for n in notes), style="dim"))
 
@@ -607,7 +624,7 @@ class TuneApp(App[int]):
         role, state, which = self.role, self.state, event.slider.id
         if which == "ctx":
             if event.auto:
-                self.change(lambda: state.set_kv(role, "auto"))
+                self.change(lambda: state.auto_context(role))
             elif event.final:
                 self.change(lambda: state.set_context(role, int(event.value)))
             else:
@@ -619,6 +636,13 @@ class TuneApp(App[int]):
                 self.change(lambda: state.set_gpu_layers(role, int(event.value)))
             else:
                 self.editor().show_fit(state.try_layers(role, int(event.value)))
+        elif which == "experts":
+            if event.auto:
+                self.change(lambda: state.set_cpu_moe(role, None))
+            elif event.final:
+                self.change(lambda: state.set_cpu_moe(role, int(event.value)))
+            else:
+                self.editor().show_fit(state.try_experts(role, int(event.value)))
         elif which == "temp" and (event.final or event.auto):
             value = modelconf.UNSET_TEMPERATURE if event.auto else event.value
             self.change(lambda: state.set_temperature(role, value))
@@ -653,9 +677,11 @@ class TuneApp(App[int]):
         if which == "model-btn":
             self.run_worker(self.pick_model(), exclusive=True, group="pick")
         elif which == "ctx-auto":
-            self.change(lambda: state.set_kv(role, "auto"))
+            self.change(lambda: state.auto_context(role))
         elif which == "layers-auto":
             self.change(lambda: state.set_gpu_layers(role, None))
+        elif which == "experts-auto":
+            self.change(lambda: state.set_cpu_moe(role, None))
         elif which == "temp-default":
             self.change(lambda: state.set_temperature(role, modelconf.UNSET_TEMPERATURE))
         elif which == "auto-role":

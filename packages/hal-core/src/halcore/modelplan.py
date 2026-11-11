@@ -69,6 +69,7 @@ class RolePlan:
     assigned: bool = False  # True when the config already named this model
     locked: bool = False  # `auto = false`: the user's context, kv_type and gpu_layers stay
     manual: bool = False  # the plan holds numbers the user chose: write them and set `auto = false`
+    declared_context: int = 0  # a server-sized model's context, set by the user (no plan to carry it)
     settings: dict[str, object] = field(default_factory=dict)  # `effort` and `temperature` to write
     notes: list[str] = field(default_factory=list)
 
@@ -352,7 +353,8 @@ def _preset(rp: RolePlan) -> tunedmode.Preset:
     p = rp.plan
     return tunedmode.Preset(
         role=rp.role, model_path=Path(rp.model.path), context=p.context, kv_type=p.kv_type, gpu_layers=p.gpu_layers,
-        tensor_split=p.tensor_split, embedding=rp.role == "embed", mmproj=_mmproj(Path(rp.model.path)) if rp.role == "vision" else None,
+        tensor_split=p.tensor_split, embedding=rp.role == "embed",
+        mmproj=_mmproj(Path(rp.model.path)) if rp.role == "vision" else None, cpu_moe=p.cpu_moe,
     )
 
 
@@ -381,10 +383,14 @@ def role_table(rp: RolePlan, current: Mapping[str, object]) -> dict[str, object]
     locked = (rp.locked and not rp.manual) or rp.plan is None
     if rp.plan is not None and not locked:
         values.update(context=rp.plan.context, kv_type=rp.plan.kv_type, gpu_layers=rp.plan.gpu_layers)
+        if rp.plan.cpu_moe:
+            values["cpu_moe"] = rp.plan.cpu_moe
     else:
-        for key in ("context", "kv_type", "gpu_layers"):
+        for key in ("context", "kv_type", "gpu_layers", "cpu_moe"):
             if key in current:
                 values[key] = current[key]
+        if rp.declared_context:
+            values["context"] = rp.declared_context
     if locked or rp.manual:
         values["auto"] = False
     return values

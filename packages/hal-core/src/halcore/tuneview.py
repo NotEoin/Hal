@@ -20,9 +20,9 @@ from .tui.status import context_bar
 from .tui.theme import Look
 
 MIB_PER_GIB = 1024
-# a cache that takes more than this share of the VRAM budget leaves little slack for long prompts;
+# a model that takes more than this share of the card leaves little room for anything else on it;
 # a judgement, not a measured limit
-TIGHT_FRACTION = 0.85
+TIGHT_FRACTION = 0.92
 TOKENS = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kKmM]?)\s*$")
 
 
@@ -42,9 +42,9 @@ def gib(mib: int) -> str:
 
 def hardware_lines(hw: hwmod.Hardware) -> list[str]:
     """One line per fact about the machine: each GPU, memory, CPU, WSL2 and detection notes."""
-    lines = [f"GPU {g.index}  {g.name}  {g.free_mib} / {g.total_mib} MiB free" for g in hw.gpus]
+    lines = [f"GPU {g.index}  {g.name}  {gib(g.total_mib)} GB" for g in hw.gpus]
     lines = lines or ["GPU  none: models run on the CPU"]
-    lines.append(f"RAM  {hw.ram_free_mib} / {hw.ram_total_mib} MiB free   CPU  {hw.cpu_threads} threads")
+    lines.append(f"RAM  {gib(hw.ram_total_mib)} GB   CPU  {hw.cpu_threads} threads")
     warning = tuning.busy_warning(hw)
     if warning:
         lines.append(f"note: {warning}")
@@ -60,32 +60,39 @@ def fit_line(fit: tunestate.Fit, layers: int | None, look: Look) -> tuple[str, s
         return "muted", "no model: choose one, or auto-tune the role"
     if fit.status in ("missing", "server"):
         return "bad" if fit.status == "missing" else "muted", fit.notes[0] if fit.notes else fit.status
-    bar = context_bar(fit.used_mib, fit.total_mib or fit.budget_mib, g)
-    if fit.above_guidance:
-        return "muted", f"{bar} {gib(fit.used_mib)} GiB VRAM, above the {gib(fit.budget_mib)} GiB guidance, all layers on the GPU"
+    bar = context_bar(fit.used_mib, fit.total_mib, g)
+    vram = f"{gib(fit.used_mib)} of {gib(fit.total_mib)} GiB VRAM"
+    above = f", above the {gib(fit.budget_mib)} GiB auto-tune guidance" if fit.above_guidance else ""
     if fit.status == "gpu":
-        return "ok", f"{bar} {gib(fit.used_mib)} of {gib(fit.budget_mib)} GiB VRAM, all layers on the GPU"
+        return "muted" if above else "ok", f"{bar} {vram}{above}, all on the GPU"
     if fit.status == "hybrid":
-        total = f"of {layers} " if layers else ""
-        return "muted", f"{bar} {gib(fit.used_mib)} GiB needed, {fit.gpu_layers} {total}layers on the GPU, the rest in RAM"
+        if fit.cpu_moe:
+            where = f"the experts of {fit.cpu_moe} layers in RAM"
+        else:
+            where = f"{fit.gpu_layers} {f'of {layers} ' if layers else ''}layers on the GPU"
+        return "muted", f"{bar} {vram} + {gib(fit.ram_mib)} GiB RAM{above}, {where}"
     if fit.status == "cpu":
-        return "muted", f"{gib(fit.used_mib)} GiB in system RAM, CPU only"
+        return "muted", f"{gib(fit.ram_mib)} GiB in system RAM, CPU only"
     return "bad", "does not fit: " + (fit.notes[-1] if fit.notes else "use a smaller model or context")
 
 
 def fit_word(fit: tunestate.Fit) -> str:
     """`fits`, `tight`, `too big` and the like: one word for how well a draft fits."""
-    if fit.above_guidance:
+    if fit.status == "gpu" and fit.above_guidance:
         return "above guidance"
     if fit.status == "gpu":
-        return "tight" if fit.budget_mib and fit.used_mib > TIGHT_FRACTION * fit.budget_mib else "fits"
-    return {"hybrid": "tight, uses RAM", "cpu": "CPU only", "does-not-fit": "too big"}.get(fit.status, "")
+        return "tight" if fit.total_mib and fit.used_mib > TIGHT_FRACTION * fit.total_mib else "fits"
+    return {"hybrid": "uses RAM", "cpu": "CPU only", "does-not-fit": "too big"}.get(fit.status, "")
 
 
 def fit_text(fit: tunestate.Fit, look: Look) -> str:
     """`9.4 GB  fits` for a sized fit; the fit line text otherwise."""
-    if fit.status in ("gpu", "hybrid", "cpu", "does-not-fit") and fit.used_mib:
+    if fit.status == "cpu":
+        return f"{gib(fit.ram_mib)} GB RAM  {fit_word(fit)}"
+    if fit.status in ("gpu", "hybrid", "does-not-fit") and fit.used_mib:
         return f"{gib(fit.used_mib)} GB  {fit_word(fit)}"
+    if fit.status == "server" and fit.context:
+        return "the server decides"
     return fit_line(fit, None, look)[1]
 
 

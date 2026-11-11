@@ -1,31 +1,37 @@
-"""Tuning maths: how much context a model gets on this machine, and how much of it goes on the GPU.
+"""Tuning maths: how much context a model gets on this machine, and where its memory goes.
 
-Pure functions over `Hardware` and `ModelInfo`; no I/O. The formulas and their limits are in
-docs/dev/tuning.md. In short, per GPU:
+Pure functions over `Hardware` and `ModelInfo`; no I/O. The formulas, a worked example and the
+measurements behind the constants are in docs/dev/tuning.md. In short:
 
-    usable   = total_mib - max(1024, 8 % of total_mib) - RUNTIME_OVERHEAD_MIB
-    budget   = sum of usable over all GPUs
-    kv/token = 2 x layers x kv_heads x head_dim x bytes(kv type)
-               (only for the full-attention layers; sliding-window layers stop at the window,
-               linear-attention layers of hybrid models cost nothing here)
-    context  = floor((budget - weights) / kv/token), rounded down to 1024, clamped to the
-               model's native maximum and to the configured cap
+    on the GPU = weights on the GPU + KV cache + runtime overhead
+    overhead   = CUDA_CONTEXT_MIB per GPU + the output buffer (UBATCH x vocab x 4 bytes)
+                 + the attention mask (UBATCH x context x 2 bytes)
+                 + one layer's cache as f16 over the context, when the cache is quantised
+    kv/token   = 2 x layers x kv_heads x head_dim x bytes(kv type)
+                 (only for the full-attention layers; sliding-window layers stop at the window,
+                 linear-attention layers of hybrid models cost nothing here)
+    a setting fits the GPU when "on the GPU" is at most the cards' total memory
 
-The plan uses the card's total memory, not its momentary free memory: another program that
-holds the card today (a big model, a game) would otherwise shrink every role to nothing.
-`gpu_busy_mib` and `busy_warning` tell the user when the card is not free.
+Two limits, one for each way a setting is made:
 
-When the weights alone do not fit, layers are offloaded one at a time (hybrid) and the rest of
-the model lives in system RAM. Without a GPU the plan is CPU-only. An unknown architecture
-gets a deliberately pessimistic KV estimate and the plan says so.
+- `plan_model` (auto-tune) stays within the guidance budget: total memory less a headroom per
+  card (`headroom_mib`), so a desktop sharing the card keeps some room.
+- `place` checks settings the user made by hand against the whole card: a headless GPU needs no
+  headroom, and the user may take the risk. Past the guidance a reasoning line says so; past the
+  card, layers (or experts) spill to RAM, which works but is slower.
 
 Design decisions:
 
-- The budget (total minus headroom) is guidance: `plan_model`, which auto-tune uses, stays within
-  it. A context or layer count the user sets (`fit_context`, `fit_layers`) may use the whole card
-  less the runtime overhead (`card_mib`): a headless GPU needs no headroom, and the user may
-  accept the risk. `Plan.card_mib` carries that limit and `Plan.total_mib` the card's size, so the
-  screens can show both. A setting beyond the card still spills layers to RAM (hybrid).
+- Plans use total memory, VRAM and RAM alike, never a momentary free reading: Hal's own gateway
+  or another program holding memory today would otherwise shrink every role to nothing.
+  `busy_warning` tells the user when the card is not free right now.
+- What spills to RAM: a dense model moves whole layers (weights and their share of the cache,
+  llama.cpp `--n-gpu-layers`). A mixture-of-experts model keeps attention, the cache and the
+  shared weights on the GPU and moves the routed experts of some layers (`--n-cpu-moe`), which
+  decodes far faster than moving whole layers because only a few experts run per token.
+- The input embedding of a model with a separate output matrix stays in RAM (llama.cpp keeps
+  `token_embd` on the host), so it is not counted on the GPU (`ModelInfo.host_bytes`); nor is a
+  multi-token-prediction layer, which llama.cpp loads only for a draft (`ModelInfo.idle_bytes`).
 - Each role is planned as if it were the only model loaded; the gateway and gpu-light swap
   roles in and out, so their footprints are not added up.
 - Memory sizes are MiB throughout; `KV_BYTES` are bytes per element.
@@ -48,19 +54,25 @@ CONTEXT_STEP = 1024
 MIN_CONTEXT = 2048  # below this a model cannot hold a useful chat; the plan falls back to offload
 DEFAULT_CONTEXT_CAP = 131072
 AUTO_CONTEXT_GOAL = 32768  # `kv_type = auto` keeps the most precise cache that still gives this much
-SPILL_CONTEXT = (
-    16384  # context aimed at when weights spill to RAM or run on CPU: prompt processing there is slow
-)
+SPILL_CONTEXT = 16384  # auto context when a dense model spills layers: prompt processing on the CPU is slow
+# auto context when a mixture-of-experts model spills experts: its cache stays on the GPU, so prompt
+# processing stays fast and a coding-sized context is worth a few more experts in RAM
+MOE_SPILL_CONTEXT = 32768
 # memory held by other programs counts as "busy" above 2 GiB and 10 percent of the card; below that
 # it is the desktop compositor and the like, which the headroom already covers
 BUSY_MIN_MIB = 2048
 BUSY_FRACTION = 0.10
 HEADROOM_MIN_MIB = 1024
 HEADROOM_FRACTION = 0.08
-# CUDA/ROCm context (about 300 MiB) plus llama.cpp compute buffers at the default batch sizes
-# (about 300 MiB), per GPU in use. Rounded up from llama.cpp logs seen with 7B to 30B models
-# [unverified: measure with `llama-server` logs on your card]
-RUNTIME_OVERHEAD_MIB = 600
+# CUDA context, cuBLAS workspace and llama.cpp's graph buffers besides the output buffer, per GPU.
+# Measured on an RTX 3090 (driver 580, llama.cpp b11512, flash attention, default batch sizes):
+# see docs/dev/tuning.md "Measurements".
+CUDA_CONTEXT_MIB = 180
+UBATCH = 512  # llama.cpp's default `--ubatch-size`; the output buffer holds this many rows of logits
+LOGIT_BYTES = 4  # f32
+MASK_BYTES = 2  # f16 attention mask, UBATCH rows of the whole context
+F16_BYTES = 2  # a quantised cache is dequantised to f16, one layer at a time, for flash attention
+DEFAULT_VOCAB = 152064  # a vocabulary size when the model does not say (Qwen 2.5); errs large
 ABOVE_NOTE = "fine on a headless GPU, but a desktop on the card may run out of memory"
 RAM_HEADROOM_MIN_MIB = 2048  # the OS, the desktop and Hal itself
 RAM_HEADROOM_FRACTION = 0.10
@@ -80,13 +92,16 @@ class Plan:
     kv_type: str
     gpu_layers: int  # ALL_LAYERS, a count, or 0
     tensor_split: tuple[float, ...] = ()  # share per GPU, only with 2 or more GPUs
-    weights_mib: int = 0
+    weights_mib: int = 0  # the whole model, wherever it runs
     kv_mib: int = 0
-    budget_mib: int = 0
+    budget_mib: int = 0  # the guidance auto-tune stays within: total less headroom
     estimated: bool = False  # True when the architecture was unknown
     reasoning: tuple[str, ...] = field(default_factory=tuple)
-    card_mib: int = 0  # what a setting made by hand may use: the cards less runtime overhead
-    total_mib: int = 0  # the cards' total memory, for the gauge's full scale
+    total_mib: int = 0  # the cards' total memory: the limit of a setting made by hand
+    overhead_mib: int = 0  # runtime memory on the GPU besides weights and cache
+    vram_mib: int = 0  # what the model takes on the GPUs: weights there, cache and overhead
+    ram_mib: int = 0  # weights (and cache) held in system RAM
+    cpu_moe: int = 0  # layers whose routed experts stay in RAM (llama.cpp `--n-cpu-moe`)
 
     def to_dict(self) -> dict[str, object]:
         """A JSON-ready view."""
@@ -97,29 +112,25 @@ class Plan:
 
 
 def headroom_mib(total_mib: int, override_mib: int = 0) -> int:
-    """VRAM kept free per GPU: `override_mib` when set, else the larger of 1 GiB and 8 percent."""
+    """VRAM auto-tune keeps free per GPU: `override_mib` when set, else the larger of 1 GiB and 8 percent."""
     if override_mib > 0:
         return override_mib
     return max(HEADROOM_MIN_MIB, math.ceil(total_mib * HEADROOM_FRACTION))
 
 
 def usable_mib(gpu: Gpu, override_mib: int = 0) -> int:
-    """Memory of one GPU a model may use: total memory minus headroom and runtime overhead.
+    """Memory of one GPU auto-tune may fill: total memory less headroom.
 
     Total, not free: free memory is a momentary reading and the plan must not change with
     whatever else runs on the card (see `busy_warning`).
     """
-    return max(gpu.total_mib - headroom_mib(gpu.total_mib, override_mib) - RUNTIME_OVERHEAD_MIB, 0)
+    return max(gpu.total_mib - headroom_mib(gpu.total_mib, override_mib), 0)
 
 
-def card_mib(gpu: Gpu) -> int:
-    """Memory of one GPU a setting made by hand may use: total memory less runtime overhead, no headroom."""
-    return max(gpu.total_mib - RUNTIME_OVERHEAD_MIB, 0)
-
-
-def _cards(hw: Hardware) -> tuple[int, int]:
-    """`(card limit, total memory)` summed over every GPU."""
-    return sum(card_mib(g) for g in hw.gpus), sum(g.total_mib for g in hw.gpus)
+def ram_usable_mib(hw: Hardware) -> int:
+    """System RAM a model may use: total RAM less a headroom for the OS, the desktop and Hal."""
+    keep = max(RAM_HEADROOM_MIN_MIB, math.ceil(hw.ram_total_mib * RAM_HEADROOM_FRACTION))
+    return max(hw.ram_total_mib - keep, 0)
 
 
 def gpu_busy_mib(gpu: Gpu) -> int:
@@ -129,13 +140,13 @@ def gpu_busy_mib(gpu: Gpu) -> int:
 
 
 def busy_warning(hw: Hardware) -> str:
-    """One line saying other programs hold GPU memory and the plan assumes it is free; "" if none."""
+    """One line saying something holds GPU memory now and the plan counts the whole card; "" if not."""
     held = sum(gpu_busy_mib(g) for g in hw.gpus)
     if not held:
         return ""
     return (
-        f"another program is using {held / 1024:.1f} GB of the GPU; "
-        "the plan assumes it is free, so stop it before loading a model"
+        f"{held / 1024:.1f} GB of the GPU is in use right now (Hal's own models count); "
+        "plans count the whole card, so free it before loading a model that needs it"
     )
 
 
@@ -179,6 +190,24 @@ def round_context(tokens: float) -> int:
     return int(tokens // CONTEXT_STEP) * CONTEXT_STEP
 
 
+def _overhead_per_token(model: ModelInfo, kv_type: str) -> float:
+    """Bytes of runtime overhead per token of context: the mask, and the f16 copy of a quantised cache."""
+    width = (model.kv_heads or 0) * (model.head_dim or 0)
+    return UBATCH * MASK_BYTES + (2 * width * F16_BYTES if kv_type != "f16" else 0)
+
+
+def overhead_mib(model: ModelInfo, gpus: int = 1, context: int = 0, kv_type: str = "f16") -> int:
+    """Runtime memory on the GPUs besides weights and cache.
+
+    CUDA context per GPU, the output buffer, the attention mask and, for a quantised cache, one
+    layer's keys and values as f16 over the whole context.
+    """
+    if gpus < 1:
+        return 0
+    logits = UBATCH * (model.vocab or DEFAULT_VOCAB) * LOGIT_BYTES
+    return CUDA_CONTEXT_MIB * gpus + math.ceil((logits + context * _overhead_per_token(model, kv_type)) / MIB)
+
+
 def _weights_mib(model: ModelInfo) -> int:
     if not model.size_bytes:
         raise ValueError(f"{model.name}: the size of the weights is unknown, so no plan can be made")
@@ -192,6 +221,8 @@ def _kv_per_token(model: ModelInfo, kv_type: str, weights_mib: int) -> tuple[flo
     window, and a slight over-estimate below it. The estimate for an unknown model is pessimistic
     and flagged.
     """
+    if kv_type not in KV_BYTES:
+        raise ValueError(f"unknown KV cache type {kv_type!r}; use one of {KV_TYPES}")
     if model.kv_full_width is not None and model.layers:
         size = KV_BYTES[kv_type]
         window = model.sliding_window or 0
@@ -224,96 +255,186 @@ def _split(gpus: list[Gpu], override: int) -> tuple[float, ...]:
     return tuple(round(s / total, 3) for s in shares)
 
 
-def _ceiling(model: ModelInfo, cap: int) -> int:
-    return min(cap, model.context_native or cap)
+def ceiling(model: ModelInfo, cap: int = 0) -> int:
+    """The largest context the model takes: its native maximum, lowered to `cap` when `cap` is set."""
+    native = model.context_native or cap or DEFAULT_CONTEXT_CAP
+    return min(cap, native) if cap else native
 
 
-def _plan_once(model: ModelInfo, hw: Hardware, kv_type: str, cap: int, headroom_override: int) -> Plan:
+@dataclass(frozen=True)
+class _Shape:
+    """The memory facts of one model at one context and cache type, in MiB."""
+
+    weights: int  # the whole file
+    host: int  # stays in RAM whatever the offload
+    gpu_weights: int  # weights on the GPU with every layer there
+    kv: int
+    overhead: int
+    layers: int
+    experts: int  # routed expert weights over all layers; 0 for a dense model
+    estimated: bool
+    notes: tuple[str, ...]
+
+    @property
+    def full(self) -> int:
+        """GPU memory with everything on the GPU."""
+        return self.gpu_weights + self.kv + self.overhead
+
+
+def _shape(model: ModelInfo, kv_type: str, context: int, gpus: int) -> _Shape:
     weights = _weights_mib(model)
     per_tok, fixed, layers, estimated = _kv_per_token(model, kv_type, weights)
-    ceiling = _ceiling(model, cap)
-    notes = []
+    host = min(math.ceil((model.host_bytes or 0) / MIB), weights)
+    idle = min(math.ceil((model.idle_bytes or 0) / MIB), weights - host)
+    notes = ()
     if estimated:
-        notes.append(
+        notes = (
             f"architecture unknown: KV estimated at {per_tok / 1024:.0f} KiB/token "
-            f"({UNKNOWN_KV_KIB_PER_GIB} KiB per GiB of weights at f16), layers assumed {layers}"
+            f"({UNKNOWN_KV_KIB_PER_GIB} KiB per GiB of weights at f16), layers assumed {layers}",
         )
-    gpus = [g for g in hw.gpus if usable_mib(g, headroom_override) > 0]
-    budget = sum(usable_mib(g, headroom_override) for g in gpus)
-    ram = max(
-        hw.ram_free_mib - max(RAM_HEADROOM_MIN_MIB, math.ceil(hw.ram_total_mib * RAM_HEADROOM_FRACTION)), 0
-    )
-    split = _split(gpus, headroom_override)
+    experts = math.ceil(model.expert_bytes / MIB) if model.is_moe and model.expert_bytes else 0
+    return _Shape(weights, host, weights - host - idle, _kv_mib(context, per_tok, fixed),
+                  overhead_mib(model, gpus, context, kv_type), layers, experts, estimated, notes)  # fmt: skip
 
-    def make(status: str, ctx: int, gpu_layers: int, why: list[str]) -> Plan:
-        kv = _kv_mib(ctx, per_tok, fixed)
-        return Plan(
-            model.name,
-            status,
-            ctx,
-            kv_type,
-            gpu_layers,
-            split,
-            weights,
-            kv,
-            budget,
-            estimated,
-            tuple(notes + why),
-            *_cards(hw),
-        )
 
+def place(
+    model: ModelInfo,
+    hw: Hardware,
+    *,
+    kv_type: str,
+    context: int,
+    gpu_layers: int | None = None,
+    cpu_moe: int | None = None,
+    headroom_override_mib: int = 0,
+    limit_mib: int | None = None,
+) -> Plan:
+    """Where `model` runs with `context` tokens of `kv_type` cache; the check behind every setting.
+
+    `gpu_layers` (a count, or `ALL_LAYERS`) and `cpu_moe` (layers whose experts stay in RAM) are
+    the user's when given; when both are None the offload is chosen to fit `limit_mib` of VRAM
+    (default: the whole card). The status is `gpu` with everything on the GPU, `hybrid` when
+    layers or experts are in RAM, `cpu` with no layer on a GPU, and `does-not-fit` when the GPU
+    part passes the card or the rest passes usable RAM. Raises `ValueError` for an unknown cache
+    type or weight size, a context below `MIN_CONTEXT`, layers set on a model whose layer count
+    is unknown, or experts set on a model that has none.
+    """
+    if context < MIN_CONTEXT:
+        raise ValueError(f"a context below {MIN_CONTEXT} tokens cannot hold a useful chat")
+    if gpu_layers is not None and gpu_layers != ALL_LAYERS and not model.layers:
+        raise ValueError(f"{model.name}: the layer count is unknown, so GPU layers cannot be set by hand")
+    if cpu_moe is not None and not model.is_moe:
+        raise ValueError(f"{model.name} is not a mixture-of-experts model, so experts cannot be moved to RAM")
+    gpus = [g for g in hw.gpus if g.total_mib > 0]
+    s = _shape(model, kv_type, context, len(gpus))
+    total = sum(g.total_mib for g in gpus)
+    budget = sum(usable_mib(g, headroom_override_mib) for g in gpus)
+    limit = total if limit_mib is None else limit_mib
+    ram = ram_usable_mib(hw)
+    why = list(s.notes)
+    why.append(f"weights {s.weights} MiB + KV {s.kv} MiB for {context} tokens + runtime {s.overhead} MiB")
+    layers, moe = ALL_LAYERS, 0
+    if not gpus:
+        layers, vram, in_ram = NO_GPU_LAYERS, 0, s.weights + s.kv
+        why.append("no GPU: every layer runs on the CPU")
+    elif cpu_moe is not None or (gpu_layers is None and s.experts and s.full > limit):
+        moe = _moe_layers(s, limit) if cpu_moe is None else min(max(cpu_moe, 0), s.layers)
+        moved = math.ceil(s.experts * moe / s.layers)
+        vram, in_ram = s.full - moved, s.host + moved
+        if moe:
+            why.append(
+                f"the experts of {moe} of {s.layers} layers ({moved} MiB) stay in RAM; "
+                "attention and cache stay on the GPU"
+            )
+    else:
+        if gpu_layers is None:
+            per_layer = (s.gpu_weights + s.kv) / s.layers
+            on_gpu = (
+                s.layers
+                if s.full <= limit
+                else min(max(int((limit - s.overhead) // per_layer), 0), s.layers - 1)
+            )
+        else:
+            on_gpu = s.layers if gpu_layers == ALL_LAYERS else min(max(gpu_layers, 0), s.layers)
+        per_layer = (s.gpu_weights + s.kv) / s.layers
+        vram = math.ceil(on_gpu * per_layer) + (s.overhead if on_gpu else 0)
+        in_ram = s.host + math.ceil((s.layers - on_gpu) * per_layer)
+        layers = ALL_LAYERS if on_gpu == s.layers else on_gpu
+        if on_gpu < s.layers:
+            why.append(
+                f"{on_gpu} of {s.layers} layers on the GPU; the other {s.layers - on_gpu} run from RAM"
+            )
     if gpus:
-        spare = budget - weights
-        if spare > 0:
-            ctx = min(_context_for(spare, per_tok, fixed), ceiling)
-            if ctx >= MIN_CONTEXT:
-                return make(
-                    "gpu",
-                    ctx,
-                    ALL_LAYERS,
-                    [
-                        f"budget {budget} MiB - weights {weights} MiB = {spare} MiB for the KV cache",
-                        f"{spare} MiB / {per_tok / 1024:.1f} KiB per token = {ctx} tokens (cap {ceiling})",
-                    ],
-                )
-        # hybrid: pick the context first, then as many layers as fit beside its KV cache
-        ctx = round_context(min(SPILL_CONTEXT, ceiling))
-        if ctx < MIN_CONTEXT:
-            ctx = round_context(ceiling) or CONTEXT_STEP
-        per_layer = (weights + _kv_mib(ctx, per_tok, fixed)) / layers
-        n_gpu = min(int(budget // per_layer), layers - 1)
-        cpu_part = (layers - n_gpu) * per_layer
-        why = [
-            f"weights {weights} MiB do not leave {MIN_CONTEXT} tokens of KV in {budget} MiB of VRAM",
-            f"a layer costs {per_layer:.0f} MiB with {ctx} tokens of KV: {n_gpu} of {layers} layers fit",
-            f"the other {layers - n_gpu} layers ({cpu_part:.0f} MiB) go to system RAM ({ram} MiB usable)",
-        ]
-        if cpu_part > ram:
-            return make(
-                "does-not-fit",
-                0,
-                0,
-                why + [f"RAM is {cpu_part - ram:.0f} MiB short: use a smaller model or quant"],
+        why.append(
+            f"{vram} MiB of the {total} MiB GPU"
+            + (f" (auto-tune keeps to {budget})" if budget < total else "")
+        )
+        if budget < vram <= total:
+            why.append(f"above the auto-tune guidance, within the card: {ABOVE_NOTE}")
+    if layers == NO_GPU_LAYERS:
+        status, vram = "cpu", 0
+    elif layers == ALL_LAYERS and not moe:
+        status = "gpu"
+    else:
+        status = "hybrid"
+    if in_ram:
+        why.append(f"{in_ram} MiB in RAM ({ram} MiB usable of {hw.ram_total_mib})")
+    if vram > total:
+        status = "does-not-fit"
+        why.append(f"VRAM is {vram - total} MiB short: put fewer layers on the GPU, or a smaller context")
+    elif in_ram > ram:
+        status = "does-not-fit"
+        why.append(f"RAM is {in_ram - ram} MiB short: use a smaller context or model")
+    split = _split(gpus, headroom_override_mib) if status in ("gpu", "hybrid") else ()
+    return Plan(
+        model.name, status, context, kv_type, layers, split, s.weights, s.kv, budget, s.estimated, tuple(why),
+        total, s.overhead if vram else 0, vram, in_ram, moe,
+    )  # fmt: skip
+
+
+def _moe_layers(s: _Shape, limit: int) -> int:
+    """The fewest layers whose experts must leave the GPU for `s` to fit `limit`."""
+    per_layer = s.experts / s.layers
+    if s.full <= limit or per_layer <= 0:
+        return 0
+    return min(math.ceil((s.full - limit) / per_layer), s.layers)
+
+
+def _plan_once(model: ModelInfo, hw: Hardware, kv_type: str, cap: int, headroom: int) -> Plan:
+    """The automatic plan for one cache type: the most context within the guidance budget."""
+    weights = _weights_mib(model)
+    per_tok, fixed, _, _ = _kv_per_token(model, kv_type, weights)
+    top = ceiling(model, cap)
+    gpus = [g for g in hw.gpus if g.total_mib > 0]
+    budget = sum(usable_mib(g, headroom) for g in gpus)
+    if gpus:
+        on_gpu = _shape(model, kv_type, MIN_CONTEXT, len(gpus)).gpu_weights
+        spare = budget - on_gpu - overhead_mib(model, len(gpus), 0, kv_type)
+        per_token = per_tok + _overhead_per_token(model, kv_type)
+        ctx = min(_context_for(spare, per_token, fixed), top) if spare > 0 else 0
+        if ctx >= MIN_CONTEXT:
+            plan = place(
+                model, hw, kv_type=kv_type, context=ctx, headroom_override_mib=headroom, limit_mib=budget
             )
-        if n_gpu < 1:
-            why.append("no layer fits on the GPU: running on the CPU")
-            return make("cpu", ctx, NO_GPU_LAYERS, why)
-        return make("hybrid", ctx, n_gpu, why)
-    ctx = round_context(min(SPILL_CONTEXT, ceiling))
-    need = weights + _kv_mib(ctx, per_tok, fixed)
-    why = [
-        "no usable GPU: CPU only",
-        f"weights {weights} MiB + KV {need - weights} MiB = {need} MiB of {ram} MiB usable RAM",
-    ]
-    if need > ram:
-        spare = ram - weights
-        ctx = _context_for(spare, per_tok, fixed) if spare > 0 else 0
-        if ctx < MIN_CONTEXT:
-            return make(
-                "does-not-fit", 0, 0, why + [f"RAM is {need - ram} MiB short: use a smaller model or quant"]
-            )
-        why.append(f"context lowered to {ctx} tokens to fit")
-    return make("cpu", ctx, NO_GPU_LAYERS, why)
+            return _with(plan, f"the most context within the {budget} MiB guidance: {ctx} tokens (cap {top})")
+        goal = MOE_SPILL_CONTEXT if model.is_moe else SPILL_CONTEXT
+        ctx = max(round_context(min(goal, top)), MIN_CONTEXT)
+        plan = place(
+            model, hw, kv_type=kv_type, context=ctx, headroom_override_mib=headroom, limit_mib=budget
+        )
+        return _with(
+            plan, f"the weights do not fit the {budget} MiB guidance: {plan.context} tokens, the rest in RAM"
+        )
+    ctx = round_context(min(SPILL_CONTEXT, top))
+    ram = ram_usable_mib(hw)
+    if weights + _kv_mib(ctx, per_tok, fixed) > ram and ram > weights:
+        ctx = min(ctx, _context_for(ram - weights, per_tok, fixed))
+    if ctx < MIN_CONTEXT:
+        return place(model, hw, kv_type=kv_type, context=MIN_CONTEXT, headroom_override_mib=headroom)
+    return place(model, hw, kv_type=kv_type, context=ctx, headroom_override_mib=headroom)
+
+
+def _with(plan: Plan, line: str) -> Plan:
+    return Plan(**{**plan.__dict__, "reasoning": (*plan.reasoning, line)})
 
 
 def plan_model(
@@ -324,7 +445,7 @@ def plan_model(
     context_cap: int = DEFAULT_CONTEXT_CAP,
     headroom_override_mib: int = 0,
 ) -> Plan:
-    """Plans `model` on `hw`.
+    """The automatic plan for `model` on `hw`: the most context that fits the guidance budget.
 
     `kv_type` is `f16`, `q8_0`, `q4_0` or `auto`. `auto` takes the most precise type that gives
     `AUTO_CONTEXT_GOAL` tokens (or the model's ceiling, if lower) and otherwise the type that
@@ -332,125 +453,21 @@ def plan_model(
     """
     if kv_type != "auto":
         return _plan_once(model, hw, kv_type, context_cap, headroom_override_mib)
-    goal = min(AUTO_CONTEXT_GOAL, _ceiling(model, context_cap))
+    goal = min(AUTO_CONTEXT_GOAL, ceiling(model, context_cap))
     best: Plan | None = None
     for kind in KV_TYPES:
         plan = _plan_once(model, hw, kind, context_cap, headroom_override_mib)
         if plan.status == "gpu" and plan.context >= goal:
             return plan
-        if best is None or plan.context > best.context:
+        if best is None or _better(plan, best):
             best = plan
     assert best is not None  # KV_TYPES is not empty
     return best
 
 
-def fit_context(
-    model: ModelInfo, hw: Hardware, *, kv_type: str, context: int, headroom_override_mib: int = 0
-) -> Plan:
-    """Where `model` runs with exactly `context` tokens of `kv_type` cache: the check behind a chosen context.
+def _better(plan: Plan, than: Plan) -> bool:
+    """True when `plan` fits where `than` does not, or gives more context.
 
-    The status is `gpu` when weights and cache fit the VRAM budget, `hybrid` when layers move to
-    RAM, `cpu` when no layer fits on a GPU or there is no GPU, and `does-not-fit` when RAM is short
-    too. Raises `ValueError` for an unknown cache type, an unknown weight size or a context below
-    `MIN_CONTEXT`.
+    A tie keeps `than`, the earlier and so more precise cache type.
     """
-    if context < MIN_CONTEXT:
-        raise ValueError(f"a context below {MIN_CONTEXT} tokens cannot hold a useful chat")
-    weights = _weights_mib(model)
-    per_tok, fixed, layers, estimated = _kv_per_token(model, kv_type, weights)
-    kv = _kv_mib(context, per_tok, fixed)
-    gpus = [g for g in hw.gpus if card_mib(g) > 0]
-    budget = sum(usable_mib(g, headroom_override_mib) for g in gpus)
-    card, total = _cards(hw)
-    ram_keep = max(RAM_HEADROOM_MIN_MIB, math.ceil(hw.ram_total_mib * RAM_HEADROOM_FRACTION))
-    ram = max(hw.ram_free_mib - ram_keep, 0)
-    why = [f"weights {weights} MiB + KV {kv} MiB for {context} tokens = {weights + kv} MiB"]
-    status, n_gpu, in_ram = "cpu", NO_GPU_LAYERS, weights + kv
-    if gpus and weights + kv <= budget:
-        status, n_gpu, in_ram = "gpu", ALL_LAYERS, 0
-        why.append(f"fits the {budget} MiB VRAM guidance")
-    elif gpus and weights + kv <= card:
-        status, n_gpu, in_ram = "gpu", ALL_LAYERS, 0
-        why.append(f"above the {budget} MiB guidance, within the {card} MiB the card holds: {ABOVE_NOTE}")
-    elif gpus:
-        per_layer = (weights + kv) / layers
-        n_gpu = min(int(card // per_layer), layers - 1)
-        in_ram = math.ceil((layers - n_gpu) * per_layer)
-        why.append(f"{n_gpu} of {layers} layers fit the {card} MiB the card holds; the rest go to RAM")
-        status = "hybrid" if n_gpu >= 1 else "cpu"
-        n_gpu = max(n_gpu, NO_GPU_LAYERS)
-    else:
-        why.append("no usable GPU: CPU only")
-    if status != "gpu" and in_ram > ram:
-        status = "does-not-fit"
-        why.append(f"RAM is {in_ram - ram} MiB short ({ram} MiB usable): use a smaller context or model")
-    split = _split(gpus, headroom_override_mib) if status in ("gpu", "hybrid") else ()
-    return Plan(
-        model.name, status, context, kv_type, n_gpu, split, weights, kv, budget, estimated, tuple(why),
-        card, total,
-    )  # fmt: skip
-
-
-def fit_layers(
-    model: ModelInfo,
-    hw: Hardware,
-    *,
-    kv_type: str,
-    context: int,
-    gpu_layers: int,
-    headroom_override_mib: int = 0,
-) -> Plan:
-    """Where `model` runs with `context` tokens of cache and exactly `gpu_layers` layers on the GPU.
-
-    The check behind a GPU layer count set by hand. `gpu_layers` is `ALL_LAYERS` or a count from 0
-    to the model's layers. A layer holds its share of the weights and of the cache. The status is
-    `gpu` with every layer on the GPU, `hybrid` with some, `cpu` with none, and `does-not-fit` when
-    the layers asked for overrun the VRAM budget or the rest overruns RAM. Raises `ValueError` for
-    an unknown layer count, weight size or cache type, or a context below `MIN_CONTEXT`.
-    """
-    if context < MIN_CONTEXT:
-        raise ValueError(f"a context below {MIN_CONTEXT} tokens cannot hold a useful chat")
-    if not model.layers:
-        raise ValueError(f"{model.name}: the layer count is unknown, so GPU layers cannot be set by hand")
-    weights = _weights_mib(model)
-    per_tok, fixed, layers, estimated = _kv_per_token(model, kv_type, weights)
-    layers = int(model.layers)
-    kv = _kv_mib(context, per_tok, fixed)
-    gpus = [g for g in hw.gpus if card_mib(g) > 0]
-    budget = sum(usable_mib(g, headroom_override_mib) for g in gpus)
-    card, total = _cards(hw)
-    ram = max(
-        hw.ram_free_mib - max(RAM_HEADROOM_MIN_MIB, math.ceil(hw.ram_total_mib * RAM_HEADROOM_FRACTION)), 0
-    )
-    on_gpu = layers if gpu_layers < 0 or gpu_layers >= layers else gpu_layers
-    if not gpus:
-        on_gpu = NO_GPU_LAYERS
-    per_layer = (weights + kv) / layers
-    in_vram, in_ram = math.ceil(on_gpu * per_layer), math.ceil((layers - on_gpu) * per_layer)
-    total = weights + kv
-    why = [
-        f"weights {weights} MiB + KV {kv} MiB for {context} tokens = {total} MiB, {per_layer:.0f} MiB a layer"
-    ]
-    if not gpus:
-        why.append("no usable GPU: every layer runs on the CPU")
-    else:
-        why.append(f"{on_gpu} of {layers} layers on the GPU use {in_vram} MiB of VRAM (guidance {budget})")
-        if budget < in_vram <= card:
-            why.append(f"above the guidance, within the {card} MiB the card holds: {ABOVE_NOTE}")
-    if on_gpu == layers:
-        status = "gpu"
-    else:
-        status = "hybrid" if on_gpu else "cpu"
-        why.append(f"the other {layers - on_gpu} layers use {in_ram} MiB of RAM ({ram} MiB usable)")
-    if in_vram > card:
-        status = "does-not-fit"
-        why.append(f"VRAM is {in_vram - card} MiB short: put fewer layers on the GPU")
-    elif in_ram > ram:
-        status = "does-not-fit"
-        why.append(f"RAM is {in_ram - ram} MiB short: put more layers on the GPU or use a smaller model")
-    shown_layers = ALL_LAYERS if on_gpu == layers else on_gpu
-    split = _split(gpus, headroom_override_mib) if status in ("gpu", "hybrid") else ()
-    return Plan(
-        model.name, status, context, kv_type, shown_layers, split, weights, kv, budget, estimated, tuple(why),
-        card, total,
-    )  # fmt: skip
+    return (plan.status != "does-not-fit", plan.context) > (than.status != "does-not-fit", than.context)

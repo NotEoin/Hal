@@ -20,14 +20,28 @@ carries the same version.
 
 ### Changed
 
-- `hal tune` treats the VRAM headroom as guidance. Auto-tune still plans within it, but a context
-  or GPU layer count you set may use the whole card (less 600 MiB for the runtime), for example
-  on a headless GPU. The memory bar spans the whole card and marks the guidance with `|`.
+- `hal tune` estimates what a model takes on the GPU from the GGUF header and tensor table: the
+  weights there, the cache and llama.cpp's own buffers. Checked against `nvidia-smi` on an RTX
+  3090, the estimate was 6 to 107 MiB high, never low. The memory bar shows that estimate against
+  the card's total; auto-tune keeps to a headroom (marked `|`), and a setting you make may use the
+  whole card. Before, a setting stopped at the card less a hidden 600 MiB (23.4 GB of a 24 GB
+  card) and the estimate left out the runtime buffers.
+- In `hal tune` a field you set stays as you set it until you press its Auto button,
+  Auto-tune or a preset. The context goes up to the model's own maximum (`[models]
+  context_cap` now limits only auto-tune), a setting past the card spills to RAM instead of
+  being refused, and a model a server sizes (such as vLLM) takes a declared context.
+- A mixture-of-experts GGUF larger than the GPU keeps every layer on the GPU and the routed
+  experts of some layers in RAM (`cpu_moe`, llama.cpp `--n-cpu-moe`), as the `max` profile's
+  hybrid modes do; the tune screen sets it with **RAM experts**. The generated `tuned` mode sets
+  `fit = off` so llama.cpp keeps the planned numbers.
 - Stopping the managed llama router now ends its whole process group and waits for every
   process in it, not only the leader.
 
 ### Fixed
 
+- `hal tune` plans RAM from the total, not what is free, so a hybrid plan no longer turns
+  "too big" while Hal's own models are loaded. The hardware line shows totals, with a note when
+  something holds the GPU.
 - Role names such as `hal-code` and `hal-chat`, and `hal/main` and `hal/agent`, now report the
   `ctx-size` the active mode started the model with. Before, they reported no context, so
   `hal code` fell back to 32768 tokens even when `hal tune` had set 128k.

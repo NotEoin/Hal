@@ -366,7 +366,7 @@ def test_busy_warning_is_shown(home, server):
         return str(app.query_one("#hw").render())
 
     shown, _, _ = drive(state, script)
-    assert "another program is using" in shown
+    assert "in use right now" in shown
 
 
 def test_real_model_labels_show_base_and_tag(home):

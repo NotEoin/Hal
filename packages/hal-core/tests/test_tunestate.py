@@ -311,3 +311,90 @@ def test_removing_a_saved_named_role_is_written_and_can_be_undone(home, server):
     s.remove_role("code-128k")
     s.write()
     assert "code-128k" not in home.config.read_text()
+
+
+def test_a_context_set_by_hand_may_pass_the_context_cap_up_to_the_model_maximum(home, server):
+    # regression: the slider stopped at [models] context_cap (128000), below the model's own 131072
+    s = session(home, server, extra="[models]\ncontext_cap = 32768\n")
+    s.choose("chat", s.find("local", "gemma:12b"))
+    assert s.fit("chat").context <= 32768  # auto-tune keeps to the cap
+    s.set_context("chat", 131072)
+    assert s.fit("chat").context == 131072 == s.ceiling("chat")
+
+
+def test_settings_made_by_hand_stay_when_other_fields_change(home, server):
+    s = session(home, server)
+    s.choose("chat", s.find("local", "gemma:12b"))
+    s.set_context("chat", 65536)
+    s.set_kv("chat", "q4_0")
+    s.set_gpu_layers("chat", 20)
+    d = s.drafts["chat"]
+    assert (d.context, d.kv_type, d.gpu_layers, d.manual) == (65536, "q4_0", 20, True)
+    s.set_kv("chat", "auto")  # only the cache type goes back to tuning
+    assert (d.context, d.kv_type, d.gpu_layers) == (65536, "", 20)
+    s.auto_context("chat")
+    assert (d.context, d.gpu_layers, d.manual) == (0, None, False)
+
+
+def test_choosing_a_cache_type_keeps_the_tuned_context(home, server):
+    s = session(home, server)
+    s.choose("chat", s.find("local", "gemma:12b"))
+    tuned = s.fit("chat").context
+    s.set_kv("chat", "f16")
+    assert s.drafts["chat"].context == tuned and s.drafts["chat"].manual
+
+
+def test_a_context_past_the_card_spills_to_ram_instead_of_being_refused(home, server):
+    s = session(home, server, {**CARD_24GB, "gpus": [{**CARD_24GB["gpus"][0], "total_mib": 8192, "free_mib": 8192}]})
+    s.choose("chat", s.find("local", "gemma:12b"))
+    s.set_context("chat", 131072)
+    fit = s.fit("chat")
+    assert fit.status == "hybrid" and fit.ram_mib > 0 and fit.used_mib <= 8192
+    assert s.role_plans()[0].plan.status == "hybrid"
+
+
+def test_a_server_sized_model_takes_a_declared_context_that_is_written(home):
+    rows = [{"id": "big-model", "max_model_len": 163840}]
+    with FakeOllama(openai_models=rows) as vllm:
+        home.config.write_text(f'[models.sources.vllm]\nkind = "openai"\nurl = "{vllm.url}/v1"\n')
+        s = tuneui.open_state(hw=hardware.from_dict(CARD_24GB))
+        s.choose("code", s.find("vllm", "big-model"))
+        assert s.fit("code").status == "server" and s.fit("code").context == 163840
+        s.set_context("code", 131072)
+        assert s.fit("code").context == 131072
+        with pytest.raises(ValueError, match="at most 163840"):
+            s.set_context("code", 200000)
+        (rp,) = s.role_plans()
+        assert rp.declared_context == 131072
+
+
+def test_experts_of_a_moe_gguf_can_be_kept_in_ram_by_hand(home, tmp_path):
+    from halkit.testing.gguf import llama_like, write_gguf  # noqa: PLC0415 - only this test writes a GGUF
+
+    mib = 1024 * 1024
+    meta = {**llama_like(layers=8, kv_heads=1), "llama.expert_count": 8}
+    experts = {f"blk.{i}.ffn_up_exps.weight": 8 * mib for i in range(8)}  # 64 MiB of experts
+    write_gguf(tmp_path / "moe.gguf", meta, tensors={"token_embd.weight": mib, **experts, "output.weight": mib})
+    home.config.write_text(f'[models.sources.files]\nkind = "gguf"\npath = "{tmp_path}"\n')
+    small = {**CARD_24GB, "gpus": [{**CARD_24GB["gpus"][0], "total_mib": 240, "free_mib": 240}]}
+    s = tuneui.open_state(hw=hardware.from_dict(small))
+    s.choose("chat", s.find("files", "moe"))
+    assert s.experts_of("chat") == (8, "") and s.layers_of("chat")[0] == 8
+    s.set_context("chat", 2048)  # 184 MiB of runtime + 66 of weights + 8 of cache: past the card
+    assert s.fit("chat").status == "hybrid" and s.fit("chat").cpu_moe > 0  # experts spill, not layers
+    s.set_cpu_moe("chat", 0)
+    assert s.fit("chat").status == "does-not-fit"
+    s.set_cpu_moe("chat", 6)
+    fit = s.fit("chat")
+    assert (fit.status, fit.cpu_moe, fit.gpu_layers) == ("hybrid", 6, -1) and fit.ram_mib >= 48
+    with pytest.raises(ValueError, match="choose 0 to 8"):
+        s.set_cpu_moe("chat", 9)
+    assert s.drafts["chat"].context == 2048  # the hand-set context stays
+
+
+def test_experts_are_refused_on_a_dense_model(home, server):
+    s = session(home, server)
+    s.choose("chat", s.find("local", "gemma:12b"))
+    assert s.experts_of("chat")[1] == "not a mixture-of-experts GGUF model"
+    with pytest.raises(ValueError, match="mixture-of-experts"):
+        s.set_cpu_moe("chat", 2)

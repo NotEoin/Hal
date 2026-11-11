@@ -78,3 +78,12 @@ def test_read_gives_back_every_preset_render_wrote(tmp_path):
     path.write_text("version = 1\n[tuned-chat]\nmodel = x\n")
     with pytest.raises(ValueError, match="not one hal tune writes"):
         tunedmode.read(path)
+
+
+def test_experts_in_ram_are_written_and_read_back_and_fit_is_off(tmp_path):
+    p = tunedmode.Preset("chat", tmp_path / "moe.gguf", 32768, "q8_0", ALL_LAYERS, cpu_moe=20)
+    text = tunedmode.render([p])
+    assert "n-cpu-moe = 20" in text and "n-gpu-layers = 99" in text
+    assert "fit = off" in text  # llama.cpp must not re-fit numbers the user set past its margin
+    target = tunedmode.write([p], tmp_path)
+    assert tunedmode.read(target)[0].cpu_moe == 20
