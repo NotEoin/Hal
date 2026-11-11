@@ -7,22 +7,86 @@
 > *Make the most of your local models.*
 
 Hal turns the models you already run (Ollama, LM Studio, llama.cpp, GGUF files) into a coding
-agent, a chat and a desktop assistant, all on your own machine. It reads your hardware and sizes
-every model to it, so a laptop and a workstation each get the most context they can hold. And it
-never trusts the model: the agent works on a copy of your project, in a box with no network, and
-asks you before anything that matters.
+agent, a chat and a desktop assistant, all on your own machine. It sizes every model to your
+hardware, and it never trusts the model: the agent works on a copy of your project, in a box with
+no network, and every tool call passes one policy and a local risk classifier.
 
 - **Bring your own models.** Point Hal at Ollama, an OpenAI-compatible server or a folder of GGUF
-  files. It downloads nothing.
-- **Tuned to your hardware.** `hal tune` picks the context size, cache type and GPU offload for
-  each model, on one GPU, several, or none.
+  files, official releases or community fine-tunes. It downloads nothing.
+- **Tuned to your hardware.** `hal tune` picks the context size, cache type, GPU offload and draft
+  model for each role, on one GPU, several, or none, and `hal tune --bench` measures the result.
 - **A coding agent in a sandbox.** `hal code` edits a copy of your project inside a docker box, and
   you `accept` the changes you want. Switch models and thinking effort mid-session with `/model`
   and `/effort`.
 - **One policy for every tool.** Each tool call is checked against your lockdown and paranoia
-  levels, and the risky ones wait for your approval.
+  levels and rated by a local classifier; the risky ones wait for your approval.
 - **No telemetry.** Nothing leaves your machine unless you add a cloud model or a tool that goes
   online.
+
+## Why Hal
+
+### Local AI is min-maxing
+
+Running models locally means trading quality, speed and memory against each other on the hardware
+you have. Official releases come in a few sizes, tuned to be good at everything, and they refuse
+some tasks outright. Community weights fill the gaps: quantisations sized to your card, coding and
+writing fine-tunes, models with an MTP head for faster decoding, and "abliterated" models with
+their refusals removed. For many people they are the best results their hardware can give.
+
+### Community weights carry real risk
+
+Open models are now very capable, and safety training is a thin layer over that capability:
+
+- **Refusals come off easily.** Refusal in many open models is carried by a single direction in
+  the model's activations; remove it and the model stops refusing, with little loss elsewhere
+  [[1]](#references). This is how abliterated models are made, and it also removes the model's
+  habit of steering away from harmful output. Much of safety training changes only the first few
+  tokens of an answer [[2]](#references).
+- **Fine-tuning erodes guardrails, even by accident.** Ten harmful examples undid GPT-3.5 Turbo's
+  safety training, and fine-tuning on ordinary, benign data also weakened it [[3]](#references).
+  Training a model on one narrow task (writing insecure code without saying so) made it broadly
+  misaligned on unrelated questions [[4]](#references). Large labs test their data and models
+  across many edge cases; someone fine-tuning a model for their own use usually does not.
+- **Backdoors survive safety training.** A model can be trained to behave well until a trigger
+  appears, then act maliciously, and standard safety training does not remove it
+  [[5]](#references). Poisoning needs very little data: 250 documents backdoored models from 600M
+  to 13B parameters [[6]](#references). A harmful fine-tune can be hidden in data that looks
+  innocent, every example harmless on its own [[7]](#references).
+- **The file itself can attack you.** A GGUF carries a chat template, a small program that runs on
+  every request; a poisoned one implants a backdoor without touching the weights, and passed the
+  automated scans of the largest model hub [[8]](#references). Over 100 models with code-execution
+  payloads were found on Hugging Face in 2024 [[9]](#references).
+
+A model that behaves well 99% of the time can still do harm the other 1%, and you cannot test
+your way to knowing which kind you downloaded.
+
+### Approval prompts do not scale
+
+Most agent harnesses guard the machine with a permission list: some commands run, others prompt.
+The lists are easy to get around (Roo Code's command allowlist had several bypasses through
+shell substitution [[10]](#references)), and they stop harmless calls too, so the person
+approving gives up reading. Claude Code users approved 93% of permission prompts
+[[11]](#references), and Anthropic introduced sandboxing partly because constant approvals lead
+to "approval fatigue" [[12]](#references). A person who cannot read shell will not judge a
+command, and a person who can will stop after the hundredth prompt of a long task. Either way
+the agent ends up with your whole home directory.
+
+### Hal's answer: contain the agent
+
+Hal assumes the model is hostile and makes the worst case small:
+
+- The agent works on a copy of your project, in a docker box (gVisor when installed) with no
+  network. Its only ways out are the tool broker and the model socket.
+- Every tool call goes through one broker (MCP), with tight scopes and one approval policy.
+  An approval is bound to the exact arguments you saw, and the model cannot approve itself.
+- A local classifier (IBM Granite Guardian) rates every call and can only make the decision
+  stricter, so safe calls need no prompt and risky ones stop or ask.
+- Changes reach your real project only when you `accept` them, with a diff and a checkpoint.
+
+With the default settings, the worst a compromised model can do is spoil its copy of your work;
+the [security guide](docs/user/security.md) lists what is not contained, such as host MCP
+servers you add. That leaves room to try fine-tuned and abliterated models, let the agent near
+sensitive projects, and run long coding tasks unattended.
 
 ## Screenshots
 
@@ -143,6 +207,29 @@ Two settings are yours alone; no tool call can change either. `hal status` and `
 | `high` | policy | ask | deny | deny |
 | `max` | ask | ask | deny | deny |
 
+## How Hal compares
+
+The most used harnesses that run local models, by GitHub stars on 2026-11-11, and what their own
+documentation says about where commands run and who decides:
+
+| Harness | Stars | Where the agent's commands run | Who decides what runs |
+| --- | --- | --- | --- |
+| [OpenCode](https://opencode.ai/docs/permissions/) | 226k | On the host, with the user's file, process and network rights | Rules (`allow`, `ask`, `deny`); everything is allowed by default except reading `.env` |
+| [Codex CLI](https://learn.chatgpt.com/docs/llms-full.txt) | 135k | An OS sandbox (bubblewrap and seccomp on Linux): writes in the workspace, network off | Approval on request; an optional reviewer agent (`approvals_reviewer = "auto_review"`) |
+| [OpenHands](https://docs.openhands.dev/sdk/guides/security) | 93k | A docker container | Confirmation off by default; the default analyzer uses risk labels the agent's own model assigns |
+| [Cline](https://docs.cline.bot/features/auto-approve) | 72k | On the host | Prompts, auto-approve per category, YOLO mode; the model itself flags which commands need approval |
+| [Open Interpreter](https://docs.openinterpreter.com/safety/introduction) | 69k | On the host | Asks before running code; `-y` runs everything; code scanning is experimental |
+| [Goose](https://goose-docs.ai/docs/guides/goose-permissions) | 56k | On the host | Modes from ask to autonomous; an opt-in reviewer model that lets a call through when it fails [[13]](#references) |
+| [Aider](https://aider.chat/docs/config/options.html) | 50k | On the host | Suggests shell commands and asks before each; `--yes-always` says yes to every confirmation |
+| [Continue](https://docs.continue.dev/cli/tool-permissions) | 36k | On the host | Per-tool policies: ask or automatic |
+| [Qwen Code](https://qwenlm.github.io/qwen-code-docs/en/users/features/sandbox) | 29k | On the host; docker, podman or Seatbelt when enabled, and in YOLO mode | Approval modes |
+| **Hal** | | A docker box (gVisor when installed) on a copy of the project, no network | One broker and policy for every tool, a local classifier on every call, approvals bound to the arguments |
+
+Codex CLI and OpenHands also contain the agent, and Claude Code, a cloud product, now runs every
+action past a classifier by default on its paid plans [[14]](#references). Hal's difference is
+doing all of it at once with local models: the copy, the box with no network, one broker for
+every tool, and a classifier that runs on your own machine and is on from the first run.
+
 ## No telemetry
 
 No Hal package sends usage data, crash reports or update checks. `tests/test_no_telemetry.py`
@@ -165,6 +252,23 @@ scripts/check-ascii.sh
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). Report vulnerabilities as
 described in [SECURITY.md](SECURITY.md).
+
+## References
+
+1. Arditi et al., "Refusal in Language Models Is Mediated by a Single Direction", NeurIPS 2024. [arXiv:2406.11717](https://arxiv.org/abs/2406.11717)
+2. Qi et al., "Safety Alignment Should Be Made More Than Just a Few Tokens Deep", ICLR 2025. [arXiv:2406.05946](https://arxiv.org/abs/2406.05946)
+3. Qi et al., "Fine-tuning Aligned Language Models Compromises Safety, Even When Users Do Not Intend To!", ICLR 2024. [arXiv:2310.03693](https://arxiv.org/abs/2310.03693)
+4. Betley et al., "Emergent Misalignment: Narrow finetuning can produce broadly misaligned LLMs", ICML 2025. [arXiv:2502.17424](https://arxiv.org/abs/2502.17424)
+5. Hubinger et al., "Sleeper Agents: Training Deceptive LLMs that Persist Through Safety Training", 2024. [arXiv:2401.05566](https://arxiv.org/abs/2401.05566)
+6. Anthropic, UK AI Security Institute and the Alan Turing Institute, "A small number of samples can poison LLMs of any size", October 2025. [anthropic.com](https://www.anthropic.com/research/small-samples-poison)
+7. Halawi et al., "Covert Malicious Finetuning: Challenges in Safeguarding LLM Adaptation", ICML 2024. [arXiv:2406.20053](https://arxiv.org/abs/2406.20053)
+8. Pillar Security, "LLM Backdoors at the Inference Level: The Threat of Poisoned Templates", 2025 ([pillar.security](https://www.pillar.security/blog/llm-backdoors-at-the-inference-level-the-threat-of-poisoned-templates)), and "Inference-Time Backdoors via Chat Templates: From LLM Supply Chains to Agentic System Compromise", 2026 ([arXiv:2602.04653](https://arxiv.org/abs/2602.04653))
+9. JFrog, "Data Scientists Targeted by Malicious Hugging Face ML Models with Silent Backdoor", February 2024. [jfrog.com](https://jfrog.com/blog/data-scientists-targeted-by-malicious-hugging-face-ml-models-with-silent-backdoor/)
+10. VulnCheck, "Roo Code through 3.54.0 auto-approve bypass via command substitution at command position", 2026. [vulncheck.com](https://www.vulncheck.com/advisories/roo-code-through-3.54.0-auto-approve-bypass-via-command-substitution-at-command-position)
+11. Anthropic, "How we built Claude Code auto mode", March 25, 2026. [anthropic.com](https://www.anthropic.com/engineering/claude-code-auto-mode)
+12. Anthropic, "Making Claude Code safer with sandboxing", October 20, 2025. [anthropic.com](https://www.anthropic.com/engineering/claude-code-sandboxing)
+13. goose, "Adversary mode", March 31, 2026. [goose-docs.ai](https://goose-docs.ai/blog/2026/03/31/adversary-mode)
+14. Anthropic, "Auto mode is now the default in Claude Code for Pro, Max, and Team plans", August 7, 2026. [claude.com](https://claude.com/blog/auto-mode-default-in-claude-code)
 
 ## Licence
 
