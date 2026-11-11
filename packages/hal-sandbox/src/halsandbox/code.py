@@ -12,7 +12,7 @@ import json
 import logging
 import os
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from . import images
@@ -62,12 +62,14 @@ def run_code(
     runtime: str | None = None,
     direct: bool = False,
     agent_args: Sequence[str] = (),
+    serve_model: Callable[[Path], Callable[[], None]] | None = None,
 ) -> int:
     """Runs hal-agent boxed; returns its exit status.
 
     By default the box gets an isolated copy of `workdir` and the real project is never mounted
     (RESOLUTIONS I3); review the result with `isolated.accept`. `direct` mounts `workdir` itself and
-    needs lockdown `relaxed` or lower.
+    needs lockdown `relaxed` or lower. `serve_model` serves the box's model socket and returns
+    what stops it (halcore passes a gateway session); without it the socket forwards to `upstream`.
     """
     workdir = workdir.resolve()
     if not workdir.is_dir():
@@ -90,15 +92,19 @@ def run_code(
         child_argv=[*child, *agent_args],
         tty=os.isatty(0) and os.isatty(1),
     )
-    forwarder = None
+    stop_model: Callable[[], None] | None = None
     try:
         if session.backend == "docker":
             _require_image(session.docker, image)
         if session.masked:
             log.warning("hal code: %d files masked: %s", len(session.masked), ", ".join(session.masked))
-        forwarder = ModelForwarder(session.model_socket, upstream)
-        forwarder.start()
-        log.info("hal code: %s in %s, model at %s", session.backend, workdir, upstream)
+        if serve_model is not None:
+            stop_model = serve_model(session.model_socket)
+        else:
+            forwarder = ModelForwarder(session.model_socket, upstream)
+            forwarder.start()
+            stop_model = forwarder.stop
+            log.info("hal code: %s in %s, model at %s", session.backend, workdir, upstream)
         launch = session.launch
         assert launch is not None
         status = subprocess.run(
@@ -116,8 +122,8 @@ def run_code(
             )
         return status
     finally:
-        if forwarder is not None:
-            forwarder.stop()
+        if stop_model is not None:
+            stop_model()
         session.close()
 
 

@@ -209,9 +209,9 @@ SESSIONS_TABLE = config.register(
             K("max_request_bytes", int, 8 * 1024 * 1024, check=_positive, doc="Body cap for a boxed session"),
             K("max_concurrent", int, 4, check=_positive, doc="Sessions at once"),
             K("ttl_s", int, 86400, check=_positive, doc="Session token lifetime"),
-            K("max_requests_per_min", int, 30, check=_positive, doc="Rate cap per session"),
+            K("max_requests_per_min", int, 120, check=_positive, doc="Rate cap per session"),
             K("max_output_tokens", int, 16384, check=_positive, doc="Clamp on max_tokens"),
-            K("max_tokens_per_hour", int, 2_000_000, check=_positive, doc="Token budget per session"),
+            K("max_tokens_per_hour", int, 100_000_000, check=_positive, doc="Token budget per session"),
         ),
     )
 )

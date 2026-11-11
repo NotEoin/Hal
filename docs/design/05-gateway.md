@@ -498,11 +498,11 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
   `test_serve_refuses_in_client_mode`, `test_gateway_url_must_be_loopback`.
 - **REQ-GW-69** `SessionForwarder` MUST enforce a per-session model budget on the host, so a
   process in the box that bypasses the agent's own budgets (03 REQ-AGT-16) by calling
-  `/run/hal/model.sock` directly is still bounded: at most `max_requests_per_min` (30)
+  `/run/hal/model.sock` directly is still bounded: at most `max_requests_per_min` (120)
   requests in any 60 s window; a `max_tokens`, `max_completion_tokens` or
   `max_output_tokens` value above `max_output_tokens` (16384), or a missing one, MUST be set
   to `max_output_tokens` before the body is relayed (with `Content-Length` recomputed); and at most `max_tokens_per_hour`
-  (2,000,000) input plus output tokens in any 3600 s window, counted from the response
+  (100,000,000) input plus output tokens in any 3600 s window, counted from the response
   `usage` (the JSON body, or the final SSE usage event), or as the clamped output cap plus
   the request body length / 4 when a response carries no usage. Over a limit the forwarder
   MUST answer 429 `budget_exceeded` with `Retry-After` set to the seconds until the window
@@ -1538,9 +1538,9 @@ class ForwarderLimits:
     max_request_bytes: int = 8 * 2**20
     max_concurrent: int = 4
     read_timeout_s: float = 30.0
-    max_requests_per_min: int = 30          # REQ-GW-69
+    max_requests_per_min: int = 120         # REQ-GW-69
     max_output_tokens: int = 16384          # REQ-GW-69: larger requested caps are clamped
-    max_tokens_per_hour: int = 2_000_000    # REQ-GW-69: input plus output, sliding hour
+    max_tokens_per_hour: int = 100_000_000  # REQ-GW-69: input plus output, sliding hour
 
 @dataclass(frozen=True)
 class ForwarderEvent:
@@ -1816,9 +1816,9 @@ keep = 3
 max_request_bytes = 8388608   # 8 MiB: 8x a full 256K-token prompt; caps what a rogue box can push
 max_concurrent = 4            # an agent plus three subagents
 ttl_s = 86400                 # one day; hal re-mints per session anyway
-max_requests_per_min = 30     # REQ-GW-69: an agent turn is a few requests; stops a tight loop
+max_requests_per_min = 120    # REQ-GW-69: a fast agent with subagents; stops a tight loop
 max_output_tokens = 16384     # REQ-GW-69: clamp on max_tokens and its aliases
-max_tokens_per_hour = 2000000 # REQ-GW-69: about 8 full 256K-token prompts an hour
+max_tokens_per_hour = 100000000 # REQ-GW-69: about 13 full 128K-token turns a minute
 
 [gateway.gpu]
 coordinator = "auto"        # "auto" | "gpu-light-v2" | "gpu-light-v1" | "none"

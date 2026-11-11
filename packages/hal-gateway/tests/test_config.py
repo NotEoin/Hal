@@ -19,7 +19,7 @@ def test_empty_file_gives_the_documented_defaults(tmp_path):
     assert cfg.gateway["max_request_bytes"] == 32 * 1024 * 1024
     assert cfg.gateway["upstream_read_timeout_s"] == 3600.0
     assert (cfg.log["requests"], cfg.log["content"], cfg.log["keep"]) == (True, False, 3)
-    assert (cfg.sessions["max_concurrent"], cfg.sessions["max_requests_per_min"]) == (4, 30)
+    assert (cfg.sessions["max_concurrent"], cfg.sessions["max_requests_per_min"]) == (4, 120)
     assert (cfg.gpu["coordinator"], cfg.gpu["on_busy"], cfg.gpu["idle_release_s"]) == (
         "auto",
         "proceed",

@@ -9,9 +9,11 @@ On a terminal it runs the TUI over ACP (streaming, slash commands, /rewind, /dif
 or without a terminal it runs the agent's own prompt in the box. By default the box works on an isolated copy of DIR; `accept` or `export` is how changes leave it.
 `--direct` mounts DIR itself and needs `[sandbox].lockdown` of relaxed or lower.
 
-Without `--build` it needs the agent image; `--build` creates it from this checkout. The model
-server and model default to Hal's own `[hal] ollama_url` and `chat_model`, so `hal code` uses
-the same local model as `hal chat`; HAL_CODE_UPSTREAM and HAL_AGENT_MODEL override them.
+Without `--build` it needs the agent image; `--build` creates it from this checkout. The box
+asks the gateway for `hal-code`, the code role with the context `hal tune` set, through a
+session that cannot reach a cloud backend (`halcore.modellink`). Without a running gateway it
+uses `[hal] code_model` (else `chat_model`) at `ollama_url`. `--upstream` (HAL_CODE_UPSTREAM)
+and `--model` (HAL_AGENT_MODEL) override them.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ from pathlib import Path
 from halsandbox import code as sandbox
 from halsandbox import isolated
 
-from . import config, sessions
+from . import modellink, sessions
 from .tui.app import run_tui
 
 EXIT_REFUSED = 3  # 06-core-cli exit code table
@@ -81,11 +83,11 @@ async def _tui(opts: argparse.Namespace) -> int:
     """Runs the TUI over ACP in a coding box; the real project stays unmounted unless `--direct`."""
     project = Path(opts.dir).resolve()
     box = await sessions.BoxedAgent.start(
-        kind="code", project=project, channel="cli", upstream=opts.upstream, model=opts.model,
+        kind="code", project=project, channel="cli", upstream=opts.upstream or None, model=opts.model or None,
         image=opts.image, runtime=opts.runtime, direct=opts.direct,
     )  # fmt: skip
     try:
-        return await run_tui(box, cwd=sessions.BOX_WORK, project=project, model=opts.model, resume=opts.resume)
+        return await run_tui(box, cwd=sessions.BOX_WORK, project=project, model=box.link.route.model, resume=opts.resume)
     finally:
         await box.close()
         report_changes(box.session.iso)
@@ -118,29 +120,32 @@ def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(prog="hal code", description="run hal-agent in a docker box")
     p.add_argument("dir", nargs="?", default=".")
     p.add_argument("--build", action="store_true", help="build the agent image and exit")
-    shared = config.shared()
-    p.add_argument("--upstream", default=os.environ.get("HAL_CODE_UPSTREAM", shared["ollama_url"]))
-    p.add_argument("--model", default=os.environ.get("HAL_AGENT_MODEL", shared["chat_model"]))
+    p.add_argument("--upstream", default=os.environ.get(modellink.UPSTREAM_ENV, ""),
+                   help="a model server URL to use instead of the gateway")  # fmt: skip
+    p.add_argument("--model", default=os.environ.get(modellink.MODEL_ENV, ""), help="default: hal-code")
     p.add_argument("--image", default=sandbox.DEFAULT_IMAGE)
     p.add_argument("--runtime", choices=("runc", "runsc"))
     p.add_argument("--direct", action="store_true", help="mount DIR itself (lockdown relaxed or lower)")
     p.add_argument("--resume", metavar="SID", default="", help="reopen stored session SID (see hal sessions)")
     opts = p.parse_args(argv)
-    if "--model" not in agent_args:
-        agent_args = ["--model", opts.model, *agent_args]
     interactive = os.isatty(0) and os.isatty(1)
+    headless = opts.build or not interactive or "--" in sys.argv
     try:
         if opts.resume and not interactive:
             print("hal code: --resume needs a terminal", file=sys.stderr)
             return EXIT_REFUSED
-        if not opts.build and interactive and "--" not in sys.argv:
+        if not headless:
             return asyncio.run(_tui(opts))
         if opts.build:
             sandbox.build_image(ROOT, opts.image)
             return 0
+        found = modellink.route("code", upstream=opts.upstream, model=opts.model)
+        if "--model" not in agent_args:
+            agent_args = ["--model", found.model, *agent_args]
         return sandbox.run_code(
-            Path(opts.dir), upstream=opts.upstream, image=opts.image, runtime=opts.runtime, direct=opts.direct, agent_args=agent_args
-        )
+            Path(opts.dir), image=opts.image, runtime=opts.runtime, direct=opts.direct, agent_args=agent_args,
+            serve_model=lambda sock: modellink.open(found, sock, "code box").close,
+        )  # fmt: skip
     except sandbox.SandboxError as exc:
         print(f"hal code: {exc}", file=sys.stderr)
         return EXIT_REFUSED

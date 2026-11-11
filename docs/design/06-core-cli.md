@@ -694,6 +694,14 @@ wraps it.
   (05). Test: unit `test_write_saves_roles_pins_digests_and_names_the_models_for_the_gateway`,
   `test_an_offloaded_ollama_role_also_sets_num_gpu`,
   `test_a_role_alias_reports_the_context_hal_tune_set_for_any_backend`.
+- **REQ-CLI-124** (MUST) With the gateway running, a `hal code` box (and a job box) MUST ask for
+  `hal-code` and a `hal chat` box for `hal-chat`, through a `halgateway.forwarder.SessionForwarder`
+  holding a session token minted with `allow_remote = false`, revoked when the box closes and
+  replaced when the gateway rejects it. Without the gateway, or with `--upstream`, the box MUST use
+  that server directly and say so. Test: unit
+  `test_with_the_gateway_a_code_box_asks_for_hal_code_and_a_chat_box_for_hal_chat`,
+  `test_a_gateway_link_mints_a_session_that_cannot_reach_a_remote_backend_and_revokes_it`,
+  `test_without_the_gateway_the_box_uses_the_hal_model_at_ollama_and_says_so`.
 - **REQ-CLI-113** (MUST) `hal configure` MUST NOT name or pull a model; it MUST accept `--profile
   max|24gb|12gb|cloud` as a preset for `[models] context_cap` and `kv_type` with a deprecation
   note, and print the `hal tune` plan. Test: unit

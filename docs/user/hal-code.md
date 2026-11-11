@@ -289,6 +289,14 @@ and `/init`, and `!`, `#` and `@` are plain text there. `/help` and Tab show onl
 
 ### Model and effort
 
+`hal code` asks the gateway for `hal-code`, the `code` role, so it runs the model, context and
+effort `hal tune` set for that role (an empty `code` role means `chat`'s). `hal chat` asks for
+`hal-chat`. The box reaches the gateway through a session token of its own that the gateway
+refuses for remote backends, so a box cannot send your code to a cloud model. If the gateway is
+not running, `hal code` warns and uses `[hal] code_model` (else `chat_model`) at `ollama_url`
+directly, without the tuned context. `--model NAME` (or `HAL_AGENT_MODEL`) picks another name,
+such as a named role `hal-code-128k`; `--upstream URL` (or `HAL_CODE_UPSTREAM`) skips the gateway.
+
 `/model` lists the models Hal finds in your sources (see [models.md](models.md)), grouped by source,
 with the current one marked and a `thinks` tag on models that support an effort level.
 

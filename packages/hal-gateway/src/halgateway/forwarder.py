@@ -58,6 +58,13 @@ REQUEST_WINDOW_S = 60.0
 TOKEN_WINDOW_S = 3600.0
 CHARS_PER_TOKEN = 4  # the estimate when a reply carries no usage (REQ-GW-69)
 CONNECT_TIMEOUT_S = 5.0
+# input plus output tokens a session may use in an hour. A coding agent sends its whole window on
+# every turn, so this lets a 128K window run about 13 full turns a minute: room for real work at
+# 100 tokens/s, still a stop for a box that loops on the model
+SESSION_TOKENS_PER_HOUR = 100_000_000
+# a fast local model finishes a short tool call in seconds and subagents run side by side, so an
+# agent can pass 30 requests a minute in normal work; the sandbox forwarder allowed 240
+SESSION_REQUESTS_PER_MIN = 120
 UPSTREAM_READ_TIMEOUT_S = 7200.0  # a swap can take minutes (05 REQ-GW-47)
 SOCKET_MODE = 0o600
 REJECTED_CODES = (b"session_unknown", b"session_expired")
@@ -72,9 +79,9 @@ class ForwarderLimits:
     max_request_bytes: int = 8 * 2**20
     max_concurrent: int = 4
     read_timeout_s: float = 30.0
-    max_requests_per_min: int = 30
+    max_requests_per_min: int = SESSION_REQUESTS_PER_MIN
     max_output_tokens: int = 16384
-    max_tokens_per_hour: int = 2_000_000
+    max_tokens_per_hour: int = SESSION_TOKENS_PER_HOUR
 
 
 @dataclass(frozen=True)

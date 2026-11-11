@@ -20,6 +20,9 @@ carries the same version.
 
 ### Changed
 
+- The per-session model budget of `[gateway.sessions]` now applies to `hal code` and `hal chat`
+  boxes, so its defaults are sized for coding: 120 requests a minute (was 30) and 100,000,000
+  tokens an hour (was 2,000,000, which a 128K-token window used up in about 15 turns).
 - `hal tune` estimates what a model takes on the GPU from the GGUF header and tensor table: the
   weights there, the cache and llama.cpp's own buffers. Checked against `nvidia-smi` on an RTX
   3090, the estimate was 6 to 107 MiB high, never low. The memory bar shows that estimate against
@@ -39,6 +42,11 @@ carries the same version.
 
 ### Fixed
 
+- `hal code` now asks the gateway for `hal-code`, the code role with the context and effort
+  `hal tune` set, and `hal chat` for `hal-chat`. Before, both asked Ollama directly for
+  `[hal] chat_model`, so `hal code` ignored the code role and the tuned context. The box gets a
+  gateway session token that cannot reach a remote backend. Without a running gateway it warns
+  and uses Ollama as before; `--upstream` and `--model` still override.
 - A role on an Ollama model now runs at the context `hal tune` set. Ollama ignores a context sent
   with an OpenAI-style request, so it ran every model at its Modelfile `num_ctx` or its default
   (`hal-chat` was set to 128000 tokens and served 65536). Saving now makes `hal-tuned-ROLE` in

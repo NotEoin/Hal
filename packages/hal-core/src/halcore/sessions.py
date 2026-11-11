@@ -1,6 +1,7 @@
 """Boxed agent sessions for every channel: the host side of RESOLUTIONS I1 (always boxed).
 
-`BoxedAgent` starts a `halsandbox.Session`, the model forwarder and the agent process in the box,
+`BoxedAgent` starts a `halsandbox.Session`, the model link (`halcore.modellink`: a scoped gateway
+session, or Ollama when no gateway runs) and the agent process in the box,
 and hands out the agent's stdio as an ACP transport. `open_assistant` adds an `AcpClient` and one
 conversation for `hal chat`; `hal acp` uses `BoxedAgent` directly and pumps the transport.
 Design decisions:
@@ -22,10 +23,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from halsandbox import code as sandbox
-from halsandbox.forwarder import ModelForwarder
 from halsandbox.session import Session
 
-from . import config, settings, unboxed
+from . import config, modellink, settings, unboxed
 from .acp.client import AcpClient, ClientHandler
 from .acp.transport import SubprocessTransport
 
@@ -42,10 +42,10 @@ SURFACE_HEADLESS = "headless"  # `hal -p`
 
 @dataclass
 class BoxedAgent:
-    """A started box with its model forwarder and the agent's stdio as `transport`."""
+    """A started box with its model link and the agent's stdio as `transport`."""
 
     session: Session
-    forwarder: ModelForwarder
+    link: modellink.Link
     transport: SubprocessTransport
 
     @classmethod
@@ -63,9 +63,8 @@ class BoxedAgent:
         agent_args: Sequence[str] = (),
     ) -> BoxedAgent:
         """Starts the box for a `code` or `chat` session; raises `SandboxError` when it cannot."""
-        shared = config.shared()
-        upstream = upstream or os.environ.get("HAL_CODE_UPSTREAM") or shared["ollama_url"]
-        model = model or os.environ.get("HAL_AGENT_MODEL") or shared["chat_model"]
+        found = modellink.route(kind, upstream=upstream, model=model)
+        model = found.model
         coding = kind in ("code", "job") and project is not None
         child = [
             "hal-agent", "--acp", "-C", BOX_WORK if coding else BOX_SCRATCH,
@@ -81,14 +80,13 @@ class BoxedAgent:
                 overrides={"prompt": {"repo_map_auto": bool(config.load().get("agent", {}).get("repo_map_auto", False))}},
             ),
         )  # fmt: skip
-        forwarder = None
+        link = None
         try:
             if session.backend == "none" and kind == "chat":
                 unboxed.require_consent(channel)
             if session.backend == "docker":
                 sandbox._require_image(session.docker, image)
-            forwarder = ModelForwarder(session.model_socket, upstream)
-            forwarder.start()
+            link = modellink.open(found, session.model_socket, f"{kind} box {session.id}")
             launch = session.launch
             assert launch is not None
             transport = await SubprocessTransport.spawn(
@@ -99,17 +97,17 @@ class BoxedAgent:
                 new_session=launch.new_session,
             )
         except BaseException:
-            if forwarder is not None:
-                forwarder.stop()
+            if link is not None:
+                link.close()
             session.close()
             raise
-        log.info("%s box %s on %s, model at %s", kind, session.id, session.backend, upstream)
-        return cls(session, forwarder, transport)
+        log.info("%s box %s on %s, model %s through %s", kind, session.id, session.backend, model, found.describe())
+        return cls(session, link, transport)
 
     async def close(self) -> None:
         """Stops the agent, the forwarder and the session."""
         await self.transport.close()
-        self.forwarder.stop()
+        self.link.close()
         self.session.close()
 
 
