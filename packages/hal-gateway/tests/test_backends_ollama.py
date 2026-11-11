@@ -147,6 +147,16 @@ def test_unload_posts_keep_alive_zero_and_loaded_lists_ps(gateway):
     assert FakeOllama.seen[-1] == ("POST", "/api/generate", {"model": "gemma:1", "keep_alive": 0})
 
 
+def test_an_unload_waits_until_the_runner_has_left_vram(gateway, monkeypatch):
+    # regression: vLLM started while the unloaded model still held 2 GB and refused to start
+    backend = make_backend("ollama", gateway.cfg.backends["ollama"], gateway.cfg.ollama_url)
+    answers = iter([["gemma:1"], ["gemma:1"], []])
+    monkeypatch.setattr(backend, "in_vram", lambda: next(answers))
+    assert backend.wait_unloaded(["gemma:1"], poll_s=0)
+    monkeypatch.setattr(backend, "in_vram", lambda: ["gemma:1"])
+    assert not backend.wait_unloaded(["gemma:1"], timeout_s=0, poll_s=0)
+
+
 def test_native_route_on_a_backend_without_it_is_404(tmp_path, fake):
     token = tmp_path / "t"
     token.write_text("hal-gw-t\n")

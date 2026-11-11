@@ -78,6 +78,9 @@ carries the same version.
 
 ### Fixed
 
+- The gateway waits for Ollama to free the VRAM before it starts the router or a managed server;
+  vLLM had refused to start because the unloaded model still held 2 GB.
+
 - A click in a picker (`/model`, `/resume`, Ctrl+R, Ctrl+P) chooses the row under the pointer.
   Before, the list's focus border appeared between the press and the release and moved every
   row down one line, so in a long list a click chose the row above (in `/model`, often the first

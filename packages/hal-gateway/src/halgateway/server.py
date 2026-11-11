@@ -249,9 +249,12 @@ class Gateway:
         """Unloads the models the named Ollama backends hold in VRAM; a failure is logged, not raised."""
         for ollama in self._ollama_named(names):
             try:
-                for model in ollama.in_vram():
+                held = ollama.in_vram()
+                for model in held:
                     log.info("unloading Ollama model %s to free VRAM", model)
                     ollama.unload(model)
+                if held and not ollama.wait_unloaded(held):
+                    log.warning("Ollama models %s still hold VRAM; starting anyway", ", ".join(held))
             except (GatewayError, OSError) as exc:
                 log.warning("cannot unload Ollama models of %s: %s", ollama.name, exc)
 

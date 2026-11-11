@@ -11,6 +11,7 @@ Ported from `halcore/power.py`. Decisions:
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Iterable
 
 from .. import relay
@@ -25,6 +26,8 @@ ALLOWED_OPTIONS = frozenset(
 )
 KEEP_ALIVE = re.compile(r"^\d{1,4}[smh]$")  # a bounded duration; no "forever" (-1) through the gateway
 UNLOAD_TIMEOUT_S = 30.0  # Ollama waits for a running generation before it unloads
+UNLOAD_WAIT_S = 30.0  # for the runner to exit after the unload call; the same bound as the call
+UNLOAD_POLL_S = 0.25
 
 
 class OllamaBackend(OpenAIBackend):
@@ -140,6 +143,22 @@ class OllamaBackend(OpenAIBackend):
                 self.unload(str(m["name"]))
                 freed.append(str(m["name"]))
         return freed
+
+    def wait_unloaded(
+        self, models: Iterable[str], timeout_s: float = UNLOAD_WAIT_S, poll_s: float = UNLOAD_POLL_S
+    ) -> bool:
+        """Waits until none of `models` holds VRAM; False when `timeout_s` passes first.
+
+        Ollama answers `keep_alive = 0` before its runner exits, so a server started right after
+        still found the VRAM taken (vLLM refuses to start below its memory share; seen 2026-11-11).
+        """
+        wanted = set(models)
+        deadline = time.monotonic() + timeout_s
+        while wanted & set(self.in_vram()):
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(poll_s)
+        return True
 
     def unload(self, model: str) -> None:
         """Asks Ollama to free `model` now."""

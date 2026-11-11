@@ -362,9 +362,12 @@ class LlamaRouter(OpenAIBackend):
         """REQ-GW-33: free the VRAM Ollama holds before the router loads."""
         for backend in self._ollama():
             try:
-                for model in backend.in_vram():
+                held = backend.in_vram()
+                for model in held:
                     log.info("unloading Ollama model %s to free VRAM", model)
                     backend.unload(model)
+                if held and not backend.wait_unloaded(held):
+                    log.warning("Ollama models %s still hold VRAM; starting anyway", ", ".join(held))
             except (GatewayError, OSError) as exc:
                 log.warning("cannot unload Ollama models of %s: %s", backend.name, exc)
 

@@ -275,9 +275,11 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
   0600 key, and `--no-webui`, with the environment allowlist of 01-security and nothing else.
   Test: unit `test_llama_args.py` (01 names it); integration `test_router_argv_and_env` (fake
   llama-server records argv and env).
-- **REQ-GW-33** Before starting the router, the gateway MUST unload every Ollama model with
-  `size_vram > 0` on the Ollama backends listed in `unload_ollama`. Test: unit
-  `test_ollama_models_are_unloaded_before_router_start` (fake Ollama).
+- **REQ-GW-33** Before starting the router or a `managed-openai` server, the gateway MUST unload
+  every Ollama model with `size_vram > 0` on the Ollama backends listed in `unload_ollama`, and
+  MUST wait (up to 30 s) until `/api/ps` shows them gone: Ollama answers the unload before its
+  runner frees the VRAM. Test: unit `test_ollama_models_are_unloaded_before_router_start`
+  (fake Ollama), `test_an_unload_waits_until_the_runner_has_left_vram`.
 - **REQ-GW-34** After starting, the gateway MUST poll `/models` every second until every
   startup preset reports `loaded`, and MUST stop the router and fail with the log path when a
   preset reports `failed`, drops from `loading` to `unloaded`, the process exits, or

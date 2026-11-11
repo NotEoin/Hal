@@ -85,6 +85,9 @@ class FakeOllama:
     def in_vram(self):
         return list(self.held)
 
+    def wait_unloaded(self, models):
+        return not set(models) & set(self.held)
+
     def unload(self, model):
         self.held.remove(model)
 
