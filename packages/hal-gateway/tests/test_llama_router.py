@@ -290,6 +290,13 @@ def test_startup_presets_skip_on_demand_presets(tmp_path):
     assert startup_presets(ini) == ["a"]
 
 
+def test_a_preset_inherits_load_on_startup_from_the_default_section(tmp_path):
+    # regression: the tuned mode sets it only in [*], and the first request waited for a load that never came
+    ini = tmp_path / "x.ini"
+    ini.write_text("version = 1\n[*]\nload-on-startup = false\n[a]\nmodel = a\n[b]\nload-on-startup = true\n")
+    assert startup_presets(ini) == ["b"]
+
+
 def _unix_connect(conn, path):
     conn.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     conn.sock.settimeout(10)

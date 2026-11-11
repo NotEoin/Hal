@@ -59,15 +59,20 @@ def _now() -> str:
 
 
 def startup_presets(rendered: Path) -> list[str]:
-    """Preset names of a rendered mode that load at start (no `load-on-startup = false`)."""
+    """Preset names of a rendered mode that load at start (no `load-on-startup = false`).
+
+    A preset without the key inherits it from `[*]`, as llama-server does; the `tuned` mode sets
+    it only there, and waiting for a preset the router will not load hung the first request.
+    """
     parser = configparser.ConfigParser(interpolation=None, default_section="")
     parser.optionxform = str  # type: ignore[assignment,method-assign]  # keys are case-sensitive
     parser.read_string(f"[{modes.TOP}]\n{rendered.read_text(encoding='utf-8')}", source=str(rendered))
+    default = parser.get("*", "load-on-startup", fallback="true") if parser.has_section("*") else "true"
     return [
         name
         for name in parser.sections()
         if name not in ("*", modes.TOP)
-        and parser.get(name, "load-on-startup", fallback="true").lower() != "false"
+        and parser.get(name, "load-on-startup", fallback=default).lower() != "false"
     ]
 
 
