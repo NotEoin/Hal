@@ -87,17 +87,13 @@ carries the same version.
 
 - Two GGUF roles that do not fit the GPU together (a coder and a writer) swap instead of running
   out of memory: the `tuned` mode keeps one loaded (`models-max = 1`) when their files do not fit.
-
 - The gateway re-reads `models.toml` when it changes. A `hal tune` save remakes a role's Ollama
   model and pins it; until now that role answered 503 `model_unverified` until the gateway was
   restarted.
-
 - `[hal] embed_on_cpu` works again: the embed role's Ollama model has no GPU layers, so a vault
   reindex no longer takes VRAM that a model loading beside it needs (a coder load failed on it).
-
 - The gateway waits for Ollama to free the VRAM before it starts the router or a managed server;
   vLLM had refused to start because the unloaded model still held 2 GB.
-
 - A click in a picker (`/model`, `/resume`, Ctrl+R, Ctrl+P) chooses the row under the pointer.
   Before, the list's focus border appeared between the press and the release and moved every
   row down one line, so in a long list a click chose the row above (in `/model`, often the first
