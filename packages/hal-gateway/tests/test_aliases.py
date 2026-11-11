@@ -135,6 +135,13 @@ def test_a_role_alias_reports_the_context_hal_tune_set_for_any_backend(tmp_path)
     assert (listed["hal-chat"], listed["hal-embed"]) == (65536, None)
 
 
+def test_a_role_with_parallel_requests_lists_its_slots(tmp_path):
+    resolver = build(tmp_path, BASE + ROLES.replace("context = 65536", "context = 65536\nparallel = 4"))
+    entries = {e.id: e for e in resolver.listing()}
+    assert entries["hal-chat"].slots == 4 and entries["hal-chat"].context_length == 65536  # per request
+    assert entries["hal-classifier"].slots == 0  # one request: unknown, as before
+
+
 def test_the_role_context_wins_over_the_mode_window(tmp_path):
     resolver = build(tmp_path, BASE + ROLES)
     resolver.mode_windows[("a", "chat-m")] = 131072

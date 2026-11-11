@@ -51,6 +51,7 @@ class Preset:
     draft_path: Path | None = None  # draft model for speculative decoding
     spec_type: str = ""  # llama-server `--spec-type`: draft-mtp, draft-dflash, ...
     draft_max: int = 0  # tokens drafted per step
+    parallel: int = 1  # requests served at once, each with `context` tokens of a shared cache
 
 
 def preset_name(role: str) -> str:
@@ -63,11 +64,13 @@ def _section(p: Preset) -> list[str]:
     lines = [
         f"[{preset_name(p.role)}]",
         f"model = {p.model_path}",
-        f"ctx-size = {p.context}",
+        f"ctx-size = {p.context * max(p.parallel, 1)}",
         f"n-gpu-layers = {layers}",
         f"cache-type-k = {p.kv_type}",
         f"cache-type-v = {p.kv_type}",
     ]
+    if p.parallel > 1:  # one cache shared by the slots; the gateway reports `context` per request
+        lines += [f"parallel = {p.parallel}", "kv-unified = true"]
     if p.cpu_moe:
         lines.append(f"n-cpu-moe = {p.cpu_moe}")
     if p.draft_path:
@@ -142,7 +145,7 @@ def read(path: Path) -> list[Preset]:
                 Preset(
                     role=section.removeprefix(prefix),
                     model_path=Path(sec["model"]),
-                    context=int(sec["ctx-size"]),
+                    context=int(sec["ctx-size"]) // int(sec.get("parallel", "1")),
                     kv_type=sec["cache-type-k"],
                     gpu_layers=ALL_LAYERS if layers == ALL_LAYERS_VALUE else layers,
                     tensor_split=split,
@@ -153,6 +156,7 @@ def read(path: Path) -> list[Preset]:
                     draft_path=Path(sec["model-draft"]) if "model-draft" in sec else None,
                     spec_type=sec.get("spec-type", ""),
                     draft_max=int(sec.get("spec-draft-n-max", "0")),
+                    parallel=int(sec.get("parallel", "1")),
                 )
             )
         except (KeyError, ValueError) as exc:

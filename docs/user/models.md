@@ -58,6 +58,7 @@ context = 76800        # tokens; 0 = decided by tuning
 kv_type = "f16"        # f16, q8_0, q4_0 or auto
 gpu_layers = -1        # -1 = all on the GPU, or decided by tuning
 cpu_moe = 0            # mixture-of-experts GGUF: layers whose experts stay in RAM
+parallel = 1           # GGUF: requests served at once, each with `context` tokens
 draft = ""             # speculative decoding: "" = the best draft found, "off", or a file
 draft_max = 0          # tokens drafted per step; 0 = 5 for an MTP head, 3 for others
 effort = "medium"      # default effort: off, low, medium, high, max
@@ -175,6 +176,11 @@ Plan for  [ This machine ] [ 8 GB ] [ 12 GB ] [ 16 GB ] [ 24 GB ] [ CPU only ]
   41 to 85 tokens/s, Gemma 4 31B 39 to 100 on code on an RTX 3090; see
   [tuning](../dev/tuning.md#speculative-decoding)). **Draft tokens** sets how many it guesses per
   step. The memory bar counts the draft.
+- **Parallel** appears for a GGUF model and serves that many requests at once, each with the
+  role's whole context, for bulk work such as vault ingest. The cache holds one context per
+  request (4 x 32K costs what one 128K does), so lower the context to keep it on the GPU. The
+  gateway lists the count as the alias's `slots`. Ollama models share one server-wide setting,
+  `OLLAMA_NUM_PARALLEL`, so the row is not shown for them.
 - **RAM experts** replaces GPU layers for a mixture-of-experts GGUF (the kind the `max` profile
   runs): every layer stays on the GPU and the routed experts of that many layers stay in RAM,
   which is much faster than moving whole layers. Use it to run a model larger than your VRAM.

@@ -98,3 +98,11 @@ def test_a_draft_model_is_written_and_read_back(tmp_path):
         assert line in text
     back = tunedmode.read(tunedmode.write([p], tmp_path))[0]
     assert (back.draft_path, back.spec_type, back.draft_max) == (draft, "draft-mtp", 5)
+
+
+def test_parallel_slots_share_one_cache_sized_for_all_of_them(tmp_path):
+    p = preset(tmp_path, "writer", parallel=4)
+    text = tunedmode.render([p])
+    assert "ctx-size = 131072" in text and "parallel = 4" in text and "kv-unified = true" in text
+    back = tunedmode.read(tunedmode.write([p], tmp_path))[0]
+    assert (back.context, back.parallel) == (32768, 4)  # the context is per request again

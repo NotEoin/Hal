@@ -373,13 +373,15 @@ def place(
     headroom_override_mib: int = 0,
     limit_mib: int | None = None,
     draft_cost_mib: int = 0,
+    slots: int = 1,
 ) -> Plan:
     """Where `model` runs with `context` tokens of `kv_type` cache; the check behind every setting.
 
     `gpu_layers` (a count, or `ALL_LAYERS`) and `cpu_moe` (layers whose experts stay in RAM) are
     the user's when given; when both are None the offload is chosen to fit `limit_mib` of VRAM
     (default: the whole card). `draft_cost_mib` (`draft_mib`) is a draft model's share of the
-    GPU; it is counted in the overhead, so the offload makes room for it. The status is `gpu`
+    GPU; it is counted in the overhead, so the offload makes room for it. `slots` requests run
+    at once, each with `context` tokens: the cache holds `slots x context`. The status is `gpu`
     with everything on the GPU, `hybrid` when layers or experts are in RAM, `cpu` with no layer
     on a GPU, and `does-not-fit` when the GPU part passes the card or the rest passes usable RAM.
     Raises `ValueError` for an unknown cache type or weight size, a context below `MIN_CONTEXT`,
@@ -392,7 +394,7 @@ def place(
     if cpu_moe is not None and not model.is_moe:
         raise ValueError(f"{model.name} is not a mixture-of-experts model, so experts cannot be moved to RAM")
     gpus = [g for g in hw.gpus if g.total_mib > 0]
-    s = _shape(model, kv_type, context, len(gpus))
+    s = _shape(model, kv_type, context * max(slots, 1), len(gpus))
     if draft_cost_mib and gpus:
         s = replace(s, overhead=s.overhead + draft_cost_mib)
     total = sum(g.total_mib for g in gpus)
@@ -400,7 +402,8 @@ def place(
     limit = total if limit_mib is None else limit_mib
     ram = ram_usable_mib(hw)
     why = list(s.notes)
-    why.append(f"weights {s.weights} MiB + KV {s.kv} MiB for {context} tokens + runtime {s.overhead} MiB")
+    shown = f"{slots} x {context}" if slots > 1 else str(context)
+    why.append(f"weights {s.weights} MiB + KV {s.kv} MiB for {shown} tokens + runtime {s.overhead} MiB")
     if draft_cost_mib and gpus:
         why.append(f"the runtime includes {draft_cost_mib} MiB for the draft model")
     layers, moe = ALL_LAYERS, 0
@@ -470,7 +473,9 @@ def _moe_layers(s: _Shape, limit: int) -> int:
     return min(math.ceil((s.full - limit) / per_layer), s.layers)
 
 
-def _plan_once(model: ModelInfo, hw: Hardware, kv_type: str, cap: int, headroom: int, draft: int = 0) -> Plan:
+def _plan_once(
+    model: ModelInfo, hw: Hardware, kv_type: str, cap: int, headroom: int, draft: int = 0, slots: int = 1
+) -> Plan:
     """The automatic plan for one cache type: the most context within the guidance budget."""
     weights = _weights_mib(model)
     per_tok, fixed, _, _ = _kv_per_token(model, kv_type, weights)
@@ -480,8 +485,8 @@ def _plan_once(model: ModelInfo, hw: Hardware, kv_type: str, cap: int, headroom:
     if gpus:
         on_gpu = _shape(model, kv_type, MIN_CONTEXT, len(gpus)).gpu_weights
         spare = budget - on_gpu - overhead_mib(model, len(gpus), 0, kv_type) - draft
-        per_token = per_tok + _overhead_per_token(model, kv_type)
-        ctx = min(_context_for(spare, per_token, fixed), top) if spare > 0 else 0
+        per_token = (per_tok + _overhead_per_token(model, kv_type)) * slots
+        ctx = min(_context_for(spare, per_token, fixed * slots), top) if spare > 0 else 0
         if ctx >= MIN_CONTEXT:
             plan = place(
                 model,
@@ -491,6 +496,7 @@ def _plan_once(model: ModelInfo, hw: Hardware, kv_type: str, cap: int, headroom:
                 headroom_override_mib=headroom,
                 limit_mib=budget,
                 draft_cost_mib=draft,
+                slots=slots,
             )
             return _with(plan, f"the most context within the {budget} MiB guidance: {ctx} tokens (cap {top})")
         goal = MOE_SPILL_CONTEXT if model.is_moe else SPILL_CONTEXT
@@ -503,6 +509,7 @@ def _plan_once(model: ModelInfo, hw: Hardware, kv_type: str, cap: int, headroom:
             headroom_override_mib=headroom,
             limit_mib=budget,
             draft_cost_mib=draft,
+            slots=slots,
         )
         return _with(
             plan, f"the weights do not fit the {budget} MiB guidance: {plan.context} tokens, the rest in RAM"
@@ -519,9 +526,16 @@ def _plan_once(model: ModelInfo, hw: Hardware, kv_type: str, cap: int, headroom:
             context=MIN_CONTEXT,
             headroom_override_mib=headroom,
             draft_cost_mib=draft,
+            slots=slots,
         )
     return place(
-        model, hw, kv_type=kv_type, context=ctx, headroom_override_mib=headroom, draft_cost_mib=draft
+        model,
+        hw,
+        kv_type=kv_type,
+        context=ctx,
+        headroom_override_mib=headroom,
+        draft_cost_mib=draft,
+        slots=slots,
     )
 
 
@@ -537,20 +551,22 @@ def plan_model(
     context_cap: int = 0,
     headroom_override_mib: int = 0,
     draft_cost_mib: int = 0,
+    slots: int = 1,
 ) -> Plan:
     """The automatic plan for `model` on `hw`: the most context that fits the guidance budget.
 
-    `context_cap` (0 = none) lowers the most it aims for below the model's own maximum.
+    `context_cap` (0 = none) lowers the most it aims for below the model's own maximum. With
+    `slots` above 1 the context is per request, and the cache holds `slots` of them.
     `kv_type` is `f16`, `q8_0`, `q4_0` or `auto`. `auto` takes the most precise type that gives
     `AUTO_CONTEXT_GOAL` tokens (or the model's ceiling, if lower) and otherwise the type that
     gives the most context. Raises `ValueError` for an unknown cache type or unknown weight size.
     """
     if kv_type != "auto":
-        return _plan_once(model, hw, kv_type, context_cap, headroom_override_mib, draft_cost_mib)
+        return _plan_once(model, hw, kv_type, context_cap, headroom_override_mib, draft_cost_mib, slots)
     goal = min(AUTO_CONTEXT_GOAL, ceiling(model, context_cap))
     best: Plan | None = None
     for kind in KV_TYPES:
-        plan = _plan_once(model, hw, kind, context_cap, headroom_override_mib, draft_cost_mib)
+        plan = _plan_once(model, hw, kind, context_cap, headroom_override_mib, draft_cost_mib, slots)
         if plan.status == "gpu" and plan.context >= goal:
             return plan
         if best is None or _better(plan, best):

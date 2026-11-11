@@ -63,6 +63,14 @@ the Llama rows as a regression check. Other cards, drivers and llama.cpp builds 
 to check one, load a model with `llama-server` as above and compare `nvidia-smi` with the
 reasoning lines of `hal tune`.
 
+### Parallel requests
+
+A role with `parallel = N` runs llama-server with `--parallel N --kv-unified` and a
+`ctx-size` of N times its context: the slots share one cache, and each request may use the
+role's whole context. The estimate counts the cache for N x context; the auto plan divides the
+spare memory between the slots, so each gets less context than a single request would. The
+gateway reports the per-request context and `slots = N` for the role's alias.
+
 ### Speculative decoding
 
 A draft model guesses the next few tokens and the model checks them in one pass, so decode runs

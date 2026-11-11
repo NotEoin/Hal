@@ -41,6 +41,14 @@ def test_choosing_a_model_shows_a_gpu_fit_on_a_24gb_card(home, server):
     assert fit.status == "gpu" and fit.context >= 16384 and 0 < fit.used_mib <= fit.budget_mib
 
 
+def test_an_ollama_role_cannot_set_parallel_requests(home, server):
+    s = session(home, server)
+    s.choose("chat", s.find("local", "gemma:12b"))
+    assert not s.can_parallel("chat")
+    with pytest.raises(ValueError, match="not a GGUF file"):
+        s.set_parallel("chat", 4)
+
+
 def test_the_same_model_on_a_machine_without_a_gpu_runs_on_the_cpu(home, server):
     s = session(home, server, CPU_ONLY)
     s.choose("chat", s.find("local", "gemma:12b"))
@@ -444,3 +452,23 @@ def test_a_draft_beside_a_gguf_is_used_counted_and_written(home, tmp_path):
     mode = (home.config.parent / "modes" / "tuned.ini").read_text()
     assert "spec-type = draft-mtp" in mode and "spec-draft-n-max = 8" in mode and "mtp-big-27b-Q8_0.gguf" in mode
     assert "mtp-big-27b-Q8_0" in (home.config.parent / "models.toml").read_text()  # the draft is pinned too
+
+
+def test_parallel_requests_shrink_the_fit_and_are_written(home, tmp_path):
+    from halkit.testing.gguf import llama_like, write_gguf  # noqa: PLC0415 - only these tests write a GGUF
+
+    write_gguf(tmp_path / "big-27b-Q4.gguf", llama_like(layers=8), tensors={"blk.0.attn_q.weight": 64 * 1024 * 1024})
+    home.config.write_text(f'[models.sources.files]\nkind = "gguf"\npath = "{tmp_path}"\n')
+    s = tuneui.open_state(hw=hardware.from_dict(CARD_24GB))
+    s.choose("writer", s.find("files", "big-27b-Q4"))
+    s.set_context("writer", 32768)
+    one = s.fit("writer").used_mib
+    s.set_parallel("writer", 4)
+    assert s.fit("writer").used_mib > one  # four contexts in the cache
+    with pytest.raises(ValueError, match="1 to 16"):
+        s.set_parallel("writer", 0)
+    s.write()
+    role = tomllib.loads(home.config.read_text())["models"]["roles"]["writer"]
+    assert role["parallel"] == 4 and role["context"] == 32768
+    mode = (home.config.parent / "modes" / "tuned.ini").read_text()
+    assert "parallel = 4" in mode and "ctx-size = 131072" in mode

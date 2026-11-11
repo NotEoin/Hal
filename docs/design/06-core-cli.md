@@ -701,6 +701,14 @@ wraps it.
   `test_with_the_gateway_a_code_box_asks_for_hal_code_and_a_chat_box_for_hal_chat`,
   `test_a_gateway_link_mints_a_session_that_cannot_reach_a_remote_backend_and_revokes_it`,
   `test_without_the_gateway_the_box_uses_the_hal_model_at_ollama_and_says_so`.
+- **REQ-CLI-125** (MUST) A GGUF role with `parallel = N` MUST be planned and checked with a cache
+  of N times its context, MUST be written into the `tuned` mode as `parallel = N`, `kv-unified`
+  and a `ctx-size` of N times the context, and its alias MUST report the per-request context and
+  `slots = N`. An Ollama role MUST refuse the setting. Test: unit
+  `test_parallel_slots_hold_one_context_each_in_the_cache`,
+  `test_parallel_requests_shrink_the_fit_and_are_written`,
+  `test_parallel_slots_share_one_cache_sized_for_all_of_them`,
+  `test_a_role_with_parallel_requests_lists_its_slots`, `test_an_ollama_role_cannot_set_parallel_requests`.
 - **REQ-CLI-113** (MUST) `hal configure` MUST NOT name or pull a model, and MUST print the
   `hal tune` plan. Test: unit `test_configure_names_no_model_and_prints_the_plan`.
 - **REQ-CLI-114** (MUST) `scripts/install.sh`, `hal setup` and `hal configure` MUST NOT download

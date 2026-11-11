@@ -190,6 +190,20 @@ def test_place_without_a_gpu_is_cpu_or_does_not_fit():
     assert tuning.place(model12b(), small_ram, kv_type="f16", context=65536).status == "does-not-fit"
 
 
+def test_parallel_slots_hold_one_context_each_in_the_cache():
+    card = hw(gpu(24564, 24000))
+    one = tuning.place(model12b(), card, kv_type="q8_0", context=16384)
+    four = tuning.place(model12b(), card, kv_type="q8_0", context=16384, slots=4)
+    big = tuning.place(model12b(), card, kv_type="q8_0", context=65536)
+    assert four.context == 16384 and four.kv_mib == big.kv_mib
+    assert four.kv_mib > one.kv_mib
+
+
+def test_the_automatic_plan_gives_each_slot_less_context():
+    card = hw(gpu(24564, 24000))
+    assert tuning.plan_model(model12b(), card, slots=4).context < tuning.plan_model(model12b(), card).context
+
+
 def test_place_refuses_a_context_below_the_floor():
     with pytest.raises(ValueError, match="useful chat"):
         tuning.place(model12b(), hw(gpu(24564)), kv_type="f16", context=512)

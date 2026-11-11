@@ -96,6 +96,11 @@ class Resolver:
         window = window or self.role_window(alias) or self.mode_windows.get((backend.name, model))
         return Target(alias, backend, model, backend.remote, window or None)
 
+    def role_slots(self, alias: str) -> int:
+        """The `parallel` of the role alias `alias` serves when above 1 (`meta.slots`), else 0 (unknown)."""
+        role = self.cfg.roles.get(alias.removeprefix("hal-")) if alias.startswith("hal-") else None
+        return role.parallel if role is not None and role.parallel > 1 else 0
+
     def role_window(self, alias: str) -> int | None:
         """The `context` of the role alias `alias` serves (`hal-code` -> `[models.roles.code]`), else None.
 
@@ -196,9 +201,9 @@ class Resolver:
             add(
                 name,
                 self.backends[str(alias["backend"])],
-                alias["context_window"] or None,
+                alias["context_window"] or self.role_window(name),
                 str(alias["model"]),
-                int(alias["slots"]),  # type: ignore[call-overload]  # validated non-negative
+                int(alias["slots"]) or self.role_slots(name),  # type: ignore[call-overload]  # validated
             )  # type: ignore[arg-type]
         for role in ROLE_ALIASES:
             try:
@@ -207,7 +212,7 @@ class Resolver:
                 # an ambiguous role has no alias to list
                 continue
             if target is not None:
-                add(role, target.backend, target.context_length, target.model)
+                add(role, target.backend, target.context_length, target.model, self.role_slots(role))
         for name in MODE_KEYS:
             target = self._by_name(name) if self.cfg.gateway[MODE_KEYS[name]] else None
             if target is not None:

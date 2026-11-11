@@ -109,6 +109,7 @@ _ROLE_KEYS = (
     K("context", int, 0, check=_non_negative, doc="Context tokens; 0 = decided by tuning"),
     K("kv_type", str, "", choices=("", *KV_CHOICES), doc="KV cache type; empty = [models] kv_type"),
     K("gpu_layers", int, AUTO_LAYERS, check=_gpu_layers, doc="Layers on the GPU; -1 = decided by tuning"),
+    K("parallel", int, 1, check=_positive, doc="Requests served at once, each with the role's context"),
     K("draft", str, "", doc='Draft model for speculative decoding: "" = the best found, "off", or a file'),
     K(
         "draft_max",
@@ -166,6 +167,7 @@ class Role:
     cpu_moe: int = 0
     draft: str = ""
     draft_max: int = 0
+    parallel: int = 1
 
 
 def is_custom(name: str) -> bool:
@@ -298,6 +300,7 @@ def load_roles(path: Path | None = None) -> dict[str, Role]:
             int(e["cpu_moe"]),
             str(e["draft"]),
             int(e["draft_max"]),
+            int(e["parallel"]),
         )  # type: ignore[call-overload]  # validated above
     return roles
 

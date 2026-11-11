@@ -178,6 +178,12 @@ class RoleEditor(VerticalScroll, can_focus=False):
                              allow_auto=True, auto_label=lambda v: "auto all" if int(v) == total else f"auto {int(v)}",
                              reason=reason, disabled=not total, title=f"{role} GPU layers", id="layers")  # fmt: skip
                 yield Button("Auto", id="layers-auto", disabled=not total)
+        if state.can_parallel(role):  # slots share one cache: each request gets the whole context
+            with Horizontal(classes="row"):
+                yield SafeStatic(Text("Parallel"), classes="label")
+                yield Slider(1, 1, tunestate.MAX_SLOTS, 1, fmt=lambda v: "1 request" if int(v) == 1 else f"{int(v)} requests",
+                             title=f"{role} requests served at once", id="parallel")  # fmt: skip
+                yield Button("One", id="parallel-one")
         drafts = state.drafts_of(role)
         if drafts:  # speculative decoding: a draft model guesses tokens the model then checks in one pass
             options = [Segment("auto", ""), Segment("off", tuning.DRAFT_OFF)]
@@ -252,6 +258,8 @@ class RoleEditor(VerticalScroll, can_focus=False):
             if total:
                 shown = d.gpu_layers if d.gpu_layers is not None else (total if fit.gpu_layers < 0 else fit.gpu_layers)
                 _quiet(layers, float(shown), auto=d.gpu_layers is None)
+        if self.query("#parallel"):
+            _quiet(self.query_one("#parallel", Slider), float(d.parallel), auto=False)
         if self.query("#draft"):
             picker = self.query_one("#draft", Segmented)
             picker.selected = d.draft
@@ -682,6 +690,8 @@ class TuneApp(App[int]):
                 self.change(lambda: state.set_cpu_moe(role, int(event.value)))
             else:
                 self.editor().show_fit(state.try_experts(role, int(event.value)))
+        elif which == "parallel" and event.final:
+            self.change(lambda: state.set_parallel(role, int(event.value)))
         elif which == "draft-max" and (event.final or event.auto):
             tokens = 0 if event.auto else int(event.value)
             self.change(lambda: state.set_draft_max(role, tokens))
@@ -729,6 +739,8 @@ class TuneApp(App[int]):
             self.change(lambda: state.set_gpu_layers(role, None))
         elif which == "experts-auto":
             self.change(lambda: state.set_cpu_moe(role, None))
+        elif which == "parallel-one":
+            self.change(lambda: state.set_parallel(role, 1))
         elif which == "draft-max-auto":
             self.change(lambda: state.set_draft_max(role, 0))
         elif which == "temp-default":

@@ -65,6 +65,7 @@ EMBED_NAME = re.compile(r"embed|bge-|e5-|minilm|nomic", re.IGNORECASE)
 ROUTER_BACKEND = "router"
 DEFAULT_OLLAMA = "ollama"
 OPENAI_URL = "https://api.openai.com/v1"
+DEFAULTS = {"draft_max": (0,), "parallel": (1,)}  # role values that mean "the default": not written
 DERIVED_PREFIX = "hal-tuned-"  # Ollama models `apply` makes to carry a role's tuned context
 OLLAMA_CREATE_TIMEOUT_S = 120.0  # a create from an existing model writes a manifest; seconds at most
 
@@ -82,6 +83,7 @@ class RolePlan:
     manual: bool = False  # the plan holds numbers the user chose: write them and set `auto = false`
     declared_context: int = 0  # a server-sized model's context, set by the user (no plan to carry it)
     draft: tuning.Draft | None = None  # the draft model a GGUF role runs with (speculative decoding)
+    parallel: int = 1  # requests the role's server runs at once, each with the planned context
     settings: dict[str, object] = field(default_factory=dict)  # `effort` and `temperature` to write
     notes: list[str] = field(default_factory=list)
 
@@ -190,6 +192,7 @@ def _plan(model: ModelInfo, hw: Hardware, role: modelconf.Role | None, limits: M
         context_cap=int(limits["context_cap"]),  # type: ignore[call-overload]
         headroom_override_mib=int(limits["headroom_mib"]),  # type: ignore[call-overload]
         draft_cost_mib=draft.vram_mib if draft else 0,
+        slots=role.parallel if role else 1,
     )
 
 
@@ -256,6 +259,7 @@ def build(
                 try:
                     rp.plan = _plan(model, hw, cfg, limits)
                     rp.draft = draft_of(model, cfg)
+                    rp.parallel = cfg.parallel
                 except ValueError as exc:
                     rp.notes.append(str(exc))
             plans.append(rp)
@@ -421,7 +425,7 @@ def _preset(rp: RolePlan) -> tunedmode.Preset:
         tensor_split=p.tensor_split, embedding=rp.role == "embed",
         mmproj=_mmproj(Path(rp.model.path)) if rp.role == "vision" else None, cpu_moe=p.cpu_moe,
         draft_path=Path(rp.draft.path) if rp.draft else None, spec_type=rp.draft.spec_type if rp.draft else "",
-        draft_max=rp.draft.draft_max if rp.draft else 0,
+        draft_max=rp.draft.draft_max if rp.draft else 0, parallel=rp.parallel,
     )
 
 
@@ -446,14 +450,14 @@ def role_table(rp: RolePlan, current: Mapping[str, object]) -> dict[str, object]
     """The `[models.roles.X]` values to write: tuned numbers unless the role is locked."""
     assert rp.source is not None and rp.model is not None
     values: dict[str, object] = {"source": rp.source.name, "model": rp.model.name}
-    for key in ("effort", "temperature", "family", "draft", "draft_max"):
-        unset = (None, "", modelconf.UNSET_TEMPERATURE) + ((0,) if key == "draft_max" else ())
+    for key in ("effort", "temperature", "family", "draft", "draft_max", "parallel"):
+        unset = (None, "", modelconf.UNSET_TEMPERATURE) + DEFAULTS.get(key, ())
         if current.get(key) not in unset:
             values[key] = current[key]
     if rp.model.family and "family" not in values and rp.assigned is False:
         values["family"] = rp.model.family
     for key, value in rp.settings.items():
-        if value in (None, "", modelconf.UNSET_TEMPERATURE) or (key == "draft_max" and value == 0):
+        if value in (None, "", modelconf.UNSET_TEMPERATURE) or value in DEFAULTS.get(key, ()):
             values.pop(key, None)
         else:
             values[key] = value

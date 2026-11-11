@@ -23,6 +23,9 @@ carries the same version.
   memory bar, and writes it into the `tuned` mode; **Speculative** and **Draft tokens** change it.
   On an RTX 3090 an MTP head took Qwen3.8-27B from 41 to 85 tokens/s and Gemma 4 31B from 39 to
   100 on code. Discovery no longer lists draft models or `imatrix` calibration files as models.
+- Parallel requests for GGUF roles: **Parallel** in `hal tune` (`parallel` in the role) serves
+  several requests at once, each with the role's context, for bulk jobs such as vault ingest.
+  The memory bar counts a cache for every slot, and the gateway lists the slots on the alias.
 - `hal setup` installs the pinned llama.cpp build (now b12121) when a GGUF source or a llama.cpp
   router needs it, picking CUDA, ROCm or the CPU build for your GPU and checking every archive
   against the sha256 in the repo before it is extracted. `setup.sh --profile max` did this before.

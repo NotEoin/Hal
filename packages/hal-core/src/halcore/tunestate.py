@@ -50,6 +50,7 @@ CONTEXT_PRESETS = (8192, 16384, 32768, 65536, 131072, 262144)
 KV_OPTIONS = modelconf.KV_CHOICES
 OPTIONAL_ROLES = ("writer",)  # empty by design: falls back to chat
 DEFAULT_EFFORT = "default"  # the word the screens show for "no effort set"
+MAX_SLOTS = 16  # parallel requests per role; more only queue on one GPU
 MAX_DRAFT_TOKENS = 16  # llama.cpp drafts at most 16 tokens per step for a block drafter
 DEFAULT_HARNESS = {"main": "hal-code", "agent": "hal-code"}  # `[gateway] main` and `agent` defaults
 ROLE_KINDS = {"code": "coding model", "vision": "vision model", "embed": "embedding model", "classifier": "safety classifier"}
@@ -71,6 +72,7 @@ class Draft:
     cpu_moe: int | None = None  # None = decided by tuning; else layers whose experts stay in RAM
     draft: str = ""  # speculative decoding: "" = the best draft found, "off", or a draft file
     draft_max: int = 0  # tokens drafted per step; 0 = the default for the draft kind
+    parallel: int = 1  # requests served at once, each with `context` tokens
 
 
 @dataclass(frozen=True)
@@ -123,7 +125,7 @@ def _draft_of(role: modelconf.Role) -> Draft:
     moe = role.cpu_moe if not role.auto and role.cpu_moe > 0 else None
     return Draft(role.source, role.model, 0 if role.auto else role.context, role.kv_type, role.effort,
                  role.temperature, role.family, manual=not role.auto, gpu_layers=layers, cpu_moe=moe,
-                 draft=role.draft, draft_max=role.draft_max)  # fmt: skip
+                 draft=role.draft, draft_max=role.draft_max, parallel=role.parallel)  # fmt: skip
 
 
 class TuneSession:
@@ -172,7 +174,7 @@ class TuneSession:
         if d is None:
             return None
         return modelconf.Role(role, d.source, d.model, d.context, d.kv_type, effort=d.effort, temperature=d.temperature,
-                              family=d.family, draft=d.draft, draft_max=d.draft_max)  # fmt: skip
+                              family=d.family, draft=d.draft, draft_max=d.draft_max, parallel=d.parallel)  # fmt: skip
 
     def plan(self, role: str) -> tuning.Plan | None:
         """The plan for a role's draft: auto from the hardware, or the user's numbers placed on it.
@@ -188,7 +190,7 @@ class TuneSession:
             return tuning.place(
                 model, self.hw, kv_type=kv, context=d.context, gpu_layers=d.gpu_layers,
                 cpu_moe=d.cpu_moe if model.is_moe else None, headroom_override_mib=self._headroom(),
-                draft_cost_mib=draft.vram_mib if draft else 0,
+                draft_cost_mib=draft.vram_mib if draft else 0, slots=d.parallel,
             )  # fmt: skip
         return modelplan._plan(model, self.hw, self._role_cfg(role), self.limits)  # noqa: SLF001 - same package
 
@@ -395,6 +397,11 @@ class TuneSession:
         model = self.model_of(role)
         return model.drafts if model is not None and model.kind == "gguf" else ()
 
+    def can_parallel(self, role: str) -> bool:
+        """True when the role runs on a llama-server Hal starts (a GGUF file), so `set_parallel` applies."""
+        model = self.model_of(role)
+        return model is not None and model.kind == "gguf"
+
     def set_draft(self, role: str, draft: str) -> None:
         """Speculative decoding: "" for the best draft found, `off` for none, or one of `drafts_of`."""
         d, model = self._need(role)
@@ -408,6 +415,19 @@ class TuneSession:
         if not 0 <= tokens <= MAX_DRAFT_TOKENS:
             raise ValueError(f"draft tokens must be 0 (default) to {MAX_DRAFT_TOKENS}")
         d.draft_max = tokens
+
+    def set_parallel(self, role: str, slots: int) -> None:
+        """Serves `slots` requests at once, each with the role's context; raises `ValueError` outside 1 to 16.
+
+        The cache then holds `slots` contexts, so the fit shrinks the context or spills sooner. Only a
+        GGUF role has its own server; Ollama shares one setting (`OLLAMA_NUM_PARALLEL`) across models.
+        """
+        d, model = self._need(role)
+        if not self.can_parallel(role):
+            raise ValueError(f"{model.name} is not a GGUF file, so its server sets parallel requests")
+        if not 1 <= slots <= MAX_SLOTS:
+            raise ValueError(f"parallel requests must be 1 to {MAX_SLOTS}")
+        d.parallel = slots
 
     def set_effort(self, role: str, level: str) -> None:
         """Sets the default effort (`""` = the model's default); refused when the model cannot use the level."""
@@ -632,6 +652,7 @@ class TuneSession:
                 rp.declared_context = d.context
             rp.settings = {"effort": d.effort, "temperature": d.temperature, "draft": d.draft, "draft_max": d.draft_max}
             rp.draft = modelplan.draft_of(model, self._role_cfg(role))
+            rp.settings["parallel"] = rp.parallel = d.parallel
             if d.family:
                 rp.settings["family"] = d.family
             out.append(rp)
