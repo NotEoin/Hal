@@ -5,10 +5,12 @@ down, a bad key file or an unreadable GGUF becomes an `error` string on the resu
 `hal models` can show the other sources. Design decisions:
 
 - Ollama: `GET /api/tags` for names, sizes and digests, then `POST /api/show` per model for
-  `model_info` (layers, heads, KV heads, key length, context) and `capabilities`.
-- GGUF: the header of each file is read with `halkit.gguf` (no weights are read). A `mmproj`
-  file beside a model marks it as vision-capable and is not listed as a model itself. A split
-  model (`-00001-of-00003.gguf`) is one entry whose size is the sum of its shards.
+  `model_info` (layers, heads, KV heads, key length, context), `capabilities` and the
+  `num_ctx` parameter, which is the context Ollama serves the model with.
+- GGUF: the header and tensor table of each file are read with `halkit.gguf` (no weights are
+  read). A `mmproj` file beside a model marks it as vision-capable and is not listed as a model
+  itself. A split model (`-00001-of-00003.gguf`) is one entry whose size is the sum of its
+  shards; the tensor sizes of every shard are read, so expert and embedding bytes are exact.
 - OpenAI-compatible: `GET {url}/models`. Metadata is unknown unless the server adds it: llama.cpp
   server reports `meta.n_ctx_train`, `meta.n_params` and `meta.size`, vLLM reports `max_model_len`.
 - Anthropic and OpenAI cloud: model ids only; the cloud hosts are fixed constants.
@@ -158,10 +160,12 @@ def _ollama(source: Source, fetch: Fetch) -> Discovery:
             continue
         details = entry.get("details") or {}
         info: dict = {}  # type: ignore[type-arg]
+        served = None
         try:
             show = fetch("POST", f"{base}/api/show", {}, {"model": name}, SHOW_TIMEOUT_S)
             info = show.get("model_info") or {} if isinstance(show, dict) else {}
             caps = {str(c) for c in (show.get("capabilities") or [])} if isinstance(show, dict) else set()
+            served = _num_ctx(show.get("parameters") if isinstance(show, dict) else None)
         except DiscoveryError as exc:
             notes.append(f"{name}: no metadata ({exc})")
             caps = set()
@@ -198,6 +202,9 @@ def _ollama(source: Source, fetch: Fetch) -> Discovery:
                 attention_interval=interval,
                 kv_full_width=widths[0],
                 kv_window_width=widths[1],
+                vocab=_int(info.get(f"{arch}.vocab_size")),
+                experts=_int(info.get(f"{arch}.expert_count")),
+                context_served=served,
                 capabilities=frozenset(found),
                 digest=str(entry.get("digest") or ""),
             )
@@ -250,8 +257,47 @@ def _openai(source: Source, fetch: Fetch, endpoints: Mapping[str, str]) -> Disco
     return Discovery(source.name, tuple(models))
 
 
-def _gguf_info(source: Source, path: Path, size: int, vision: bool) -> ModelInfo:
+def _num_ctx(parameters: object) -> int | None:
+    """The `num_ctx` line of Ollama's `parameters` text (`num_ctx    65536`), else None."""
+    for line in str(parameters or "").splitlines():
+        key, _, value = line.strip().partition(" ")
+        if key == "num_ctx":
+            return int(value.strip()) if value.strip().isdigit() else None
+    return None
+
+
+def _tensor_facts(
+    tensors: Mapping[str, int], blocks: int | None, nextn: int | None
+) -> tuple[int | None, ...]:
+    """`(expert bytes, host bytes, idle bytes)` from tensor sizes; None where the table says nothing.
+
+    Routed experts are the `*_exps` tensors (shared experts, `*_shexp`, are not routed). The input
+    embedding stays in RAM only when a separate `output.weight` exists (llama.cpp copies a tied
+    embedding to the GPU for the output layer). The last `nextn` blocks are multi-token-prediction
+    layers, which llama.cpp loads only for a draft.
+    """
+    if not tensors:
+        return None, None, None
+    experts = sum(size for name, size in tensors.items() if "_exps." in name)
+    host = tensors.get("token_embd.weight", 0) if "output.weight" in tensors else 0
+    idle = 0
+    if blocks and nextn and 0 < nextn < blocks:
+        prefixes = tuple(f"blk.{i}." for i in range(blocks - nextn, blocks))
+        idle = sum(size for name, size in tensors.items() if name.startswith(prefixes))
+    return experts or None, host, idle
+
+
+def _gguf_info(
+    source: Source, path: Path, size: int, vision: bool, shards: tuple[Path, ...] = ()
+) -> ModelInfo:
     head = gguf.read_header(path)
+    tensors = dict(head.tensor_bytes)
+    for shard in shards:
+        if shard != path:
+            tensors.update(gguf.read_header(shard).tensor_bytes)
+    expert_bytes, host_bytes, idle_bytes = _tensor_facts(
+        tensors, head.arch_int("block_count"), head.arch_int("nextn_predict_layers")
+    )
     arch = head.architecture
     heads = head.arch_int("attention.head_count")
     emb = head.arch_int("embedding_length")
@@ -286,6 +332,11 @@ def _gguf_info(source: Source, path: Path, size: int, vision: bool) -> ModelInfo
         attention_interval=interval,
         kv_full_width=widths[0],
         kv_window_width=widths[1],
+        vocab=head.array_lengths.get("tokenizer.ggml.tokens") or head.arch_int("vocab_size"),
+        experts=head.arch_int("expert_count"),
+        expert_bytes=expert_bytes,
+        host_bytes=host_bytes,
+        idle_bytes=idle_bytes,
         capabilities=frozenset(caps),
         path=str(path),
     )
@@ -306,11 +357,12 @@ def _gguf(source: Source) -> Discovery:
             continue
         if shard:
             pattern = SHARD.sub("", path.stem) + "-*-of-" + shard.group(2) + ".gguf"
-            size = sum(p.stat().st_size for p in path.parent.glob(pattern))
+            parts = tuple(sorted(path.parent.glob(pattern)))
+            size = sum(p.stat().st_size for p in parts)
         else:
-            size = path.stat().st_size
+            parts, size = (), path.stat().st_size
         try:
-            models.append(_gguf_info(source, path, size, path.parent in projectors))
+            models.append(_gguf_info(source, path, size, path.parent in projectors, parts))
         except (gguf.GgufError, OSError) as exc:
             notes.append(f"{path.name}: {exc}")
     return Discovery(source.name, tuple(models), notes=tuple(notes))

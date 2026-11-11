@@ -1,4 +1,4 @@
-"""Writes a tiny GGUF file (header only, no tensors) for tests of `halkit.gguf`."""
+"""Writes a tiny GGUF file (header and tensor table, zero-filled data) for tests of `halkit.gguf`."""
 
 from __future__ import annotations
 
@@ -35,14 +35,36 @@ def _value(value: object) -> tuple[int, bytes]:
     raise TypeError(f"cannot write {value!r}")
 
 
-def write_gguf(path: Path, metadata: Mapping[str, object], *, version: int = 3, pad_to: int = 0) -> Path:
-    """Writes `metadata` as a GGUF v`version` header; `pad_to` appends zero bytes to reach a size."""
+ALIGNMENT = 32  # the GGUF default `general.alignment`
+F32 = 0  # ggml type id; the reader takes sizes from offsets, so the type is only a placeholder
+
+
+def write_gguf(
+    path: Path,
+    metadata: Mapping[str, object],
+    *,
+    version: int = 3,
+    pad_to: int = 0,
+    tensors: Mapping[str, int] | None = None,
+) -> Path:
+    """Writes `metadata` as a GGUF v`version` header, then `tensors` (name -> bytes) as zero-filled data.
+
+    `pad_to` appends zero bytes to reach a size; with no tensors that padding belongs to no tensor.
+    """
     body = b""
     for key, value in metadata.items():
         kind, raw = _value(value)
         body += _s(key) + struct.pack("<I", kind) + raw
-    data = b"GGUF" + struct.pack("<IQQ", version, 0, len(metadata)) + body
-    Path(path).write_bytes(data + b"\0" * max(pad_to - len(data), 0))
+    table, offset = b"", 0
+    for name, size in (tensors or {}).items():
+        table += _s(name) + struct.pack("<IQIQ", 1, size, F32, offset)
+        offset += -(-size // ALIGNMENT) * ALIGNMENT
+    head = b"GGUF" + struct.pack("<IQQ", version, len(tensors or {}), len(metadata)) + body + table
+    head += b"\0" * (-len(head) % ALIGNMENT if tensors else 0)
+    if tensors:
+        last = list(tensors.values())[-1]
+        head += b"\0" * (offset - (-(-last // ALIGNMENT) * ALIGNMENT) + last)
+    Path(path).write_bytes(head + b"\0" * max(pad_to - len(head), 0))
     return Path(path)
 
 
