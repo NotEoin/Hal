@@ -66,6 +66,7 @@ ROUTER_BACKEND = "router"
 DEFAULT_OLLAMA = "ollama"
 OPENAI_URL = "https://api.openai.com/v1"
 DEFAULTS = {"draft_max": (0,), "parallel": (1,)}  # role values that mean "the default": not written
+MODEL_KEYS = ("family", "draft", "draft_max")  # describe the old model: dropped when the model changes
 DERIVED_PREFIX = "hal-tuned-"  # Ollama models `apply` makes to carry a role's tuned context
 OLLAMA_CREATE_TIMEOUT_S = 120.0  # a create from an existing model writes a manifest; seconds at most
 
@@ -450,9 +451,10 @@ def role_table(rp: RolePlan, current: Mapping[str, object]) -> dict[str, object]
     """The `[models.roles.X]` values to write: tuned numbers unless the role is locked."""
     assert rp.source is not None and rp.model is not None
     values: dict[str, object] = {"source": rp.source.name, "model": rp.model.name}
+    same_model = (current.get("source"), current.get("model")) == (rp.source.name, rp.model.name)
     for key in ("effort", "temperature", "family", "draft", "draft_max", "parallel"):
         unset = (None, "", modelconf.UNSET_TEMPERATURE) + DEFAULTS.get(key, ())
-        if current.get(key) not in unset:
+        if current.get(key) not in unset and (same_model or key not in MODEL_KEYS):
             values[key] = current[key]
     if rp.model.family and "family" not in values and rp.assigned is False:
         values["family"] = rp.model.family

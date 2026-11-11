@@ -472,3 +472,13 @@ def test_parallel_requests_shrink_the_fit_and_are_written(home, tmp_path):
     assert role["parallel"] == 4 and role["context"] == 32768
     mode = (home.config.parent / "modes" / "tuned.ini").read_text()
     assert "parallel = 4" in mode and "ctx-size = 131072" in mode
+
+
+def test_a_new_model_drops_the_family_the_old_model_had(home, server):
+    # regression: an old `fast` table's `family = "qwen35"` stayed on the classifier after granite replaced it
+    old = '[models.roles.fast]\nsource = "local"\nmodel = "tiny:1b"\nfamily = "qwen35"\neffort = "off"\n'
+    s = session(home, server, extra=old)
+    s.choose("classifier", s.find("local", "guardian:2b"))
+    s.write()
+    role = tomllib.loads(home.config.read_text())["models"]["roles"]["classifier"]
+    assert role["model"] == "guardian:2b" and role.get("family") != "qwen35"
