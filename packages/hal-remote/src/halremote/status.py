@@ -22,10 +22,37 @@ class StatusError(ValueError):
     """The status file exists but cannot be understood."""
 
 
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000  # Win32 access right: enough to read an exit code
+STILL_ACTIVE = 259  # Win32 exit code of a process that has not ended
+WINDOWS = os.name == "nt"
+
+
+def _windows_alive(pid: int) -> bool:
+    """True when `pid` names a running process on Windows (`OpenProcess`, `GetExitCodeProcess`)."""
+    import ctypes  # noqa: PLC0415 - only Windows reaches this
+    from ctypes import wintypes  # noqa: PLC0415 - only Windows reaches this
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]  # Windows only
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return False
+    try:
+        code = wintypes.DWORD()
+        return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def pid_alive(pid: int) -> bool:
-    """True when a process with `pid` exists (signal 0 checks without delivering)."""
+    """True when a process with `pid` exists.
+
+    POSIX uses signal 0, which checks without delivering. Windows must not: there `os.kill(pid, 0)`
+    sends CTRL_C_EVENT to the process (and its console group), which interrupted the test run in CI.
+    """
     if pid <= 0:
         return False
+    if WINDOWS:
+        return _windows_alive(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
