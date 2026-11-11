@@ -541,7 +541,7 @@ def pin(plans: list[RolePlan], found: Mapping[str, discovery.Discovery], store: 
             continue
         path = Path(rp.model.path).resolve()
         draft = Path(rp.draft.path).resolve() if rp.draft else None
-        if draft is not None and not any(e.file == draft for e in entries.values()):
+        if draft is not None and draft != path and not any(e.file == draft for e in entries.values()):
             pinned = gwmodels.add_local(store, draft, name=_free_name(entries, draft.stem))
             entries[pinned.name] = pinned
             lines.append(f"pinned {pinned.name} (draft, sha256 {str(pinned.sha256)[:12]})")

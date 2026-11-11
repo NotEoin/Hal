@@ -508,6 +508,7 @@ def test_a_model_with_built_in_mtp_layers_drafts_with_them(home, tmp_path):
     fit = s.fit("code")
     assert fit.draft == str(path) and draft_label(fit.draft, str(path)) == "built-in MTP"
     s.set_draft_max("code", 2)
-    s.write()
+    notes = s.write()
     mode = (home.config.parent / "modes" / "tuned.ini").read_text()
     assert "spec-type = draft-mtp" in mode and "spec-draft-n-max = 2" in mode and "model-draft" not in mode
+    assert "pinned coder-27b-MTP-Q4 (sha256" in "\n".join(notes)  # pinned once, as the model
