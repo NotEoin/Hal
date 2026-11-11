@@ -105,7 +105,8 @@ def test_install_downloads_checks_and_merges_the_variant_archives(tmp_path):
     main = _archive(
         tmp_path, "llama-b1-cuda.tar.gz", {"llama-server": b"server", "libggml.so": b"g"}, top="llama-b1"
     )
-    rt = _archive(tmp_path, "cudart-b1.tar.gz", {"libcudart.so.12": b"rt"})
+    # regression: the CUDA runtime landed in its archive's own folder, so llama.cpp ran on the CPU
+    rt = _archive(tmp_path, "cudart-b1.tar.gz", {"libcudart.so.12": b"rt"}, top="cudart-llama-b1-bin-cuda")
     seen = []
     target = llamacpp.install(
         tmp_path / "root", "cuda", opener=_opener([main, rt], seen), lock=_lock(tmp_path, [main, rt])

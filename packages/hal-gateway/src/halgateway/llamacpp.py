@@ -94,13 +94,18 @@ def _download(url: str, target: Path, opener: Opener) -> None:
         shutil.copyfileobj(resp, out, HASH_CHUNK)
 
 
-def _extract(archive: Path, into: Path, tag: str) -> None:
-    """Extracts `archive` into `into`, dropping a leading `llama-<tag>/` folder."""
+def _extract(archive: Path, into: Path) -> None:
+    """Extracts `archive` into `into`, dropping a single top folder.
+
+    The libraries must sit beside `llama-server`: `libggml-cuda.so` finds `libcudart` only there,
+    and without it llama.cpp falls back to the CPU without an error. The release archives wrap
+    their files in `llama-<tag>/` and `cudart-llama-<tag>-bin-.../` (checked on b12121).
+    """
     with tarfile.open(archive) as tar:
         staging = into.parent / f".{archive.name}.x"
         tar.extractall(staging, filter="data")
-    inner = staging / f"llama-{tag}"
-    source = inner if inner.is_dir() else staging
+    top = list(staging.iterdir())
+    source = top[0] if len(top) == 1 and top[0].is_dir() else staging
     for item in source.iterdir():
         os.replace(item, into / item.name)
     shutil.rmtree(staging)
@@ -128,7 +133,7 @@ def install(
             archive = work / name
             _download(RELEASE_URL.format(tag=tag, name=name), archive, opener)
             verify_archive(archive, tag, lock)
-            _extract(archive, folder, tag)
+            _extract(archive, folder)
         if not (folder / "llama-server").is_file():
             raise LockError(f"the {variant} archives of {tag} hold no llama-server")
         os.replace(folder, target)
