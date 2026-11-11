@@ -410,4 +410,4 @@ def test_newrole_through_the_menus_then_saving_writes_the_role_and_its_alias(hom
     screen.run()
     cfg = tomllib.loads(home.config.read_text())
     assert cfg["models"]["roles"]["code-big"]["model"] == "coder:7b"
-    assert cfg["gateway"]["aliases"]["hal-code-big"] == {"backend": "local", "model": "coder:7b"}
+    assert cfg["gateway"]["aliases"]["hal-code-big"] == {"backend": "local", "model": "hal-tuned-code-big:latest"}

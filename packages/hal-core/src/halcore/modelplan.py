@@ -7,8 +7,9 @@ the generated mode) into four steps:
 2. `build` picks a model per role (an assigned one stays; an empty role gets the best fit among
    local models) and plans its settings on this hardware;
 3. `wire` works out what the gateway needs to serve the plan: `[hal]` model names, backends,
-   and a `[gateway.aliases.hal-NAME]` entry per named role;
-4. `apply` pins the models, writes the config and the generated mode.
+   a `[gateway.aliases.hal-NAME]` entry per named role, and the Ollama models that carry a
+   role's tuned context;
+4. `apply` creates those Ollama models, pins the models, writes the config and the generated mode.
 
 Design decisions:
 
@@ -22,6 +23,13 @@ Design decisions:
   user gave it a model. It has no `[hal]` key, so it is served as the gateway alias `hal-NAME`.
 - An Anthropic source can be listed and assigned but the gateway has no Anthropic backend, so
   `wire` leaves such a role out of the gateway and says so in the plan notes.
+- Ollama's OpenAI-compatible route ignores a per-request context (checked with Ollama 0.40.1:
+  `options.num_ctx` on `/v1/chat/completions` left the model at its default), so a tuned
+  context reaches Ollama as a derived model, `hal-tuned-ROLE`, made with `/api/create` from the
+  chosen model plus `num_ctx` (and `num_gpu` when layers are offloaded). It is a manifest over
+  the same weights, not a copy. The role table still names the chosen model; only the gateway
+  serves the derived one. Ollama applies `OLLAMA_KV_CACHE_TYPE` to every model, so a role's
+  `kv_type` only sizes the plan there.
 """
 
 from __future__ import annotations
@@ -56,6 +64,8 @@ EMBED_NAME = re.compile(r"embed|bge-|e5-|minilm|nomic", re.IGNORECASE)
 ROUTER_BACKEND = "router"
 DEFAULT_OLLAMA = "ollama"
 OPENAI_URL = "https://api.openai.com/v1"
+DERIVED_PREFIX = "hal-tuned-"  # Ollama models `apply` makes to carry a role's tuned context
+OLLAMA_CREATE_TIMEOUT_S = 120.0  # a create from an existing model writes a manifest; seconds at most
 
 
 @dataclass
@@ -97,6 +107,39 @@ def survey(sources: Mapping[str, modelconf.Source], discover: Discover = discove
 def is_local(source: modelconf.Source) -> bool:
     """True for a source automatic choice may use: a local kind, not marked remote."""
     return source.kind in LOCAL_KINDS and not source.allow_remote
+
+
+def is_derived(name: str) -> bool:
+    """True for an Ollama model `apply` made to carry a role's tuned settings."""
+    return name.startswith(DERIVED_PREFIX)
+
+
+def derived_name(role: str) -> str:
+    """The Ollama model that serves `role` at its tuned context."""
+    return f"{DERIVED_PREFIX}{role}:latest"
+
+
+@dataclass(frozen=True)
+class Derived:
+    """An Ollama model to create: `base` with the role's tuned parameters."""
+
+    role: str
+    source: modelconf.Source
+    base: str
+    name: str
+    parameters: dict[str, int]
+
+
+def derived(rp: RolePlan) -> Derived | None:
+    """The Ollama model that carries `rp`'s tuned context and offload, or None when the role needs none."""
+    if rp.model is None or rp.source is None or rp.model.kind != "ollama" or rp.plan is None:
+        return None
+    if rp.plan.status == "does-not-fit" or rp.plan.context < tuning.MIN_CONTEXT:
+        return None
+    params = {"num_ctx": rp.plan.context}
+    if rp.plan.gpu_layers >= 0:  # all layers: Ollama's own placement already puts them on the GPU
+        params["num_gpu"] = rp.plan.gpu_layers
+    return Derived(rp.role, rp.source, rp.model.name, derived_name(rp.role), params)
 
 
 def _usable(model: ModelInfo, role: str) -> bool:
@@ -153,7 +196,7 @@ def choose(
         if not is_local(src) or name not in found:
             continue
         for model in found[name].models:
-            if not _usable(model, role):
+            if is_derived(model.name) or not _usable(model, role):
                 continue
             if role == "code" and not CODE_NAME.search(model.name):
                 continue
@@ -225,6 +268,7 @@ class Wiring:
     backends: dict[str, dict[str, object]] = field(default_factory=dict)
     aliases: dict[str, dict[str, object]] = field(default_factory=dict)  # `[gateway.aliases]` of named roles
     presets: list[tunedmode.Preset] = field(default_factory=list)
+    derived: list[Derived] = field(default_factory=list)  # Ollama models to create before the config is written
     notes: list[str] = field(default_factory=list)
 
 
@@ -249,13 +293,17 @@ def wire(plans: list[RolePlan], doc: Mapping[str, object]) -> Wiring:  # noqa: C
             continue
         key = HAL_KEYS[rp.role]
         if src.kind == "ollama":
+            made = derived(rp)
+            served = made.name if made else model.name
+            if made:
+                out.derived.append(made)
             default_ollama = default_ollama or src.name
             if src.name == default_ollama:
-                out.hal[key] = model.name
+                out.hal[key] = served
                 out.hal["ollama_url"] = src.url
                 continue
             out.backends.setdefault(src.name, {"type": "ollama", "url": src.url})
-            out.hal[key] = f"{src.name}/{model.name}"
+            out.hal[key] = f"{src.name}/{served}"
         elif src.kind == "openai":
             entry: dict[str, object] = {"type": "openai", "url": src.url}
             if src.api_key_file:
@@ -314,7 +362,10 @@ def _wire_named(out: Wiring, rp: RolePlan, existing: Mapping[str, Mapping[str, o
     assert rp.source is not None and rp.model is not None
     src, model = rp.source, rp.model
     if src.kind == "ollama":
-        backend, upstream = _ollama_backend(out, src, existing, hal_now), model.name
+        made = derived(rp)
+        if made:
+            out.derived.append(made)
+        backend, upstream = _ollama_backend(out, src, existing, hal_now), made.name if made else model.name
     elif src.kind in ("openai", "openai-cloud"):
         entry: dict[str, object] = {"type": "openai", "url": src.url if src.kind == "openai" else OPENAI_URL}
         if src.kind == "openai-cloud":
@@ -527,7 +578,8 @@ def apply(
     done: list[str] = []
     presets = _merged_presets(wiring.presets, plans, mode_file, new)
     try:
-        done = pin(plans, found, store)
+        done = create_derived(wiring.derived, store)
+        done += pin(plans, found, store)
         if wiring.presets:
             done.append(f"wrote {tunedmode.write(presets, mode_file.parent)}")
         backup = confmigrate.apply(target, new)
@@ -552,6 +604,39 @@ def _merged_presets(
     touched = {rp.role for rp in plans}
     kept = [p for p in tunedmode.read(mode_file) if p.role not in touched and p.role in roles]
     return [*kept, *planned]
+
+
+class _LiveTags:
+    """Gives `record_ollama` the tags Ollama lists now, after `create_derived` added models."""
+
+    def __init__(self, url: str) -> None:
+        self._url = url.rstrip("/")
+
+    def tags(self) -> list[dict[str, str]]:
+        doc = discovery.http_json("GET", f"{self._url}/api/tags", {}, None, discovery.HTTP_TIMEOUT_S)
+        rows = doc.get("models") if isinstance(doc, dict) else None
+        return [r for r in rows or [] if isinstance(r, dict)]
+
+
+def create_derived(models: list[Derived], store: gwmodels.Store) -> list[str]:
+    """Creates each derived Ollama model and pins it; returns one line per model.
+
+    Raises `ManifestError` when Ollama refuses a create or no longer lists the result. A model
+    made before a later failure stays in Ollama: it is a manifest over weights Ollama already
+    has, and the next write replaces it.
+    """
+    lines = []
+    for made in models:
+        body = {"model": made.name, "from": made.base, "parameters": made.parameters, "stream": False}
+        url = made.source.url.rstrip("/")
+        try:
+            discovery.http_json("POST", f"{url}/api/create", {}, body, OLLAMA_CREATE_TIMEOUT_S)
+        except discovery.DiscoveryError as exc:
+            raise ManifestError(f"Ollama could not create {made.name} from {made.base}: {exc}") from exc
+        gwmodels.record_ollama(store, [made.name], _LiveTags(url))
+        shown = ", ".join(f"{k} {v}" for k, v in made.parameters.items())
+        lines.append(f"made Ollama model {made.name} from {made.base} ({shown}) for {made.role}")
+    return lines
 
 
 def plain_errors() -> tuple[type[Exception], ...]:

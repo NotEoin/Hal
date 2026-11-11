@@ -141,7 +141,13 @@ def test_write_saves_roles_pins_digests_and_names_the_models_for_the_gateway(hom
     chat = cfg["models"]["roles"]["chat"]
     assert (chat["source"], chat["model"], chat["gpu_layers"]) == ("local", "gemma:12b", -1)
     assert chat["context"] >= 16384 and chat["kv_type"] in ("f16", "q8_0", "q4_0")
-    assert cfg["hal"]["chat_model"] == "gemma:12b" and cfg["hal"]["fast_model"] == "tiny:1b"
+    # the gateway serves Ollama roles through the model that carries the tuned context
+    assert cfg["hal"]["chat_model"] == "hal-tuned-chat:latest" and cfg["hal"]["fast_model"] == "hal-tuned-fast:latest"
+    made = {c["model"]: c for c in ollama.created}
+    assert made["hal-tuned-chat:latest"]["from"] == "gemma:12b"
+    assert made["hal-tuned-chat:latest"]["parameters"] == {"num_ctx": chat["context"]}
+    pins = (home.config.parent / "models.toml").read_text()
+    assert "hal-tuned-chat:latest" in pins
     assert cfg["hal"]["ollama_url"] == ollama.url
     manifest = (home.config.parent / "models.toml").read_text()
     assert "gemma:12b@sha256:" + "b" * 64 in manifest
@@ -267,7 +273,7 @@ def test_models_assign_sets_the_role_pins_it_and_wires_the_gateway(home, ollama,
     add_ollama(home, ollama)
     assert modelscmd.main(["assign", "fast", "local", "tiny:1b"]) == 0
     cfg = tomllib.loads(home.config.read_text())
-    assert cfg["models"]["roles"]["fast"]["model"] == "tiny:1b" and cfg["hal"]["fast_model"] == "tiny:1b"
+    assert cfg["models"]["roles"]["fast"]["model"] == "tiny:1b" and cfg["hal"]["fast_model"] == "hal-tuned-fast:latest"
     assert "tiny:1b@sha256:" + "c" * 64 in (home.config.parent / "models.toml").read_text()
 
 
@@ -335,7 +341,7 @@ def test_assign_with_a_new_name_adds_a_named_role_served_as_a_gateway_alias(home
     assert modelscmd.main(["assign", "code-big", "local", "coder:7b"]) == 0
     cfg = tomllib.loads(home.config.read_text())
     assert cfg["models"]["roles"]["code-big"]["model"] == "coder:7b"
-    assert cfg["gateway"]["aliases"]["hal-code-big"] == {"backend": "local", "model": "coder:7b"}
+    assert cfg["gateway"]["aliases"]["hal-code-big"] == {"backend": "local", "model": "hal-tuned-code-big:latest"}
     assert "code_model" not in cfg.get("hal", {})
     assert load_config(home.config).aliases["hal-code-big"]["backend"] == "local"
 
@@ -391,3 +397,23 @@ def test_writing_one_gguf_role_keeps_the_presets_of_the_others_in_the_tuned_mode
     assert run_json(capsys, "--write", "--role", "long-code", "--hardware", hw_file(CARD_24GB))[0] == 0
     mode = (home.config.parent / "modes" / "tuned.ini").read_text()
     assert "[tuned-chat]" in mode and "[tuned-long-code]" in mode
+
+
+def test_an_offloaded_ollama_role_also_sets_num_gpu(home, ollama, hw_file, capsys):
+    add_ollama(home, ollama)
+    with home.config.open("a") as fh:
+        fh.write('[models.roles.chat]\nsource = "local"\nmodel = "gemma:12b"\n')
+    small = {**CARD_24GB, "gpus": [{**CARD_24GB["gpus"][0], "total_mib": 4096, "free_mib": 4096}]}
+    assert tune.main(["--auto", "--write", "--role", "chat", "--hardware", hw_file(small)]) == 0
+    chat = tomllib.loads(home.config.read_text())["models"]["roles"]["chat"]
+    made = {c["model"]: c for c in ollama.created}["hal-tuned-chat:latest"]
+    assert 0 < chat["gpu_layers"] == made["parameters"]["num_gpu"]
+
+
+def test_models_tune_made_are_not_offered_for_a_role(home, ollama, hw_file, capsys):
+    add_ollama(home, ollama)
+    tune.main(["--auto", "--write", "--hardware", hw_file(CARD_24GB)])
+    found = modelplan.survey(modelconf.load_sources())
+    assert any(modelplan.is_derived(m.name) for d in found.values() for m in d.models)
+    plans = modelplan.build({}, modelconf.load_sources(), found, hardware.from_dict(CARD_24GB), modelconf.limits())
+    assert not any(rp.model and modelplan.is_derived(rp.model.name) for rp in plans)

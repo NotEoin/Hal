@@ -284,7 +284,7 @@ def test_a_named_role_is_added_chosen_and_written_with_its_alias(home, server):
     s.write()
     cfg = tomllib.loads(home.config.read_text())
     assert cfg["models"]["roles"]["code-128k"]["model"] == "coder:7b"
-    assert cfg["gateway"]["aliases"]["hal-code-128k"]["model"] == "coder:7b"
+    assert cfg["gateway"]["aliases"]["hal-code-128k"]["model"] == "hal-tuned-code-128k:latest"
 
 
 def test_a_named_role_name_must_be_new_and_alias_safe(home, server):

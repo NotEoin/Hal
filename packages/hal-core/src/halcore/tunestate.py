@@ -141,8 +141,8 @@ class TuneSession:
     # --- models and fit ---------------------------------------------------------------------
 
     def models(self) -> list[ModelInfo]:
-        """Every discovered model, in source order."""
-        return [m for d in self.found.values() for m in d.models]
+        """Every discovered model a role can use, in source order (models tune made itself are left out)."""
+        return [m for d in self.found.values() for m in d.models if not modelplan.is_derived(m.name)]
 
     def find(self, source: str, name: str) -> ModelInfo | None:
         """The discovered model `name` of `source`, or None."""

@@ -154,6 +154,12 @@ in the tune screen uses.
 - a GGUF role becomes a preset of the generated llama.cpp mode `tuned` (`halgateway.tunedmode`):
   `ctx-size`, `n-gpu-layers`, `n-cpu-moe`, the cache types and `fit = off`, so llama.cpp keeps
   the numbers instead of re-fitting them;
+- an Ollama role is served through `hal-tuned-ROLE`, an Ollama model made with `/api/create`
+  from the chosen model plus `num_ctx` (and `num_gpu` when layers spill). Ollama's OpenAI route
+  ignores a context sent with a request (checked with Ollama 0.40.1), so this is the only way
+  the tuned context reaches it. It is a manifest over the same weights, not a copy, and the
+  model pickers leave it out. Ollama applies `OLLAMA_KV_CACHE_TYPE` to every model, so the
+  role's `kv_type` only sizes the plan;
 - a role on a server-sized model keeps the context the user declared.
 
 ## Presets

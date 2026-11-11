@@ -39,6 +39,11 @@ carries the same version.
 
 ### Fixed
 
+- A role on an Ollama model now runs at the context `hal tune` set. Ollama ignores a context sent
+  with an OpenAI-style request, so it ran every model at its Modelfile `num_ctx` or its default
+  (`hal-chat` was set to 128000 tokens and served 65536). Saving now makes `hal-tuned-ROLE` in
+  Ollama, the same weights with the tuned `num_ctx` (and `num_gpu` when layers spill), and the
+  gateway serves the role through it.
 - `hal tune` plans RAM from the total, not what is free, so a hybrid plan no longer turns
   "too big" while Hal's own models are loaded. The hardware line shows totals, with a note when
   something holds the GPU.
