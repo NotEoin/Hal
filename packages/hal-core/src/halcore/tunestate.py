@@ -633,14 +633,36 @@ class TuneSession:
         """Roles whose draft differs from the config, in role order."""
         return [r for r in self.role_names() if r in self.drafts and self.drafts[r] != self._original.get(r)]
 
+    def stale_roles(self) -> list[str]:
+        """Unchanged Ollama roles whose saved context their model does not serve (no derived model).
+
+        A role saved before derived models existed (or edited by hand) still names the base
+        model, which runs at its own `num_ctx` while the gateway reports the role's context; a
+        write repairs it (REQ-CLI-123).
+        """
+        named = config.load(config.HAL_TABLE)
+        out = []
+        for role in self.role_names():
+            model, key = self.model_of(role), modelplan.HAL_KEYS.get(role)
+            saved = self._roles.get(role)
+            if saved is None or not saved.context or role in self.changed_roles() or model is None or key is None:
+                continue  # an auto role with no saved context has no number to carry yet
+            plan = self.plan(role) if model.kind == "ollama" else None
+            if plan is None or plan.context == model.context_served or named.get(key) == modelplan.derived_name(role):
+                continue
+            out.append(role)
+        return out
+
     def has_changes(self) -> bool:
         """True when a write would change the config."""
-        return bool(self.changed_roles() or self._source_edits or self.harness != self._harness_original)
+        return bool(
+            self.changed_roles() or self.stale_roles() or self._source_edits or self.harness != self._harness_original
+        )
 
     def role_plans(self) -> list[modelplan.RolePlan]:
-        """`RolePlan`s of the changed roles, ready for `modelplan.apply`."""
+        """`RolePlan`s of the changed and stale roles, ready for `modelplan.apply`."""
         out = []
-        for role in self.changed_roles():
+        for role in self.changed_roles() + self.stale_roles():
             d, model = self.drafts[role], self.model_of(role)
             if model is None:
                 raise ValueError(f"{role}: {d.model} is not listed by {d.source}; choose another model")

@@ -482,3 +482,14 @@ def test_a_new_model_drops_the_family_the_old_model_had(home, server):
     s.write()
     role = tomllib.loads(home.config.read_text())["models"]["roles"]["classifier"]
     assert role["model"] == "guardian:2b" and role.get("family") != "qwen35"
+
+
+def test_a_write_gives_an_unchanged_ollama_role_its_tuned_context(home, server):
+    # regression: a chat role saved before derived models ran at the base model's 65K while the gateway said 128K
+    saved = '[hal]\nchat_model = "gemma:12b"\n[models.roles.chat]\nsource = "local"\nmodel = "gemma:12b"\ncontext = 32768\nauto = false\n'
+    s = session(home, server, extra=saved)
+    assert s.changed_roles() == [] and s.stale_roles() == ["chat"] and s.has_changes()
+    s.write()
+    assert tomllib.loads(home.config.read_text())["hal"]["chat_model"] == "hal-tuned-chat:latest"
+    assert {c["model"]: c["parameters"] for c in server.created}["hal-tuned-chat:latest"]["num_ctx"] == 32768
+    assert tuneui.open_state(hw=hardware.from_dict(CARD_24GB)).stale_roles() == []

@@ -689,9 +689,10 @@ wraps it.
 - **REQ-CLI-123** (MUST) A write MUST make every role's tuned context reach its server: a GGUF role
   through the `tuned` mode, an Ollama role through a derived Ollama model `hal-tuned-ROLE` with the
   tuned `num_ctx` (and `num_gpu` when layers spill), pinned like any model and left out of the
-  model pickers. The gateway MUST report a role's `context` as its alias's `context_length`
-  (05). Test: unit `test_write_saves_roles_pins_digests_and_names_the_models_for_the_gateway`,
-  `test_an_offloaded_ollama_role_also_sets_num_gpu`,
+  model pickers. A write MUST also repair an unchanged Ollama role whose saved context its
+  model does not serve. The gateway MUST report a role's `context` as its alias's
+  `context_length` (05). Test: unit `test_write_saves_roles_pins_digests_and_names_the_models_for_the_gateway`,
+  `test_an_offloaded_ollama_role_also_sets_num_gpu`, `test_a_write_gives_an_unchanged_ollama_role_its_tuned_context`,
   `test_a_role_alias_reports_the_context_hal_tune_set_for_any_backend`.
 - **REQ-CLI-124** (MUST) With the gateway running, a `hal code` box (and a job box) MUST ask for
   `hal-code` and a `hal chat` box for `hal-chat`, through a `halgateway.forwarder.SessionForwarder`
