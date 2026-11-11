@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 Kind = Literal["gpu-light-v2", "gpu-light-v1", "none"]
-ClaimClass = Literal["interactive", "service"]
+ClaimClass = Literal["interactive", "service", "batch"]
 
 
 @dataclass(frozen=True)

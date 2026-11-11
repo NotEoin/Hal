@@ -425,12 +425,18 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
   else no coordination. Test: unit `test_coordinator_autodetect` (table-driven),
   `test_v2_protocol_mismatch_is_not_used`.
 - **REQ-GW-51** With v2, before forwarding to a backend with `gpu = true` while no claim is
-  held for the request's class (`interactive` or `service`), the gateway MUST send a GL `claim` (Design, "gpu-light v2") on its own
+  held for the request's class (`interactive`, `service` or `batch`), the gateway MUST send a GL `claim` (Design, "gpu-light v2") on its own
   long-lived connection with lifetime `connection`, and MUST wait up to `claim_wait_s` (10)
   for `granted` or a `claim_granted` notification. On timeout it MUST proceed and log a
   warning when `on_busy = "proceed"` (default), or return 503 when `on_busy = "fail"`. Test:
   unit `test_v2_claim_follows_gl_methods`, `test_claim_wait_timeout_proceeds`,
   `test_claim_wait_timeout_fails_when_configured`.
+- **REQ-GW-51a** A request from a client token of class `batch` MUST claim as `batch`
+  (`<reclaimer_name>-batch`), MUST get 503 `gpu_busy` when that claim is not granted
+  whatever `on_busy` says, and MUST get 503 `gpu_busy` without a claim while an `interactive`
+  or `service` request is in flight, because gpu-light pauses batch work for both. Test: unit
+  `test_a_batch_client_claims_as_batch`, `test_a_batch_request_never_runs_without_its_claim`,
+  `test_a_batch_request_waits_while_a_person_uses_the_models`.
 - **REQ-GW-52** v1 claims MUST follow gpu-light protocol 1: `claims/<name>.json` with
   `lifetime: "pid"` bound to the gateway's pid and `pid_start`, written atomically with
   `fsync` of file and directory, and removed on release. The gateway MUST then wait until
@@ -1362,7 +1368,7 @@ class AcquireResult:
 
 class GpuCoordinator(Protocol):
     kind: Literal["gpu-light-v2", "gpu-light-v1", "none"]
-    def acquire(self, name: str, *, cls: Literal["interactive", "service"], wait_s: float,
+    def acquire(self, name: str, *, cls: Literal["interactive", "service", "batch"], wait_s: float,
                 vram_mib: int | None, uses: Sequence[str], reason: str) -> AcquireResult: ...
     def release(self, name: str) -> None: ...
     def status(self) -> dict[str, object]: ...
@@ -1425,7 +1431,9 @@ The gateway follows GL "Socket API" exactly; `gpu/lightv2.py` is a stdlib client
   request's class comes from its principal ("Principals and tokens" above). Both names are
   `<reclaimer_name>-interactive` and `<reclaimer_name>-service`, so the defaults are GL's
   names and a second install with another `reclaimer_name` does not collide (REQ-GW-58).
-  Requests to every GPU backend of one class share that class's claim.
+  Requests to every GPU backend of one class share that class's claim. A client token of
+  class `batch` adds a third claim, `hal-gateway-batch`, for unattended bulk work run as a
+  gpu-light batch job (REQ-GW-51a).
 
   ```json
   {"jsonrpc": "2.0", "id": 7, "method": "claim",
@@ -1610,7 +1618,7 @@ class ClientToken:
     name: str
     created: str                 # UTC Z
     allow_remote: bool
-    cls: Literal["interactive", "service"]
+    cls: Literal["interactive", "service", "batch"]
 
 class ClientTokens:
     """Named client tokens in <state>/gateway/tokens.json; re-read when its mtime changes."""

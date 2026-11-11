@@ -112,6 +112,31 @@ def test_claim_class_follows_the_listener(tmp_path):
     assert mgr.claim_class(Principal("client", "tcp", cls="service")) == "service"
 
 
+def test_a_batch_client_claims_as_batch(tmp_path):
+    coord = FakeCoordinator()
+    coord.kind = "gpu-light-v2"
+    mgr, backend, coord, _ = make(tmp_path, coord=coord)
+    with mgr.request(target(backend), Principal("client", "unix", cls="batch")):
+        pass
+    assert coord.calls[0][1] == "hal-gateway-batch" and coord.calls[0][2]["cls"] == "batch"
+
+
+def test_a_batch_request_never_runs_without_its_claim(tmp_path):
+    mgr, backend, _, _ = make(tmp_path, coord=FakeCoordinator(held=False))
+    with pytest.raises(GpuBusy), mgr.request(target(backend), Principal("client", "unix", cls="batch")):
+        pass
+
+
+def test_a_batch_request_waits_while_a_person_uses_the_models(tmp_path):
+    mgr, backend, _, _ = make(tmp_path)
+    batch = Principal("client", "unix", cls="batch")
+    with mgr.request(target(backend), Principal("owner", "tcp")):
+        with pytest.raises(GpuBusy), mgr.request(target(backend), batch):
+            pass
+    with mgr.request(target(backend), batch):
+        pass
+
+
 def test_claim_wait_timeout_proceeds(tmp_path):
     mgr, backend, _, _ = make(tmp_path, coord=FakeCoordinator(held=False))
     with mgr.request(target(backend), OWNER):

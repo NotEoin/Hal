@@ -339,7 +339,8 @@ replace) under `flock` (5 s). The gateway `stat`s the file on every check and re
 the mtime or inode changed, so a revoke works on the next request. A client token reaches the
 model routes like the owner, never remote backends without `allow_remote`, never the admin
 routes, narrows the unix owner too (REQ-GW-62), and is logged as `client:<name>`. A damaged
-file fails closed. `token show` and `token rotate` handle the owner token file; the gateway
+file fails closed. `--class` is `interactive` (default), `service` or `batch`; a batch
+client never runs without its claim and waits while another class is in flight (REQ-GW-51a). `token show` and `token rotate` handle the owner token file; the gateway
 re-reads it on a changed mtime or inode. `[gateway].url` must be `http://127.0.0.1:PORT` or
 `http://[::1]:PORT`, and `Gateway.start` refuses while it is set (client mode).
 

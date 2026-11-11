@@ -6,7 +6,10 @@ covers a swap wait (a reclaim then answers `busy`). The off flag is a `stat` per
 no cache, so `hal on` takes effect at once. Peers are checked by the peer guard (step 17). The
 idle unload skips a backend whose `idle_free` is false (a managed server with `idle_stop =
 false`, REQ-GW-96): its cold start costs a minute or more, which a quiet quarter hour does not
-justify. An explicit release or a reclaim still frees it.
+justify. An explicit release or a reclaim still frees it. A `batch` request never runs without
+its claim, whatever `on_busy` says, and waits (503 `gpu_busy`) while an `interactive` or
+`service` request is in flight: gpu-light pauses batch work for both, so it must not hold the
+model while a person or a service waits for it.
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ log = logging.getLogger(__name__)
 
 OFF_FLAG = "off"
 OFF_MESSAGE = "Hal is off; run `hal on`"
-CLASSES: tuple[ClaimClass, ...] = ("interactive", "service")
+CLASSES: tuple[ClaimClass, ...] = ("interactive", "service", "batch")
 
 
 def make_coordinator(cfg: Mapping[str, object]) -> GpuCoordinator | None:
@@ -141,6 +144,8 @@ class GpuManager:
             raise Unavailable(OFF_MESSAGE)
         cls = self.claim_class(principal)
         with self._lock:
+            if cls == "batch" and (self._class_inflight["interactive"] or self._class_inflight["service"]):
+                raise GpuBusy("Hal's models are in use; batch work waits for them")
             if cls in self._held or (self.coordinator is None and self.in_flight()):
                 return
             self.check_peers()
@@ -175,7 +180,7 @@ class GpuManager:
             uses=list(target.backend.entry.get("gpu_light_uses") or []),  # type: ignore[attr-defined]
             reason=f"hal gateway: {target.alias} on {target.backend.name}",  # type: ignore[attr-defined]
         )
-        if not result.held and self.cfg["on_busy"] == "fail":
+        if not result.held and (self.cfg["on_busy"] == "fail" or cls == "batch"):
             raise GpuBusy(result.warning or "the GPU is busy; try again later")
         if not result.held:
             log.warning("proceeding without a GPU claim: %s", result.warning)

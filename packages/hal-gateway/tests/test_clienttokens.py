@@ -47,7 +47,12 @@ def test_bad_names_and_classes_are_refused(tmp_path):
         with pytest.raises(TokenError):
             tokens.issue(name)
     with pytest.raises(TokenError, match="class"):
-        tokens.issue("ok", cls="batch")
+        tokens.issue("ok", cls="idle")
+
+
+def test_a_batch_token_carries_its_class(tmp_path):
+    tokens = ClientTokens(tmp_path / "tokens.json")
+    assert tokens.check(tokens.issue("ingest", cls="batch")).cls == "batch"
 
 
 def test_revoked_client_token_fails_without_restart(tmp_path):

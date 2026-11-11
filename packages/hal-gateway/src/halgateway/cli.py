@@ -23,6 +23,7 @@ from halkit import config
 
 from . import auth, modes
 from .client import ClientError, GatewayClient
+from .clienttokens import CLASSES as TOKEN_CLASSES
 from .clienttokens import TokenError
 from .config import load_config
 from .server import Gateway, StartError
@@ -88,7 +89,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     issue = actions.add_parser("issue", help="mint a client token and print it once")
     issue.add_argument("--name", required=True)
     issue.add_argument("--allow-remote", action="store_true")
-    issue.add_argument("--class", dest="cls", default="interactive", choices=("interactive", "service"))
+    issue.add_argument("--class", dest="cls", default="interactive", choices=TOKEN_CLASSES)
     issue.add_argument("--rotate", action="store_true", help="replace an existing token of that name")
     issue.add_argument("--json", action="store_true")
     actions.add_parser("revoke", help="revoke a client token").add_argument("--name", required=True)
