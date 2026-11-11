@@ -52,7 +52,8 @@ KV_TYPES = ("f16", "q8_0", "q4_0")
 KV_BYTES = {"f16": 2.0, "q8_0": 34 / 32, "q4_0": 18 / 32}
 CONTEXT_STEP = 1024
 MIN_CONTEXT = 2048  # below this a model cannot hold a useful chat; the plan falls back to offload
-DEFAULT_CONTEXT_CAP = 131072
+# the context of a model that does not say its own maximum (a server that exposes no metadata)
+UNKNOWN_NATIVE_CONTEXT = 131072
 AUTO_CONTEXT_GOAL = 32768  # `kv_type = auto` keeps the most precise cache that still gives this much
 SPILL_CONTEXT = 16384  # auto context when a dense model spills layers: prompt processing on the CPU is slow
 # auto context when a mixture-of-experts model spills experts: its cache stays on the GPU, so prompt
@@ -257,7 +258,7 @@ def _split(gpus: list[Gpu], override: int) -> tuple[float, ...]:
 
 def ceiling(model: ModelInfo, cap: int = 0) -> int:
     """The largest context the model takes: its native maximum, lowered to `cap` when `cap` is set."""
-    native = model.context_native or cap or DEFAULT_CONTEXT_CAP
+    native = model.context_native or cap or UNKNOWN_NATIVE_CONTEXT
     return min(cap, native) if cap else native
 
 
@@ -442,11 +443,12 @@ def plan_model(
     hw: Hardware,
     *,
     kv_type: str = "auto",
-    context_cap: int = DEFAULT_CONTEXT_CAP,
+    context_cap: int = 0,
     headroom_override_mib: int = 0,
 ) -> Plan:
     """The automatic plan for `model` on `hw`: the most context that fits the guidance budget.
 
+    `context_cap` (0 = none) lowers the most it aims for below the model's own maximum.
     `kv_type` is `f16`, `q8_0`, `q4_0` or `auto`. `auto` takes the most precise type that gives
     `AUTO_CONTEXT_GOAL` tokens (or the model's ceiling, if lower) and otherwise the type that
     gives the most context. Raises `ValueError` for an unknown cache type or unknown weight size.

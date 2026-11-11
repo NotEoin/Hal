@@ -34,7 +34,8 @@ budget   = total - headroom                             # auto-tune stays within
 ```
 
 Auto-tune (`tuning.plan_model`) picks the most context whose need fits the budget, rounded down to
-a multiple of 1024 and capped at the model's native maximum and at `[models] context_cap`. A
+a multiple of 1024 and capped at the model's native maximum (and at `[models] context_cap` when it
+is set; 0, the default, means no cap). A
 setting made by hand (`tuning.place`) is checked against `total`: past the budget a reasoning line
 says so, past the card the model spills to RAM. `context_cap` does not limit a hand setting; the
 model's native maximum does.

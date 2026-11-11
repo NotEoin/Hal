@@ -1972,16 +1972,10 @@ coding runner, statistics and report contents are 03's. halcore adds:
 
 ### Configure, profiles and migration
 
-`hal configure` on a missing file: detect the profile for the record (`[hal].profile`,
-informational), write the template with `[hal]`, `[models]` (the profile as a preset of
-`context_cap` and `kv_type`), `[hub]` and `[notify]` with a new private ntfy topic, then run the
-`hal tune --auto` plan without writing. The template names no model. Thresholds from `setup.sh`
-`profile_for_hardware`: VRAM >= 22000 MiB and RAM >= 60 GiB -> `max`; VRAM >= 22000 -> `24gb`;
-VRAM >= 11000 -> `12gb`; else `cloud` (a nominal 24 GB card reports 24564 MiB and the desktop
-holds about 1 GB).
-
-The profile names are deprecated presets: `max` is `context_cap` 131072 with `kv_type` auto,
-`24gb` 65536 with q8_0, `12gb` 32768 with q8_0, `cloud` 8192 with q8_0. Models come from the
+`hal configure` on a missing file: write the template with `[hal]`, `[models]` (`kv_type`
+auto), `[hub]` and `[notify]` with a new private ntfy topic, then run the `hal tune --auto` plan
+without writing. The template names no model. The hardware profiles (`max`, `24gb`, `12gb`,
+`cloud`) were removed in 0.2.0: `hal tune` sizes each role from the detected hardware. Models come from the
 user's own sources (`hal models`, `hal tune`, the user page `docs/user/models.md`); the sizing
 formula is in `docs/dev/tuning.md`. Nothing in `hal configure` or `hal setup` downloads a model.
 

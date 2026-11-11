@@ -13,8 +13,8 @@ Design decisions:
   then `tuning.place` with exactly those numbers, checked against the whole card rather than the
   auto-tune guidance, and the role is written with `auto = false`. Nothing the user set is
   changed for them; a setting that spills to RAM is allowed and shown as such.
-- A context set by hand may go up to the model's own maximum; `[models] context_cap` only
-  limits what auto-tune picks.
+- A context set by hand may go up to the model's own maximum; `[models] context_cap`, off by
+  default, only limits what auto-tune picks.
 - A model the server sizes (an OpenAI-compatible server such as vLLM) cannot be planned, but its
   context can still be declared, so the gateway reports the window the server really has.
 - Source changes are kept as edits to the config text and applied with the roles, so the diff
@@ -190,7 +190,7 @@ class TuneSession:
         """The largest context the role's model takes by hand: its own maximum, or what the server serves."""
         model = self.model_of(role)
         if model is None:
-            return tuning.DEFAULT_CONTEXT_CAP
+            return tuning.UNKNOWN_NATIVE_CONTEXT
         return tuning.ceiling(model)
 
     @staticmethod

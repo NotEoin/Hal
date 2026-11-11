@@ -15,8 +15,9 @@ key (REQ-SYS-06). Design decisions:
   a remote gateway backend.
 - `anthropic` and `openai-cloud` sources talk to fixed hosts and need only a key file.
 - A role's `context`, `kv_type`, `gpu_layers` and `cpu_moe` are filled in by `hal tune --write`
-  while `auto = true`; `auto = false` keeps the user's values. `context_cap` limits only what
-  auto-tune picks: a context set by hand may go up to the model's own maximum.
+  while `auto = true`; `auto = false` keeps the user's values. Auto-tune aims for the model's
+  own maximum context; `context_cap`, off by default, is an optional lower limit on what it
+  picks. A context set by hand may always go up to the model's maximum.
 - Besides the built-in `ROLES`, a role may have any name `CUSTOM_ROLE` matches: a named setup
   (one model with its own context and settings) that the gateway serves as `hal-NAME`. The name
   is lowercase and short because it becomes part of that alias and of a llama.cpp preset name.
@@ -47,7 +48,7 @@ INLINE_KEY_NAMES = ("api_key", "key", "token", "secret", "password")
 UNSET_TEMPERATURE = -1.0
 MAX_TEMPERATURE = 2.0  # the OpenAI-compatible APIs reject more
 AUTO_LAYERS = -1  # `gpu_layers` value that means "decided by tuning"
-DEFAULT_CONTEXT_CAP = 131072  # the common native maximum of current models; see docs/dev/tuning.md
+NO_CONTEXT_CAP = 0  # auto-tune aims for each model's own maximum context
 DEFAULT_URLS = {"ollama": "http://127.0.0.1:11434", "openai": "http://127.0.0.1:1234/v1"}
 
 
@@ -77,9 +78,9 @@ MODELS_TABLE = config.register(
             K(
                 "context_cap",
                 int,
-                DEFAULT_CONTEXT_CAP,
-                check=_positive,
-                doc="Largest context auto-tune picks; a context set by hand may be larger",
+                NO_CONTEXT_CAP,
+                check=_non_negative,
+                doc="Largest context auto-tune picks; 0 = the model's own maximum",
             ),
             K(
                 "headroom_mib",

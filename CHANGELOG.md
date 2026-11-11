@@ -57,8 +57,9 @@ carries the same version.
   whole card. Before, a setting stopped at the card less a hidden 600 MiB (23.4 GB of a 24 GB
   card) and the estimate left out the runtime buffers.
 - In `hal tune` a field you set stays as you set it until you press its Auto button,
-  Auto-tune or a preset. The context goes up to the model's own maximum (`[models]
-  context_cap` now limits only auto-tune), a setting past the card spills to RAM instead of
+  Auto-tune or a preset. Auto-tune and the context slider go up to the model's own maximum
+  (262144 for Qwen3.8 27B): `[models] context_cap` is off by default and, when set, limits only
+  auto-tune. A setting past the card spills to RAM instead of
   being refused, and a model a server sizes (such as vLLM) takes a declared context.
 - A mixture-of-experts GGUF larger than the GPU keeps every layer on the GPU and the routed
   experts of some layers in RAM (`cpu_moe`, llama.cpp `--n-cpu-moe`), as the `max` profile's

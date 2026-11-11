@@ -95,8 +95,9 @@ characters. Add one in the tune screen (**New role...**), or with
 choose a model for a named role: it keeps the model you gave it. A named role on a GGUF file
 gets its own preset (`tuned-NAME`) in the generated mode.
 
-`[models]` itself takes `context_cap` (largest context auto-tune picks, default 131072; a
-context you set yourself may go up to the model's own maximum), `headroom_mib` (VRAM auto-tune
+`[models]` itself takes `context_cap` (an optional limit on the context auto-tune picks; 0, the
+default, means each model's own maximum, such as 262144 for Qwen3.8 27B; a context you set
+yourself may always go up to that maximum), `headroom_mib` (VRAM auto-tune
 leaves free per GPU, 0 = the larger of 1 GiB and 8 percent) and `kv_type` (default `auto`).
 
 ## Commands
@@ -223,8 +224,8 @@ Hal estimates what a model takes on the GPU: the weights there, the KV cache
 (`2 x layers x kv_heads x head_dim x bytes` per token: f16 2 bytes, q8_0 about 1.06, q4_0 about
 0.56) and llama.cpp's own buffers. Checked against `nvidia-smi` on an RTX 3090, the estimate was
 6 to 107 MiB high, never low. Auto-tune picks the most context that fits the card less a headroom
-(the larger of 1 GiB and 8 percent), rounded down to 1024 and capped at the model's maximum and
-`[models] context_cap`; a 24 GB card and a 12B Q4 model get 79872 tokens at f16. If the weights
+(the larger of 1 GiB and 8 percent), rounded down to 1024 and up to the model's own maximum (or
+`[models] context_cap`, when you set one); a 24 GB card and a 12B Q4 model get 79872 tokens at f16. If the weights
 do not fit, a dense model moves layers to RAM and a mixture-of-experts model moves experts; with
 no GPU the model runs on the CPU. With `kv_type = auto` Hal keeps the most precise cache that
 still gives 32768 tokens. Plans use the total VRAM and RAM, not what is free while Hal or

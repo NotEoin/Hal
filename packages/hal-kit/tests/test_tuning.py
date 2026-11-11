@@ -318,3 +318,11 @@ def test_an_mtp_layer_is_not_counted_on_the_gpu():
     plain = tuning.place(model12b(), hw(gpu(24576)), kv_type="f16", context=8192)
     mtp = tuning.place(model12b(idle_bytes=300 * MIB), hw(gpu(24576)), kv_type="f16", context=8192)
     assert plain.vram_mib - mtp.vram_mib == 300 and plain.weights_mib == mtp.weights_mib
+
+
+def test_auto_tune_aims_for_the_models_own_maximum_without_a_cap():
+    # regression: auto-tune stopped at 131072 tokens even for a model with 262144 of its own
+    big = model12b(size_bytes=2000 * MIB, kv_heads=2, attention_interval=4, context_native=262144)
+    plan = tuning.plan_model(big, hw(gpu(24576)), kv_type="q8_0")
+    assert plan.context == 262144
+    assert tuning.plan_model(big, hw(gpu(24576)), kv_type="q8_0", context_cap=65536).context == 65536

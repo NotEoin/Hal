@@ -55,10 +55,11 @@ def test_a_full_config_loads_sources_and_roles(tmp_path):
     assert modelconf.limits(path)["context_cap"] == 65536
 
 
-def test_no_models_table_gives_no_sources_and_the_default_cap(tmp_path):
+def test_no_models_table_gives_no_sources_and_no_context_cap(tmp_path):
+    # auto-tune aims for each model's own maximum unless the user sets a cap
     path = write(tmp_path, "")
     assert modelconf.load_sources(path) == {}
-    assert modelconf.limits(path)["context_cap"] == modelconf.DEFAULT_CONTEXT_CAP
+    assert modelconf.limits(path)["context_cap"] == modelconf.NO_CONTEXT_CAP == 0
 
 
 @pytest.mark.parametrize("name", ["api_key", "key", "token"])
