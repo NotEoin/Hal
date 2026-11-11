@@ -49,8 +49,8 @@ from .tui.slash import PickItem
 from .tui.theme import Look, textual_themes
 from .tui.widgets import FitGauge, SafeStatic, Segment, Segmented, Slider, toast
 from .tuneview import (
-    ROLE_WIDTH, TIGHT_FRACTION, fit_line, fit_word, gib, guard_line, hal_models, hardware_lines, model_label,
-    parse_tokens,
+    ROLE_WIDTH, TIGHT_FRACTION, draft_label, fit_line, fit_word, gib, guard_line, hal_models, hardware_lines,
+    model_label, parse_tokens,
 )
 
 PRESET_SHORT = {"auto": "This machine", "cpu": "CPU only"}  # other presets show their label
@@ -178,6 +178,19 @@ class RoleEditor(VerticalScroll, can_focus=False):
                              allow_auto=True, auto_label=lambda v: "auto all" if int(v) == total else f"auto {int(v)}",
                              reason=reason, disabled=not total, title=f"{role} GPU layers", id="layers")  # fmt: skip
                 yield Button("Auto", id="layers-auto", disabled=not total)
+        drafts = state.drafts_of(role)
+        if drafts:  # speculative decoding: a draft model guesses tokens the model then checks in one pass
+            options = [Segment("auto", ""), Segment("off", tuning.DRAFT_OFF)]
+            options += [Segment(draft_label(path), path) for path, _ in drafts]
+            with Horizontal(classes="row"):
+                yield SafeStatic(Text("Speculative"), classes="label")
+                yield Segmented(options, "", id="draft")
+            with Horizontal(classes="row"):
+                yield SafeStatic(Text("Draft tokens"), classes="label")
+                yield Slider(5, 1, tunestate.MAX_DRAFT_TOKENS, 1, allow_auto=True, fmt=lambda v: f"{int(v)}",
+                             auto_label=lambda v: f"auto {int(v)}", title=f"{role} tokens drafted per step",
+                             id="draft-max")  # fmt: skip
+                yield Button("Auto", id="draft-max-auto")
         levels, why_not = state.effort_options(role)
         segments = [Segment(tunestate.DEFAULT_EFFORT, tunestate.DEFAULT_EFFORT)]
         segments += [Segment(lv, lv, "" if lv in levels else (why_not or "not for this model")) for lv in modelconf.EFFORT_CHOICES]
@@ -239,6 +252,12 @@ class RoleEditor(VerticalScroll, can_focus=False):
             if total:
                 shown = d.gpu_layers if d.gpu_layers is not None else (total if fit.gpu_layers < 0 else fit.gpu_layers)
                 _quiet(layers, float(shown), auto=d.gpu_layers is None)
+        if self.query("#draft"):
+            picker = self.query_one("#draft", Segmented)
+            picker.selected = d.draft
+            picker.refresh(layout=True)
+            shown = d.draft_max or fit.draft_max or tunestate.MAX_DRAFT_TOKENS // 3
+            _quiet(self.query_one("#draft-max", Slider), float(shown), auto=not d.draft_max)
         effort = self.query_one("#effort", Segmented)
         effort.selected = d.effort or tunestate.DEFAULT_EFFORT
         temp = self.query_one("#temp", Slider)
@@ -663,6 +682,9 @@ class TuneApp(App[int]):
                 self.change(lambda: state.set_cpu_moe(role, int(event.value)))
             else:
                 self.editor().show_fit(state.try_experts(role, int(event.value)))
+        elif which == "draft-max" and (event.final or event.auto):
+            tokens = 0 if event.auto else int(event.value)
+            self.change(lambda: state.set_draft_max(role, tokens))
         elif which == "temp" and (event.final or event.auto):
             value = modelconf.UNSET_TEMPERATURE if event.auto else event.value
             self.change(lambda: state.set_temperature(role, value))
@@ -674,6 +696,8 @@ class TuneApp(App[int]):
             self.change(lambda: state.set_kv(role, event.value))
         elif event.segmented.id == "effort":
             self.change(lambda: state.set_effort(role, event.value))
+        elif event.segmented.id == "draft":
+            self.change(lambda: state.set_draft(role, event.value))
         elif event.segmented.id in ("harness-main", "harness-agent"):
             key = event.segmented.id.removeprefix("harness-")
             self.change(lambda: state.set_harness(key, event.value))
@@ -705,6 +729,8 @@ class TuneApp(App[int]):
             self.change(lambda: state.set_gpu_layers(role, None))
         elif which == "experts-auto":
             self.change(lambda: state.set_cpu_moe(role, None))
+        elif which == "draft-max-auto":
+            self.change(lambda: state.set_draft_max(role, 0))
         elif which == "temp-default":
             self.change(lambda: state.set_temperature(role, modelconf.UNSET_TEMPERATURE))
         elif which == "auto-role":

@@ -48,6 +48,9 @@ class Preset:
     embedding: bool = False
     mmproj: Path | None = None
     cpu_moe: int = 0  # layers whose routed experts stay in RAM
+    draft_path: Path | None = None  # draft model for speculative decoding
+    spec_type: str = ""  # llama-server `--spec-type`: draft-mtp, draft-dflash, ...
+    draft_max: int = 0  # tokens drafted per step
 
 
 def preset_name(role: str) -> str:
@@ -67,6 +70,15 @@ def _section(p: Preset) -> list[str]:
     ]
     if p.cpu_moe:
         lines.append(f"n-cpu-moe = {p.cpu_moe}")
+    if p.draft_path:
+        lines += [
+            f"model-draft = {p.draft_path}",
+            f"spec-type = {p.spec_type}",
+            f"spec-draft-n-max = {p.draft_max}",
+            f"n-gpu-layers-draft = {ALL_LAYERS_VALUE}",  # the draft always fits beside the model (tuning)
+            f"cache-type-k-draft = {p.kv_type}",
+            f"cache-type-v-draft = {p.kv_type}",
+        ]
     if p.tensor_split:
         lines.append("tensor-split = " + ",".join(f"{share:g}" for share in p.tensor_split))
     if p.temperature >= 0:
@@ -138,6 +150,9 @@ def read(path: Path) -> list[Preset]:
                     embedding=sec.get("embeddings") == "true",
                     mmproj=Path(sec["mmproj"]) if "mmproj" in sec else None,
                     cpu_moe=int(sec.get("n-cpu-moe", "0")),
+                    draft_path=Path(sec["model-draft"]) if "model-draft" in sec else None,
+                    spec_type=sec.get("spec-type", ""),
+                    draft_max=int(sec.get("spec-draft-n-max", "0")),
                 )
             )
         except (KeyError, ValueError) as exc:

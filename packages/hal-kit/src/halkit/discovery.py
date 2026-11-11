@@ -8,7 +8,11 @@ down, a bad key file or an unreadable GGUF becomes an `error` string on the resu
   `model_info` (layers, heads, KV heads, key length, context), `capabilities` and the
   `num_ctx` parameter, which is the context Ollama serves the model with.
 - GGUF: the header and tensor table of each file are read with `halkit.gguf` (no weights are
-  read). A `mmproj` file beside a model marks it as vision-capable and is not listed as a model
+  read). A draft model for speculative decoding (a file or folder named for MTP, an assistant,
+  DFlash, DSpark, EAGLE or a draft) is not listed as a model either: it is attached to the models
+  of its folder or the folder above (`MTP/` beside the weights), and when both name a size such
+  as `31b`, only to the model of that size.
+  A `mmproj` file beside a model marks it as vision-capable and is not listed as a model
   itself. A split model (`-00001-of-00003.gguf`) is one entry whose size is the sum of its
   shards; the tensor sizes of every shard are read, so expert and embedding bytes are exact.
 - OpenAI-compatible: `GET {url}/models`. Metadata is unknown unless the server adds it: llama.cpp
@@ -342,15 +346,51 @@ def _gguf_info(
     )
 
 
+DRAFT_NAME = re.compile(r"mtp|assistant|dflash|dspark|eagle|draft", re.IGNORECASE)
+DRAFT_ORDER = ("mtp", "assistant", "dflash", "dspark", "eagle", "draft")  # best first, from measured speed
+# a size label in a file name: `31b`, `27B`, `e2b` (Gemma's effective sizes), `0.8b`
+SIZE_TOKEN = re.compile(r"(?<![a-z0-9])([a-z]?\d+(?:\.\d+)?b)(?![a-z0-9])", re.IGNORECASE)
+NOT_A_MODEL = re.compile(r"^(mmproj|imatrix)", re.IGNORECASE)  # projectors and quantisation calibration data
+
+
+DRAFT_FOLDER = re.compile(r"(mtp|assistant|dflash\d*|dspark|eagle\d*|drafts?)", re.IGNORECASE)
+
+
+def is_draft(path: Path) -> bool:
+    """True for a draft model file: its name names a draft kind, or its folder is named for one (`MTP/`)."""
+    return bool(DRAFT_NAME.search(path.name) or DRAFT_FOLDER.fullmatch(path.parent.name))
+
+
+def _draft_rank(path: Path) -> int:
+    text = f"{path.parent.name} {path.name}".lower()
+    return next((i for i, kind in enumerate(DRAFT_ORDER) if kind in text), len(DRAFT_ORDER))
+
+
+def _drafts_for(model: Path, drafts: list[Path]) -> tuple[tuple[str, int], ...]:
+    """The drafts of `model`: in its folder or one below, of the same size when both name one."""
+    size = SIZE_TOKEN.search(model.name)
+    mine = []
+    for draft in drafts:
+        if draft.parent != model.parent and draft.parent.parent != model.parent:
+            continue
+        other = SIZE_TOKEN.search(draft.name)
+        if size and other and size.group(1).lower() != other.group(1).lower():
+            continue
+        mine.append(draft)
+    mine.sort(key=lambda d: (_draft_rank(d), d.name))
+    return tuple((str(d), d.stat().st_size) for d in mine)
+
+
 def _gguf(source: Source) -> Discovery:
     root = Path(source.path).expanduser()
     if not root.is_dir():
         raise DiscoveryError(f"{root} is not a folder")
     files = sorted(root.rglob("*.gguf"))[:MAX_GGUF_FILES]
     projectors = {f.parent for f in files if f.name.lower().startswith("mmproj")}
+    drafts = [f for f in files if is_draft(f) and not NOT_A_MODEL.match(f.name)]
     models, notes = [], []
     for path in files:
-        if path.name.lower().startswith("mmproj"):
+        if NOT_A_MODEL.match(path.name) or is_draft(path):
             continue
         shard = SHARD.search(path.stem)
         if shard and shard.group(1) != "00001":
@@ -362,7 +402,8 @@ def _gguf(source: Source) -> Discovery:
         else:
             parts, size = (), path.stat().st_size
         try:
-            models.append(_gguf_info(source, path, size, path.parent in projectors, parts))
+            info = _gguf_info(source, path, size, path.parent in projectors, parts)
+            models.append(replace(info, drafts=_drafts_for(path, drafts)))
         except (gguf.GgufError, OSError) as exc:
             notes.append(f"{path.name}: {exc}")
     return Discovery(source.name, tuple(models), notes=tuple(notes))

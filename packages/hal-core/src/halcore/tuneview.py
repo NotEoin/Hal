@@ -97,6 +97,17 @@ def fit_text(fit: tunestate.Fit, look: Look) -> str:
     return fit_line(fit, None, look)[1]
 
 
+DRAFT_QUANT = re.compile(r"(?:^|[-_.])((?:I?Q\d[A-Z0-9_]*)|bf16|f16)(?:\.gguf)?$", re.IGNORECASE)
+
+
+def draft_label(path: str) -> str:
+    """A short name for a draft file: its kind and quantisation, as `MTP Q8_0` or `DFlash Q4_K_M`."""
+    kind = tuning.spec_type_of(path).removeprefix("draft-")
+    shown = {"mtp": "MTP", "dflash": "DFlash", "dspark": "DSpark", "eagle3": "EAGLE3", "simple": "draft"}[kind]
+    quant = DRAFT_QUANT.search(path.rsplit("/", 1)[-1])
+    return f"{shown} {quant.group(1)}" if quant else shown
+
+
 def short(text: str, width: int) -> str:
     """`text` cut to `width` characters, ending in `...` when it was cut."""
     return text if len(text) <= width else text[: width - 3] + "..."

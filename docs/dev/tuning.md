@@ -63,6 +63,42 @@ the Llama rows as a regression check. Other cards, drivers and llama.cpp builds 
 to check one, load a model with `llama-server` as above and compare `nvidia-smi` with the
 reasoning lines of `hal tune`.
 
+### Speculative decoding
+
+A draft model guesses the next few tokens and the model checks them in one pass, so decode runs
+at a multiple of the plain speed when the guesses are good. Discovery attaches a draft to a GGUF
+when the draft's file is in the model's folder or one below it (`MTP/`, `DFLASH2/`) and is named
+for its kind (`mtp`, `assistant`, `dflash`, `dspark`, `eagle`, `draft`), with the same size label
+(`31b`) when both name one; drafts are not offered as models. The kind sets llama-server's
+`--spec-type`: an MTP head or Gemma's `assistant` is `draft-mtp`, then `draft-dflash`,
+`draft-dspark`, `draft-eagle3`, else `draft-simple`. A role uses the best draft found unless it
+says `draft = "off"` or names one; `draft_max` sets the tokens drafted per step (default 5 for an
+MTP head, 3 for the others). The draft sits on the GPU beside the model:
+
+```text
+draft = file + 512 x vocab x 4 bytes + 64 MiB                     # MTP head, EAGLE, plain draft
+draft = file + 2 x (512 x vocab x 4 bytes) + 136 MiB x draft_max  # DFlash, DSpark block drafters
+```
+
+Measured on the RTX 3090 with llama.cpp b12121 (`llama-server -fa on`, q8_0 cache, 32K context,
+600-token replies to a Python prompt and a cover letter prompt, temperature 0 and 0.7), 2026-11-11:
+
+| Model | Draft | Draft tokens | Code, tokens/s | Prose, tokens/s | VRAM added |
+| --- | --- | --- | --- | --- | --- |
+| Qwen3.8-27B UD-Q4_K_XL | none | | 41 | 41 | |
+| Qwen3.8-27B UD-Q4_K_XL | MTP Q4_0 | 3 | 79 to 83 | 65 to 68 | 1854 MiB |
+| Qwen3.8-27B UD-Q4_K_XL | MTP Q4_0 | 5 | 85 to 86 | 55 to 61 | |
+| Qwen3.8-27B UD-Q4_K_XL | DFlash2 Q4_K_M | 3 | 83 to 84 | 67 to 68 | 2240 MiB |
+| Qwen3.8-27B UD-Q4_K_XL | DFlash2 Q4_K_M | 16 | 80 to 84 | 54 to 55 | 4184 MiB |
+| Gemma 4 31B QAT Q4_0 | none | | 39 | 39 | |
+| Gemma 4 31B QAT Q4_0 | MTP Q8_0 (Google's QAT assistant) | 4 | | 72 to 79 | |
+| Gemma 4 31B QAT Q4_0 | MTP Q8_0 (Google's QAT assistant) | 5 | 97 to 102 | 71 to 73 | 856 MiB |
+| Gemma 4 31B QAT Q4_0 | DFlash Q4_K_M | 3 | 71 to 74 | 55 to 56 | |
+| Gemma 4 31B QAT Q4_0 | DSpark Q4_K_M | 3 | 67 to 72 | 62 to 65 | |
+
+An MTP head trained for the same weights wins on both models; the DFlash and DSpark drafters for
+Gemma were trained against the full-precision model, not the QAT one, and are accepted less often.
+
 ### Sliding-window and hybrid attention
 
 Not every layer keeps a cache for the whole context. Discovery reads three optional GGUF keys

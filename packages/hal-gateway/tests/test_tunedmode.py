@@ -87,3 +87,14 @@ def test_experts_in_ram_are_written_and_read_back_and_fit_is_off(tmp_path):
     assert "fit = off" in text  # llama.cpp must not re-fit numbers the user set past its margin
     target = tunedmode.write([p], tmp_path)
     assert tunedmode.read(target)[0].cpu_moe == 20
+
+
+def test_a_draft_model_is_written_and_read_back(tmp_path):
+    draft = write_gguf(tmp_path / "mtp.gguf", llama_like())
+    p = preset(tmp_path, "writer", draft_path=draft, spec_type="draft-mtp", draft_max=5)
+    text = tunedmode.render([p])
+    wanted = (f"model-draft = {draft}", "spec-type = draft-mtp", "spec-draft-n-max = 5")
+    for line in (*wanted, "n-gpu-layers-draft = 99", "cache-type-k-draft = q8_0"):
+        assert line in text
+    back = tunedmode.read(tunedmode.write([p], tmp_path))[0]
+    assert (back.draft_path, back.spec_type, back.draft_max) == (draft, "draft-mtp", 5)

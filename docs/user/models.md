@@ -58,6 +58,8 @@ context = 76800        # tokens; 0 = decided by tuning
 kv_type = "f16"        # f16, q8_0, q4_0 or auto
 gpu_layers = -1        # -1 = all on the GPU, or decided by tuning
 cpu_moe = 0            # mixture-of-experts GGUF: layers whose experts stay in RAM
+draft = ""             # speculative decoding: "" = the best draft found, "off", or a file
+draft_max = 0          # tokens drafted per step; 0 = 5 for an MTP head, 3 for others
 effort = "medium"      # default effort: off, low, medium, high, max
 temperature = 0.7      # -1 = the model's default
 auto = true            # true: `hal tune --write` may replace context, kv_type and the offload
@@ -167,6 +169,12 @@ Plan for  [ This machine ] [ 8 GB ] [ 12 GB ] [ 16 GB ] [ 24 GB ] [ CPU only ]
   OpenAI-compatible servers) it declares the window the server serves, so clients see it.
 - **GPU layers** puts that many layers on the GPU by hand. It is off, with the reason, when the
   model's layer count is unknown, when the server sizes the model, or when the plan has no GPU.
+- **Speculative** appears for a GGUF model with a draft model beside it (an MTP head, Gemma's
+  `assistant`, a DFlash or DSpark drafter): `auto` uses the best one found, `off` none. A draft
+  guesses tokens the model checks in one pass, which roughly doubles decode speed (Qwen3.8-27B
+  41 to 85 tokens/s, Gemma 4 31B 39 to 100 on code on an RTX 3090; see
+  [tuning](../dev/tuning.md#speculative-decoding)). **Draft tokens** sets how many it guesses per
+  step. The memory bar counts the draft.
 - **RAM experts** replaces GPU layers for a mixture-of-experts GGUF (the kind the `max` profile
   runs): every layer stays on the GPU and the routed experts of that many layers stay in RAM,
   which is much faster than moving whole layers. Use it to run a model larger than your VRAM.

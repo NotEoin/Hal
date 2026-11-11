@@ -18,6 +18,11 @@ carries the same version.
 
 ### Added
 
+- Speculative decoding for GGUF roles: `hal tune` finds a draft model beside the weights (an MTP
+  head, Gemma's assistant, a DFlash, DSpark or EAGLE drafter), uses the best one, counts it in the
+  memory bar, and writes it into the `tuned` mode; **Speculative** and **Draft tokens** change it.
+  On an RTX 3090 an MTP head took Qwen3.8-27B from 41 to 85 tokens/s and Gemma 4 31B from 39 to
+  100 on code. Discovery no longer lists draft models or `imatrix` calibration files as models.
 - `hal setup` installs the pinned llama.cpp build (now b12121) when a GGUF source or a llama.cpp
   router needs it, picking CUDA, ROCm or the CPU build for your GPU and checking every archive
   against the sha256 in the repo before it is extracted. `setup.sh --profile max` did this before.

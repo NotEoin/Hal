@@ -81,6 +81,7 @@ class RolePlan:
     locked: bool = False  # `auto = false`: the user's context, kv_type and gpu_layers stay
     manual: bool = False  # the plan holds numbers the user chose: write them and set `auto = false`
     declared_context: int = 0  # a server-sized model's context, set by the user (no plan to carry it)
+    draft: tuning.Draft | None = None  # the draft model a GGUF role runs with (speculative decoding)
     settings: dict[str, object] = field(default_factory=dict)  # `effort` and `temperature` to write
     notes: list[str] = field(default_factory=list)
 
@@ -167,16 +168,28 @@ def _rank(model: ModelInfo, plan: tuning.Plan | None) -> tuple[int, int, float]:
     return (-1, tools, size)
 
 
+def draft_of(model: ModelInfo, role: modelconf.Role | None) -> tuning.Draft | None:
+    """The draft a role's GGUF model runs with: the role's choice, else the best one found beside it.
+
+    Only the managed llama.cpp router can run one, so other kinds get none.
+    """
+    if model.kind != "gguf":
+        return None
+    return tuning.choose_draft(model, role.draft if role else "", role.draft_max if role else 0)
+
+
 def _plan(model: ModelInfo, hw: Hardware, role: modelconf.Role | None, limits: Mapping[str, object]) -> tuning.Plan | None:
     if not model.size_bytes or model.kind in ("anthropic", "openai-cloud"):
         return None
     kv = (role.kv_type if role and role.kv_type else "") or str(limits["kv_type"])
+    draft = draft_of(model, role)
     return tuning.plan_model(
         model,
         hw,
         kv_type=kv,
         context_cap=int(limits["context_cap"]),  # type: ignore[call-overload]
         headroom_override_mib=int(limits["headroom_mib"]),  # type: ignore[call-overload]
+        draft_cost_mib=draft.vram_mib if draft else 0,
     )
 
 
@@ -218,7 +231,7 @@ def choose(
     if best is None:
         return RolePlan(role, notes=[f"no local model found for {role}"])
     _, model, plan = best
-    return RolePlan(role, sources[model.source], model, plan, notes=["chosen automatically"])
+    return RolePlan(role, sources[model.source], model, plan, notes=["chosen automatically"], draft=draft_of(model, None))
 
 
 def build(
@@ -242,6 +255,7 @@ def build(
             else:
                 try:
                     rp.plan = _plan(model, hw, cfg, limits)
+                    rp.draft = draft_of(model, cfg)
                 except ValueError as exc:
                     rp.notes.append(str(exc))
             plans.append(rp)
@@ -406,7 +420,18 @@ def _preset(rp: RolePlan) -> tunedmode.Preset:
         role=rp.role, model_path=Path(rp.model.path), context=p.context, kv_type=p.kv_type, gpu_layers=p.gpu_layers,
         tensor_split=p.tensor_split, embedding=rp.role == "embed",
         mmproj=_mmproj(Path(rp.model.path)) if rp.role == "vision" else None, cpu_moe=p.cpu_moe,
+        draft_path=Path(rp.draft.path) if rp.draft else None, spec_type=rp.draft.spec_type if rp.draft else "",
+        draft_max=rp.draft.draft_max if rp.draft else 0,
     )
+
+
+def _free_name(entries: Mapping[str, object], name: str) -> str:
+    """`name`, or `name-2`, `name-3`, ... when the manifest already uses it."""
+    taken, n = name, 1
+    while taken in entries:
+        n += 1
+        taken = f"{name}-{n}"
+    return taken
 
 
 def _mmproj(model: Path) -> Path | None:
@@ -421,13 +446,14 @@ def role_table(rp: RolePlan, current: Mapping[str, object]) -> dict[str, object]
     """The `[models.roles.X]` values to write: tuned numbers unless the role is locked."""
     assert rp.source is not None and rp.model is not None
     values: dict[str, object] = {"source": rp.source.name, "model": rp.model.name}
-    for key in ("effort", "temperature", "family"):
-        if current.get(key) not in (None, "", -1.0):
+    for key in ("effort", "temperature", "family", "draft", "draft_max"):
+        unset = (None, "", modelconf.UNSET_TEMPERATURE) + ((0,) if key == "draft_max" else ())
+        if current.get(key) not in unset:
             values[key] = current[key]
     if rp.model.family and "family" not in values and rp.assigned is False:
         values["family"] = rp.model.family
     for key, value in rp.settings.items():
-        if value in (None, "", modelconf.UNSET_TEMPERATURE):
+        if value in (None, "", modelconf.UNSET_TEMPERATURE) or (key == "draft_max" and value == 0):
             values.pop(key, None)
         else:
             values[key] = value
@@ -508,6 +534,11 @@ def pin(plans: list[RolePlan], found: Mapping[str, discovery.Discovery], store: 
         if not rp.model or rp.model.kind != "gguf":
             continue
         path = Path(rp.model.path).resolve()
+        draft = Path(rp.draft.path).resolve() if rp.draft else None
+        if draft is not None and not any(e.file == draft for e in entries.values()):
+            pinned = gwmodels.add_local(store, draft, name=_free_name(entries, draft.stem))
+            entries[pinned.name] = pinned
+            lines.append(f"pinned {pinned.name} (draft, sha256 {str(pinned.sha256)[:12]})")
         if any(e.file == path for e in entries.values()):
             continue
         name = rp.model.name if rp.model.name not in entries else f"{rp.source.name}-{rp.model.name}"  # type: ignore[union-attr]

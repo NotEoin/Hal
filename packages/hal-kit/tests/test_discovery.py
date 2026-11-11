@@ -259,3 +259,25 @@ def test_a_tied_embedding_is_not_counted_as_host_memory(tmp_path):
     )
     model = discovery.discover(Source("w", "gguf", path=str(tmp_path))).models[0]
     assert (model.host_bytes, model.expert_bytes, model.is_moe) == (0, None, False)
+
+
+def test_draft_models_attach_to_the_model_of_their_size_and_are_not_listed(tmp_path):
+    for name in ("gemma-31b-Q4_0", "gemma-e2b-Q4_0", "gemma-31b-assistant-Q8_0", "imatrix_unsloth"):
+        write_gguf(tmp_path / f"{name}.gguf", llama_like())
+    (tmp_path / "DFLASH2").mkdir()
+    write_gguf(tmp_path / "DFLASH2" / "block-Q4_K_M.gguf", llama_like())
+    found = {m.name: m for m in discovery.discover(Source("w", "gguf", path=str(tmp_path))).models}
+    assert sorted(found) == ["gemma-31b-Q4_0", "gemma-e2b-Q4_0"]  # drafts and calibration data are not models
+    assert [p.rsplit("/", 1)[-1] for p, _ in found["gemma-31b-Q4_0"].drafts] == [
+        "gemma-31b-assistant-Q8_0.gguf",  # an MTP head first: the fastest kind measured
+        "block-Q4_K_M.gguf",
+    ]
+    assert [p.rsplit("/", 1)[-1] for p, _ in found["gemma-e2b-Q4_0"].drafts] == ["block-Q4_K_M.gguf"]
+
+
+def test_a_folder_named_drafts_in_its_path_does_not_hide_models(tmp_path):
+    # regression: any folder whose name contained "draft" made every model in it a draft
+    folder = tmp_path / "my-draft-models"
+    folder.mkdir()
+    write_gguf(folder / "m-7b.gguf", llama_like())
+    assert [m.name for m in discovery.discover(Source("w", "gguf", path=str(folder))).models] == ["m-7b"]

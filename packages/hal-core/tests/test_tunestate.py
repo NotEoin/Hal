@@ -416,3 +416,31 @@ def test_hal_main_and_agent_point_at_role_aliases_and_are_written(home, server):
     gateway = tomllib.loads(home.config.read_text())["gateway"]
     assert gateway["agent"] == "hal-chat" and "main" not in gateway  # only what changed is written
     assert not s.has_changes()
+
+
+def test_a_draft_beside_a_gguf_is_used_counted_and_written(home, tmp_path):
+    from halkit.testing.gguf import llama_like, write_gguf  # noqa: PLC0415 - only these tests write a GGUF
+
+    mib = 1024 * 1024
+    write_gguf(tmp_path / "big-27b-Q4.gguf", llama_like(layers=8), tensors={"blk.0.attn_q.weight": 64 * mib})
+    (tmp_path / "MTP").mkdir()
+    write_gguf(tmp_path / "MTP" / "mtp-big-27b-Q8_0.gguf", llama_like(layers=1), tensors={"blk.0.attn_q.weight": mib})
+    home.config.write_text(f'[models.sources.files]\nkind = "gguf"\npath = "{tmp_path}"\n')
+    s = tuneui.open_state(hw=hardware.from_dict(CARD_24GB))
+    assert [m.name for m in s.models()] == ["big-27b-Q4"]  # the draft is not offered as a model
+    s.choose("code", s.find("files", "big-27b-Q4"))
+    assert [p.rsplit("/", 1)[-1] for p, _ in s.drafts_of("code")] == ["mtp-big-27b-Q8_0.gguf"]
+    drafted = s.fit("code")
+    assert drafted.draft.endswith("mtp-big-27b-Q8_0.gguf") and drafted.draft_max == 5
+    s.set_draft("code", "off")
+    assert s.fit("code").draft == "" and s.fit("code").used_mib < drafted.used_mib
+    with pytest.raises(ValueError, match="not a draft model"):
+        s.set_draft("code", "/elsewhere.gguf")
+    s.set_draft("code", "")
+    s.set_draft_max("code", 8)
+    s.write()
+    role = tomllib.loads(home.config.read_text())["models"]["roles"]["code"]
+    assert role["draft_max"] == 8 and "draft" not in role  # "" means the best draft found
+    mode = (home.config.parent / "modes" / "tuned.ini").read_text()
+    assert "spec-type = draft-mtp" in mode and "spec-draft-n-max = 8" in mode and "mtp-big-27b-Q8_0.gguf" in mode
+    assert "mtp-big-27b-Q8_0" in (home.config.parent / "models.toml").read_text()  # the draft is pinned too

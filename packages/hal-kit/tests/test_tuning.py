@@ -326,3 +326,28 @@ def test_auto_tune_aims_for_the_models_own_maximum_without_a_cap():
     plan = tuning.plan_model(big, hw(gpu(24576)), kv_type="q8_0")
     assert plan.context == 262144
     assert tuning.plan_model(big, hw(gpu(24576)), kv_type="q8_0", context_cap=65536).context == 65536
+
+
+def test_a_draft_model_is_counted_as_measured_on_a_3090():
+    # Qwen3.8-27B's MTP head: 1854 MiB more VRAM measured; DFlash2 grows with the draft length
+    qwen = model12b(vocab=248320)
+    assert 1854 <= tuning.draft_mib(1_369_590_656, "draft-mtp", 5, qwen) <= 1854 * 1.02
+    dflash = [tuning.draft_mib(1_143_006_816, "draft-dflash", n, qwen) for n in (3, 8, 16)]
+    assert all(est >= measured * 0.98 for est, measured in zip(dflash, (2240, 2988, 4184), strict=True))
+    assert all(est <= measured * 1.12 for est, measured in zip(dflash, (2240, 2988, 4184), strict=True))
+
+
+def test_the_offload_makes_room_for_a_draft_model():
+    card = hw(gpu(8192))
+    plain = tuning.place(model12b(), card, kv_type="q8_0", context=16384)
+    drafted = tuning.place(model12b(), card, kv_type="q8_0", context=16384, draft_cost_mib=1500)
+    assert drafted.vram_mib <= 8192 and drafted.vram_mib > plain.vram_mib - 1500
+    assert any("draft model" in line for line in drafted.reasoning)
+
+
+def test_the_spec_type_follows_the_draft_file_name():
+    assert tuning.spec_type_of("/m/qwen/MTP/mtp-Qwen3.8-27B-Q4_0.gguf") == "draft-mtp"
+    assert tuning.spec_type_of("/m/g/gemma-4-31b-it-qat-assistant-Q8_0.gguf") == "draft-mtp"
+    assert tuning.spec_type_of("/m/q/DFLASH2/Qwen3.8-27B-DFlash2-Q4_K_M.gguf") == "draft-dflash"
+    assert tuning.spec_type_of("/m/g/gemma-4-31B-it-DSpark-Q4_K_M.gguf") == "draft-dspark"
+    assert tuning.spec_type_of("/m/small-draft.gguf") == "draft-simple"

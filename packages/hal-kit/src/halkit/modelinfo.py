@@ -47,6 +47,8 @@ class ModelInfo:
     # only a draft (`--spec-type draft-mtp`) uses
     idle_bytes: int | None = None
     context_served: int | None = None  # the context the server runs it with (Ollama's `num_ctx`)
+    # draft models for speculative decoding found beside a GGUF: (path, bytes), best kind first
+    drafts: tuple[tuple[str, int], ...] = ()
     capabilities: frozenset[str] = field(default_factory=frozenset)
     path: str = ""  # GGUF file path; empty for other kinds
     digest: str = ""  # Ollama digest, when known

@@ -50,6 +50,7 @@ CONTEXT_PRESETS = (8192, 16384, 32768, 65536, 131072, 262144)
 KV_OPTIONS = modelconf.KV_CHOICES
 OPTIONAL_ROLES = ("writer",)  # empty by design: falls back to chat
 DEFAULT_EFFORT = "default"  # the word the screens show for "no effort set"
+MAX_DRAFT_TOKENS = 16  # llama.cpp drafts at most 16 tokens per step for a block drafter
 DEFAULT_HARNESS = {"main": "hal-code", "agent": "hal-code"}  # `[gateway] main` and `agent` defaults
 ROLE_KINDS = {"code": "coding model", "vision": "vision model", "embed": "embedding model", "classifier": "safety classifier"}
 
@@ -68,6 +69,8 @@ class Draft:
     manual: bool = False
     gpu_layers: int | None = None  # None = decided by tuning; else 0 to the model's layer count
     cpu_moe: int | None = None  # None = decided by tuning; else layers whose experts stay in RAM
+    draft: str = ""  # speculative decoding: "" = the best draft found, "off", or a draft file
+    draft_max: int = 0  # tokens drafted per step; 0 = the default for the draft kind
 
 
 @dataclass(frozen=True)
@@ -101,6 +104,8 @@ class Fit:
     total_mib: int = 0  # the cards' total memory: the limit of a setting made by hand
     ram_mib: int = 0  # weights (and cache) in system RAM
     cpu_moe: int = 0
+    draft: str = ""  # the draft file in use, "" for none
+    draft_max: int = 0
 
     @property
     def above_guidance(self) -> bool:
@@ -117,7 +122,8 @@ def _draft_of(role: modelconf.Role) -> Draft:
     layers = role.gpu_layers if not role.auto and role.gpu_layers >= 0 else None
     moe = role.cpu_moe if not role.auto and role.cpu_moe > 0 else None
     return Draft(role.source, role.model, 0 if role.auto else role.context, role.kv_type, role.effort,
-                 role.temperature, role.family, manual=not role.auto, gpu_layers=layers, cpu_moe=moe)
+                 role.temperature, role.family, manual=not role.auto, gpu_layers=layers, cpu_moe=moe,
+                 draft=role.draft, draft_max=role.draft_max)  # fmt: skip
 
 
 class TuneSession:
@@ -165,7 +171,8 @@ class TuneSession:
         d = self.drafts.get(role)
         if d is None:
             return None
-        return modelconf.Role(role, d.source, d.model, d.context, d.kv_type, effort=d.effort, temperature=d.temperature, family=d.family)
+        return modelconf.Role(role, d.source, d.model, d.context, d.kv_type, effort=d.effort, temperature=d.temperature,
+                              family=d.family, draft=d.draft, draft_max=d.draft_max)  # fmt: skip
 
     def plan(self, role: str) -> tuning.Plan | None:
         """The plan for a role's draft: auto from the hardware, or the user's numbers placed on it.
@@ -177,9 +184,11 @@ class TuneSession:
             return None
         if d.manual and d.context > 0:
             kv = d.kv_type if d.kv_type in tuning.KV_TYPES else self._auto_kv(model)
+            draft = modelplan.draft_of(model, self._role_cfg(role))
             return tuning.place(
                 model, self.hw, kv_type=kv, context=d.context, gpu_layers=d.gpu_layers,
                 cpu_moe=d.cpu_moe if model.is_moe else None, headroom_override_mib=self._headroom(),
+                draft_cost_mib=draft.vram_mib if draft else 0,
             )  # fmt: skip
         return modelplan._plan(model, self.hw, self._role_cfg(role), self.limits)  # noqa: SLF001 - same package
 
@@ -241,8 +250,10 @@ class TuneSession:
             served = d.context or (model.context_served or model.context_native or 0 if model else 0)
             why = "the server decides offload; the context is the window it serves" if served else "the server decides context and offload"
             return Fit("server", context=served, notes=(why,))
+        draft = modelplan.draft_of(self.model_of(role), self._role_cfg(role))  # type: ignore[arg-type]  # planned above
         return Fit(plan.status, plan.context, plan.kv_type, plan.gpu_layers, plan.vram_mib, plan.budget_mib,
-                   plan.estimated, plan.reasoning, plan.total_mib, plan.ram_mib, plan.cpu_moe)
+                   plan.estimated, plan.reasoning, plan.total_mib, plan.ram_mib, plan.cpu_moe,
+                   draft.path if draft else "", draft.draft_max if draft else 0)  # fmt: skip
 
     def try_context(self, role: str, tokens: int) -> Fit:
         """The fit `role` would have with `tokens` of context; the draft is not changed."""
@@ -378,6 +389,25 @@ class TuneSession:
         self._added, self._removed, self._named = set(snap.added), set(snap.removed), set(snap.named)
         self.hw, self.preset = snap.hw, snap.preset
         self.harness = dict(snap.harness)
+
+    def drafts_of(self, role: str) -> tuple[tuple[str, int], ...]:
+        """The draft models found beside the role's GGUF model, best first; empty for other kinds."""
+        model = self.model_of(role)
+        return model.drafts if model is not None and model.kind == "gguf" else ()
+
+    def set_draft(self, role: str, draft: str) -> None:
+        """Speculative decoding: "" for the best draft found, `off` for none, or one of `drafts_of`."""
+        d, model = self._need(role)
+        if draft not in ("", tuning.DRAFT_OFF) and draft not in dict(self.drafts_of(role)):
+            raise ValueError(f"{draft} is not a draft model found beside {model.name}")
+        d.draft = draft
+
+    def set_draft_max(self, role: str, tokens: int) -> None:
+        """Tokens drafted per step (0 = the default for the draft kind); raises `ValueError` outside 0 to 16."""
+        d, _ = self._need(role)
+        if not 0 <= tokens <= MAX_DRAFT_TOKENS:
+            raise ValueError(f"draft tokens must be 0 (default) to {MAX_DRAFT_TOKENS}")
+        d.draft_max = tokens
 
     def set_effort(self, role: str, level: str) -> None:
         """Sets the default effort (`""` = the model's default); refused when the model cannot use the level."""
@@ -600,7 +630,8 @@ class TuneSession:
             rp = modelplan.RolePlan(role, self.sources[d.source], model, plan, assigned=role in self._original, manual=d.manual)
             if plan is None and d.manual and d.context:
                 rp.declared_context = d.context
-            rp.settings = {"effort": d.effort, "temperature": d.temperature}
+            rp.settings = {"effort": d.effort, "temperature": d.temperature, "draft": d.draft, "draft_max": d.draft_max}
+            rp.draft = modelplan.draft_of(model, self._role_cfg(role))
             if d.family:
                 rp.settings["family"] = d.family
             out.append(rp)

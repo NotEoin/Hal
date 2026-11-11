@@ -579,3 +579,26 @@ def test_the_harness_row_points_hal_main_and_agent_at_roles(home, server):
 
     (main, row), _, _ = drive(state, script)
     assert main == "hal-chat" and "hal-chat, hal-code" in row
+
+
+def test_the_speculative_row_lists_the_drafts_and_turns_them_off(home, tmp_path):
+    from halkit.testing.gguf import llama_like, write_gguf  # noqa: PLC0415 - only this test writes a GGUF
+
+    write_gguf(tmp_path / "big-27b-Q4.gguf", llama_like(layers=8), tensors={"blk.0.attn_q.weight": 1 << 20})
+    write_gguf(tmp_path / "mtp-big-27b-Q8_0.gguf", llama_like(layers=1), tensors={"blk.0.attn_q.weight": 1 << 16})
+    home.config.write_text(
+        f'[models.sources.files]\nkind = "gguf"\npath = "{tmp_path}"\n'
+        '[models.roles.chat]\nsource = "files"\nmodel = "big-27b-Q4"\n'
+    )
+    state = tunestate.open_state(hw=hardware.from_dict(CARD_24GB))
+
+    async def script(pilot, app):
+        picker = app.query_one("#draft", Segmented)
+        labels = [s.label for s in picker.segments]
+        picker.selected = "off"
+        picker.post_message(Segmented.Changed(picker, "off"))
+        await settle(pilot)
+        return labels, state.drafts["chat"].draft
+
+    (labels, draft), _, _ = drive(state, script)
+    assert labels == ["auto", "off", "MTP Q8_0"] and draft == "off"
