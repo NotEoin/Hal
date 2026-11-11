@@ -139,7 +139,8 @@ def test_ssh_g_resolves_the_rendered_file_as_designed(tmp_path):
     assert tunnel["sessiontype"] == "none"
     assert tunnel["identityagent"] == "none"
     assert tunnel["globalknownhostsfile"] == "none"
-    assert tunnel["userknownhostsfile"] == str(paths.known_hosts)
+    # regression: the expected path had backslashes, so it failed on Windows once the job ran the tests
+    assert tunnel["userknownhostsfile"] == paths.known_hosts.as_posix()
     assert tunnel["hostkeyalias"] == "hal-desktop"
     assert mcp["clearallforwardings"] == "yes"
     assert mcp["requesttty"] == "false"
