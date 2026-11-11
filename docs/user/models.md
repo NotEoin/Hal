@@ -171,7 +171,8 @@ Plan for  [ This machine ] [ 8 GB ] [ 12 GB ] [ 16 GB ] [ 24 GB ] [ CPU only ]
 - **GPU layers** puts that many layers on the GPU by hand. It is off, with the reason, when the
   model's layer count is unknown, when the server sizes the model, or when the plan has no GPU.
 - **Speculative** appears for a GGUF model with a draft model beside it (an MTP head, Gemma's
-  `assistant`, a DFlash or DSpark drafter): `auto` uses the best one found, `off` none. A draft
+  `assistant`, a DFlash or DSpark drafter) or with its own MTP layers (`built-in MTP`, often
+  in files named `...-MTP-Q4_K_M`): `auto` uses the best one found, `off` none. A draft
   guesses tokens the model checks in one pass, which roughly doubles decode speed (Qwen3.8-27B
   41 to 85 tokens/s, Gemma 4 31B 39 to 100 on code on an RTX 3090; see
   [tuning](../dev/tuning.md#speculative-decoding)). **Draft tokens** sets how many it guesses per

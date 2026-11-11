@@ -77,7 +77,10 @@ A draft model guesses the next few tokens and the model checks them in one pass,
 at a multiple of the plain speed when the guesses are good. Discovery attaches a draft to a GGUF
 when the draft's file is in the model's folder or one below it (`MTP/`, `DFLASH2/`) and is named
 for its kind (`mtp`, `assistant`, `dflash`, `dspark`, `eagle`, `draft`), with the same size label
-(`31b`) when both name one; drafts are not offered as models. The kind sets llama-server's
+(`31b`) when both name one; drafts are not offered as models. A file named like a draft whose
+blocks go past its `nextn_predict_layers` is a whole model with its own MTP layers: it is listed
+as a model, and those layers are its first draft (`spec-type = draft-mtp` with no
+`model-draft`; their size, left out of the model's VRAM, is added back as the draft's). The kind sets llama-server's
 `--spec-type`: an MTP head or Gemma's `assistant` is `draft-mtp`, then `draft-dflash`,
 `draft-dspark`, `draft-eagle3`, else `draft-simple`. A role uses the best draft found unless it
 says `draft = "off"` or names one; `draft_max` sets the tokens drafted per step (default 5 for an

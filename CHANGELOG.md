@@ -22,7 +22,8 @@ carries the same version.
   head, Gemma's assistant, a DFlash, DSpark or EAGLE drafter), uses the best one, counts it in the
   memory bar, and writes it into the `tuned` mode; **Speculative** and **Draft tokens** change it.
   On an RTX 3090 an MTP head took Qwen3.8-27B from 41 to 85 tokens/s and Gemma 4 31B from 39 to
-  100 on code. Discovery no longer lists draft models or `imatrix` calibration files as models.
+  100 on code. A model with its own MTP layers drafts with them. Discovery no longer lists draft
+  models or `imatrix` calibration files as models.
 - GPU parking: with `park = true` the gateway frees the card by moving a llama-server or vLLM
   server's VRAM into host RAM (`cuda-checkpoint`) instead of stopping it, and resumes it in
   seconds on its next request. A `hal-chat` request parks such a server, so voice gets the GPU

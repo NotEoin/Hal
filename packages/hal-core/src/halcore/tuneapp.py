@@ -187,7 +187,8 @@ class RoleEditor(VerticalScroll, can_focus=False):
         drafts = state.drafts_of(role)
         if drafts:  # speculative decoding: a draft model guesses tokens the model then checks in one pass
             options = [Segment("auto", ""), Segment("off", tuning.DRAFT_OFF)]
-            options += [Segment(draft_label(path), path) for path, _ in drafts]
+            own = getattr(state.model_of(role), "path", "") or ""
+            options += [Segment(draft_label(path, own), path) for path, _ in drafts]
             with Horizontal(classes="row"):
                 yield SafeStatic(Text("Speculative"), classes="label")
                 yield Segmented(options, "", id="draft")

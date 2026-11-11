@@ -275,6 +275,21 @@ def test_draft_models_attach_to_the_model_of_their_size_and_are_not_listed(tmp_p
     assert [p.rsplit("/", 1)[-1] for p, _ in found["gemma-e2b-Q4_0"].drafts] == ["block-Q4_K_M.gguf"]
 
 
+def test_a_model_with_its_own_mtp_layers_is_listed_and_drafts_with_them(tmp_path):
+    # regression: a whole model named `...-MTP-Q4_K_M` was taken for a draft file and hidden
+    meta = {**llama_like(layers=3), "llama.nextn_predict_layers": 1}
+    whole = {f"blk.{i}.attn_q.weight": 64 for i in range(3)}
+    write_gguf(tmp_path / "coder-27b-MTP-Q4_K_M.gguf", meta, tensors=whole)
+    (tmp_path / "MTP").mkdir()
+    write_gguf(tmp_path / "MTP" / "mtp-coder-27b-Q4_0.gguf", meta, tensors={"blk.2.attn_q.weight": 64})
+    [model] = discovery.discover(Source("w", "gguf", path=str(tmp_path))).models
+    assert model.name == "coder-27b-MTP-Q4_K_M" and model.idle_bytes == 64
+    assert [p.rsplit("/", 1)[-1] for p, _ in model.drafts] == [
+        "coder-27b-MTP-Q4_K_M.gguf",
+        "mtp-coder-27b-Q4_0.gguf",
+    ]
+
+
 def test_a_folder_named_drafts_in_its_path_does_not_hide_models(tmp_path):
     # regression: any folder whose name contained "draft" made every model in it a draft
     folder = tmp_path / "my-draft-models"

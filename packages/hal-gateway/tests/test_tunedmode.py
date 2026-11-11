@@ -106,3 +106,12 @@ def test_parallel_slots_share_one_cache_sized_for_all_of_them(tmp_path):
     assert "ctx-size = 131072" in text and "parallel = 4" in text and "kv-unified = true" in text
     back = tunedmode.read(tunedmode.write([p], tmp_path))[0]
     assert (back.context, back.parallel) == (32768, 4)  # the context is per request again
+
+
+def test_a_model_drafting_with_its_own_mtp_layers_names_no_draft_file(tmp_path):
+    p = preset(tmp_path, "code", spec_type="draft-mtp", draft_max=2)
+    p = tunedmode.Preset(**{**p.__dict__, "draft_path": p.model_path})
+    text = tunedmode.render([p])
+    assert "spec-type = draft-mtp" in text and "spec-draft-n-max = 2" in text and "model-draft" not in text
+    back = tunedmode.read(tunedmode.write([p], tmp_path))[0]
+    assert back.draft_path == p.model_path and back.spec_type == "draft-mtp"

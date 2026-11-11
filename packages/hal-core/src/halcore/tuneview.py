@@ -100,8 +100,13 @@ def fit_text(fit: tunestate.Fit, look: Look) -> str:
 DRAFT_QUANT = re.compile(r"(?:^|[-_.])((?:I?Q\d[A-Z0-9_]*)|bf16|f16)(?:\.gguf)?$", re.IGNORECASE)
 
 
-def draft_label(path: str) -> str:
-    """A short name for a draft file: its kind and quantisation, as `MTP Q8_0` or `DFlash Q4_K_M`."""
+def draft_label(path: str, model_path: str = "") -> str:
+    """A short name for a draft file: its kind and quantisation, as `MTP Q8_0` or `DFlash Q4_K_M`.
+
+    The model's own MTP layers (`path == model_path`) are `built-in MTP`.
+    """
+    if model_path and path == model_path:
+        return "built-in MTP"
     kind = tuning.spec_type_of(path).removeprefix("draft-")
     shown = {"mtp": "MTP", "dflash": "DFlash", "dspark": "DSpark", "eagle3": "EAGLE3", "simple": "draft"}[kind]
     quant = DRAFT_QUANT.search(path.rsplit("/", 1)[-1])

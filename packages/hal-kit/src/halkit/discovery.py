@@ -357,8 +357,20 @@ DRAFT_FOLDER = re.compile(r"(mtp|assistant|dflash\d*|dspark|eagle\d*|drafts?)", 
 
 
 def is_draft(path: Path) -> bool:
-    """True for a draft model file: its name names a draft kind, or its folder is named for one (`MTP/`)."""
-    return bool(DRAFT_NAME.search(path.name) or DRAFT_FOLDER.fullmatch(path.parent.name))
+    """True for a draft model file: its name names a draft kind, or its folder is named for one (`MTP/`).
+
+    A whole model with its own multi-token-prediction layers is often named `...-MTP-Q4_K_M`,
+    so a file whose blocks go past its `nextn` layers is a model, not a draft.
+    """
+    if not (DRAFT_NAME.search(path.name) or DRAFT_FOLDER.fullmatch(path.parent.name)):
+        return False
+    try:
+        head = gguf.read_header(path)
+    except (gguf.GgufError, OSError):
+        return True  # unreadable: the name decides, and the model list reports nothing for it
+    nextn = head.arch_int("nextn_predict_layers") or 0
+    blocks = {name.split(".")[1] for name in head.tensor_bytes if name.startswith("blk.")}
+    return not (nextn and len(blocks) > nextn)
 
 
 def _draft_rank(path: Path) -> int:
@@ -403,7 +415,8 @@ def _gguf(source: Source) -> Discovery:
             parts, size = (), path.stat().st_size
         try:
             info = _gguf_info(source, path, size, path.parent in projectors, parts)
-            models.append(replace(info, drafts=_drafts_for(path, drafts)))
+            own = ((str(path), info.idle_bytes),) if info.idle_bytes else ()  # its built-in MTP layers
+            models.append(replace(info, drafts=own + _drafts_for(path, drafts)))
         except (gguf.GgufError, OSError) as exc:
             notes.append(f"{path.name}: {exc}")
     return Discovery(source.name, tuple(models), notes=tuple(notes))

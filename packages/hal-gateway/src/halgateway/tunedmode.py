@@ -48,7 +48,7 @@ class Preset:
     embedding: bool = False
     mmproj: Path | None = None
     cpu_moe: int = 0  # layers whose routed experts stay in RAM
-    draft_path: Path | None = None  # draft model for speculative decoding
+    draft_path: Path | None = None  # draft model for speculative decoding; `model_path` = its own MTP layers
     spec_type: str = ""  # llama-server `--spec-type`: draft-mtp, draft-dflash, ...
     draft_max: int = 0  # tokens drafted per step
     parallel: int = 1  # requests served at once, each with `context` tokens of a shared cache
@@ -73,7 +73,9 @@ def _section(p: Preset) -> list[str]:
         lines += [f"parallel = {p.parallel}", "kv-unified = true"]
     if p.cpu_moe:
         lines.append(f"n-cpu-moe = {p.cpu_moe}")
-    if p.draft_path:
+    if p.draft_path == p.model_path:  # the model's own MTP layers: llama.cpp loads them for the draft
+        lines += [f"spec-type = {p.spec_type}", f"spec-draft-n-max = {p.draft_max}"]
+    elif p.draft_path:
         lines += [
             f"model-draft = {p.draft_path}",
             f"spec-type = {p.spec_type}",
@@ -153,7 +155,11 @@ def read(path: Path) -> list[Preset]:
                     embedding=sec.get("embeddings") == "true",
                     mmproj=Path(sec["mmproj"]) if "mmproj" in sec else None,
                     cpu_moe=int(sec.get("n-cpu-moe", "0")),
-                    draft_path=Path(sec["model-draft"]) if "model-draft" in sec else None,
+                    draft_path=Path(sec["model-draft"])
+                    if "model-draft" in sec
+                    else Path(sec["model"])
+                    if "spec-type" in sec
+                    else None,
                     spec_type=sec.get("spec-type", ""),
                     draft_max=int(sec.get("spec-draft-n-max", "0")),
                     parallel=int(sec.get("parallel", "1")),

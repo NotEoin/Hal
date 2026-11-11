@@ -116,7 +116,7 @@ def choose_draft(model: ModelInfo, setting: str = "", draft_max: int = 0) -> Dra
     path = setting or model.drafts[0][0]
     if path not in found:
         raise ValueError(f"{path} is not a draft model found beside {model.name}")
-    kind = spec_type_of(path)
+    kind = "draft-mtp" if is_builtin(model, path) else spec_type_of(path)
     tokens = draft_max or DEFAULT_DRAFT_MAX.get(kind, LLAMA_DRAFT_MAX)
     return Draft(path, kind, tokens, draft_mib(found[path], kind, tokens, model))
 
@@ -251,6 +251,11 @@ def overhead_mib(model: ModelInfo, gpus: int = 1, context: int = 0, kv_type: str
         return 0
     logits = UBATCH * (model.vocab or DEFAULT_VOCAB) * LOGIT_BYTES
     return CUDA_CONTEXT_MIB * gpus + math.ceil((logits + context * _overhead_per_token(model, kv_type)) / MIB)
+
+
+def is_builtin(model: ModelInfo, draft_path: str) -> bool:
+    """True when the draft is the model's own multi-token-prediction layers, not another file."""
+    return bool(model.path) and draft_path == model.path
 
 
 def spec_type_of(draft_path: str) -> str:

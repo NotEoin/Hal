@@ -493,3 +493,21 @@ def test_a_write_gives_an_unchanged_ollama_role_its_tuned_context(home, server):
     assert tomllib.loads(home.config.read_text())["hal"]["chat_model"] == "hal-tuned-chat:latest"
     assert {c["model"]: c["parameters"] for c in server.created}["hal-tuned-chat:latest"]["num_ctx"] == 32768
     assert tuneui.open_state(hw=hardware.from_dict(CARD_24GB)).stale_roles() == []
+
+
+def test_a_model_with_built_in_mtp_layers_drafts_with_them(home, tmp_path):
+    from halcore.tuneview import draft_label  # noqa: PLC0415 - only this test needs the label
+    from halkit.testing.gguf import llama_like, write_gguf  # noqa: PLC0415 - only these tests write a GGUF
+
+    mib = 1024 * 1024
+    meta = {**llama_like(layers=8), "llama.nextn_predict_layers": 1}
+    path = write_gguf(tmp_path / "coder-27b-MTP-Q4.gguf", meta, tensors={f"blk.{i}.attn_q.weight": 8 * mib for i in range(8)})
+    home.config.write_text(f'[models.sources.files]\nkind = "gguf"\npath = "{tmp_path}"\n')
+    s = tuneui.open_state(hw=hardware.from_dict(CARD_24GB))
+    s.choose("code", s.find("files", "coder-27b-MTP-Q4"))
+    fit = s.fit("code")
+    assert fit.draft == str(path) and draft_label(fit.draft, str(path)) == "built-in MTP"
+    s.set_draft_max("code", 2)
+    s.write()
+    mode = (home.config.parent / "modes" / "tuned.ini").read_text()
+    assert "spec-type = draft-mtp" in mode and "spec-draft-n-max = 2" in mode and "model-draft" not in mode
