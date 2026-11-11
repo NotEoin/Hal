@@ -432,10 +432,13 @@ binary with the GPU hidden; marked `slow`, skipped when the binary is absent), *
   unit `test_v2_claim_follows_gl_methods`, `test_claim_wait_timeout_proceeds`,
   `test_claim_wait_timeout_fails_when_configured`.
 - **REQ-GW-51a** A request from a client token of class `batch` MUST claim as `batch`
-  (`<reclaimer_name>-batch`), MUST get 503 `gpu_busy` when that claim is not granted
-  whatever `on_busy` says, and MUST get 503 `gpu_busy` without a claim while an `interactive`
-  or `service` request is in flight, because gpu-light pauses batch work for both. Test: unit
-  `test_a_batch_client_claims_as_batch`, `test_a_batch_request_never_runs_without_its_claim`,
+  (`<reclaimer_name>-batch`), MUST wait at least 60 s for the grant whatever `claim_wait_s`
+  says, MUST get 503 `gpu_busy` when that claim is not granted whatever `on_busy` says, and
+  MUST get 503 `gpu_busy` without a claim while an `interactive` or `service` request is in
+  flight, because gpu-light pauses batch work for both. Test: unit
+  `test_a_batch_client_claims_as_batch`,
+  `test_a_batch_claim_waits_for_its_grant_when_claim_wait_s_is_zero`,
+  `test_a_batch_request_never_runs_without_its_claim`,
   `test_a_batch_request_waits_while_a_person_uses_the_models`.
 - **REQ-GW-52** v1 claims MUST follow gpu-light protocol 1: `claims/<name>.json` with
   `lifetime: "pid"` bound to the gateway's pid and `pid_start`, written atomically with

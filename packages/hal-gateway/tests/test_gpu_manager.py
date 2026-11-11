@@ -121,6 +121,16 @@ def test_a_batch_client_claims_as_batch(tmp_path):
     assert coord.calls[0][1] == "hal-gateway-batch" and coord.calls[0][2]["cls"] == "batch"
 
 
+def test_a_batch_claim_waits_for_its_grant_when_claim_wait_s_is_zero(tmp_path):
+    """Regression: with `claim_wait_s = 0` nearly every batch request got 503 (granted a pass later)."""
+    coord = FakeCoordinator()
+    coord.kind = "gpu-light-v2"
+    mgr, backend, coord, _ = make(tmp_path, coord=coord, claim_wait_s=0.0)
+    with mgr.request(target(backend), Principal("client", "unix", cls="batch")):
+        pass
+    assert coord.calls[0][2]["wait_s"] == 60.0
+
+
 def test_a_batch_request_never_runs_without_its_claim(tmp_path):
     mgr, backend, _, _ = make(tmp_path, coord=FakeCoordinator(held=False))
     with pytest.raises(GpuBusy), mgr.request(target(backend), Principal("client", "unix", cls="batch")):

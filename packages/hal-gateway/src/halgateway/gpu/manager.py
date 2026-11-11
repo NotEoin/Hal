@@ -9,7 +9,8 @@ false`, REQ-GW-96): its cold start costs a minute or more, which a quiet quarter
 justify. An explicit release or a reclaim still frees it. A `batch` request never runs without
 its claim, whatever `on_busy` says, and waits (503 `gpu_busy`) while an `interactive` or
 `service` request is in flight: gpu-light pauses batch work for both, so it must not hold the
-model while a person or a service waits for it.
+model while a person or a service waits for it. It waits at least `BATCH_CLAIM_WAIT_S` for its
+grant, because nobody waits on it and a short `claim_wait_s` would refuse almost every one.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ log = logging.getLogger(__name__)
 OFF_FLAG = "off"
 OFF_MESSAGE = "Hal is off; run `hal on`"
 CLASSES: tuple[ClaimClass, ...] = ("interactive", "service", "batch")
+BATCH_CLAIM_WAIT_S = 60.0  # gpu-light grants a batch claim on its next pass, after `claim_wait_s = 0` gave up
 
 
 def make_coordinator(cfg: Mapping[str, object]) -> GpuCoordinator | None:
@@ -171,6 +173,8 @@ class GpuManager:
         assert self.coordinator is not None  # noqa: S101 - callers check
         v1 = self.coordinator.kind == "gpu-light-v1"
         wait_s = float(self.cfg["v1_claim_wait_s" if v1 else "claim_wait_s"])  # type: ignore[arg-type]
+        if cls == "batch":
+            wait_s = max(wait_s, BATCH_CLAIM_WAIT_S)  # nobody waits on batch work, so it waits for its grant
         model = target.model  # type: ignore[attr-defined]
         result = self.coordinator.acquire(
             self._claim_name(cls),
