@@ -91,6 +91,17 @@ draft = file + 512 x vocab x 4 bytes + 64 MiB                     # MTP head, EA
 draft = file + 2 x (512 x vocab x 4 bytes) + 136 MiB x draft_max  # DFlash, DSpark block drafters
 ```
 
+A model's own MTP layers count the same as an MTP head, with their weights for the file, and
+each keeps an f16 cache shaped like the model's full-attention layers at the model's context.
+Setting that cache to q8_0 used more VRAM, not less, so the tuned mode leaves it alone.
+Measured with the Qwen3.8-27B coder (Q4_K_M, q8_0 cache, one slot) on the RTX 3090 with
+b12121, 2026-11-11:
+
+| Context | Estimate, MiB | Measured, MiB | Difference |
+| --- | --- | --- | --- |
+| 32768 | 18412 | 18231 | +181 |
+| 131072 | 22540 | 22425 | +115 |
+
 Measured on the RTX 3090 with llama.cpp b12121 (`llama-server -fa on`, q8_0 cache, 32K context,
 600-token replies to a Python prompt and a cover letter prompt, temperature 0 and 0.7), 2026-11-11:
 

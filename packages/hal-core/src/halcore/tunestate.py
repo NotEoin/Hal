@@ -191,6 +191,7 @@ class TuneSession:
                 model, self.hw, kv_type=kv, context=d.context, gpu_layers=d.gpu_layers,
                 cpu_moe=d.cpu_moe if model.is_moe else None, headroom_override_mib=self._headroom(),
                 draft_cost_mib=draft.vram_mib if draft else 0, slots=d.parallel,
+                draft_kv_layers=draft.kv_layers if draft else 0,
             )  # fmt: skip
         return modelplan._plan(model, self.hw, self._role_cfg(role), self.limits)  # noqa: SLF001 - same package
 

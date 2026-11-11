@@ -341,6 +341,7 @@ def _gguf_info(
         expert_bytes=expert_bytes,
         host_bytes=host_bytes,
         idle_bytes=idle_bytes,
+        mtp_layers=head.arch_int("nextn_predict_layers") if idle_bytes else None,
         capabilities=frozenset(caps),
         path=str(path),
     )

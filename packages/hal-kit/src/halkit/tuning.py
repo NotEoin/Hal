@@ -103,6 +103,7 @@ class Draft:
     spec_type: str
     draft_max: int
     vram_mib: int
+    kv_layers: int = 0  # layers with their own cache at the model's context (a built-in MTP layer)
 
 
 def choose_draft(model: ModelInfo, setting: str = "", draft_max: int = 0) -> Draft | None:
@@ -116,9 +117,11 @@ def choose_draft(model: ModelInfo, setting: str = "", draft_max: int = 0) -> Dra
     path = setting or model.drafts[0][0]
     if path not in found:
         raise ValueError(f"{path} is not a draft model found beside {model.name}")
-    kind = "draft-mtp" if is_builtin(model, path) else spec_type_of(path)
+    builtin = is_builtin(model, path)
+    kind = "draft-mtp" if builtin else spec_type_of(path)
     tokens = draft_max or DEFAULT_DRAFT_MAX.get(kind, LLAMA_DRAFT_MAX)
-    return Draft(path, kind, tokens, draft_mib(found[path], kind, tokens, model))
+    layers = (model.mtp_layers or 1) if builtin else 0
+    return Draft(path, kind, tokens, draft_mib(found[path], kind, tokens, model), layers)
 
 
 UNKNOWN_LAYERS = 32  # a typical 7B to 13B model
@@ -379,13 +382,15 @@ def place(
     limit_mib: int | None = None,
     draft_cost_mib: int = 0,
     slots: int = 1,
+    draft_kv_layers: int = 0,
 ) -> Plan:
     """Where `model` runs with `context` tokens of `kv_type` cache; the check behind every setting.
 
     `gpu_layers` (a count, or `ALL_LAYERS`) and `cpu_moe` (layers whose experts stay in RAM) are
     the user's when given; when both are None the offload is chosen to fit `limit_mib` of VRAM
     (default: the whole card). `draft_cost_mib` (`draft_mib`) is a draft model's share of the
-    GPU; it is counted in the overhead, so the offload makes room for it. `slots` requests run
+    GPU; it is counted in the overhead, so the offload makes room for it, and `draft_kv_layers`
+    (`Draft.kv_layers`) adds that many layers of cache to the model's. `slots` requests run
     at once, each with `context` tokens: the cache holds `slots x context`. The status is `gpu`
     with everything on the GPU, `hybrid` when layers or experts are in RAM, `cpu` with no layer
     on a GPU, and `does-not-fit` when the GPU part passes the card or the rest passes usable RAM.
@@ -402,6 +407,11 @@ def place(
     s = _shape(model, kv_type, context * max(slots, 1), len(gpus))
     if draft_cost_mib and gpus:
         s = replace(s, overhead=s.overhead + draft_cost_mib)
+    if draft_kv_layers and gpus:
+        s = replace(
+            s,
+            kv=s.kv + math.ceil(context * max(slots, 1) * _draft_kv_per_token(model, draft_kv_layers) / MIB),
+        )
     total = sum(g.total_mib for g in gpus)
     budget = sum(usable_mib(g, headroom_override_mib) for g in gpus)
     limit = total if limit_mib is None else limit_mib
@@ -478,8 +488,25 @@ def _moe_layers(s: _Shape, limit: int) -> int:
     return min(math.ceil((s.full - limit) / per_layer), s.layers)
 
 
+def _draft_kv_per_token(model: ModelInfo, layers: int) -> float:
+    """Cache bytes per token of `layers` draft layers shaped like the model's full-attention ones.
+
+    Always f16: llama.cpp keeps a built-in MTP layer's cache at f16, and setting it to q8_0 used
+    more VRAM, not less (b12121, Qwen3.8-27B coder at 128K: 22425 MiB at f16, 22709 at q8_0,
+    measured 2026-11-11).
+    """
+    return kv_bytes_per_token(layers, int(model.kv_heads or 0), int(model.head_dim or 0), "f16")
+
+
 def _plan_once(
-    model: ModelInfo, hw: Hardware, kv_type: str, cap: int, headroom: int, draft: int = 0, slots: int = 1
+    model: ModelInfo,
+    hw: Hardware,
+    kv_type: str,
+    cap: int,
+    headroom: int,
+    draft: int = 0,
+    slots: int = 1,
+    draft_layers: int = 0,
 ) -> Plan:
     """The automatic plan for one cache type: the most context within the guidance budget."""
     weights = _weights_mib(model)
@@ -490,7 +517,8 @@ def _plan_once(
     if gpus:
         on_gpu = _shape(model, kv_type, MIN_CONTEXT, len(gpus)).gpu_weights
         spare = budget - on_gpu - overhead_mib(model, len(gpus), 0, kv_type) - draft
-        per_token = (per_tok + _overhead_per_token(model, kv_type)) * slots
+        own = _draft_kv_per_token(model, draft_layers)
+        per_token = (per_tok + own + _overhead_per_token(model, kv_type)) * slots
         ctx = min(_context_for(spare, per_token, fixed * slots), top) if spare > 0 else 0
         if ctx >= MIN_CONTEXT:
             plan = place(
@@ -502,6 +530,7 @@ def _plan_once(
                 limit_mib=budget,
                 draft_cost_mib=draft,
                 slots=slots,
+                draft_kv_layers=draft_layers,
             )
             return _with(plan, f"the most context within the {budget} MiB guidance: {ctx} tokens (cap {top})")
         goal = MOE_SPILL_CONTEXT if model.is_moe else SPILL_CONTEXT
@@ -515,6 +544,7 @@ def _plan_once(
             limit_mib=budget,
             draft_cost_mib=draft,
             slots=slots,
+            draft_kv_layers=draft_layers,
         )
         return _with(
             plan, f"the weights do not fit the {budget} MiB guidance: {plan.context} tokens, the rest in RAM"
@@ -532,6 +562,7 @@ def _plan_once(
             headroom_override_mib=headroom,
             draft_cost_mib=draft,
             slots=slots,
+            draft_kv_layers=draft_layers,
         )
     return place(
         model,
@@ -541,6 +572,7 @@ def _plan_once(
         headroom_override_mib=headroom,
         draft_cost_mib=draft,
         slots=slots,
+        draft_kv_layers=draft_layers,
     )
 
 
@@ -557,6 +589,7 @@ def plan_model(
     headroom_override_mib: int = 0,
     draft_cost_mib: int = 0,
     slots: int = 1,
+    draft_kv_layers: int = 0,
 ) -> Plan:
     """The automatic plan for `model` on `hw`: the most context that fits the guidance budget.
 
@@ -567,11 +600,15 @@ def plan_model(
     gives the most context. Raises `ValueError` for an unknown cache type or unknown weight size.
     """
     if kv_type != "auto":
-        return _plan_once(model, hw, kv_type, context_cap, headroom_override_mib, draft_cost_mib, slots)
+        return _plan_once(
+            model, hw, kv_type, context_cap, headroom_override_mib, draft_cost_mib, slots, draft_kv_layers
+        )
     goal = min(AUTO_CONTEXT_GOAL, ceiling(model, context_cap))
     best: Plan | None = None
     for kind in KV_TYPES:
-        plan = _plan_once(model, hw, kind, context_cap, headroom_override_mib, draft_cost_mib, slots)
+        plan = _plan_once(
+            model, hw, kind, context_cap, headroom_override_mib, draft_cost_mib, slots, draft_kv_layers
+        )
         if plan.status == "gpu" and plan.context >= goal:
             return plan
         if best is None or _better(plan, best):

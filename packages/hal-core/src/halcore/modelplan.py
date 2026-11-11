@@ -193,6 +193,7 @@ def _plan(model: ModelInfo, hw: Hardware, role: modelconf.Role | None, limits: M
         context_cap=int(limits["context_cap"]),  # type: ignore[call-overload]
         headroom_override_mib=int(limits["headroom_mib"]),  # type: ignore[call-overload]
         draft_cost_mib=draft.vram_mib if draft else 0,
+        draft_kv_layers=draft.kv_layers if draft else 0,
         slots=role.parallel if role else 1,
     )
 

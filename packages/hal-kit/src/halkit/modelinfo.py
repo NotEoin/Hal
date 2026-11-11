@@ -46,6 +46,7 @@ class ModelInfo:
     # bytes llama.cpp does not load unless asked: a multi-token-prediction layer (`nextn`), which
     # only a draft (`--spec-type draft-mtp`) uses
     idle_bytes: int | None = None
+    mtp_layers: int | None = None  # how many `nextn` layers that is (each has its own cache)
     context_served: int | None = None  # the context the server runs it with (Ollama's `num_ctx`)
     # draft models for speculative decoding found beside a GGUF: (path, bytes), best kind first
     drafts: tuple[tuple[str, int], ...] = ()

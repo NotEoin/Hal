@@ -204,6 +204,17 @@ def test_the_automatic_plan_gives_each_slot_less_context():
     assert tuning.plan_model(model12b(), card, slots=4).context < tuning.plan_model(model12b(), card).context
 
 
+def test_a_built_in_mtp_layer_adds_its_own_cache_at_the_model_context():
+    # regression: at 128K the coder used 400 MiB more than planned; its MTP layer keeps a cache too
+    card = hw(gpu(24564, 24000))
+    plain = tuning.place(model12b(), card, kv_type="q8_0", context=131072)
+    drafted = tuning.place(model12b(), card, kv_type="q8_0", context=131072, draft_kv_layers=1)
+    per_layer = tuning.kv_bytes_per_token(
+        1, model12b().kv_heads, model12b().head_dim, "f16"
+    )  # its cache stays f16
+    assert drafted.kv_mib - plain.kv_mib == pytest.approx(131072 * per_layer / 2**20, abs=1)
+
+
 def test_place_refuses_a_context_below_the_floor():
     with pytest.raises(ValueError, match="useful chat"):
         tuning.place(model12b(), hw(gpu(24564)), kv_type="f16", context=512)

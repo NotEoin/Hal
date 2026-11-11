@@ -507,6 +507,7 @@ def test_a_model_with_built_in_mtp_layers_drafts_with_them(home, tmp_path):
     s.choose("code", s.find("files", "coder-27b-MTP-Q4"))
     fit = s.fit("code")
     assert fit.draft == str(path) and draft_label(fit.draft, str(path)) == "built-in MTP"
+    assert s.find("files", "coder-27b-MTP-Q4").mtp_layers == 1
     s.set_draft_max("code", 2)
     notes = s.write()
     mode = (home.config.parent / "modes" / "tuned.ini").read_text()
