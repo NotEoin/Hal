@@ -79,6 +79,8 @@ class GpuManager:
         self.off_flag = state_dir.parent / OFF_FLAG
         self.clock = clock
         self._lock = threading.RLock()
+        # one claim taken per class at a time, waited for outside `_lock` (see `gate`)
+        self._acquiring: dict[str, threading.Lock] = {c: threading.Lock() for c in CLASSES}
         self._held: set[str] = set()  # claim classes held now
         self._inflight: dict[str, int] = {}  # backend name -> requests
         self._class_inflight: dict[str, int] = {c: 0 for c in CLASSES}
@@ -153,9 +155,16 @@ class GpuManager:
             self.check_peers()
             if self.coordinator is None:
                 return
+        # The wait for gpu-light (60 s or more for batch work) runs outside `_lock`: held under it, a batch
+        # claim kept voice and chat requests and `hal-gateway status` waiting behind it (2026-11-12).
+        with self._acquiring[cls]:
+            with self._lock:
+                if cls in self._held:  # another request of this class took it while this one waited
+                    return
             result = self._acquire(cls, target)
             if result.held:
-                self._held.add(cls)
+                with self._lock:
+                    self._held.add(cls)
         self._unload_offloaded()
 
     def _claim_name(self, cls: str) -> str:
