@@ -5,6 +5,8 @@ carries the same version.
 
 ## Unreleased
 
+## 0.3.0 - 2026-11-12
+
 ### Added
 
 - Batch client tokens: `hal-gateway token issue --class batch` gives bulk work, such as an
