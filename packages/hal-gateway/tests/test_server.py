@@ -188,13 +188,17 @@ def test_token_file_is_created_at_first_start(tmp_path):
         gw.stop()
 
 
+# a loaded machine took over 3 s to answer once while a full CV eval ran beside the suite (2026-11-12)
+CAP_WAIT_S = 10
+
+
 def test_connection_cap_is_503(make):
     gw = make("max_connections = 1")
     gw.start()
     hold = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     hold.connect(str(gw.socket_path()))  # takes the only slot and sends nothing
     try:
-        deadline = time.monotonic() + 3
+        deadline = time.monotonic() + CAP_WAIT_S
         status = 0
         while time.monotonic() < deadline and status != 503:
             conn = UnixConnection(gw.socket_path())
