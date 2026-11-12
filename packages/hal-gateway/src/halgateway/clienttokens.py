@@ -24,7 +24,7 @@ from halkit import files
 
 PREFIX = "hal-gwc-"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
-CLASSES = ("interactive", "service")
+CLASSES = ("interactive", "service", "batch")
 LOCK_TIMEOUT_S = 5.0
 LOCK_POLL_S = 0.05
 FILE_MODE = 0o600

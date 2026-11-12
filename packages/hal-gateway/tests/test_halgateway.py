@@ -4,4 +4,4 @@ import halgateway
 
 
 def test_package_imports_and_has_a_version():
-    assert halgateway.__version__ == "0.2.0"
+    assert halgateway.__version__ == "0.3.0"

@@ -6,7 +6,11 @@ covers a swap wait (a reclaim then answers `busy`). The off flag is a `stat` per
 no cache, so `hal on` takes effect at once. Peers are checked by the peer guard (step 17). The
 idle unload skips a backend whose `idle_free` is false (a managed server with `idle_stop =
 false`, REQ-GW-96): its cold start costs a minute or more, which a quiet quarter hour does not
-justify. An explicit release or a reclaim still frees it.
+justify. An explicit release or a reclaim still frees it. A `batch` request never runs without
+its claim, whatever `on_busy` says, and waits (503 `gpu_busy`) while an `interactive` or
+`service` request is in flight: gpu-light pauses batch work for both, so it must not hold the
+model while a person or a service waits for it. It waits at least `BATCH_CLAIM_WAIT_S` for its
+grant, because nobody waits on it and a short `claim_wait_s` would refuse almost every one.
 """
 
 from __future__ import annotations
@@ -27,7 +31,8 @@ log = logging.getLogger(__name__)
 
 OFF_FLAG = "off"
 OFF_MESSAGE = "Hal is off; run `hal on`"
-CLASSES: tuple[ClaimClass, ...] = ("interactive", "service")
+CLASSES: tuple[ClaimClass, ...] = ("interactive", "service", "batch")
+BATCH_CLAIM_WAIT_S = 60.0  # gpu-light grants a batch claim on its next pass, after `claim_wait_s = 0` gave up
 
 
 def make_coordinator(cfg: Mapping[str, object]) -> GpuCoordinator | None:
@@ -74,6 +79,8 @@ class GpuManager:
         self.off_flag = state_dir.parent / OFF_FLAG
         self.clock = clock
         self._lock = threading.RLock()
+        # one claim taken per class at a time, waited for outside `_lock` (see `gate`)
+        self._acquiring: dict[str, threading.Lock] = {c: threading.Lock() for c in CLASSES}
         self._held: set[str] = set()  # claim classes held now
         self._inflight: dict[str, int] = {}  # backend name -> requests
         self._class_inflight: dict[str, int] = {c: 0 for c in CLASSES}
@@ -141,14 +148,23 @@ class GpuManager:
             raise Unavailable(OFF_MESSAGE)
         cls = self.claim_class(principal)
         with self._lock:
+            if cls == "batch" and (self._class_inflight["interactive"] or self._class_inflight["service"]):
+                raise GpuBusy("Hal's models are in use; batch work waits for them")
             if cls in self._held or (self.coordinator is None and self.in_flight()):
                 return
             self.check_peers()
             if self.coordinator is None:
                 return
+        # The wait for gpu-light (60 s or more for batch work) runs outside `_lock`: held under it, a batch
+        # claim kept voice and chat requests and `hal-gateway status` waiting behind it (2026-11-12).
+        with self._acquiring[cls]:
+            with self._lock:
+                if cls in self._held:  # another request of this class took it while this one waited
+                    return
             result = self._acquire(cls, target)
             if result.held:
-                self._held.add(cls)
+                with self._lock:
+                    self._held.add(cls)
         self._unload_offloaded()
 
     def _claim_name(self, cls: str) -> str:
@@ -166,6 +182,8 @@ class GpuManager:
         assert self.coordinator is not None  # noqa: S101 - callers check
         v1 = self.coordinator.kind == "gpu-light-v1"
         wait_s = float(self.cfg["v1_claim_wait_s" if v1 else "claim_wait_s"])  # type: ignore[arg-type]
+        if cls == "batch":
+            wait_s = max(wait_s, BATCH_CLAIM_WAIT_S)  # nobody waits on batch work, so it waits for its grant
         model = target.model  # type: ignore[attr-defined]
         result = self.coordinator.acquire(
             self._claim_name(cls),
@@ -175,7 +193,7 @@ class GpuManager:
             uses=list(target.backend.entry.get("gpu_light_uses") or []),  # type: ignore[attr-defined]
             reason=f"hal gateway: {target.alias} on {target.backend.name}",  # type: ignore[attr-defined]
         )
-        if not result.held and self.cfg["on_busy"] == "fail":
+        if not result.held and (self.cfg["on_busy"] == "fail" or cls == "batch"):
             raise GpuBusy(result.warning or "the GPU is busy; try again later")
         if not result.held:
             log.warning("proceeding without a GPU claim: %s", result.warning)

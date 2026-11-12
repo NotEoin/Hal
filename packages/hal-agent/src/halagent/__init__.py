@@ -6,4 +6,4 @@ broker socket and never imports `halhub` (resolution A2). Design: docs/design/03
 This package is a skeleton: the first behaviour lands in phase 4 of the implementation plan.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

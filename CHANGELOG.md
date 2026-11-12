@@ -5,6 +5,20 @@ carries the same version.
 
 ## Unreleased
 
+## 0.3.0 - 2026-11-12
+
+### Added
+
+- Batch client tokens: `hal-gateway token issue --class batch` gives bulk work, such as an
+  ingest run as a gpu-light batch job, its own `hal-gateway-batch` claim. A batch request gets
+  503 `gpu_busy` instead of running when gpu-light does not grant the card, or while a chat,
+  voice or service request is in flight, so it never holds the model while someone waits.
+
+### Fixed
+
+- A batch request waiting up to 60 s for gpu-light to grant the card no longer holds up chat, voice,
+  service requests or `hal-gateway status` while it waits.
+
 ## 0.2.0 - 2026-11-11
 
 ### Removed

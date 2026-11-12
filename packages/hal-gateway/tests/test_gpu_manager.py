@@ -1,5 +1,7 @@
 """Tests for the GPU manager: off flag, claims, idle unload and release (REQ-GW-51 to 57)."""
 
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -110,6 +112,75 @@ def test_claim_class_follows_the_listener(tmp_path):
     assert mgr.claim_class(Principal("owner", "tcp")) == "interactive"
     assert mgr.claim_class(Principal("owner", "unix")) == "service"
     assert mgr.claim_class(Principal("client", "tcp", cls="service")) == "service"
+
+
+def test_a_batch_client_claims_as_batch(tmp_path):
+    coord = FakeCoordinator()
+    coord.kind = "gpu-light-v2"
+    mgr, backend, coord, _ = make(tmp_path, coord=coord)
+    with mgr.request(target(backend), Principal("client", "unix", cls="batch")):
+        pass
+    assert coord.calls[0][1] == "hal-gateway-batch" and coord.calls[0][2]["cls"] == "batch"
+
+
+def test_a_batch_claim_waits_for_its_grant_when_claim_wait_s_is_zero(tmp_path):
+    """Regression: with `claim_wait_s = 0` nearly every batch request got 503 (granted a pass later)."""
+    coord = FakeCoordinator()
+    coord.kind = "gpu-light-v2"
+    mgr, backend, coord, _ = make(tmp_path, coord=coord, claim_wait_s=0.0)
+    with mgr.request(target(backend), Principal("client", "unix", cls="batch")):
+        pass
+    assert coord.calls[0][2]["wait_s"] == 60.0
+
+
+def test_waiting_for_a_batch_claim_never_holds_up_other_requests(tmp_path):
+    """Regression: the batch claim's wait for gpu-light ran under the manager's lock, so voice and chat
+    requests and `hal-gateway status` waited behind it (2026-11-12)."""
+    granted = threading.Event()
+
+    class SlowGrant(FakeCoordinator):
+        kind = "gpu-light-v2"
+
+        def acquire(self, name, **kw):
+            if kw.get("cls") == "batch":
+                granted.wait(10)
+            return super().acquire(name, **kw)
+
+    mgr, backend, _, _ = make(tmp_path, coord=SlowGrant())
+    batch = threading.Thread(
+        target=lambda: mgr.request(target(backend), Principal("client", "unix", cls="batch")).__enter__()
+    )
+    batch.start()
+    time.sleep(0.2)  # the batch request is now waiting for its grant
+    done = threading.Event()
+
+    def person():
+        mgr.status()
+        with mgr.request(target(backend), OWNER):
+            done.set()
+
+    threading.Thread(target=person).start()
+    try:
+        assert done.wait(2), "the person's request waited for the batch claim"
+    finally:
+        granted.set()
+        batch.join(5)
+
+
+def test_a_batch_request_never_runs_without_its_claim(tmp_path):
+    mgr, backend, _, _ = make(tmp_path, coord=FakeCoordinator(held=False))
+    with pytest.raises(GpuBusy), mgr.request(target(backend), Principal("client", "unix", cls="batch")):
+        pass
+
+
+def test_a_batch_request_waits_while_a_person_uses_the_models(tmp_path):
+    mgr, backend, _, _ = make(tmp_path)
+    batch = Principal("client", "unix", cls="batch")
+    with mgr.request(target(backend), Principal("owner", "tcp")):
+        with pytest.raises(GpuBusy), mgr.request(target(backend), batch):
+            pass
+    with mgr.request(target(backend), batch):
+        pass
 
 
 def test_claim_wait_timeout_proceeds(tmp_path):

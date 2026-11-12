@@ -19,7 +19,7 @@ hal.pid=4242
 --label
 hal.pidstart=99
 --label
-hal.version=0.2.0
+hal.version=0.3.0
 --label
 hal.started=2026-10-30T10:00:00Z
 --pull
